@@ -110,9 +110,13 @@ function rewriteFile(path: string, content: string, config: ResolvedInitConfig):
     }
   } else if (path.startsWith("deploy/")) {
     nextPath = `deploy/${config.deploy}/${path.slice("deploy/".length)}`;
+    if (path === "deploy/nginx.conf") nextContent = nextContent.replaceAll("http://qiy:3000", `http://${config.deploy}:3000`);
   } else if (path === "Dockerfile") {
     nextPath = `${config.deploy}.Dockerfile`;
-    nextContent = nextContent.replaceAll("apps/web", `apps/${config.web}`).replaceAll("apps/server", `apps/${config.server}`);
+    nextContent = nextContent
+      .replaceAll("apps/web", `apps/${config.web}`)
+      .replaceAll("apps/server", `apps/${config.server}`)
+      .replace("COPY package.json bun.lock turbo.json ./", "COPY package.json bun.lock ./");
   } else if (path === "docker-compose.yml") {
     nextPath = `docker-compose.${config.deploy}.yml`;
     nextContent = nextContent.replace(/^  qiy:/m, `  ${config.deploy}:`).replaceAll("qiy-storage", `${config.deploy}-storage`);

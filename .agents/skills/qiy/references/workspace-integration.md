@@ -36,7 +36,9 @@ docker-compose.ops-admin.yml
 .qiy-admin.generated.json
 ```
 
-The host `package.json` keeps its existing workspaces and receives `apps/*` if needed. Qiy adds scripts such as `qiy:admin:typecheck`, `qiy:admin:test`, and `qiy:admin:preview`. Existing scripts with a different command cause the command to fail instead of being replaced. `-n` remains an optional one-off command-line override; otherwise `workspace.name`, then the application name, is used.
+The host `package.json` keeps its existing workspaces and receives `apps/*` if needed. A plain Bun workspace does not need Turborepo: `init` does not copy `turbo.json`, add a `turbo` dependency, or replace root scripts. Qiy adds direct `bun --cwd` scripts such as `qiy:admin:typecheck`, `qiy:admin:test`, and `qiy:admin:preview`. Existing scripts with a different command cause the command to fail instead of being replaced. `-n` remains an optional one-off command-line override; otherwise `workspace.name`, then the application name, is used.
+
+The aliased Dockerfile is `<deploy-alias>.Dockerfile`. It builds from the host root, copies the aliased `apps/<server>` and `apps/<web>` directories, and does not require the host to have `turbo.json`. The aliased Compose file is `docker-compose.<deploy-alias>.yml`; the generated Nginx config points at the same Compose service name.
 
 The manifest is the sync ownership boundary. Qiy may rewrite manifest files and remove files that the new model no longer generates. It will not delete or overwrite unlisted host files, even with `--sync`.
 

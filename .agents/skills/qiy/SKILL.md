@@ -112,5 +112,3 @@ For a real deployment, ask for or verify the actual database, identity provider,
 - [Model and include syntax](references/modeling-and-generation.md)
 - [Existing Bun project and aliases](references/workspace-integration.md)
 - [Production verification checklist](references/production-boundaries.md)
-- [Qiy CLI guide](../../../docs/guide/cli.md)
-- [Existing Bun project guide](../../../docs/guide/existing-bun-project.md)

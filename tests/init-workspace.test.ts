@@ -32,8 +32,12 @@ test("mounts a Qiy admin into a Bun workspace with aliases and preserves host fi
   expect(JSON.parse(readFileSync(join(root, "apps/ops-console/package.json"), "utf8")).name).toBe("@host/ops-console");
   expect(readFileSync(join(root, "apps/ops-api/src/server.ts"), "utf8")).toContain("../../ops-console/build/client");
   expect(existsSync(join(root, "ops-admin.Dockerfile"))).toBe(true);
+  expect(readFileSync(join(root, "ops-admin.Dockerfile"), "utf8")).not.toContain("turbo.json");
   expect(existsSync(join(root, "docker-compose.ops-admin.yml"))).toBe(true);
+  expect(readFileSync(join(root, "docker-compose.ops-admin.yml"), "utf8")).toContain("  ops-admin:");
+  expect(readFileSync(join(root, "deploy/ops-admin/nginx.conf"), "utf8")).toContain("http://ops-admin:3000");
   expect(existsSync(join(root, "deploy/ops-admin/nginx.conf"))).toBe(true);
+  expect(existsSync(join(root, "turbo.json"))).toBe(false);
   expect(readFileSync(join(root, ".gitignore"), "utf8")).toContain("coverage/");
   expect(readFileSync(join(root, ".gitignore"), "utf8")).toContain("apps/ops-console/build/");
 
