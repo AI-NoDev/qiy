@@ -30,7 +30,7 @@ jobs:
       - name: Build VitePress site
         shell: bash
         run: |
-          echo "VITEPRESS_BASE=/${GITHUB_REPOSITORY#*/}/" >> "$GITHUB_ENV"
+          export VITEPRESS_BASE="/${GITHUB_REPOSITORY#*/}/"
           bun run docs:build
       - uses: actions/upload-pages-artifact@v3
         with:
