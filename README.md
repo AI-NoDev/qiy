@@ -1,19 +1,83 @@
-# Qiy
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/public/qiy-logo-dark.svg">
+    <img src="docs/public/qiy-logo-light.svg" width="88" height="88" alt="Qiy logo">
+  </picture>
+</p>
 
-Qiy 是一个面向数据中心业务应用的领域语言与全栈应用框架。
+<h1 align="center">Qiy</h1>
 
-Qiy 的第一目标不是重新实现 Flutter、KMP 或通用前端框架，而是让开发者通过一份业务模型，快速生成并持续维护：
+<p align="center">
+  <strong>以数据为中心的全栈应用生成语言</strong><br>
+  一份 <code>.qiy</code> 业务模型，生成可二次开发的 Admin、API、数据库 Schema 与部署配置。
+</p>
 
-- 基于 Refine 的管理后台和 Dashboard；
-- 基于 React Router Framework Mode 的前端路由与页面模块；
-- 基于 Bun + Elysia 的后端 API；
-- 基于 Drizzle 的多数据库数据访问与迁移；
-- 面向主流数据库平台的部署和集成，Supabase 作为 PostgreSQL 平台而不是独立业务层；
-- 权限、校验、关联关系、审计和后续复杂业务流程。
+<p align="center">
+  <a href="https://ai-nodev.github.io/qiy/"><strong>文档站</strong></a> ·
+  <a href="https://ai-nodev.github.io/qiy/guide/getting-started"><strong>快速开始</strong></a> ·
+  <a href="https://ai-nodev.github.io/qiy/guide/best-practice-warehouse"><strong>最佳实践</strong></a> ·
+  <a href="https://ai-nodev.github.io/qiy/dsl/overview"><strong>DSL 参考</strong></a>
+</p>
 
-Qiy 的核心思想是：
+<p align="center">
+  <a href="https://github.com/AI-NoDev/qiy/actions/workflows/deploy-docs.yml"><img src="https://github.com/AI-NoDev/qiy/actions/workflows/deploy-docs.yml/badge.svg" alt="Documentation deployment status"></a>
+  <img src="https://img.shields.io/badge/runtime-Bun-f472b6?logo=bun&logoColor=white" alt="Bun native">
+  <img src="https://img.shields.io/badge/DSL-v0-059669" alt="DSL version 0">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2563eb" alt="MIT license"></a>
+</p>
 
-> **以数据为中心快速构建应用，以业务模型为中心演进复杂系统。**
+> **从数据模型开始，生成完整应用；从业务模型继续，演进复杂系统。**
+
+## 为什么是 Qiy
+
+| 一份模型 | 生成的应用层 | 可持续演进 |
+| --- | --- | --- |
+| `entity`、`field`、`relation`、权限与菜单 | Refine 管理后台、Bun + Elysia API、Drizzle Schema 与迁移 | 输出是普通 TypeScript 项目，可由团队继续维护和扩展 |
+
+- **Bun-native**：后端采用 Bun + Elysia，命令行可打包为 Windows、Linux、macOS 独立可执行文件。
+- **数据驱动**：字段、关联、枚举、表单、列表、筛选、权限与 API 契约从同一份模型生成。
+- **业务可演进**：V0 聚焦 CRUD 与 Dashboard；V1 用工作流、事务、审计与领域命令覆盖 ERP 类复杂业务。
+- **开放生态**：前端使用 Refine + React Router，数据层使用 Drizzle，存储支持 local 和 S3-compatible。
+
+## 30 秒体验
+
+```powershell
+bun install
+bun run qiy -- generate examples/catalog/app.qiy out/catalog-admin
+
+cd out/catalog-admin
+bun install
+bun run build
+bun run preview
+```
+
+生成的工作区包含 `apps/web`（Refine 管理端）与 `apps/server`（Bun + Elysia API）。更多可运行示例见 [`examples/catalog/`](examples/catalog/) 和 [`examples/erpadmin/`](examples/erpadmin/)。
+
+## 导航
+
+| 想了解什么 | 从这里开始 |
+| --- | --- |
+| Qiy 的定位与边界 | [项目介绍](https://ai-nodev.github.io/qiy/guide/what-is-qiy) |
+| 从 `.qiy` 生成项目 | [快速开始](https://ai-nodev.github.io/qiy/guide/getting-started) · [CLI](https://ai-nodev.github.io/qiy/guide/cli) |
+| 组织大型模型 | [模块化 include](https://ai-nodev.github.io/qiy/guide/modules) · [仓储系统最佳实践](https://ai-nodev.github.io/qiy/guide/best-practice-warehouse) |
+| 理解语言语法 | [DSL 参考](https://ai-nodev.github.io/qiy/dsl/overview) |
+| 运行、部署与分发 | [部署指南](https://ai-nodev.github.io/qiy/guide/deployment) · [Android 分发](https://ai-nodev.github.io/qiy/guide/android-distribution) |
+
+## 当前状态
+
+| 范围 | 状态 |
+| --- | --- |
+| `.qiy` → Turborepo + Bun 工作区 | 可用 |
+| Refine Admin、REST / GraphQL、Drizzle | 可用，按模型按需生成 |
+| SQLite、PostgreSQL、MySQL 生成路径 | 可用，能力依方言校验 |
+| OIDC / OAuth2 / SSO 与本地密码登录 | 已生成基础集成，真实 IdP 需项目验收 |
+| 复杂 ERP 工作流与 MPS 内置生成器 | 持续演进中 |
+
+完整能力边界、真实验收状态和后续优先级见 [V3 状态与规划](openwiki/v3-status.md)。
+
+---
+
+## 详细说明
 
 ### 官网与文档
 
