@@ -4,8 +4,8 @@ import { readFileSync } from "node:fs";
 const base = (process.env.VITEPRESS_BASE ?? "/").replace(/\/?$/, "/");
 const qiyLanguage = JSON.parse(readFileSync(new URL("../../editors/syntax/qiy.tmLanguage.json", import.meta.url), "utf8"));
 const qiyLogo = {
-  light: `${base}qiy-logo-light.svg`,
-  dark: `${base}qiy-logo-dark.svg`,
+  light: "/qiy-logo-light.svg",
+  dark: "/qiy-logo-dark.svg",
   alt: "Qiy",
 };
 
