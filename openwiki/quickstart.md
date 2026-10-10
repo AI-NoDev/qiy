@@ -81,6 +81,16 @@ Elysia 官方 skill 用于 API、插件、GraphQL、部署和 Bun 集成：
 
 项目级副本是开发参考资料，不属于 Qiy 运行时或生成应用的依赖。
 
+仓库自己的 Qiy Agent Skill 位于 `.agents/skills/qiy/SKILL.md`，面向用户使用 Qiy CLI，并可从 `AI-NoDev/qiy` 安装：
+
+```powershell
+npx skills add AI-NoDev/qiy --skill qiy
+```
+
+该 Skill 负责 `.qiy` 建模、`qiy create`/`qiy init` 选择、Bun workspace 集成、manifest 同步边界和生产验收判断；详细参考位于 `.agents/skills/qiy/references/`。
+
+现有 Bun 项目的集成别名属于 `.qiy` 文件的 `workspace` 块，不再使用 `qiy.admin.config.ts` 等额外用户配置文件。
+
 ## 从哪里开始
 
 ### 修改语言结构

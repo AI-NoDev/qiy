@@ -38,6 +38,27 @@ database mysql {}
 
 必须放在 `application` 开头。当前支持 PostgreSQL、SQLite 与 MySQL。
 
+## workspace
+
+`workspace` 是可选的现有 Bun 项目集成配置，属于 `.qiy` 模型本身。它只影响 `qiy init`，不会把凭据写入模型：
+
+```qiy
+workspace {
+  name admin;
+  aliases {
+    server ops-api;
+    web ops-console;
+    deploy ops-admin;
+  }
+  packages {
+    server "@example/ops-api";
+    web "@example/ops-console";
+  }
+}
+```
+
+`name`、目录 alias 和 package name 都是可选的；未声明时分别回退到 `application` 名称、`<name>-server`、`<name>-web`、`<name>` 和默认 package name。`-n` 可以作为一次性 CLI 覆盖。package name 使用引号，目录 alias 使用小写字母、数字和连字符。
+
 ## api
 
 ```ts

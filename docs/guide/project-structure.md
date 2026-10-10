@@ -44,7 +44,9 @@ my-admin/
 
 ## 二次开发约定
 
-生成器只拥有它能保证一致性的文件：模型、契约、路由、schema、配置。业务逻辑与 UI 组件放在 `services/`、`components/`、`hooks/` 中，重生成时不会被覆盖。
+独立生成项目的 `.qiy-generated.json` 记录 Qiy 拥有的文件；其中包含模型生成的 schema、路由、DataProvider、资源页面以及部分共享组件。`--sync` 会重写这些登记文件以保持模型一致性，因此不要直接修改它们后期待自动合并。
+
+将定制内容放到未登记的扩展文件，并从生成应用的插件、hooks 或领域层显式接入；例如 `apps/server/src/integrations/`、`apps/server/src/host-extension.ts`、`apps/web/app/plugins/<name>.ts`、`apps/web/app/hooks/<name>.ts`。要将生成后台挂到已有 Bun 项目而非新建根仓，请使用[集成现有 Bun 项目](./existing-bun-project)。
 
 `.qiy-generated.json` 记录了本次生成拥有的文件清单，配合 `--sync` 可以安全地同步模型变化：
 
@@ -52,7 +54,7 @@ my-admin/
 bun run tools/generate-app.ts examples/erpadmin/app.qiy out/erpadmin --sync
 ```
 
---sync 会写入新文件、删除被模型移除的过时文件，但不会触碰你自己新增的文件。
+`--sync` 会写入新文件、删除被模型移除的登记文件，但不会触碰不在 manifest 中的自定义文件。
 
 ## 前后端如何连接
 

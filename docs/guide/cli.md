@@ -3,15 +3,17 @@
 所有生成能力都通过一个 `qiy` CLI 暴露：
 
 ```text
-qiy generate <source> <output-dir> [--sync]
+qiy create -f <source> -n <name> -o <output-dir> [--sync]
+qiy init -f <source> [-n <name>] [--sync]
+qiy generate <source> <output-dir> [--sync] # 兼容旧命令
 ```
 
 ## 在仓库中运行
 
 ```powershell
 bun run qiy -- --help
-bun run qiy -- generate examples/catalog/app.qiy out/catalog-admin
-bun run qiy -- generate examples/erpadmin/app.qiy out/erpadmin --sync
+bun run qiy -- create -f examples/catalog/app.qiy -n catalog-admin -o out/catalog-admin
+bun run qiy -- init -f models/admin.qiy
 ```
 
 ## 编译成多平台独立可执行文件
@@ -39,6 +41,12 @@ bun run build:exe -- --all
 ```
 
 二进制内联了生成应用所需的 Admin 模板，因此即使在仓库外也可从 `.qiy` 文件生成完整应用。`.qiy` 输入可使用相对 [`include` 模块](./modules) 组织业务模型。
+
+## 现有 Bun 项目
+
+`qiy init` 要求当前根目录 `package.json.packageManager` 为 `bun@...`。别名和 package name 直接写在 `.qiy` 的 `workspace` 块中；命令会以 `apps/<server-alias>`、`apps/<web-alias>` 挂载生成物，合并 `apps/*` workspace 与无冲突的 `qiy:<name>:*` 脚本，并创建按 deploy alias 命名的 Docker、Compose 与部署目录。详见[集成现有 Bun 项目](./existing-bun-project)。
+
+`--sync` 只写入 Qiy manifest 已管理的文件。Qiy 不会自动适配现有项目的认证、Cookie、API URL 或响应格式；这些必须以宿主扩展实现并测试。
 
 ## 发布到 npm
 

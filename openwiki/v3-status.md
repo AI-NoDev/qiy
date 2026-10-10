@@ -1,5 +1,11 @@
 # V3 实施状态与验收规划
 
+## Bun Workspace 集成与生成边界（2026-10-11）
+
+CLI 新增 `qiy create -f <model.qiy> -n <name> -o <directory>` 用于创建独立 Turborepo + Bun workspace，以及 `qiy init -f <model.qiy> [-n <name>] [--sync]` 用于挂载现有 Bun workspace。别名、集成名称和 package name 直接写在 `.qiy` 的 `workspace` 块中，不需要额外的用户 TS 配置文件。`init` 要求根 `package.json.packageManager` 为 `bun@...`，将 server/web 放入可配置的 `apps/<alias>`，允许独立 npm package alias，并把 deploy、Dockerfile、Compose 重命名到 deploy alias 下；它保留现有 workspace pattern，补入 `apps/*` 与不冲突的 `qiy:<name>:*` scripts，并合并 ignore 文件。
+
+每个挂载 Admin 使用独立 `.qiy-<name>.generated.json` manifest。`--sync` 仅重写 manifest 已登记文件并清理由模型移除的登记文件；任何未登记的同路径文件都 fail-closed，因此不覆盖宿主手写扩展。专项 Bun 测试验证 alias、package/workspace 合并、部署文件改名、手写扩展保留和非 Bun 根拒绝；根仓 `bun run check`、97 项 `bun test` 与 `bun run docs:build` 通过。独立 Catalog/ERP 在干净目录中已重新执行生成、`bun install` 与 server/web typecheck，未复现“Storage 模块缺失”报告；但这不等同既有 API、认证、真实数据库/IdP/S3 的生产验收。现有 JWT、refresh Cookie、请求/响应契约、权限和领域流程仍须以未由 Qiy 管理的扩展实现并独立测试。
+
 ## 本地用户名/密码认证（2026-10-11）
 
 ERP 示例从 OIDC-only 改为 `auth { provider local; user users; roleField role; usernameField email; passwordField passwordHash; }`，用户表的 password hash 可空且不进入 Refine 字段表单。生成器提供 `Bun.password` Argon2id 校验、12 小时 HS256 access token、`POST /api/v1/auth/login`、用户名/密码登录界面、`QIY_AUTH_SECRET` 配置、`auth:bootstrap-admin` 与 `auth:set-password` 本机交互命令。密码管理不开放 HTTP endpoint；首个管理员只允许在不存在管理员时从部署主机初始化。

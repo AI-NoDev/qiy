@@ -43,7 +43,7 @@
 
 ```powershell
 bun install
-bun run qiy -- generate examples/catalog/app.qiy out/catalog-admin
+bun run qiy -- create -f examples/catalog/app.qiy -n catalog-admin -o out/catalog-admin
 
 cd out/catalog-admin
 bun install
@@ -52,6 +52,39 @@ bun run preview
 ```
 
 生成的工作区包含 `apps/web`（Refine 管理端）与 `apps/server`（Bun + Elysia API）。更多可运行示例见 [`examples/catalog/`](examples/catalog/) 和 [`examples/erpadmin/`](examples/erpadmin/)。
+
+## 在现有 Bun 项目中集成
+
+`qiy init` 不会再创建第二个根仓库。它会检查当前目录的 `package.json.packageManager` 是否为 Bun，在 `apps/` 下挂载命名空间隔离的 server/web package，合并 workspace、`qiy:*` 脚本、`.gitignore` 和 `.dockerignore`，并将 Docker/Compose/部署文件以 alias 重命名。
+
+```qiy
+// models/admin.qiy
+workspace {
+  name admin;
+  aliases { server ops-api; web ops-console; deploy ops-admin; }
+  packages { server "@ovyqo/ops-api"; web "@ovyqo/ops-console"; }
+}
+```
+
+```powershell
+# 在已有 Bun 项目根目录执行
+qiy init -f ./models/admin.qiy
+bun install
+bun run qiy:admin:typecheck
+```
+
+Qiy 只拥有 `.qiy-admin.generated.json` 清单中的文件。后续使用 `qiy init ... --sync` 时，只更新清单内文件；手写的 `apps/ops-api/src/host-extension.ts`、hooks、plugins 和领域模块不会被删除或覆盖。
+
+## 适用边界
+
+Qiy 适合把数据模型快速变成**可二次开发的后台骨架**：Refine CRUD、列表/表单/关联、菜单、基础 Dashboard、Elysia REST/GraphQL 与 Drizzle schema。Catalog 与 ERP 样例已在干净目录中完成生成、`bun install`、server/web typecheck、测试和构建回归。
+
+它目前**不是**“模型输入后无需项目验收即可上线”的平台：
+
+- 已有系统的 JWT、刷新 Cookie、管理员白名单、URL/响应格式和权限语义，需要在生成代码的扩展层接入；Qiy 不会自动识别任意既有 API。
+- `api { cors ... }` 只配置浏览器跨域策略，不能把 Qiy 的 DataProvider 契约转换成第三方 API 契约。
+- 连接器授权、队列、令牌加密、撤销、审计等领域流程必须作为独立服务和测试实现；通用 CRUD 不能替代它们。
+- 真实 PostgreSQL/MySQL、IdP、S3、多副本并发、回滚和安全配置须按目标环境单独验收；`preview` 始终只用于本机。
 
 ## 导航
 
@@ -62,6 +95,7 @@ bun run preview
 | 组织大型模型 | [模块化 include](https://ai-nodev.github.io/qiy/guide/modules) · [仓储系统最佳实践](https://ai-nodev.github.io/qiy/guide/best-practice-warehouse) |
 | 理解语言语法 | [DSL 参考](https://ai-nodev.github.io/qiy/dsl/overview) |
 | 运行、部署与分发 | [部署指南](https://ai-nodev.github.io/qiy/guide/deployment) · [Android 分发](https://ai-nodev.github.io/qiy/guide/android-distribution) |
+| 使用 Qiy CLI | [Qiy Agent Skill](https://ai-nodev.github.io/qiy/guide/agent-skill) · [`.agents/skills/qiy/`](.agents/skills/qiy/) |
 
 ## 获取可执行文件
 
@@ -75,8 +109,9 @@ bun run preview
 
 | 范围 | 状态 |
 | --- | --- |
-| `.qiy` → Turborepo + Bun 工作区 | 可用 |
-| Refine Admin、REST / GraphQL、Drizzle | 可用，按模型按需生成 |
+| `.qiy` → 独立 Turborepo + Bun 工作区 | 已有回归验证 |
+| `.qiy` → 现有 Bun workspace | `qiy init`（命名空间隔离 + manifest 同步） |
+| Refine Admin、REST / GraphQL、Drizzle | 可生成；既有 API 需扩展适配 |
 | SQLite、PostgreSQL、MySQL 生成路径 | 可用，能力依方言校验 |
 | OIDC / OAuth2 / SSO 与本地密码登录 | 已生成基础集成，真实 IdP 需项目验收 |
 | 复杂 ERP 工作流与 MPS 内置生成器 | 持续演进中 |
@@ -99,6 +134,14 @@ bun run docs:preview  # 预览构建产物
 
 内容分为「指南」（定位、快速开始、项目结构、数据建模、API、认证、菜单与 Dashboard、工作流、存储、部署、MPS）与「DSL 参考」（application、entity/field、relation/index、enum/menu/dashboard），并附路线图。
 
+仓库同时提供可公开安装的 Qiy Agent Skill：
+
+```powershell
+npx skills add AI-NoDev/qiy --skill qiy
+```
+
+Skill 源码位于 [`.agents/skills/qiy/`](.agents/skills/qiy/)，用于指导用户和 Agent 使用 `create/init`、维护 `.qiy` 模型、处理生成清单和区分生产验收边界。
+
 ### Qiy CLI 与发布
 
 所有生成工具统一收敛为 `qiy` 命令：
@@ -115,7 +158,7 @@ bun run build:exe
 bun run build:exe -- --all
 ```
 
-CLI 命令包括：`generate`、`validate`、`export-ir`、`export-qiy`、`drizzle`。执行 `qiy --help` 查看完整说明。可执行文件内联 Admin 模板与 MPS structure 模型，因此在仓库外也能从 `.qiy` 或 `.mps` 输入生成项目。发布前运行：
+CLI 命令包括：`create`、`init`、`generate`、`validate`、`export-ir`、`export-qiy`、`drizzle`。执行 `qiy --help` 查看完整说明。可执行文件内联 Admin 模板与 MPS structure 模型，因此在仓库外也能从 `.qiy` 或 `.mps` 输入生成项目。发布前运行：
 
 ```powershell
 bun install

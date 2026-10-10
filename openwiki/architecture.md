@@ -1,5 +1,9 @@
 # Qiy 架构与演进路线
 
+## Agent Skill 分发
+
+仓库提供 `.agents/skills/qiy/` 作为面向 Qiy CLI 用户的公开 Skill。它把 `.qiy` 建模、`qiy create` 与 `qiy init` 的选择、Bun workspace 集成、生成 manifest 的所有权边界和生产验收限制集中为可复用指导。Skill 不属于生成应用运行时依赖；通过公开 GitHub 仓库由 [skills.sh](https://www.skills.sh/ai-nodev/qiy/qiy) 索引，更新方式是提交并推送 Skill 文件。
+
 ## 现有 MPS 模块
 
 ### `qiy` language

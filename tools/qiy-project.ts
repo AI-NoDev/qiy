@@ -3,6 +3,7 @@ import { validateDatabaseIR, type DatabaseIR, type EntityIR, type FieldIR, type 
 export interface QiyProject {
   name: string;
   database: DatabaseIR;
+  workspace?: QiyWorkspaceConfig;
   apiClient?: "rest" | "graphql";
   corsOrigins?: string[];
   elysiaPlugins?: {
@@ -21,6 +22,19 @@ export interface QiyProject {
   dashboardMetrics?: Array<{ name: string; resource: string; label: string; icon?: string; span: 8 | 12 | 24; type?: "count" | "distribution" | "trend"; groupBy?: string; days?: number }>;
   scopes?: Array<{ resource: string; field: string; claim: string }>;
   workflows?: Array<"orderInventory">;
+}
+
+export interface QiyWorkspaceConfig {
+  name?: string;
+  aliases?: {
+    server?: string;
+    web?: string;
+    deploy?: string;
+  };
+  packages?: {
+    server?: string;
+    web?: string;
+  };
 }
 
 export function parseQiyProject(input: string): QiyProject {
@@ -307,6 +321,40 @@ export function parseQiyProject(input: string): QiyProject {
   const extensions: string[] = [];
   while (peek() !== "}") { expect("extension"); extensions.push(identifier()); expect(";"); }
   expect("}");
+  let workspace: QiyProject["workspace"];
+  if (peek() === "workspace") {
+    expect("workspace"); expect("{");
+    const result: QiyWorkspaceConfig = {};
+    const seen = new Set<string>();
+    while (peek() !== "}") {
+      const section = identifier();
+      if (section === "name") {
+        if (seen.has(section)) throw new Error("Duplicate workspace name");
+        seen.add(section);
+        result.name = identifier();
+        expect(";");
+        continue;
+      }
+      if (section !== "aliases" && section !== "packages") throw new Error(`Unsupported workspace configuration ${section}`);
+      if (seen.has(section)) throw new Error(`Duplicate workspace ${section} configuration`);
+      seen.add(section);
+      expect("{");
+      const values: Record<string, string> = {};
+      while (peek() !== "}") {
+        const key = identifier();
+        if (Object.hasOwn(values, key)) throw new Error(`Duplicate workspace ${section}.${key}`);
+        if (section === "aliases" && !["server", "web", "deploy"].includes(key)) throw new Error(`Unsupported workspace alias ${key}`);
+        if (section === "packages" && !["server", "web"].includes(key)) throw new Error(`Unsupported workspace package ${key}`);
+        values[key] = value();
+        expect(";");
+      }
+      expect("}");
+      if (section === "aliases") result.aliases = values as QiyWorkspaceConfig["aliases"];
+      else result.packages = values as QiyWorkspaceConfig["packages"];
+    }
+    expect("}");
+    workspace = result;
+  }
   let apiClient: QiyProject["apiClient"];
   let corsOrigins: QiyProject["corsOrigins"];
   if (peek() === "api") {
@@ -459,7 +507,7 @@ export function parseQiyProject(input: string): QiyProject {
   }
   expect("}");
   expect("<end>");
-  return { name: packageName, database: { dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}) }, ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(auth && { auth }), ...(scopes.length ? { scopes } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(dashboardMetrics.length && { dashboardMetrics }) };
+  return { name: packageName, database: { dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}) }, ...(workspace && { workspace }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(auth && { auth }), ...(scopes.length ? { scopes } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(dashboardMetrics.length && { dashboardMetrics }) };
 }
 
 function normalizePackageName(name: string): string {
@@ -483,6 +531,27 @@ export function serializeQiyProject(project: QiyProject): string {
   const lines = ["qiy v0;", `application ${name} {`, `  database ${project.database.dialect} {`];
   for (const extension of project.database.extensions) lines.push(`    extension ${qiyIdentifier(extension, "Database extension")};`);
   lines.push("  }");
+  if (project.workspace) {
+    lines.push("  workspace {");
+    if (project.workspace.name) lines.push(`    name ${qiyIdentifier(project.workspace.name, "Workspace name")};`);
+    if (project.workspace.aliases) {
+      lines.push("    aliases {");
+      for (const key of ["server", "web", "deploy"] as const) {
+        const value = project.workspace.aliases[key];
+        if (value) lines.push(`      ${key} ${qiyIdentifier(value, `Workspace ${key} alias`)};`);
+      }
+      lines.push("    }");
+    }
+    if (project.workspace.packages) {
+      lines.push("    packages {");
+      for (const key of ["server", "web"] as const) {
+        const value = project.workspace.packages[key];
+        if (value) lines.push(`      ${key} ${qiyString(value)};`);
+      }
+      lines.push("    }");
+    }
+    lines.push("  }");
+  }
   const corsOrigins = project.corsOrigins ? [...new Set(project.corsOrigins)] : [];
   if (corsOrigins.length) {
     if (!project.apiClient && corsOrigins.some((origin) => !/^(https?):\/\//.test(origin))) throw new Error("CORS origins require valid http(s) origins");

@@ -10,6 +10,7 @@ import { readStructureModel } from "../structure-model";
 
 export interface GenerateAppOptions {
   sync?: boolean;
+  name?: string;
 }
 
 export async function generateApp(source: string, destination: string, options: GenerateAppOptions = {}): Promise<string> {
@@ -25,7 +26,8 @@ export async function generateApp(source: string, destination: string, options: 
     throw new Error(`Unsupported input file: ${source}. Expected .qiy, .mps, or .json.`);
   }
   const database = project?.database ?? mpsProject?.database ?? await Bun.file(source).json() as DatabaseIR;
-  const appName = project?.name
+  const appName = options.name
+    ?? project?.name
     ?? mpsProject?.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
     ?? "qiy-generated-app";
   const files = generateProject(database, appName, {

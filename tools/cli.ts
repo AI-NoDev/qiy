@@ -3,6 +3,7 @@ import { exportMpsIr } from "./commands/export-ir";
 import { exportQiy } from "./commands/export-qiy";
 import { generateApp } from "./commands/generate-app";
 import { generateDrizzle } from "./commands/generate-drizzle";
+import { initApp } from "./commands/init";
 import { validateMpsModels } from "./commands/validate-mps";
 
 const VERSION = "0.1.0";
@@ -12,9 +13,14 @@ const USAGE = `qiy ${VERSION} - model-driven full-stack application generator
 Usage: qiy <command> [options]
 
 Commands:
+  create -f <source> -n <name> -o <output-dir>
+                                  Create a standalone Bun Turborepo workspace
   generate <source> <output-dir>   Generate a Bun workspace from a Qiy model
     <source>                      .qiy project (supports relative include fragments), .mps model, or Database IR .json
     --sync                        Update an existing generated workspace
+
+  init -f <source> [-n <name>] [--sync]
+                                  Mount a Qiy admin into the current Bun workspace
 
   validate <model.mps> [...]      Validate MPS models against the Qiy structure
   export-ir <model.mps>           Print Database IR JSON for an MPS model
@@ -31,12 +37,24 @@ Environment:
 
 Examples:
   qiy generate examples/catalog/app.qiy out/catalog-admin
+  qiy create -f examples/catalog/app.qiy -n catalog-admin -o out/catalog-admin
+  qiy init -f admin.qiy -n admin
   qiy generate examples/erpadmin/app.qiy out/erpadmin --sync
   qiy export-qiy languages/qiy.sandbox/models/qiy.erpworkflow.mps out/erpadmin.qiy
 `;
 
 function flag(args: string[], ...names: string[]): boolean {
   return names.some((name) => args.includes(name));
+}
+
+function option(args: string[], ...names: string[]): string | undefined {
+  for (let index = 0; index < args.length; index += 1) {
+    if (!names.includes(args[index]!)) continue;
+    const value = args[index + 1];
+    if (!value || value.startsWith("-")) throw new Error(`${args[index]} requires a value.`);
+    return value;
+  }
+  return undefined;
 }
 
 async function main(argv: string[]): Promise<void> {
@@ -56,6 +74,20 @@ async function main(argv: string[]): Promise<void> {
       const [source, destination] = positional;
       if (!source || !destination) throw new Error("qiy generate requires <source> and <output-dir>.\n\n" + USAGE);
       await generateApp(source, destination, { sync: flag(rest, "--sync") });
+      return;
+    }
+    case "create": {
+      const source = option(rest, "-f", "--file");
+      const name = option(rest, "-n", "--name");
+      const destination = option(rest, "-o", "--output");
+      if (!source || !name || !destination) throw new Error("qiy create requires -f <source>, -n <name>, and -o <output-dir>.\n\n" + USAGE);
+      await generateApp(source, destination, { sync: flag(rest, "--sync"), name });
+      return;
+    }
+    case "init": {
+      const source = option(rest, "-f", "--file");
+      if (!source) throw new Error("qiy init requires -f <source>.\n\n" + USAGE);
+      await initApp({ source, name: option(rest, "-n", "--name"), root: option(rest, "-o", "--output"), sync: flag(rest, "--sync") });
       return;
     }
     case "validate": {

@@ -43,7 +43,7 @@ for (const { target, outfile } of targets) {
     "--minify",
     "--sourcemap=external",
   ];
-  if (target.includes("windows")) {
+  if (target.includes("windows") && process.platform === "win32") {
     args.push("--windows-hide-console", "--windows-title", "Qiy CLI", "--windows-publisher", "Qiy");
   }
   console.log(`bun ${args.join(" ")}`);

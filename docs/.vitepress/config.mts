@@ -18,7 +18,7 @@ function localizedTheme(localeRoot: string, guideLabel: string, chineseDocsLabel
       { text: chineseDocsLabel, link: "/guide/what-is-qiy" },
     ],
     i18nRouting: false,
-    socialLinks: [{ icon: "github", link: "https://github.com/your-org/qiy" }],
+    socialLinks: [{ icon: "github", link: "https://github.com/AI-NoDev/qiy" }],
     footer: {
       message: footerMessage,
       copyright: "Copyright © 2026 Qiy Contributors",
@@ -127,9 +127,11 @@ export default defineConfig({
             { text: "Qiy 是什么", link: "/guide/what-is-qiy" },
             { text: "快速开始", link: "/guide/getting-started" },
             { text: "CLI 与发布", link: "/guide/cli" },
+            { text: "集成现有 Bun 项目", link: "/guide/existing-bun-project" },
             { text: "模块化模型", link: "/guide/modules" },
             { text: "最佳实践：仓储系统", link: "/guide/best-practice-warehouse" },
             { text: "编辑器支持", link: "/guide/editor-support" },
+            { text: "Agent Skill", link: "/guide/agent-skill" },
             { text: "生成的项目结构", link: "/guide/project-structure" },
           ],
         },
@@ -161,7 +163,7 @@ export default defineConfig({
       ],
     },
     socialLinks: [
-      { icon: "github", link: "https://github.com/your-org/qiy" },
+      { icon: "github", link: "https://github.com/AI-NoDev/qiy" },
     ],
     footer: {
       message: "Released under the MIT License. Built with VitePress.",

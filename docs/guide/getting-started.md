@@ -13,7 +13,7 @@ bun --version
 ## 克隆与安装
 
 ```bash
-git clone https://github.com/your-org/qiy.git
+git clone https://github.com/AI-NoDev/qiy.git
 cd qiy
 bun install
 ```

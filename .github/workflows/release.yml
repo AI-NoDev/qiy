@@ -39,6 +39,9 @@ jobs:
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             should_release=false
             echo "Release $tag already exists; skipping this run."
+          elif git rev-parse --verify "refs/tags/$tag" >/dev/null 2>&1; then
+            should_release=true
+            echo "Tag $tag already exists without a release; the existing tag will be published."
           else
             should_release=true
             echo "Release $tag is missing; it will be built and published."
@@ -75,8 +78,15 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         shell: bash
         run: |
-          gh release create "$TAG" dist/qiy-* \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "Qiy $VERSION" \
-            --generate-notes
+          if git rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" dist/qiy-* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Qiy $VERSION" \
+              --generate-notes
+          else
+            gh release create "$TAG" dist/qiy-* \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Qiy $VERSION" \
+              --generate-notes
+          fi
