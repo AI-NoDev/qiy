@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qiy-scoped-sqlite
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: qiy-scoped-sqlite
+  template:
+    metadata:
+      labels:
+        app: qiy-scoped-sqlite
+    spec:
+      containers:
+        - name: qiy
+          image: qiy-scoped-sqlite:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: qiy-scoped-sqlite
+                  key: DATABASE_URL
+            - name: QIY_STORAGE_METADATA
+              value: "database"
+            - name: QIY_STORAGE_PROVIDER
+              valueFrom:
+                secretKeyRef:
+                  name: qiy-scoped-sqlite
+                  key: QIY_STORAGE_PROVIDER
+            - name: QIY_STORAGE_ROOT
+              value: "/var/lib/qiy/storage"
+            - name: QIY_DEV_MODE
+              value: "0"
+            - name: QIY_OIDC_ISSUER
+              valueFrom:
+                secretKeyRef:
+                  name: qiy-scoped-sqlite
+                  key: QIY_OIDC_ISSUER
+            - name: QIY_OIDC_AUDIENCE
+              valueFrom:
+                secretKeyRef:
+                  name: qiy-scoped-sqlite
+                  key: QIY_OIDC_AUDIENCE
+            - name: QIY_OIDC_JWKS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: qiy-scoped-sqlite
+                  key: QIY_OIDC_JWKS_URL
+          volumeMounts:
+            - name: qiy-storage
+              mountPath: /var/lib/qiy/storage
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 3000
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 3000
+      volumes:
+        - name: qiy-storage
+          persistentVolumeClaim:
+            claimName: qiy-scoped-sqlite-storage

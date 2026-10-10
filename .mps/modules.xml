@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="MPSProject">
+    <projectModules>
+      <modulePath path="$PROJECT_DIR$/languages/qiy.runtime/qiy.runtime.msd" folder="" />
+      <modulePath path="$PROJECT_DIR$/languages/qiy.sandbox/qiy.sandbox.msd" folder="" />
+      <modulePath path="$PROJECT_DIR$/languages/qiy/qiy.mpl" folder="" />
+    </projectModules>
+  </component>
+</project>

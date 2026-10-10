@@ -1,0 +1,10 @@
+qiy v0;
+
+application qiy-warehouse-admin {
+  database sqlite {}
+
+  include "modules/application-config.qiy";
+  include "modules/catalog.qiy";
+  include "modules/inventory.qiy";
+  include "modules/navigation.qiy";
+}

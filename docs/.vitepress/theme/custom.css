@@ -1,0 +1,50 @@
+:root {
+  --vp-c-brand-1: #059669;
+  --vp-c-brand-2: #10b981;
+  --vp-c-brand-3: #34d399;
+  --vp-c-brand-soft: rgba(16, 185, 129, 0.14);
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #34d399 30%, #22d3ee);
+}
+
+.dark {
+  --vp-c-brand-1: #34d399;
+  --vp-c-brand-2: #10b981;
+  --vp-c-brand-3: #059669;
+}
+
+.VPNavBarTitle .title {
+  font-weight: 700;
+}
+
+.VPNavBarTitle .VPImage.logo {
+  filter: drop-shadow(0 2px 4px rgba(52, 211, 153, 0.18));
+}
+
+.vp-doc .qiy-code-path {
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+  margin: 1.25rem 0 0;
+  padding: 0.375rem 0.875rem;
+  color: var(--vp-c-text-2);
+  background: var(--vp-code-block-bg);
+  border: 1px solid var(--vp-c-divider);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  font-size: 0.8125rem;
+}
+
+.vp-doc .qiy-code-path code {
+  color: inherit;
+  background: transparent;
+  font-size: inherit;
+}
+
+.vp-doc .qiy-code-path + div[class*="language-"] {
+  margin-top: 0;
+}
+
+.vp-doc .qiy-code-path + div[class*="language-"] pre {
+  border-radius: 0 0 8px 8px;
+}

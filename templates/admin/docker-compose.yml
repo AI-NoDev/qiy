@@ -1,0 +1,30 @@
+services:
+  qiy:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3000"
+      DATABASE_URL: ${DATABASE_URL:-}
+      QIY_STORAGE_METADATA: ${QIY_STORAGE_METADATA:-database}
+      QIY_STORAGE_PROVIDER: ${QIY_STORAGE_PROVIDER:-local}
+      QIY_STORAGE_ROOT: ${QIY_STORAGE_ROOT:-/var/lib/qiy/storage}
+      QIY_S3_BUCKET: ${QIY_S3_BUCKET:-}
+      QIY_S3_REGION: ${QIY_S3_REGION:-}
+      QIY_S3_ENDPOINT: ${QIY_S3_ENDPOINT:-}
+      QIY_S3_ACCESS_KEY_ID: ${QIY_S3_ACCESS_KEY_ID:-}
+      QIY_S3_SECRET_ACCESS_KEY: ${QIY_S3_SECRET_ACCESS_KEY:-}
+      QIY_DEV_MODE: ${QIY_DEV_MODE:-0}
+      QIY_AUTH_SECRET: ${QIY_AUTH_SECRET:-}
+      QIY_OIDC_ISSUER: ${QIY_OIDC_ISSUER:-}
+      QIY_OIDC_AUDIENCE: ${QIY_OIDC_AUDIENCE:-}
+      QIY_OIDC_JWKS_URL: ${QIY_OIDC_JWKS_URL:-}
+      QIY_CORS_ORIGINS: ${QIY_CORS_ORIGINS:-}
+      QIY_CRON_ENABLED: ${QIY_CRON_ENABLED:-0}
+    restart: unless-stopped
+    volumes:
+      - qiy-storage:/var/lib/qiy/storage
+
+volumes:
+  qiy-storage:

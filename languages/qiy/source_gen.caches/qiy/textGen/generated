@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<product version="3" modelHash="betqx82bgiy82b2lyxolo4fshlbfs47">
+  <files names="Application_TextGen.java:AuthConfig_TextGen.java:CronConfig_TextGen.java:CronJob_TextGen.java:DashboardMetric_TextGen.java:DatabaseExtension_TextGen.java:ElysiaConfig_TextGen.java:Entity_TextGen.java:EnumValue_TextGen.java:Enum_TextGen.java:Field_TextGen.java:IndexColumn_TextGen.java:Index_TextGen.java:MenuGroup_TextGen.java:MenuResource_TextGen.java:Relation_TextGen.java:ScopeConfig_TextGen.java:StorageConfig_TextGen.java:TextGenAspectDescriptor.java:WorkflowConfig_TextGen.java" />
+</product>
+

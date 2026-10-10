@@ -1,0 +1,15 @@
+include "shared/status.qiy";
+
+entity categories @label("Categories") @icon(TagsOutlined) {
+  field id UUID @id;
+  field name Text @unique;
+}
+
+entity products @label("Products") @icon(ShoppingOutlined) {
+  field id UUID @id;
+  field title Text;
+  field status productStatus;
+  field categoryId UUID @nullable;
+}
+
+relation productCategory products categoryId categories id one @onDelete(setNull);

@@ -1,0 +1,17 @@
+qiy v0;
+
+application qiy-catalog-admin {
+  database postgresql {
+    extension pgvector;
+  }
+
+  entity products {
+    field id UUID @id;
+    field title Text;
+    field price Decimal(12, 2);
+    field embedding Vector(1536) @nullable @extension(pgvector);
+
+    index products_embedding_hnsw hnsw(embedding vector_cosine_ops);
+    index products_title_idx btree(title);
+  }
+}

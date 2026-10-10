@@ -1,0 +1,7 @@
+qiy v0;
+
+application qiy-modular-catalog {
+  database sqlite {}
+
+  include "modules/catalog.qiy";
+}

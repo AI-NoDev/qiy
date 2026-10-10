@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<debug-info version="2">
+  <concept fqn="c:f3061a53-9226-4cc5-a443-f952ceaf5816/1068580123140:jetbrains.mps.baseLanguage.structure.ConstructorDeclaration" />
+  <concept fqn="c:f3061a53-9226-4cc5-a443-f952ceaf5816/1068580123155:jetbrains.mps.baseLanguage.structure.ExpressionStatement" />
+  <concept fqn="c:f3061a53-9226-4cc5-a443-f952ceaf5816/1068580123159:jetbrains.mps.baseLanguage.structure.IfStatement" />
+  <concept fqn="c:f3061a53-9226-4cc5-a443-f952ceaf5816/1068580123165:jetbrains.mps.baseLanguage.structure.InstanceMethodDeclaration" />
+  <concept fqn="c:f3061a53-9226-4cc5-a443-f952ceaf5816/1068581242864:jetbrains.mps.baseLanguage.structure.LocalVariableDeclarationStatement" />
+  <concept fqn="c:f3061a53-9226-4cc5-a443-f952ceaf5816/1068581242878:jetbrains.mps.baseLanguage.structure.ReturnStatement" />
+  <concept fqn="c:f3061a53-9226-4cc5-a443-f952ceaf5816/1070462154015:jetbrains.mps.baseLanguage.structure.StaticFieldDeclaration" />
+  <concept fqn="c:f3061a53-9226-4cc5-a443-f952ceaf5816/1081236700938:jetbrains.mps.baseLanguage.structure.StaticMethodDeclaration" />
+  <concept fqn="c:f3061a53-9226-4cc5-a443-f952ceaf5816/1070475587102:jetbrains.mps.baseLanguage.structure.SuperConstructorInvocation" />
+  <root>
+    <file name="ConstraintsAspectDescriptor.java">
+      <unit at="15,0,36,0" name="qiy.constraints.ConstraintsAspectDescriptor" />
+    </file>
+  </root>
+  <root nodeRef="r:7dd34ed2-c44f-4daa-a89a-86790b77e800(qiy.constraints)/107265">
+    <file name="IndexColumn_Constraints.java">
+      <node id="107265" at="19,85,20,48" concept="8" />
+      <node id="107266" at="20,48,21,35" concept="1" />
+      <node id="107266" at="25,58,26,65" concept="8" />
+      <node id="107266" at="29,109,30,99" concept="4" />
+      <node id="107266" at="31,53,32,131" concept="1" />
+      <node id="107266" at="33,7,34,20" concept="5" />
+      <node id="107269" at="36,85,37,75" concept="5" />
+      <node id="107265" at="42,0,43,0" concept="6" trace="IndexColumn$3_" />
+      <node id="107265" at="46,0,47,0" concept="6" trace="fieldName$O2tB" />
+      <node id="107266" at="25,0,28,0" concept="0" trace="FieldName_PD#(Ljetbrains/mps/smodel/runtime/ConstraintsDescriptor;)V" />
+      <node id="107266" at="30,99,33,7" concept="2" />
+      <node id="107266" at="36,0,39,0" concept="7" trace="staticValidateProperty#(Lorg/jetbrains/mps/openapi/model/SNode;Ljava/lang/String;)Z" />
+      <node id="107265" at="19,0,23,0" concept="0" trace="IndexColumn_Constraints#(Ljetbrains/mps/smodel/runtime/ConstraintsDescriptorInitContext;)V" />
+      <node id="107266" at="28,0,36,0" concept="3" trace="validateValue#(Lorg/jetbrains/mps/openapi/model/SNode;Ljava/lang/Object;Ljetbrains/mps/smodel/runtime/CheckingNodeContext;)Z" />
+      <scope id="107266" at="25,58,26,65" />
+      <scope id="107266" at="31,53,32,131" />
+      <scope id="107268" at="36,85,37,75" />
+      <scope id="107265" at="19,85,21,35" />
+      <scope id="107266" at="25,0,28,0">
+        <var name="container" id="107266" />
+      </scope>
+      <scope id="107266" at="36,0,39,0">
+        <var name="node" id="107266" />
+        <var name="propertyValue" id="107266" />
+      </scope>
+      <scope id="107265" at="19,0,23,0">
+        <var name="initContext" id="107265" />
+      </scope>
+      <scope id="107266" at="29,109,34,20">
+        <var name="result" id="107266" />
+      </scope>
+      <scope id="107266" at="28,0,36,0">
+        <var name="checkingNodeContext" id="107266" />
+        <var name="node" id="107266" />
+        <var name="propertyValue" id="107266" />
+      </scope>
+      <unit id="107265" at="41,0,44,0" name="qiy.constraints.IndexColumn_Constraints$CONCEPTS" />
+      <unit id="107265" at="45,0,48,0" name="qiy.constraints.IndexColumn_Constraints$PROPS" />
+      <unit id="107266" at="24,0,40,0" name="qiy.constraints.IndexColumn_Constraints$FieldName_PD" />
+      <unit id="107265" at="18,0,49,0" name="qiy.constraints.IndexColumn_Constraints" />
+    </file>
+  </root>
+  <root nodeRef="r:7dd34ed2-c44f-4daa-a89a-86790b77e800(qiy.constraints)/107273">
+    <file name="Field_Constraints.java">
+      <node id="107273" at="19,79,20,42" concept="8" />
+      <node id="6864960" at="20,42,21,30" concept="1" />
+      <node id="6864960" at="25,53,26,60" concept="8" />
+      <node id="6864960" at="29,109,30,99" concept="4" />
+      <node id="6864960" at="31,53,32,132" concept="1" />
+      <node id="6864960" at="33,7,34,20" concept="5" />
+      <node id="6864963" at="36,85,37,75" concept="5" />
+      <node id="107273" at="42,0,43,0" concept="6" trace="Field$2B" />
+      <node id="107273" at="46,0,47,0" concept="6" trace="type$GZwB" />
+      <node id="6864960" at="25,0,28,0" concept="0" trace="Type_PD#(Ljetbrains/mps/smodel/runtime/ConstraintsDescriptor;)V" />
+      <node id="6864960" at="30,99,33,7" concept="2" />
+      <node id="6864960" at="36,0,39,0" concept="7" trace="staticValidateProperty#(Lorg/jetbrains/mps/openapi/model/SNode;Ljava/lang/String;)Z" />
+      <node id="107273" at="19,0,23,0" concept="0" trace="Field_Constraints#(Ljetbrains/mps/smodel/runtime/ConstraintsDescriptorInitContext;)V" />
+      <node id="6864960" at="28,0,36,0" concept="3" trace="validateValue#(Lorg/jetbrains/mps/openapi/model/SNode;Ljava/lang/Object;Ljetbrains/mps/smodel/runtime/CheckingNodeContext;)Z" />
+      <scope id="6864960" at="25,53,26,60" />
+      <scope id="6864960" at="31,53,32,132" />
+      <scope id="6864962" at="36,85,37,75" />
+      <scope id="107273" at="19,79,21,30" />
+      <scope id="6864960" at="25,0,28,0">
+        <var name="container" id="6864960" />
+      </scope>
+      <scope id="6864960" at="36,0,39,0">
+        <var name="node" id="6864960" />
+        <var name="propertyValue" id="6864960" />
+      </scope>
+      <scope id="107273" at="19,0,23,0">
+        <var name="initContext" id="107273" />
+      </scope>
+      <scope id="6864960" at="29,109,34,20">
+        <var name="result" id="6864960" />
+      </scope>
+      <scope id="6864960" at="28,0,36,0">
+        <var name="checkingNodeContext" id="6864960" />
+        <var name="node" id="6864960" />
+        <var name="propertyValue" id="6864960" />
+      </scope>
+      <unit id="107273" at="41,0,44,0" name="qiy.constraints.Field_Constraints$CONCEPTS" />
+      <unit id="107273" at="45,0,48,0" name="qiy.constraints.Field_Constraints$PROPS" />
+      <unit id="6864960" at="24,0,40,0" name="qiy.constraints.Field_Constraints$Type_PD" />
+      <unit id="107273" at="18,0,49,0" name="qiy.constraints.Field_Constraints" />
+    </file>
+  </root>
+  <root nodeRef="r:7dd34ed2-c44f-4daa-a89a-86790b77e800(qiy.constraints)/6864967">
+    <file name="Index_Constraints.java">
+      <node id="6864967" at="19,79,20,42" concept="8" />
+      <node id="6864968" at="20,42,21,32" concept="1" />
+      <node id="6864968" at="25,55,26,62" concept="8" />
+      <node id="6864968" at="29,109,30,99" concept="4" />
+      <node id="6864968" at="31,53,32,132" concept="1" />
+      <node id="6864968" at="33,7,34,20" concept="5" />
+      <node id="6865025" at="36,85,37,75" concept="5" />
+      <node id="6864967" at="42,0,43,0" concept="6" trace="Index$36" />
+      <node id="6864967" at="46,0,47,0" concept="6" trace="method$KwZ7" />
+      <node id="6864968" at="25,0,28,0" concept="0" trace="Method_PD#(Ljetbrains/mps/smodel/runtime/ConstraintsDescriptor;)V" />
+      <node id="6864968" at="30,99,33,7" concept="2" />
+      <node id="6864968" at="36,0,39,0" concept="7" trace="staticValidateProperty#(Lorg/jetbrains/mps/openapi/model/SNode;Ljava/lang/String;)Z" />
+      <node id="6864967" at="19,0,23,0" concept="0" trace="Index_Constraints#(Ljetbrains/mps/smodel/runtime/ConstraintsDescriptorInitContext;)V" />
+      <node id="6864968" at="28,0,36,0" concept="3" trace="validateValue#(Lorg/jetbrains/mps/openapi/model/SNode;Ljava/lang/Object;Ljetbrains/mps/smodel/runtime/CheckingNodeContext;)Z" />
+      <scope id="6864968" at="25,55,26,62" />
+      <scope id="6864968" at="31,53,32,132" />
+      <scope id="6865024" at="36,85,37,75" />
+      <scope id="6864967" at="19,79,21,32" />
+      <scope id="6864968" at="25,0,28,0">
+        <var name="container" id="6864968" />
+      </scope>
+      <scope id="6864968" at="36,0,39,0">
+        <var name="node" id="6864968" />
+        <var name="propertyValue" id="6864968" />
+      </scope>
+      <scope id="6864967" at="19,0,23,0">
+        <var name="initContext" id="6864967" />
+      </scope>
+      <scope id="6864968" at="29,109,34,20">
+        <var name="result" id="6864968" />
+      </scope>
+      <scope id="6864968" at="28,0,36,0">
+        <var name="checkingNodeContext" id="6864968" />
+        <var name="node" id="6864968" />
+        <var name="propertyValue" id="6864968" />
+      </scope>
+      <unit id="6864967" at="41,0,44,0" name="qiy.constraints.Index_Constraints$CONCEPTS" />
+      <unit id="6864967" at="45,0,48,0" name="qiy.constraints.Index_Constraints$PROPS" />
+      <unit id="6864968" at="24,0,40,0" name="qiy.constraints.Index_Constraints$Method_PD" />
+      <unit id="6864967" at="18,0,49,0" name="qiy.constraints.Index_Constraints" />
+    </file>
+  </root>
+</debug-info>
+

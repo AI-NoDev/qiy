@@ -1,0 +1,20 @@
+qiy v0;
+
+application QiyDemo {
+  database postgresql {
+  }
+  entity User table users {
+    field embedding Vector(1536) @column(embedding) @extension(pgvector);
+    field invalidEmbedding Vector(1536) @column(invalid_embedding) @extension();
+    field invalidDimension Vector @column(invalid_dimension) @extension(pgvector);
+    field negativeDimension Vector @extension(pgvector);
+    field price Decimal(12,2);
+    field invalidMoneyPrecision Money;
+    field invalidScale Decimal(4,5);
+    field negativeScale Decimal(4,-1);
+  }
+  menu {
+  }
+  dashboard {
+  }
+}

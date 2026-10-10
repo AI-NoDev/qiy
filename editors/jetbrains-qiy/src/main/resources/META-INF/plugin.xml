@@ -1,0 +1,11 @@
+<idea-plugin>
+  <id>dev.qiy.language</id>
+  <name>Qiy Language Support</name>
+  <vendor url="https://github.com/your-org/qiy">Qiy Contributors</vendor>
+  <description><![CDATA[Syntax highlighting and editor behavior for Qiy .qiy application models.]]></description>
+  <depends>com.intellij.modules.platform</depends>
+  <extensions defaultExtensionNs="com.intellij">
+    <fileType name="Qiy" language="Qiy" implementationClass="dev.qiy.intellij.QiyFileType" fieldName="INSTANCE" extensions="qiy" />
+    <lang.syntaxHighlighterFactory language="Qiy" implementationClass="dev.qiy.intellij.QiySyntaxHighlighterFactory" />
+  </extensions>
+</idea-plugin>

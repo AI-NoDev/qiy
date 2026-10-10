@@ -1,0 +1,124 @@
+qiy v0;
+
+application qiy-erp-admin {
+  database postgresql {
+  }
+  storage { provider local; }
+  auth { provider local; user users; roleField role; usernameField email; passwordField passwordHash; }
+  workflow orderInventory;
+
+  enum userRole {
+    value admin label "管理员" color red icon SafetyOutlined;
+    value operator label "运营" color blue icon UserOutlined;
+    value viewer label "只读" color default icon EyeOutlined;
+  }
+
+  enum orderStatus {
+    value draft label "草稿" color default icon EditOutlined;
+    value submitted label "已提交" color blue icon SendOutlined;
+    value approved label "已审批" color green icon CheckOutlined;
+    value shipped label "已出库" color cyan icon SendOutlined;
+    value cancelled label "已取消" color red icon CloseOutlined;
+  }
+
+  entity users table users @label("用户") @icon(SafetyOutlined) {
+    field id UUID @id;
+    field email Text @unique;
+    field displayName Text;
+    field passwordHash Text @nullable @listVisible(false) @showVisible(false) @formVisible(false);
+    field externalSubject Text @nullable @unique @listVisible(false) @showVisible(false);
+    field role userRole @label("角色") @filterable(true);
+    index users_email_idx btree(email) @unique;
+  }
+
+  entity customers table customers @label("客户") {
+    field id UUID @id;
+    field name Text;
+    field email Text @nullable;
+    field creditLimit Money(12, 2);
+    index customers_name_idx btree(name);
+  }
+
+  entity warehouses table warehouses @label("仓库") {
+    field id UUID @id;
+    field code Text @unique;
+    field name Text;
+    field capacity Integer;
+    index warehouses_code_idx btree(code) @unique;
+  }
+
+  entity products table products @label("产品") {
+    field id UUID @id;
+    field sku Text @unique;
+    field name Text;
+    field unitPrice Money(12, 2);
+    field reorderPoint Integer;
+    field datasheet File @nullable @label("产品资料");
+    index products_sku_idx btree(sku) @unique;
+  }
+
+  entity inventoryItems table inventory_items @label("库存明细") {
+    field id UUID @id;
+    field warehouseId UUID;
+    field productId UUID;
+    field quantity Integer;
+    field reservedQuantity Integer;
+    index inventory_warehouse_product_idx btree(warehouseId, productId) @unique;
+  }
+
+  entity orders table orders @label("订单") @icon(ShoppingOutlined) {
+    field id UUID @id;
+    field orderNumber Text @unique;
+    field customerId UUID;
+    field status orderStatus @label("状态") @icon("TagsOutlined") @sortable(false) @filterable(true);
+    field totalAmount Money(12, 2);
+    field approvedBy UUID @nullable @filterable(false);
+    field createdAt DateTime @nullable;
+    index orders_number_idx btree(orderNumber) @unique;
+    index orders_customer_status_idx btree(customerId, status);
+  }
+
+  entity orderItems table order_items @label("订单明细") {
+    field id UUID @id;
+    field orderId UUID;
+    field productId UUID;
+    field quantity Integer;
+    field unitPrice Money(12, 2);
+    index order_items_order_idx btree(orderId);
+  }
+
+  relation inventoryWarehouse inventoryItems warehouseId warehouses id one;
+  relation inventoryProduct inventoryItems productId products id one @onDelete(restrict);
+  relation orderCustomer orders customerId customers id one;
+  relation orderApprover orders approvedBy users id one;
+  relation orderItemOrder orderItems orderId orders id one @onDelete(cascade);
+  relation orderItemProduct orderItems productId products id one;
+
+  scope orders customerId claim tenant.customerId;
+
+  menu {
+    group masterData @label("主数据") @icon(AppstoreOutlined) {
+      resource users;
+      resource customers;
+      resource products;
+    }
+    group operations @label("业务运营") @icon(AppstoreOutlined) {}
+    group inventory @label("库存") @icon(DatabaseOutlined) @parent(operations) {
+      resource warehouses;
+      resource inventory_items;
+    }
+    group sales @label("销售") @icon(ShoppingOutlined) @parent(operations) {
+      resource orders;
+      resource order_items;
+    }
+  }
+
+  dashboard {
+    metric orderCount orders @label("订单总数") @icon(ShoppingOutlined) @span(8);
+    metric inventoryCount inventory_items @label("库存记录") @icon(DatabaseOutlined) @span(8);
+    metric productCount products @label("产品品类") @icon(AppstoreOutlined) @span(8);
+    metric customerCount customers @label("客户数") @icon(UserOutlined) @span(12);
+    metric orderStatusBreakdown orders @label("订单状态") @icon(CheckOutlined) @span(12) @type(distribution) @groupBy(status);
+    metric orderTrend orders @label("近30天订单") @icon(ShoppingOutlined) @span(24) @type(trend) @groupBy(createdAt) @days(30);
+  }
+}

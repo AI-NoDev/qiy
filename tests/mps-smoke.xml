@@ -1,0 +1,199 @@
+<project name="qiy-mps-smoke" default="make">
+  <property environment="env" />
+  <property name="mps.home" value="${env.MPS_HOME}" />
+  <property name="qiy.root" location=".." />
+
+  <path id="mps.ant.path">
+    <pathelement location="${mps.home}/lib/ant/lib/ant-mps.jar" />
+    <pathelement location="${mps.home}/lib/util-8.jar" />
+  </path>
+  <taskdef resource="jetbrains/mps/build/ant/antlib.xml" classpathref="mps.ant.path" />
+
+  <target name="make">
+    <exec executable="cmd" dir="${qiy.root}" osfamily="windows" failonerror="true">
+      <arg value="/c" />
+      <arg value="bun" />
+      <arg value="run" />
+      <arg value="tests/prepare-mps-erp-workflow.ts" />
+    </exec>
+    <exec executable="bun" dir="${qiy.root}" osfamily="unix" failonerror="true">
+      <arg value="run" />
+      <arg value="tests/prepare-mps-erp-workflow.ts" />
+    </exec>
+    <exec executable="cmd" dir="${qiy.root}" osfamily="windows" failonerror="true">
+      <arg value="/c" /><arg value="bun" /><arg value="run" /><arg value="tools/check-mps.ts" />
+      <arg value="languages/qiy.sandbox/models/qiy.catalog.mps" />
+      <arg value="languages/qiy.sandbox/models/qiy.relations.mps" />
+      <arg value="languages/qiy.sandbox/models/qiy.erpworkflow.mps" />
+    </exec>
+    <exec executable="bun" dir="${qiy.root}" osfamily="unix" failonerror="true">
+      <arg value="run" /><arg value="tools/check-mps.ts" />
+      <arg value="languages/qiy.sandbox/models/qiy.catalog.mps" />
+      <arg value="languages/qiy.sandbox/models/qiy.relations.mps" />
+      <arg value="languages/qiy.sandbox/models/qiy.erpworkflow.mps" />
+    </exec>
+    <delete file="${qiy.root}/languages/qiy.sandbox/source_gen/qiy/catalog/Catalog.qiy" />
+    <delete file="${qiy.root}/languages/qiy.sandbox/source_gen/qiy/relations/Relations.qiy" />
+    <delete file="${qiy.root}/languages/qiy.sandbox/source_gen/qiy/erpworkflow/qiy-erp-workflow.qiy" />
+    <delete>
+      <fileset dir="${qiy.root}/languages/qiy.sandbox/source_gen" includes="**/QiyGenerationMarker.java" />
+    </delete>
+    <record name="${qiy.root}/tmp/mps-smoke-make.log" action="start" append="false" loglevel="info" />
+    <mps.make mpsHome="${mps.home}" fork="true" logLevel="info" failOnError="true">
+      <plugin path="${mps.home}/plugins/mps-core" id="jetbrains.mps.core" />
+      <repository>
+        <module file="${qiy.root}/languages/qiy/qiy.mpl" />
+        <module file="${qiy.root}/languages/qiy.runtime/qiy.runtime.msd" />
+        <module file="${qiy.root}/languages/qiy.sandbox/qiy.sandbox.msd" />
+      </repository>
+      <module file="${qiy.root}/languages/qiy/qiy.mpl" />
+      <module file="${qiy.root}/languages/qiy.runtime/qiy.runtime.msd" />
+      <settings skipUnmodifiedModels="false" inplaceTransform="true" createStaticRefs="true" warnWrongChild="true" messageLevel="info" />
+      <jvmargs>
+        <arg value="-ea" />
+        <arg value="-Xmx2048m" />
+      </jvmargs>
+
+    </mps.make>
+    <mps.make mpsHome="${mps.home}" fork="true" logLevel="info" failOnError="true">
+      <plugin path="${mps.home}/plugins/mps-core" id="jetbrains.mps.core" />
+      <repository>
+        <module file="${qiy.root}/languages/qiy/qiy.mpl" />
+        <module file="${qiy.root}/languages/qiy.runtime/qiy.runtime.msd" />
+        <module file="${qiy.root}/languages/qiy.sandbox/qiy.sandbox.msd" />
+      </repository>
+      <module file="${qiy.root}/languages/qiy.sandbox/qiy.sandbox.msd" />
+      <settings skipUnmodifiedModels="false" inplaceTransform="true" createStaticRefs="true" warnWrongChild="true" messageLevel="info" />
+      <jvmargs>
+        <arg value="-ea" />
+        <arg value="-Xmx2048m" />
+      </jvmargs>
+    </mps.make>
+    <record name="${qiy.root}/tmp/mps-smoke-make.log" action="stop" />
+    <path id="qiy.constraints.test.path">
+      <pathelement location="${qiy.root}/languages/qiy/classes_gen" />
+      <fileset dir="${mps.home}/lib" includes="*.jar" />
+    </path>
+    <pathconvert property="qiy.constraints.test.classpath" refid="qiy.constraints.test.path" />
+    <exec executable="${mps.home}/jbr/bin/java" dir="${qiy.root}" failonerror="true">
+      <arg value="--class-path" />
+      <arg value="${qiy.constraints.test.classpath}" />
+      <arg value="tests/MpsConstraintsSmoke.java" />
+    </exec>
+    <loadfile srcFile="${qiy.root}/tmp/mps-smoke-make.log" property="qiy.mps.make.output" />
+    <condition property="qiy.mps.typesystem.loaded">
+      <not>
+        <contains string="${qiy.mps.make.output}" substring="Failed to load model" />
+      </not>
+    </condition>
+    <fail unless="qiy.mps.typesystem.loaded" message="MPS failed to load an aspect model; inspect tmp/mps-smoke-make.log" />
+    <condition property="qiy.mps.constraints.loaded">
+      <not>
+        <contains string="${qiy.mps.make.output}" substring="model qiy.constraints: no peer node" />
+      </not>
+    </condition>
+    <fail unless="qiy.mps.constraints.loaded" message="MPS constraints lost nodes during partial loading" />
+    <available file="${qiy.root}/languages/qiy.sandbox/source_gen/qiy/catalog/Catalog.qiy" property="qiy.textgen.output.available" />
+    <fail unless="qiy.textgen.output.available" message="MPS TextGen did not generate Catalog.qiy" />
+    <loadfile srcFile="${qiy.root}/languages/qiy.sandbox/source_gen/qiy/catalog/Catalog.qiy" property="qiy.textgen.output" />
+    <condition property="qiy.textgen.catalog.entity.generated">
+      <contains string="${qiy.textgen.output}" substring="entity products" />
+    </condition>
+    <fail unless="qiy.textgen.catalog.entity.generated" message="MPS TextGen generated Catalog.qiy without the products entity" />
+    <condition property="qiy.textgen.catalog.extension.generated">
+      <contains string="${qiy.textgen.output}" substring="extension pgvector;" />
+    </condition>
+    <fail unless="qiy.textgen.catalog.extension.generated" message="MPS TextGen generated Catalog.qiy without the pgvector extension" />
+    <condition property="qiy.textgen.catalog.fields.generated">
+      <and>
+        <contains string="${qiy.textgen.output}" substring="field id UUID @id(true);" />
+        <contains string="${qiy.textgen.output}" substring="field title Text;" />
+        <contains string="${qiy.textgen.output}" substring="field price Decimal(12,2);" />
+        <contains string="${qiy.textgen.output}" substring="field embedding Vector(1536) @nullable(true) @extension(pgvector);" />
+      </and>
+    </condition>
+    <fail unless="qiy.textgen.catalog.fields.generated" message="MPS TextGen did not serialize the Catalog field names and types" />
+    <condition property="qiy.textgen.catalog.indexes.generated">
+      <and>
+        <contains string="${qiy.textgen.output}" substring="index products_embedding_hnsw hnsw(embedding vector_cosine_ops,);" />
+        <contains string="${qiy.textgen.output}" substring="index products_title_idx btree(title,);" />
+      </and>
+    </condition>
+    <fail unless="qiy.textgen.catalog.indexes.generated" message="MPS TextGen did not serialize the Catalog indexes and operator classes" />
+    <available file="${qiy.root}/languages/qiy.sandbox/source_gen/qiy/relations/Relations.qiy" property="qiy.textgen.relations.output.available" />
+    <fail unless="qiy.textgen.relations.output.available" message="MPS TextGen did not generate Relations.qiy" />
+    <available file="${qiy.root}/languages/qiy.sandbox/source_gen/qiy/erpworkflow/qiy-erp-workflow.qiy" property="qiy.textgen.erpworkflow.output.available" />
+    <fail unless="qiy.textgen.erpworkflow.output.available" message="MPS TextGen did not generate the ERP workflow model" />
+    <loadfile srcFile="${qiy.root}/languages/qiy.sandbox/source_gen/qiy/erpworkflow/qiy-erp-workflow.qiy" property="qiy.textgen.erpworkflow.output" />
+    <condition property="qiy.textgen.erpworkflow.workflow.generated">
+      <and>
+        <contains string="${qiy.textgen.erpworkflow.output}" substring="workflow orderInventory;" />
+        <contains string="${qiy.textgen.erpworkflow.output}" substring="entity orders table orders {" />
+        <contains string="${qiy.textgen.erpworkflow.output}" substring="entity inventoryItems table inventory_items {" />
+      </and>
+    </condition>
+    <fail unless="qiy.textgen.erpworkflow.workflow.generated" message="MPS TextGen did not serialize ERP entities and the order workflow" />
+    <loadfile srcFile="${qiy.root}/languages/qiy.sandbox/source_gen/qiy/relations/Relations.qiy" property="qiy.textgen.relations.output" />
+    <condition property="qiy.textgen.relations.generated">
+      <contains string="${qiy.textgen.relations.output}" substring="relation productCategory products categoryId categories id one @onDelete(setNull);" />
+    </condition>
+    <fail unless="qiy.textgen.relations.generated" message="MPS TextGen did not serialize the productCategory relation" />
+    <condition property="qiy.textgen.relations.api.generated">
+      <contains string="${qiy.textgen.relations.output}" substring="api { client graphql; }" />
+    </condition>
+    <fail unless="qiy.textgen.relations.api.generated" message="MPS TextGen did not serialize the frontend API transport" />
+    <condition property="qiy.textgen.relations.elysia.generated">
+      <and>
+        <contains string="${qiy.textgen.relations.output}" substring="bearer;" />
+        <contains string="${qiy.textgen.relations.output}" substring="serverTiming;" />
+        <contains string="${qiy.textgen.relations.output}" substring="graphqlAdapter adapter native;" />
+        <contains string="${qiy.textgen.relations.output}" substring="job cleanup pattern &quot;0 * * * *&quot; task cleanupMissingAttachments;" />
+      </and>
+    </condition>
+    <fail unless="qiy.textgen.relations.elysia.generated" message="MPS TextGen did not serialize the opt-in Elysia plugins" />
+    <condition property="qiy.textgen.relations.storage.generated">
+      <contains string="${qiy.textgen.relations.output}" substring="storage { provider s3; }" />
+    </condition>
+    <fail unless="qiy.textgen.relations.storage.generated" message="MPS TextGen did not serialize the storage provider" />
+    <condition property="qiy.textgen.relations.index.generated">
+      <contains string="${qiy.textgen.relations.output}" substring="index products_category_title_key btree(categoryId,title,) @unique(true);" />
+    </condition>
+    <fail unless="qiy.textgen.relations.index.generated" message="MPS TextGen did not serialize the compound unique index" />
+    <condition property="qiy.textgen.relations.explicit.false.generated">
+      <and>
+        <contains string="${qiy.textgen.relations.output}" substring="field name Text @id(false) @unique(true);" />
+        <contains string="${qiy.textgen.relations.output}" substring="field title Text @nullable(false) @unique(false) @column(product_title);" />
+        <contains string="${qiy.textgen.relations.output}" substring="field unitPrice Money(10,0);" />
+        <contains string="${qiy.textgen.relations.output}" substring="index products_title_idx btree(title,) @unique(false) @concurrently(false);" />
+      </and>
+    </condition>
+    <fail unless="qiy.textgen.relations.explicit.false.generated" message="MPS TextGen did not preserve explicit false properties" />
+    <condition property="qiy.textgen.relations.field.annotations.generated">
+      <and>
+        <contains string="${qiy.textgen.relations.output}" substring="field name Text @id(false) @unique(true);" />
+        <contains string="${qiy.textgen.relations.output}" substring="field title Text @nullable(false) @unique(false) @column(product_title);" />
+      </and>
+    </condition>
+    <fail unless="qiy.textgen.relations.field.annotations.generated" message="MPS TextGen did not serialize unique fields and physical column names" />
+    <loadfile srcFile="${qiy.root}/languages/qiy/source_gen/qiy/textGen/Application_TextGen.java" property="qiy.textgen.application.java" />
+    <condition property="qiy.textgen.application.entities.iterated">
+      <contains string="${qiy.textgen.application.java}" substring="SLinkOperations.getChildren(ctx.getPrimaryInput(), LINKS.entities$" />
+    </condition>
+    <fail unless="qiy.textgen.application.entities.iterated" message="Application TextGen does not iterate the entities containment link" />
+    <loadfile srcFile="${qiy.root}/languages/qiy/source_gen/qiy/textGen/Entity_TextGen.java" property="qiy.textgen.entity.java" />
+    <condition property="qiy.textgen.entity.fields.iterated">
+      <contains string="${qiy.textgen.entity.java}" substring="SLinkOperations.getChildren(ctx.getPrimaryInput(), LINKS.fields$" />
+    </condition>
+    <fail unless="qiy.textgen.entity.fields.iterated" message="Entity TextGen does not iterate the fields containment link" />
+    <exec executable="cmd" dir="${qiy.root}" osfamily="windows" failonerror="true">
+      <arg value="/c" />
+      <arg value="bun" />
+      <arg value="run" />
+      <arg value="tests/verify-mps-textgen.ts" />
+    </exec>
+    <exec executable="bun" dir="${qiy.root}" osfamily="unix" failonerror="true">
+      <arg value="run" />
+      <arg value="tests/verify-mps-textgen.ts" />
+    </exec>
+  </target>
+</project>

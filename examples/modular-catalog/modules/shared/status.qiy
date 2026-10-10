@@ -1,0 +1,4 @@
+enum productStatus {
+  value draft label "Draft" color "default" icon EditOutlined;
+  value active label "Active" color "green" icon CheckCircleOutlined;
+}

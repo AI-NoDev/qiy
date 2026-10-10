@@ -1,0 +1,50 @@
+name: Publish editor plugins
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  vscode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Package VS Code extension
+        run: bunx @vscode/vsce package --out ../qiy-language-support.vsix
+        working-directory: editors/vscode-qiy
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qiy-language-support-vsix
+          path: qiy-language-support.vsix
+      - name: Publish to Visual Studio Marketplace
+        if: ${{ secrets.VSCE_PAT != '' }}
+        run: bunx @vscode/vsce publish -p "$VSCE_PAT"
+        working-directory: editors/vscode-qiy
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+  jetbrains:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Build JetBrains plugin
+        run: gradle buildPlugin
+        working-directory: editors/jetbrains-qiy
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qiy-jetbrains-plugin
+          path: editors/jetbrains-qiy/build/distributions/*.zip
+      - name: Publish to JetBrains Marketplace
+        if: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN != '' }}
+        run: gradle publishPlugin
+        working-directory: editors/jetbrains-qiy
+        env:
+          JETBRAINS_MARKETPLACE_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}

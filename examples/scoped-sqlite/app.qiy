@@ -1,0 +1,14 @@
+qiy v0;
+
+application qiy-scoped-sqlite {
+  database sqlite {}
+
+  entity records {
+    field id UUID @id;
+    field tenantId Text;
+    field title Text;
+    field createdAt DateTime @nullable;
+  }
+
+  scope records tenantId claim tenant.id;
+}

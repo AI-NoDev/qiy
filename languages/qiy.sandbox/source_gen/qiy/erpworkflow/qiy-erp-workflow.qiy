@@ -1,0 +1,69 @@
+qiy v0;
+
+application qiy-erp-workflow {
+  database postgresql {
+  }
+  auth { provider oidc; user users; subjectField externalSubject; roleField role; }
+  workflow orderInventory;
+  enum orderStatus {
+    value draft label "草稿" color "default" icon "EditOutlined";
+    value submitted label "已提交" color "blue" icon "SendOutlined";
+    value approved label "已审批" color "green" icon "CheckOutlined";
+    value shipped label "已出库" color "cyan" icon "SendOutlined";
+    value cancelled label "已取消" color "red" icon "CloseOutlined";
+  }
+  enum userRole {
+    value admin label "管理员" color "red" icon "SafetyOutlined";
+    value operator label "运营" color "blue" icon "UserOutlined";
+    value viewer label "只读" color "default" icon "EyeOutlined";
+  }
+  entity users table users {
+    field id UUID @id(true);
+    field email Text @unique(true);
+    field displayName Text;
+    field externalSubject Text @listVisible(false) @showVisible(false) @unique(true);
+    field role userRole;
+  }
+  entity orders table orders {
+    field id UUID @id(true);
+    field orderNumber Text @unique(true);
+    field status orderStatus @listVisible(false) @label("订单状态") @icon("TagsOutlined") @sortable(false) @filterable(true);
+    field totalAmount Money(12,2);
+    field approvedBy UUID @nullable(true) @listVisible(false) @formVisible(false) @filterable(false);
+    field createdAt DateTime;
+  }
+  entity orderItems table order_items {
+    field id UUID @id(true);
+    field orderId UUID;
+    field productId UUID;
+    field quantity Integer;
+    field unitPrice Money(12,2);
+  }
+  entity inventoryItems table inventory_items {
+    field id UUID @id(true);
+    field productId UUID;
+    field quantity Integer;
+    field reservedQuantity Integer;
+  }
+  relation orderItemOrder orderItems orderId orders id one;
+  relation orderApprovedBy orders approvedBy users id one @onDelete(setNull);
+  menu {
+    group operations @label("业务运营") @icon("ShopOutlined") @parent("") {
+    }
+    group sales @label("销售管理") @icon("ShoppingOutlined") @parent("operations") {
+      resource orders;
+      resource order_items;
+    }
+    group inventory @label("库存管理") @icon("InboxOutlined") @parent("operations") {
+      resource inventory_items;
+    }
+    group administration @label("系统管理") @icon("SettingOutlined") @parent("") {
+      resource users;
+    }
+  }
+  dashboard {
+    metric orderCount orders @label("订单总数") @icon("ShoppingOutlined") @type("") @groupBy("") @days(0) @span(8);
+    metric orderStatus orders @label("订单状态分布") @icon("") @type("distribution") @groupBy("status") @days(0) @span(12);
+    metric orderTrend orders @label("近 30 天订单趋势") @icon("") @type("trend") @groupBy("createdAt") @days(30) @span(24);
+  }
+}

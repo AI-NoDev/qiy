@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: __QIY_APP_NAME__
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: __QIY_APP_NAME__
+  template:
+    metadata:
+      labels:
+        app: __QIY_APP_NAME__
+    spec:
+      containers:
+        - name: qiy
+          image: __QIY_APP_NAME__:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: __QIY_APP_NAME__
+                  key: DATABASE_URL
+            - name: QIY_STORAGE_METADATA
+              value: "database"
+            - name: QIY_STORAGE_PROVIDER
+              valueFrom:
+                secretKeyRef:
+                  name: __QIY_APP_NAME__
+                  key: QIY_STORAGE_PROVIDER
+            - name: QIY_STORAGE_ROOT
+              value: "/var/lib/qiy/storage"
+            - name: QIY_DEV_MODE
+              value: "0"
+            - name: QIY_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: __QIY_APP_NAME__
+                  key: QIY_AUTH_SECRET
+            - name: QIY_OIDC_ISSUER
+              valueFrom:
+                secretKeyRef:
+                  name: __QIY_APP_NAME__
+                  key: QIY_OIDC_ISSUER
+            - name: QIY_OIDC_AUDIENCE
+              valueFrom:
+                secretKeyRef:
+                  name: __QIY_APP_NAME__
+                  key: QIY_OIDC_AUDIENCE
+            - name: QIY_OIDC_JWKS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: __QIY_APP_NAME__
+                  key: QIY_OIDC_JWKS_URL
+            - name: QIY_CORS_ORIGINS
+              value: ""
+            - name: QIY_CRON_ENABLED
+              value: "0"
+          volumeMounts:
+            - name: qiy-storage
+              mountPath: /var/lib/qiy/storage
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 3000
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 3000
+      volumes:
+        - name: qiy-storage
+          persistentVolumeClaim:
+            claimName: __QIY_APP_NAME__-storage

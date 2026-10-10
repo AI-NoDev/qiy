@@ -1,0 +1,49 @@
+qiy v0;
+
+application Relations {
+  database sqlite {
+  }
+  api { client graphql; }
+  elysia {
+    bearer;
+    serverTiming;
+    graphqlAdapter adapter native;
+    cron {
+      job cleanup pattern "0 * * * *" task cleanupMissingAttachments;
+    }
+  }
+  storage { provider s3; }
+  enum ProductStatus {
+    value active label "Active" color "green" icon "";
+    value archived label "Archived" color "orange" icon "";
+  }
+  entity categories table categories {
+    field id UUID @id(true);
+    field name Text @id(false) @unique(true);
+  }
+  entity products table products {
+    field id UUID @id(true);
+    field categoryId UUID @nullable(true);
+    field title Text @nullable(false) @unique(false) @column(product_title);
+    field status ProductStatus @nullable(false);
+    field createdAt DateTime @nullable(false);
+    field unitPrice Money(10,0);
+    index products_category_title_key btree(categoryId,title,) @unique(true);
+    index products_title_idx btree(title,) @unique(false) @concurrently(false);
+  }
+  relation productCategory products categoryId categories id one @onDelete(setNull);
+  scope products categoryId claim tenant.categoryId;
+  menu {
+    group catalog @label("Catalog") @icon("AppstoreOutlined") @parent("") {
+      resource categories;
+    }
+    group operations @label("Operations") @icon("") @parent("catalog") {
+      resource products;
+    }
+  }
+  dashboard {
+    metric productCount products @label("Products") @icon("ShoppingOutlined") @type("") @groupBy("") @days(0) @span(8);
+    metric productsByCategory products @label("Products by category") @icon("") @type("distribution") @groupBy("status") @days(0) @span(12);
+    metric productTrend products @label("Product trend") @icon("") @type("trend") @groupBy("createdAt") @days(7) @span(24);
+  }
+}

@@ -1,0 +1,11 @@
+entity stockMovements @label("Stock movements") @icon(SwapOutlined) {
+  field id UUID @id;
+  field warehouseId UUID;
+  field productId UUID;
+  field type movementType;
+  field quantity Integer;
+  field occurredAt DateTime;
+}
+
+relation stockMovementWarehouse stockMovements warehouseId warehouses id one @onDelete(restrict);
+relation stockMovementProduct stockMovements productId products id one @onDelete(restrict);

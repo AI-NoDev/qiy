@@ -1,0 +1,19 @@
+qiy v0;
+
+application Catalog {
+  database postgresql {
+    extension pgvector;
+  }
+  entity products table products {
+    field id UUID @id(true);
+    field title Text;
+    field price Decimal(12,2);
+    field embedding Vector(1536) @nullable(true) @extension(pgvector);
+    index products_embedding_hnsw hnsw(embedding vector_cosine_ops,);
+    index products_title_idx btree(title,);
+  }
+  menu {
+  }
+  dashboard {
+  }
+}

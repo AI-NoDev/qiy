@@ -1,0 +1,6 @@
+<svg id="Qiy" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Qiy</title>
+  <desc id="desc">Qiy's dark-theme rounded-square mark.</desc>
+  <path d="M20 10h24a10 10 0 0 1 10 10v24a10 10 0 0 1-10 10H20a10 10 0 0 1-10-10V20a10 10 0 0 1 10-10Z" fill="none" stroke="#E8FFF5" stroke-width="8"/>
+  <path d="M54 31v13a10 10 0 0 1-10 10H31" fill="none" stroke="#34D399" stroke-linecap="round" stroke-width="8"/>
+</svg>

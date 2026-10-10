@@ -1,0 +1,19 @@
+{
+  "name": "qiy-language-support",
+  "displayName": "Qiy Language Support",
+  "description": "Syntax highlighting and editor behavior for Qiy .qiy application models.",
+  "version": "0.1.0",
+  "publisher": "qiy-language",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/qiy.git"
+  },
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Programming Languages"],
+  "keywords": ["qiy", "dsl", "admin", "refine", "elysia", "drizzle"],
+  "contributes": {
+    "languages": [{ "id": "qiy", "aliases": ["Qiy", "qiy"], "extensions": [".qiy"], "configuration": "./language-configuration.json" }],
+    "grammars": [{ "language": "qiy", "scopeName": "source.qiy", "path": "./syntaxes/qiy.tmLanguage.json" }]
+  }
+}

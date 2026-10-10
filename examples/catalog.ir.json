@@ -1,0 +1,20 @@
+{
+  "dialect": "postgresql",
+  "extensions": ["pgvector"],
+  "entities": [
+    {
+      "name": "products",
+      "tableName": "products",
+      "fields": [
+        { "name": "id", "type": "UUID", "primaryKey": true },
+        { "name": "title", "type": "Text" },
+        { "name": "price", "type": "Decimal", "precision": 12, "scale": 2 },
+        { "name": "embedding", "type": "Vector", "extension": "pgvector", "dimension": 1536, "nullable": true }
+      ],
+      "indexes": [
+        { "name": "products_embedding_hnsw", "method": "hnsw", "columns": [{ "fieldName": "embedding", "opclass": "vector_cosine_ops" }] },
+        { "name": "products_title_idx", "method": "btree", "columns": [{ "fieldName": "title" }] }
+      ]
+    }
+  ]
+}

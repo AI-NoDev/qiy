@@ -1,0 +1,69 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791222843405,
+      "tag": "0000_majestic_bruce_banner",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791226327156,
+      "tag": "0001_little_iron_lad",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791227220218,
+      "tag": "0002_friendly_zarek",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791229207867,
+      "tag": "0003_fine_mother_askani",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791230294218,
+      "tag": "0004_zippy_lilandra",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791234387949,
+      "tag": "0005_slippery_iron_monger",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791235030574,
+      "tag": "0006_youthful_felicia_hardy",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791236733246,
+      "tag": "0007_cheerful_quasar",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791246929316,
+      "tag": "0008_amusing_ogun",
+      "breakpoints": true
+    }
+  ]
+}
