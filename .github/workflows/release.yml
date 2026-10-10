@@ -1,0 +1,82 @@
+name: Release Qiy CLI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qiy-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      should_release: ${{ steps.version.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - name: Check version and existing release
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          version="$(bun -e 'console.log((await Bun.file("package.json").json()).version)')"
+          tag="v${version}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            should_release=false
+            echo "Release $tag already exists; skipping this run."
+          else
+            should_release=true
+            echo "Release $tag is missing; it will be built and published."
+          fi
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "should_release=$should_release"
+          } >> "$GITHUB_OUTPUT"
+
+  build-and-release:
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Build standalone executables
+        run: bun run build:exe -- --all
+      - name: Verify release assets
+        shell: bash
+        run: |
+          count="$(find dist -maxdepth 1 -type f -name 'qiy-*' ! -name '*.map' | wc -l)"
+          test "$count" -eq 5
+          ls -lh dist/qiy-* | grep -v '\.map$'
+      - name: Create GitHub release and tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        shell: bash
+        run: |
+          gh release create "$TAG" dist/qiy-* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Qiy $VERSION" \
+            --generate-notes

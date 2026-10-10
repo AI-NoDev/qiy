@@ -63,6 +63,14 @@ bun run preview
 | 理解语言语法 | [DSL 参考](https://ai-nodev.github.io/qiy/dsl/overview) |
 | 运行、部署与分发 | [部署指南](https://ai-nodev.github.io/qiy/guide/deployment) · [Android 分发](https://ai-nodev.github.io/qiy/guide/android-distribution) |
 
+## 获取可执行文件
+
+每次更新 `package.json` 的版本号后，GitHub Actions 会自动构建并发布 Windows x64、Linux x64/ARM64、macOS x64/ARM64 五个平台的独立可执行文件。Release Tag 使用 `v<package.json.version>`；如果该 Tag 已经存在，工作流会跳过，不会重复创建版本。
+
+- [下载最新 Release](https://github.com/AI-NoDev/qiy/releases)
+- 手动发布：在 GitHub Actions 中运行 **Release Qiy CLI**
+- 发布前改版本：更新 `package.json` 的 `version`，再推送到 `main`
+
 ## 当前状态
 
 | 范围 | 状态 |
