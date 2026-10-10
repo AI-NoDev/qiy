@@ -1450,7 +1450,7 @@ ${auth ? '' : '}'}
 if (Bun.env.QIY_STORAGE_METADATA !== "database") throw new Error("QIY_STORAGE_METADATA=database is required for production file metadata");
 const app = await createApp({ ${database.entities.map((entity) => `${entity.name}: ${modelName(entity)}Repository`).join(", ")} }, ${auth ? 'createProductionAuthenticator()' : 'async () => ({ id: "dev", name: "Local Admin", role: "admin" })'});
 const clientRoot = resolve(import.meta.dir, "../../web/build/client");
-const server = Bun.serve({ hostname: ${auth ? 'Bun.env.HOST ?? "127.0.0.1"' : '"127.0.0.1"'}, port: Number(Bun.env.PORT ?? 3000), fetch: createHandler((request) => app.handle(request), clientRoot) });
+const server = Bun.serve({ hostname: Bun.env.HOST ?? "127.0.0.1", port: Number(Bun.env.PORT ?? 3000), fetch: createHandler((request) => app.handle(request), clientRoot) });
 console.log(\`Qiy app listening on http://localhost:\${server.port}\`);
 `,
     "api/src/preview.ts": `import { resolve } from "node:path";

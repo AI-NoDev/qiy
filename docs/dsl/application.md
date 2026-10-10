@@ -96,6 +96,30 @@ auth { provider oidc; user users; subjectField externalSubject; roleField role; 
 
 `provider` 为 `oidc`、`oauth2`、`sso`；`user` 指向应用内的用户实体。
 
+## env
+
+Qiy 从模型生成 server 与 web 包各自的环境文件。独立 `create` 项目默认位于 `apps/server/`、`apps/web/`；`qiy init` 使用 `.qiy` 的 workspace alias，例如 `apps/ops-api/.env.production`、`apps/ops-console/.env.development`。环境文件位于 Admin 自己的包内；`qiy init` 不读取、覆盖或合并宿主根目录已有的 `.env`、`.env.example` 或 `.env.development`。启动脚本分别加载 development/production 文件。
+
+```qiy
+env {
+  variable PAYMENT_API_URL {
+    development "http://localhost:8080";
+    production required;
+    example "https://api.example.com";
+  }
+  variable PAYMENT_API_TOKEN {
+    secret;
+    development generate;
+    production required;
+    example required;
+  }
+}
+```
+
+变量名使用大写字母、数字和下划线。未配置的自定义变量在相应文件中留空；`required` 会生成待填写的空值；`generate` 仅可用于 secret 的 development 值，每次新建 admin 时生成随机值。标记为 `secret` 的变量不能在 `.qiy` 中写入字面值。`VITE_` 前缀变量写入 web 环境文件并进入浏览器 bundle，不能标记为 secret。开发和生产 server env 文件会被 Git/Docker 忽略；example 文件用于检查字段及复制示例，不包含真实 secret。
+
+`auth provider oidc|oauth2|sso` 会自动加入 `QIY_OIDC_ISSUER`、`QIY_OIDC_AUDIENCE` 和 `QIY_OIDC_JWKS_URL`。当前这些配置用于验证 issuer/JWKS 签发的 access token，不代表生成 OAuth authorization-code client，也不会生成 client ID/secret。
+
 ## workflow
 
 ```ts

@@ -6,6 +6,7 @@ import { parseMpsProjectModel } from "../mps-database-ir";
 import { loadQiyProjectSource } from "../qiy-include";
 import { parseQiyProject } from "../qiy-project";
 import { generatedPath, manifestFiles } from "../generated-paths";
+import { prepareEnvironmentFile } from "../environment-files";
 import { readStructureModel } from "../structure-model";
 
 export interface GenerateAppOptions {
@@ -38,6 +39,7 @@ export async function generateApp(source: string, destination: string, options: 
     dashboardMetrics: project?.dashboardMetrics ?? mpsProject?.dashboardMetrics,
     storageProvider: project?.storageProvider ?? mpsProject?.storageProvider,
     auth: project?.auth ?? mpsProject?.auth,
+    environment: project?.environment,
     scopes: project?.scopes ?? mpsProject?.scopes,
     workflows: project?.workflows ?? mpsProject?.workflows,
   });
@@ -61,7 +63,12 @@ export async function generateApp(source: string, destination: string, options: 
   for (const [relativePath, content] of Object.entries(files)) {
     const path = generatedPath(output, relativePath);
     mkdirSync(dirname(path), { recursive: true });
-    await Bun.write(path, String(content));
+    const environmentMode = /\.env\.(development|production)$/.exec(relativePath);
+    const existingEnvironmentFile = environmentMode && options.sync && await Bun.file(path).exists()
+      ? await Bun.file(path).text()
+      : undefined;
+    const outputContent = environmentMode ? prepareEnvironmentFile(String(content), existingEnvironmentFile) : String(content);
+    await Bun.write(path, outputContent);
   }
   const count = Object.keys(files).length;
   console.log(`Generated ${count} application files in ${output}`);

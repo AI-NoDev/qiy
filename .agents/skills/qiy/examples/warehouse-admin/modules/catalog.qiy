@@ -1,0 +1,13 @@
+include "shared/enums.qiy";
+
+entity warehouses @label("Warehouses") @icon(HomeOutlined) {
+  field id UUID @id;
+  field code Text @unique;
+  field name Text;
+}
+
+entity products @label("Products") @icon(ShoppingOutlined) {
+  field id UUID @id;
+  field sku Text @unique;
+  field name Text;
+}

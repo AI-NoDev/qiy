@@ -26,8 +26,8 @@ test("generates local username/password auth without OIDC configuration", () => 
   expect(files["apps/server/src/auth/set-password.ts"]).toContain("New password (minimum 8 characters)");
   expect(files["apps/server/src/auth/bootstrap-admin.ts"]).toContain("An admin account already exists");
   expect(files["apps/server/src/auth/bootstrap-admin.ts"]).not.toContain('const displayName =');
-  expect(JSON.parse(files["apps/server/package.json"]!).scripts["auth:bootstrap-admin"]).toBe("bun src/auth/bootstrap-admin.ts");
-  expect(JSON.parse(files["apps/server/package.json"]!).scripts["auth:set-password"]).toBe("bun src/auth/set-password.ts");
+  expect(JSON.parse(files["apps/server/package.json"]!).scripts["auth:bootstrap-admin"]).toBe("bun --env-file=.env.production src/auth/bootstrap-admin.ts");
+  expect(JSON.parse(files["apps/server/package.json"]!).scripts["auth:set-password"]).toBe("bun --env-file=.env.production src/auth/set-password.ts");
   expect(files["apps/server/src/auth/oidc.ts"]).toBeUndefined();
   expect(files["apps/server/tests/local-auth.test.ts"]).toContain("correct-horse-battery");
   expect(files["apps/server/src/modules/users/users.routes.ts"]).not.toContain('"passwordHash": t.Optional');

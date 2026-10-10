@@ -3,13 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun --watch src/server.ts",
-    "start": "bun src/server.ts",
-    "preview": "bun src/preview.ts",
+    "dev": "bun --env-file=.env.development --watch src/server.ts",
+    "start": "bun --env-file=.env.production src/server.ts",
+    "preview": "bun --env-file=.env.development src/preview.ts",
     "test": "bun test --preload ./tests/setup.ts",
     "typecheck": "tsc --noEmit",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:generate": "bun --env-file=.env.development run drizzle-kit generate",
+    "db:migrate": "bun --env-file=.env.development run drizzle-kit migrate",
+    "db:migrate:production": "bun --env-file=.env.production run drizzle-kit migrate",
     "attachments:cleanup": "bun src/storage/cleanup.ts"
   },
   "dependencies": {

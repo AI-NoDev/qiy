@@ -26,4 +26,4 @@ npx skills add AI-NoDev/qiy --skill qiy -g
 - 区分类型检查/单元测试/本地 preview 与真实数据库、IdP、S3、并发和生产部署验收；
 - 提醒用户现有 JWT、刷新 Cookie、API envelope、连接器授权和队列需要自己接入。
 
-Skill 源码位于仓库的 `.agents/skills/qiy/`，包含主入口和按需加载的建模、workspace 集成、生产边界参考资料。
+Skill 源码位于仓库的 `.agents/skills/qiy/`，包含 CLI 安装和命令流程、完整可运行的模块化仓储 Admin 示例、建模/include 说明、现有 Bun workspace 集成、alias/Docker 路径约定，以及部署前的生产检查。

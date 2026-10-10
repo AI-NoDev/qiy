@@ -16,6 +16,12 @@ bun run preview
 bun run db:generate
 ```
 
+Qiy generates environment files from the `.qiy` model under each app package. The server has `.env.development`, `.env.production`, and `.env.example`; the web package has the same modes for Vite. `dev:server`, `preview`, database generation/migration, and `start` explicitly load the matching server file. The generated development file contains local defaults and one-time random development secrets. Production secrets and required connection values are left blank for deployment configuration. The example files contain safe placeholders.
+
+Edit `apps/server/.env.development` for local database credentials, then run `bun run dev:server` and `bun run dev:web`. For containers, edit `apps/server/.env.production`; `docker compose up` loads that file and never reads or overwrites the host repository's root `.env`. Production migrations use `bun run --cwd apps/server db:migrate:production`. These mode-specific server env files are ignored by Git and Docker build context; do not commit them.
+
+Add application-specific variables to the `.qiy` model with `env { variable NAME { ... } }`. Qiy sync preserves existing values and custom variables while adding newly declared keys. See the generated `.env.example` files for the target admin's full variable list.
+
 Use `api { client graphql; }` in the source `.qiy` to select the GraphQL Refine DataProvider; the default is REST. The server exposes both `/api/v1/*` and `/graphql`. You can override the frontend selection at build time with `VITE_QIY_API_TRANSPORT=graphql`.
 
 The API serves the Refine SPA from the same origin by default, so CORS stays disabled. For a separately hosted frontend, configure `api { client rest; cors { origin "https://admin.example"; } }` in `.qiy`, repeating `origin` for each exact allowed origin. `QIY_CORS_ORIGINS` can replace that list per deployment with a comma-separated allowlist. The generated server uses Elysia's official CORS plugin only when the effective list is non-empty; do not use `*` for authenticated deployments.

@@ -4,6 +4,7 @@ import { generateProject } from "../generate-project";
 import { generatedPath, manifestFiles } from "../generated-paths";
 import { loadQiyProjectSource } from "../qiy-include";
 import { parseQiyProject, type QiyWorkspaceConfig } from "../qiy-project";
+import { prepareEnvironmentFile } from "../environment-files";
 
 export interface InitAppOptions {
   source: string;
@@ -80,6 +81,7 @@ function writePackageJson(root: string, packageJson: Record<string, unknown>, co
     [`${prefix}:test`]: `bun run --cwd apps/${config.server} test && bun run --cwd apps/${config.web} test`,
     [`${prefix}:db:generate`]: `bun run --cwd apps/${config.server} db:generate`,
     [`${prefix}:db:migrate`]: `bun run --cwd apps/${config.server} db:migrate`,
+    [`${prefix}:db:migrate:production`]: `bun run --cwd apps/${config.server} db:migrate:production`,
   };
   for (const [name, value] of Object.entries(additions)) {
     if (scripts[name] && scripts[name] !== value) throw new Error(`Cannot add ${name}: the host package.json already defines a different script.`);
@@ -147,6 +149,7 @@ export async function initApp(options: InitAppOptions): Promise<string> {
     dashboardMetrics: project.dashboardMetrics,
     storageProvider: project.storageProvider,
     auth: project.auth,
+    environment: project.environment,
     scopes: project.scopes,
     workflows: project.workflows,
   });
@@ -170,7 +173,10 @@ export async function initApp(options: InitAppOptions): Promise<string> {
   for (const [relativePath, content] of Object.entries(files)) {
     const target = generatedPath(root, relativePath);
     mkdirSync(dirname(target), { recursive: true });
-    await Bun.write(target, content);
+    const environmentMode = /\.env\.(development|production)$/.exec(relativePath);
+    const existingEnvironmentFile = environmentMode && options.sync && existsSync(target) ? readFileSync(target, "utf8") : undefined;
+    const outputContent = environmentMode ? prepareEnvironmentFile(content, existingEnvironmentFile) : content;
+    await Bun.write(target, outputContent);
   }
   writePackageJson(root, packageJson, config);
   const gitignorePath = resolve(root, ".gitignore");
@@ -180,12 +186,16 @@ export async function initApp(options: InitAppOptions): Promise<string> {
     `apps/${config.web}/build/`,
     `apps/${config.web}/.react-router/`,
     `apps/${config.server}/.env`,
+    `apps/${config.server}/.env.development`,
+    `apps/${config.server}/.env.production`,
     `apps/${config.server}/storage/`,
   ]));
   await Bun.write(dockerignorePath, mergedLines(existsSync(dockerignorePath) ? readFileSync(dockerignorePath, "utf8") : "", [
     `apps/${config.web}/build`,
     `apps/${config.web}/.react-router`,
     `apps/${config.server}/.env`,
+    `apps/${config.server}/.env.development`,
+    `apps/${config.server}/.env.production`,
     `apps/${config.server}/storage`,
   ]));
   await Bun.write(manifestPath, `${JSON.stringify({ files: Object.keys(files) }, null, 2)}\n`);

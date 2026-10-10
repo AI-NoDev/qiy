@@ -18,11 +18,22 @@ export interface QiyProject {
   };
   storageProvider?: "local" | "s3";
   auth?: { provider: "local" | "oidc" | "oauth2" | "sso"; userEntity: string; subjectField: string; roleField: string; usernameField?: string; passwordField?: string };
+  environment?: QiyEnvironmentVariable[];
   menuGroups?: Array<{ name: string; label: string; icon?: string; parent?: string; resources: string[] }>;
   dashboardMetrics?: Array<{ name: string; resource: string; label: string; icon?: string; span: 8 | 12 | 24; type?: "count" | "distribution" | "trend"; groupBy?: string; days?: number }>;
   scopes?: Array<{ resource: string; field: string; claim: string }>;
   workflows?: Array<"orderInventory">;
 }
+
+export interface QiyEnvironmentVariable {
+  name: string;
+  secret?: boolean;
+  development?: QiyEnvironmentValue;
+  production?: QiyEnvironmentValue;
+  example?: QiyEnvironmentValue;
+}
+
+export type QiyEnvironmentValue = { kind: "value"; value: string } | { kind: "required" | "generate" };
 
 export interface QiyWorkspaceConfig {
   name?: string;
@@ -467,6 +478,57 @@ export function parseQiyProject(input: string): QiyProject {
       ...(passwordField && { passwordField }),
     };
   }
+  let environment: QiyEnvironmentVariable[] | undefined;
+  if (peek() === "env") {
+    expect("env"); expect("{");
+    environment = [];
+    const names = new Set<string>();
+    while (peek() !== "}") {
+      expect("variable");
+      const variableName = identifier();
+      if (!/^[A-Z_][A-Z0-9_]*$/.test(variableName)) throw new Error(`Environment variable name must use uppercase letters, digits and underscores: ${variableName}`);
+      if (names.has(variableName)) throw new Error(`Duplicate environment variable ${variableName}`);
+      names.add(variableName);
+      expect("{");
+      const variable: QiyEnvironmentVariable = { name: variableName };
+      const modes = new Set<string>();
+      while (peek() !== "}") {
+        const key = identifier();
+        if (key === "secret") {
+          if (variable.secret) throw new Error(`Duplicate env ${variableName}.secret`);
+          variable.secret = true;
+          expect(";");
+          continue;
+        }
+        if (key !== "development" && key !== "production" && key !== "example") throw new Error(`Unsupported env mode ${key}`);
+        if (modes.has(key)) throw new Error(`Duplicate env ${variableName}.${key}`);
+        modes.add(key);
+        const token = peek();
+        let configuredValue: QiyEnvironmentValue;
+        if (token.startsWith("\"") || token.startsWith("'")) configuredValue = { kind: "value", value: value() };
+        else {
+          const kind = identifier();
+          if (kind !== "required" && kind !== "generate") throw new Error(`Expected a quoted value, required or generate for env ${variableName}.${key}`);
+          configuredValue = { kind };
+        }
+        if (configuredValue.kind === "generate" && (key !== "development" || !variable.secret)) {
+          throw new Error(`env ${variableName}: generate is only allowed for secret development values`);
+        }
+        variable[key] = configuredValue;
+        expect(";");
+      }
+      expect("}");
+      if (variable.secret && [variable.development, variable.production, variable.example].some((configuredValue) => configuredValue?.kind === "value")) {
+        throw new Error(`env ${variableName}: secret variables cannot contain literal values`);
+      }
+      if (variable.secret && variableName.startsWith("VITE_")) throw new Error(`env ${variableName}: frontend VITE_ variables cannot be secret`);
+      if (/(?:SECRET|TOKEN|PASSWORD|API_KEY|ACCESS_KEY)/.test(variableName) && !variable.secret) {
+        throw new Error(`env ${variableName}: mark credential-like values as secret`);
+      }
+      environment.push(variable);
+    }
+    expect("}");
+  }
   const workflows: NonNullable<QiyProject["workflows"]> = [];
   while (peek() === "workflow") {
     expect("workflow");
@@ -507,7 +569,7 @@ export function parseQiyProject(input: string): QiyProject {
   }
   expect("}");
   expect("<end>");
-  return { name: packageName, database: { dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}) }, ...(workspace && { workspace }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(auth && { auth }), ...(scopes.length ? { scopes } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(dashboardMetrics.length && { dashboardMetrics }) };
+  return { name: packageName, database: { dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}) }, ...(workspace && { workspace }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(auth && { auth }), ...(environment && { environment }), ...(scopes.length ? { scopes } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(dashboardMetrics.length && { dashboardMetrics }) };
 }
 
 function normalizePackageName(name: string): string {
@@ -598,6 +660,21 @@ export function serializeQiyProject(project: QiyProject): string {
     lines.push(`    roleField ${qiyIdentifier(project.auth.roleField, "Auth role field")};`);
     if (project.auth.usernameField) lines.push(`    usernameField ${qiyIdentifier(project.auth.usernameField, "Auth username field")};`);
     if (project.auth.passwordField) lines.push(`    passwordField ${qiyIdentifier(project.auth.passwordField, "Auth password field")};`);
+    lines.push("  }");
+  }
+  if (project.environment?.length) {
+    lines.push("  env {");
+    for (const variable of project.environment) {
+      lines.push(`    variable ${qiyIdentifier(variable.name, "Environment variable")} {`);
+      if (variable.secret) lines.push("      secret;");
+      for (const mode of ["development", "production", "example"] as const) {
+        const configuredValue = variable[mode];
+        if (!configuredValue) continue;
+        const formatted = configuredValue.kind === "value" ? qiyString(configuredValue.value) : configuredValue.kind;
+        lines.push(`      ${mode} ${formatted};`);
+      }
+      lines.push("    }");
+    }
     lines.push("  }");
   }
   for (const workflow of project.workflows ?? []) lines.push(`  workflow ${qiyIdentifier(workflow, "Workflow name")};`);

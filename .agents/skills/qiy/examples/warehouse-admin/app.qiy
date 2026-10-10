@@ -1,0 +1,18 @@
+qiy v0;
+
+application qiy-warehouse-admin {
+  database sqlite {}
+  workspace {
+    name warehouse-admin;
+    aliases {
+      server ops-api;
+      web ops-console;
+      deploy ops-admin;
+    }
+  }
+
+  include "modules/application-config.qiy";
+  include "modules/catalog.qiy";
+  include "modules/inventory.qiy";
+  include "modules/navigation.qiy";
+}

@@ -54,14 +54,14 @@ bun run preview
 以 PostgreSQL 为例：
 
 1. 由数据库管理员启用 `vector` 等扩展；
-2. 复制 `apps/server/.env.example` 为 `apps/server/.env` 并填写连接串；
+2. 编辑生成的 `apps/server/.env.development` 并填写本地连接串；生产配置写在 `apps/server/.env.production`，example 文件仅供字段参考；
 3. 生成并执行迁移；
 4. 分别启动 API 与前端。
 
 ```powershell
 cd apps/server
 cp .env.example .env
-# 编辑 .env 填写 DATABASE_URL
+# 编辑 .env.development 填写 DATABASE_URL
 cd ../..
 bun run db:migrate
 bun run dev:server
@@ -74,6 +74,8 @@ bun run dev:web
 ```
 
 正式 API 在未设置 `QIY_DEV_MODE=1` 时会拒绝启动，这是刻意保留的安全闸门。
+
+`qiy init` 将这些文件生成在 alias 对应的 `apps/<server>/` 和 `apps/<web>/` 目录，不会碰宿主项目根目录下已有的 `.env*` 文件。Docker Compose 使用当前 Admin 的 `apps/<server>/.env.production`；生产数据库迁移使用 `bun run --cwd apps/<server> db:migrate:production`。
 
 ## 试一个复杂例子
 

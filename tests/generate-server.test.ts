@@ -46,7 +46,7 @@ describe("V0 Elysia API generation", () => {
     expect(files["api/src/modules/products/products.routes.ts"]).toContain("repository.deleteMany");
     expect(files["api/src/modules/products/products.routes.ts"]).not.toContain("service.deleteMany");
     expect(files["api/src/server.ts"]).toContain('QIY_DEV_MODE !== "1"');
-    expect(files["api/src/server.ts"]).toContain('hostname: "127.0.0.1"');
+    expect(files["api/src/server.ts"]).toContain('hostname: Bun.env.HOST ?? "127.0.0.1"');
     expect(files["api/src/graphql.ts"]).toContain("withPaginationLimit(createProductsService(repositories.products))");
     expect(files["api/src/pagination.ts"]).toContain("pageSize > 100");
     expect(files["api/tests/pagination.test.ts"]).toContain("rejects page sizes above the API limit");

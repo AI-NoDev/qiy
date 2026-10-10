@@ -87,7 +87,7 @@ Elysia 官方 skill 用于 API、插件、GraphQL、部署和 Bun 集成：
 npx skills add AI-NoDev/qiy --skill qiy
 ```
 
-该 Skill 负责 `.qiy` 建模、`qiy create`/`qiy init` 选择、Bun workspace 集成、manifest 同步边界和生产验收判断；详细参考位于 `.agents/skills/qiy/references/`。
+该 Skill 面向 CLI 使用者，包含可直接照做的安装/生成/运行步骤、完整多文件仓储系统示例、`.qiy` 与 `include` 规则、现有 Bun workspace alias/Docker 集成、manifest 同步边界及生产检查；详细内容全部随 `.agents/skills/qiy/` 发布，不依赖仓库外文档。
 
 现有 Bun 项目的集成别名属于 `.qiy` 文件的 `workspace` 块，不再使用 `qiy.admin.config.ts` 等额外用户配置文件。
 

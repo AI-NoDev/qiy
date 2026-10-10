@@ -73,7 +73,7 @@ bun install
 bun run qiy:admin:typecheck
 ```
 
-Qiy 只拥有 `.qiy-admin.generated.json` 清单中的文件。后续使用 `qiy init ... --sync` 时，只更新清单内文件；手写的 `apps/ops-api/src/host-extension.ts`、hooks、plugins 和领域模块不会被删除或覆盖。
+Qiy 只拥有 `.qiy-admin.generated.json` 清单中的文件。后续使用 `qiy init ... --sync` 时，只更新清单内文件；手写的 `apps/ops-api/src/host-extension.ts`、hooks、plugins 和领域模块不会被删除或覆盖。环境文件也位于 alias 包内，如 `apps/ops-api/.env.development`、`apps/ops-api/.env.production` 和 `apps/ops-api/.env.example`；宿主根目录的 `.env*` 保持不变。
 
 ## 适用边界
 
@@ -186,7 +186,7 @@ bun run build
 bun run preview
 ```
 
-打开 `http://127.0.0.1:3000/products`：可看到产品列表和完整 CRUD，无需数据库，数据只在内存中。预览仅绑定本机，**不可部署到公网**。真数据库路径需要 PostgreSQL、预先由数据库管理员启用 `vector` 扩展、配置 `apps/server/.env`、运行 `bun run db:migrate`，之后启动 `bun run dev:server` 和 `bun run dev:web`。正式 API 在未设置 `QIY_DEV_MODE=1` 时拒绝启动；V0 尚未接入认证。
+打开 `http://127.0.0.1:3000/products`：可看到产品列表和完整 CRUD，无需数据库，数据只在内存中。预览仅绑定本机，**不可部署到公网**。真数据库路径需要 PostgreSQL、预先由数据库管理员启用 `vector` 扩展、在 server 包的 `.env.development` 配置数据库连接、运行迁移，之后启动 API 和前端。独立项目默认 server 路径为 `apps/server/`；`init` 集成项目使用配置的 alias，例如 `apps/ops-api/`。正式 API 在未设置 `QIY_DEV_MODE=1` 时拒绝启动。
 
 重新从 `.qiy` 生成到一个**新的空目录**：
 

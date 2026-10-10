@@ -39,7 +39,8 @@ describe("ERP Admin project", () => {
     expect(files["apps/server/package.json"]).toContain('"attachments:cleanup"');
     expect(files["deploy/kubernetes/deployment.yaml"]).toContain("persistentVolumeClaim:");
     expect(files["deploy/kubernetes/persistent-volume-claim.yaml"]).toContain("ReadWriteMany");
-    expect(files["docker-compose.yml"]).toContain("QIY_STORAGE_METADATA");
+    expect(files["docker-compose.yml"]).toContain("./apps/server/.env.production");
+    expect(files["apps/server/.env.production"]).toContain("QIY_STORAGE_METADATA=database");
     expect(files["apps/server/package.json"]).toContain('"attachments:cleanup"');
     expect(files["apps/server/src/workflows/allocation.ts"]).toContain("planInventoryAllocation");
     expect(files["apps/server/src/workflows/order.ts"]).toContain("orderReservations");
@@ -93,7 +94,7 @@ describe("ERP Admin project", () => {
     const project = parseQiyProject(source.replace("database postgresql {", "database sqlite {").replace("  workflow orderInventory;", ""));
     const files = generateProject(project.database, project.name, { dashboardMetrics: project.dashboardMetrics, scopes: project.scopes, workflows: project.workflows });
     const serverPackage = JSON.parse(files["apps/server/package.json"]!) as { scripts: Record<string, string> };
-    expect(serverPackage.scripts["db:migrate"]).toBe("bun src/migrate.ts");
+    expect(serverPackage.scripts["db:migrate"]).toBe("bun --env-file=.env.development src/migrate.ts");
     expect(files["apps/server/src/migrate.ts"]).toContain('from "drizzle-orm/bun-sqlite/migrator"');
     expect(files["apps/server/src/migrate.ts"]).toContain('migrationsFolder: resolve(import.meta.dir, "../drizzle")');
   });

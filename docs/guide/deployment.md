@@ -20,10 +20,18 @@ bun run docs:build
 
 ## Docker
 
+独立 `create` 项目的默认路径是 `apps/server/.env.production`。通过 `init` 集成到已有 Bun 项目时，路径使用 `.qiy` 中配置的 server alias，例如 `apps/ops-api/.env.production`。填写数据库、认证和存储配置；Compose 会加载对应 alias 下的生产环境文件，不依赖项目根目录 `.env`，也不会覆盖宿主项目的任何 `.env*` 文件。
+
 ```powershell
 cd out/erpadmin
 docker compose build
 docker compose up
+```
+
+生产环境数据库迁移：
+
+```powershell
+bun run --cwd apps/<server-alias> db:migrate:production
 ```
 
 ## Kubernetes

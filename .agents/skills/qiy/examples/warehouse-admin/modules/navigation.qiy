@@ -1,0 +1,13 @@
+menu {
+  group operations @label("Operations") @icon(AppstoreOutlined) {
+    resource movements;
+  }
+  group masterData @label("Master data") @icon(DatabaseOutlined) {
+    resource warehouses;
+    resource products;
+  }
+}
+
+dashboard {
+  metric movementCount movements @label("Movements") @icon(SwapOutlined) @span(8);
+}

@@ -1,0 +1,5 @@
+enum movementType {
+  value inbound label "Inbound" color "green" icon LoginOutlined;
+  value outbound label "Outbound" color "orange" icon LogoutOutlined;
+  value adjustment label "Adjustment" color "blue" icon SwapOutlined;
+}

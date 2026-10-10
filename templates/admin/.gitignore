@@ -3,4 +3,6 @@ node_modules/
 apps/web/build/
 apps/web/.react-router/
 apps/server/.env
+apps/server/.env.development
+apps/server/.env.production
 storage/
