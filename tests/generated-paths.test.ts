@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { generatedPath, manifestFiles } from "../tools/generated-paths";
+import { createGeneratedManifest, generatedPath, manifestFiles, readGeneratedManifest } from "../tools/generated-paths";
 
 test("generated paths reject traversal, aliases, and malformed manifests", () => {
   for (const path of ["../outside", "/outside", "C:/outside", "a/../outside", "a\\outside", "a//b", "a/./b", "a./b", "a /b", "a\0b", ""]) {
@@ -11,6 +11,15 @@ test("generated paths reject traversal, aliases, and malformed manifests", () =>
   for (const manifest of [null, {}, { files: "a" }, { files: [42] }]) {
     expect(() => manifestFiles(manifest)).toThrow("Invalid Qiy generated-file manifest");
   }
+});
+
+test("versioned manifests describe ownership and continue accepting legacy manifests", () => {
+  const current = createGeneratedManifest("warehouse-admin", "standalone", ["apps/web/app/root.tsx"]);
+  expect(current).toEqual({ schemaVersion: 1, qiyVersion: expect.any(String), projectName: "warehouse-admin", mode: "standalone", files: ["apps/web/app/root.tsx"] });
+  expect(readGeneratedManifest(current)).toEqual(current);
+  expect(readGeneratedManifest({ files: ["legacy.ts"] })).toEqual({ files: ["legacy.ts"] });
+  expect(() => readGeneratedManifest({ ...current, schemaVersion: 99 })).toThrow("Unsupported Qiy generated-file manifest schema");
+  expect(() => readGeneratedManifest({ ...current, mode: "unknown" })).toThrow("expected standalone or integration");
 });
 
 test("generated paths reject directory links and non-file targets", () => {

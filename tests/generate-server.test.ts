@@ -118,11 +118,12 @@ describe("V0 Elysia API generation", () => {
     const repository = files["api/src/modules/products/products.repository.ts"]!;
     const graphQL = files["api/src/graphql.ts"]!;
     expect(route).toContain("if (query.sort && !sortableFields.includes(query.sort)) return status(400");
-    expect(route).toContain("if (filters && Object.keys(filters).some((field) => !filterableFields.includes(field))) return status(400");
+    expect(route).toContain("if (filterClauses.some((filter) => !filterableFields.includes(filter.field))) return status(400");
+    expect(route).toContain("Unsupported filter operator");
     expect(routeTests).toContain("rejects sorting on disabled field title");
     expect(routeTests).toContain("rejects filtering on disabled field title");
     expect(repository).toContain('if (options.sort && !sortColumn) throw new Error("Unsupported sort field")');
-    expect(repository).toContain('if (filters.some(([field]) => !filterColumns[field])) throw new Error("Unsupported filter field")');
+    expect(repository).toContain('if (filters.some(({ field }) => !filterColumns[field])) throw new Error("Unsupported filter field")');
     expect(repository).not.toContain('"title": products.title');
     expect(graphQL).toContain('const sortableFields = ["id","price","embedding"] as string[]');
     expect(graphQL).toContain('const filterableFields = ["id","price","embedding"] as string[]');

@@ -26,6 +26,7 @@ test("expands nested application fragments before parsing and generation", async
 application modular-catalog {
   database sqlite {}
   // include "ignored.qiy";
+  # include "also-ignored.qiy"; } {
   include "modules/catalog.qiy";
 }`);
     testFixture.write("modules/catalog.qiy", `include "shared/status.qiy";

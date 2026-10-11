@@ -60,8 +60,7 @@ bun run preview
 
 ```powershell
 cd apps/server
-cp .env.example .env
-# 编辑 .env.development 填写 DATABASE_URL
+# 编辑已生成的 .env.development，填写 DATABASE_URL 和当前模型要求的变量
 cd ../..
 bun run db:migrate
 bun run dev:server

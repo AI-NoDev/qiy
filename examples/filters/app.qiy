@@ -1,0 +1,19 @@
+qiy v0;
+
+application qiy-filter-demo {
+  database sqlite {}
+
+  enum productStatus {
+    value draft label "Draft" color default;
+    value active label "Active" color green;
+    value archived label "Archived" color red;
+  }
+
+  entity products @label("Products") @icon(AppstoreOutlined) {
+    field id UUID @id;
+    field name Text @label("Name") @filter(contains,startsWith,endsWith,eq);
+    field status productStatus @label("Status") @filter(eq,in);
+    field amount Integer @label("Amount") @filter(eq,gte,lte,between,in);
+    field createdAt DateTime @label("Created") @filter(gte,lte,between);
+  }
+}

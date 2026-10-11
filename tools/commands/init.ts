@@ -1,10 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { generateProject } from "../generate-project";
-import { generatedPath, manifestFiles } from "../generated-paths";
+import { createGeneratedManifest, generatedPath, readGeneratedManifest } from "../generated-paths";
 import { loadQiyProjectSource } from "../qiy-include";
 import { parseQiyProject, type QiyWorkspaceConfig } from "../qiy-project";
 import { prepareEnvironmentFile } from "../environment-files";
+import { generatedWiki } from "../generated-wiki";
 
 export interface InitAppOptions {
   source: string;
@@ -63,7 +64,7 @@ function workspacePatterns(packageJson: Record<string, unknown>): string[] {
   return [];
 }
 
-function writePackageJson(root: string, packageJson: Record<string, unknown>, config: ResolvedInitConfig): void {
+function writePackageJson(root: string, packageJson: Record<string, unknown>, config: ResolvedInitConfig, integration: boolean): void {
   const patterns = workspacePatterns(packageJson);
   if (!patterns.includes("apps/*")) patterns.push("apps/*");
   if (packageJson.workspaces && typeof packageJson.workspaces === "object" && !Array.isArray(packageJson.workspaces)) {
@@ -73,7 +74,12 @@ function writePackageJson(root: string, packageJson: Record<string, unknown>, co
   }
   const scripts = (packageJson.scripts && typeof packageJson.scripts === "object" ? packageJson.scripts : {}) as Record<string, string>;
   const prefix = `qiy:${config.name}`;
-  const additions: Record<string, string> = {
+  const additions: Record<string, string> = integration ? {
+    [`${prefix}:dev:web`]: `bun run --cwd apps/${config.web} --bun dev`,
+    [`${prefix}:build`]: `bun run --cwd apps/${config.web} build`,
+    [`${prefix}:typecheck`]: `bun run --cwd apps/${config.web} typecheck`,
+    [`${prefix}:test`]: `bun run --cwd apps/${config.web} test`,
+  } : {
     [`${prefix}:dev:server`]: `bun run --cwd apps/${config.server} dev`,
     [`${prefix}:dev:web`]: `bun run --cwd apps/${config.web} --bun dev`,
     [`${prefix}:preview`]: `bun run --cwd apps/${config.server} preview`,
@@ -118,7 +124,8 @@ function rewriteFile(path: string, content: string, config: ResolvedInitConfig):
     nextContent = nextContent
       .replaceAll("apps/web", `apps/${config.web}`)
       .replaceAll("apps/server", `apps/${config.server}`)
-      .replace("COPY package.json bun.lock turbo.json ./", "COPY package.json bun.lock ./");
+      .replace("COPY package.json turbo.json ./", "COPY package.json bun.lock ./")
+      .replace("RUN bun install", "RUN bun install --frozen-lockfile");
   } else if (path === "docker-compose.yml") {
     nextPath = `docker-compose.${config.deploy}.yml`;
     nextContent = nextContent.replace(/^  qiy:/m, `  ${config.deploy}:`).replaceAll("qiy-storage", `${config.deploy}-storage`);
@@ -142,6 +149,12 @@ export async function initApp(options: InitAppOptions): Promise<string> {
   const project = parseQiyProject(await loadQiyProjectSource(resolve(root, options.source)));
   const config = resolveConfig(project.name, project.workspace, options.name);
   const generated = generateProject(project.database, config.name, {
+    mode: project.mode,
+    integration: project.integration,
+    ui: project.ui,
+    dataflows: project.dataflows,
+    messages: project.messages,
+    actions: project.actions,
     apiClient: project.apiClient,
     elysiaPlugins: project.elysiaPlugins,
     corsOrigins: project.corsOrigins,
@@ -157,10 +170,13 @@ export async function initApp(options: InitAppOptions): Promise<string> {
     const rewritten = rewriteFile(path, content, config);
     return rewritten ? [rewritten] : [];
   }));
+  Object.assign(files, generatedWiki(files, config.name, options.source, true));
   const manifestPath = generatedPath(root, manifestName(config));
-  const previous = existsSync(manifestPath) ? manifestFiles(JSON.parse(readFileSync(manifestPath, "utf8"))) : [];
+  const previous = existsSync(manifestPath) ? readGeneratedManifest(JSON.parse(readFileSync(manifestPath, "utf8"))).files : [];
   const owned = new Set(previous);
+  const unowned = new Set(Object.keys(files).filter((path) => path.startsWith(`apps/${config.web}/app/host/`) || path.startsWith(`apps/${config.web}/app/extensions/`) || path === `apps/${config.web}/QIY_INTEGRATION.md` || path === `apps/${config.web}/AGENTS.md` || path === `apps/${config.web}/AGENT.MD`));
   for (const relativePath of Object.keys(files)) {
+    if (unowned.has(relativePath)) continue;
     const target = generatedPath(root, relativePath);
     if (existsSync(target) && (!options.sync || !owned.has(relativePath))) throw new Error(`Refusing to overwrite existing host file: ${relative(root, target)}. Use a unique alias or move the file first.`);
   }
@@ -172,33 +188,32 @@ export async function initApp(options: InitAppOptions): Promise<string> {
   }
   for (const [relativePath, content] of Object.entries(files)) {
     const target = generatedPath(root, relativePath);
+    if (unowned.has(relativePath) && existsSync(target)) continue;
     mkdirSync(dirname(target), { recursive: true });
     const environmentMode = /\.env\.(development|production)$/.exec(relativePath);
     const existingEnvironmentFile = environmentMode && options.sync && existsSync(target) ? readFileSync(target, "utf8") : undefined;
     const outputContent = environmentMode ? prepareEnvironmentFile(content, existingEnvironmentFile) : content;
     await Bun.write(target, outputContent);
   }
-  writePackageJson(root, packageJson, config);
+  writePackageJson(root, packageJson, config, project.mode === "integration");
   const gitignorePath = resolve(root, ".gitignore");
   const dockerignorePath = resolve(root, ".dockerignore");
+  const integration = project.mode === "integration";
   await Bun.write(gitignorePath, mergedLines(existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf8") : "", [
     `.qiy-${config.name}.generated.json`,
     `apps/${config.web}/build/`,
     `apps/${config.web}/.react-router/`,
-    `apps/${config.server}/.env`,
-    `apps/${config.server}/.env.development`,
-    `apps/${config.server}/.env.production`,
-    `apps/${config.server}/storage/`,
+    ...(integration ? [] : [`apps/${config.server}/.env`, `apps/${config.server}/.env.development`, `apps/${config.server}/.env.production`, `apps/${config.server}/storage/`]),
   ]));
   await Bun.write(dockerignorePath, mergedLines(existsSync(dockerignorePath) ? readFileSync(dockerignorePath, "utf8") : "", [
     `apps/${config.web}/build`,
     `apps/${config.web}/.react-router`,
-    `apps/${config.server}/.env`,
-    `apps/${config.server}/.env.development`,
-    `apps/${config.server}/.env.production`,
-    `apps/${config.server}/storage`,
+    ...(integration ? [] : [`apps/${config.server}/.env`, `apps/${config.server}/.env.development`, `apps/${config.server}/.env.production`, `apps/${config.server}/storage`]),
   ]));
-  await Bun.write(manifestPath, `${JSON.stringify({ files: Object.keys(files) }, null, 2)}\n`);
-  console.log(`Mounted Qiy admin ${config.name} in ${root} (apps/${config.server}, apps/${config.web}).`);
+  const ownedFiles = Object.keys(files).filter((path) => !unowned.has(path));
+  await Bun.write(manifestPath, `${JSON.stringify(createGeneratedManifest(config.name, integration ? "integration" : "standalone", ownedFiles), null, 2)}\n`);
+  console.log(integration
+    ? `Mounted Qiy integration admin ${config.name} in ${root} (apps/${config.web}).`
+    : `Mounted Qiy admin ${config.name} in ${root} (apps/${config.server}, apps/${config.web}).`);
   return root;
 }

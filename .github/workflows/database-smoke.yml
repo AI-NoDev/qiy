@@ -1,0 +1,81 @@
+name: Verify generated database Dataflow
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/**"
+      - "templates/admin/**"
+      - "examples/dataflow/**"
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/database-smoke.yml"
+  pull_request:
+    paths:
+      - "tools/**"
+      - "templates/admin/**"
+      - "examples/dataflow/**"
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/database-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-dataflow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: qiy_test
+          POSTGRES_PASSWORD: isolated-ci-test-only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U qiy_test -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - name: Install generator dependencies
+        run: bun install --frozen-lockfile
+      - name: Verify migration, concurrent commands and cross-table rollback
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: bun tools/verify-postgres-dataflow.ts "$POSTGRES_CONTAINER"
+
+  mysql-dataflow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: isolated-ci-test-only
+        ports:
+          - 3306/tcp
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - name: Install generator dependencies
+        run: bun install --frozen-lockfile
+      - name: Verify MySQL migration, concurrent commands and cross-table rollback
+        env:
+          MYSQL_CONTAINER: ${{ job.services.mysql.id }}
+        run: bun tools/verify-mysql-dataflow.ts "$MYSQL_CONTAINER"

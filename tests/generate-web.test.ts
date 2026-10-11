@@ -10,7 +10,9 @@ describe("Refine SPA generation", () => {
     expect(files["web/react-router.config.ts"]).toContain("ssr: false");
     expect(files["web/app/routes.ts"]).toContain('route(\":resource/:id/edit\"');
     expect(files["web/app/root.tsx"]).toContain("ThemedLayout");
-    expect(files["web/app/root.tsx"]).toContain("ConfigProvider");
+    expect(files["web/app/root.tsx"]).toContain("QiyUiProvider");
+    expect(files["web/app/ui/index.tsx"]).toContain("ConfigProvider");
+    expect(files["web/app/ui/index.tsx"]).toContain("QiyThemeControls");
     expect(files["web/app/root.tsx"]).toContain("meta: { label: resource.label, icon: resolveResourceIcon(resource.icon)");
     expect(files["web/app/data-provider.ts"]).toContain('const api = \"/api/v1\"');
     expect(files["web/package.json"]).toContain("@refinedev/antd");
@@ -23,7 +25,8 @@ describe("Refine SPA generation", () => {
     expect(files["web/app/routes/list.tsx"]).toContain("batchDelete");
     expect(files["web/app/routes/list.tsx"]).toContain('pageSizeOptions: ["10", "20", "50", "100"]');
     expect(files["web/app/routes/list.tsx"]).toContain("visibleColumns");
-    expect(files["web/app/routes/list.tsx"]).toContain('CanAccess resource={resource.name} action="create"');
+    expect(files["web/app/routes/list.tsx"]).toContain('<CreateButton resource={resource.name}>');
+    expect(files["web/app/routes/list.tsx"]).toContain('<DeleteButton resource={resource.name}');
     expect(files["web/app/routes/list.tsx"]).toContain('useCan({ resource: name ?? "", action: "delete"');
     expect(files["web/app/routes/create.tsx"]).toContain('action="create"');
     expect(files["web/app/routes/edit.tsx"]).toContain('action="edit"');

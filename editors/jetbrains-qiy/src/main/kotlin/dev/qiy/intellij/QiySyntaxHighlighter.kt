@@ -63,8 +63,8 @@ private class QiyLexer : LexerBase() {
             tokenType = null
             return
         }
-        if (current == '/' && tokenStart + 1 < endOffset && buffer[tokenStart + 1] == '/') {
-            tokenEnd = tokenStart + 2
+        if (current == '#' || (current == '/' && tokenStart + 1 < endOffset && buffer[tokenStart + 1] == '/')) {
+            tokenEnd = tokenStart + if (current == '#') 1 else 2
             while (tokenEnd < endOffset && buffer[tokenEnd] != '\n') tokenEnd += 1
             tokenType = QiyTokens.COMMENT
             return
@@ -111,7 +111,7 @@ private class QiyLexer : LexerBase() {
     }
 
     private companion object {
-        val KEYWORDS = setOf("qiy", "v0", "application", "include", "database", "extension", "api", "client", "cors", "origin", "elysia", "bearer", "serverTiming", "graphqlAdapter", "adapter", "cron", "job", "pattern", "task", "jwt", "secretEnv", "static", "assets", "prefix", "html", "drizzle", "storage", "provider", "auth", "user", "subjectField", "roleField", "usernameField", "passwordField", "workflow", "enum", "value", "label", "color", "icon", "entity", "table", "field", "index", "relation", "scope", "claim", "menu", "group", "resource", "dashboard", "metric")
+        val KEYWORDS = setOf("qiy", "v0", "application", "include", "database", "extension", "api", "client", "cors", "origin", "elysia", "bearer", "serverTiming", "graphqlAdapter", "adapter", "cron", "job", "pattern", "task", "jwt", "secretEnv", "static", "assets", "prefix", "html", "drizzle", "storage", "provider", "auth", "user", "subjectField", "roleField", "usernameField", "passwordField", "workflow", "enum", "value", "label", "color", "icon", "entity", "table", "field", "index", "relation", "scope", "claim", "menu", "group", "resource", "dashboard", "metric", "workspace", "name", "aliases", "packages", "ui", "library", "theme", "themes", "colorMode", "allowThemeSwitch", "allowColorModeSwitch", "light", "dark", "system", "mode", "integration", "apiBase", "csrfCookie", "csrfHeader", "env", "variable", "secret", "development", "production", "example", "generate", "messages", "default", "locale", "t", "dataflow", "idempotency", "required", "audit", "allow", "roles", "input", "context", "by", "step", "require", "update", "result", "return", "action", "navigate", "placement", "page")
         val TYPES = setOf("UUID", "Text", "Integer", "Decimal", "Money", "DateTime", "File", "Vector", "postgresql", "mysql", "sqlite", "pgvector", "postgis", "btree", "hnsw", "ivfflat", "true", "false", "local", "s3", "oidc", "oauth2", "sso", "rest", "graphql", "native", "yoga", "apollo", "one", "many", "restrict", "cascade", "setNull", "count", "distribution", "trend")
     }
 }

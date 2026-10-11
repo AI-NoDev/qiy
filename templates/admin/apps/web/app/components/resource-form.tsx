@@ -1,6 +1,5 @@
-import { useForm, useSelect } from "@refinedev/antd";
-import { Alert, Button, Card, Form, Input, InputNumber, Select, Space, Upload } from "antd";
-import { Link } from "react-router";
+import { Create, Edit, useForm, useSelect } from "@refinedev/antd";
+import { Alert, Button, Form, Input, InputNumber, Select, Space, Upload } from "antd";
 import type { ResourceDefinition, ResourceEnumValue, ResourceField } from "../resources";
 import { qiyIcons } from "../icons";
 import { useTranslation } from "@refinedev/core";
@@ -40,13 +39,15 @@ function FileInput({ name, resource, resourceId }: { name: string; resource: str
 
 export function ResourceForm({ resource, id }: { resource: ResourceDefinition; id?: string }) {
   const fields = resource.fields.filter((field) => field.formVisible && !field.primaryKey && field.type !== "Vector");
-  const { getLocale } = useTranslation(); const locale: QiyLocale = getLocale() === "en-US" ? "en-US" : "zh-CN";
+  const { getLocale, translate } = useTranslation(); const locale: QiyLocale = getLocale() === "en-US" ? "en-US" : "zh-CN";
   const { formProps, saveButtonProps, query, onFinish } = useForm<Record<string, unknown>>({ resource: resource.name, id, action: id ? "edit" : "create", redirect: "list" });
-  return <Card title={`${id ? t(locale, "edit") : t(locale, "new")} ${resource.label}`}>
+  const content = <>
     {query?.isError && <Alert type="error" showIcon message={String(query.error)} />}
     <Form {...formProps} layout="vertical" style={{ maxWidth: 720 }} onFinish={(values) => { const record = values as Record<string, unknown>; return onFinish(Object.fromEntries(fields.flatMap((field) => { const value = record[field.name]; return (value === undefined || value === "") && field.nullable ? [] : [[field.name, field.type === "Integer" ? Number(value) : value]]; }))); }}>
-      {fields.map((field) => <Form.Item key={field.name} name={field.name} label={field.label} rules={[{ required: !field.nullable }]}>{field.type === "File" ? <FileInput name={field.name} resource={resource.name} resourceId={id} /> : field.relation ? <RelationSelect relation={field.relation} /> : field.enumValues ? <Select options={field.enumValues.map((item) => ({ value: item.name, label: <EnumLabel item={item} /> }))} /> : field.type === "Integer" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>)}
-      <Space><Button {...saveButtonProps} type="primary">{t(locale, "save")}</Button><Link to={`/${resource.name}`}><Button>{t(locale, "cancel")}</Button></Link></Space>
+      {fields.map((field) => <Form.Item key={field.name} name={field.name} label={field.label} tooltip={field.commentKey ? translate(field.commentKey, {}, field.comment) : field.comment} rules={[{ required: !field.nullable }]}>{field.type === "File" ? <FileInput name={field.name} resource={resource.name} resourceId={id} /> : field.relation ? <RelationSelect relation={field.relation} /> : field.enumValues ? <Select options={field.enumValues.map((item) => ({ value: item.name, label: <EnumLabel item={item} /> }))} /> : field.type === "Integer" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>)}
     </Form>
-  </Card>;
+  </>;
+  return id
+    ? <Edit resource={resource.name} recordItemId={id} title={`${t(locale, "edit")} ${resource.label}`} saveButtonProps={saveButtonProps}>{content}</Edit>
+    : <Create resource={resource.name} title={`${t(locale, "new")} ${resource.label}`} saveButtonProps={saveButtonProps}>{content}</Create>;
 }

@@ -1,0 +1,53 @@
+qiy v0;
+application documented-reviews {
+  database sqlite {}
+  messages {
+    default "en-US";
+    locale "en-US" {
+      "entity.reviews" "Review requests";
+      "entity.reviews.note" "Explain the review decision";
+      "review.context" "Load the requested review";
+      "review.step" "Persist the decision explanation";
+    }
+    locale "zh-CN" {
+      "entity.reviews" "审核申请";
+      "entity.reviews.note" "请说明审核决定";
+      "review.context" "加载待审核记录";
+      "review.step" "保存审核说明";
+    }
+  }
+  entity reviews @comment(t("entity.reviews")) {
+    field id UUID @id @comment("Review identifier");
+    field note Text @comment(t("entity.reviews.note"));
+    field detail Text @nullable @comment("Optional supporting evidence");
+    index byNote btree (note) @comment("Lookup by review explanation");
+  }
+  dataflow explainReview {
+    idempotency required;
+    audit "review.explained";
+    input {
+      field reviewId UUID @required;
+      field explanation Text @required @comment(t("entity.reviews.note"));
+    }
+    context {
+      review = entity reviews by id input.reviewId @required @comment(t("review.context"));
+    }
+    step explain @comment(t("review.step")) {
+      update review { note = input.explanation; }
+    }
+    result { return review; }
+  }
+  action explainReview {
+    resource reviews;
+    dataflow explainReview;
+    placement list, show;
+    label "Explain review";
+  }
+  action reviewDetails {
+    resource reviews;
+    navigate "/reviews/:id/explanation";
+    placement show;
+    label "Review details";
+    page manual @comment(t("entity.reviews.note"));
+  }
+}

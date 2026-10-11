@@ -12,12 +12,13 @@ function urlFor(resource: string, id?: string | number): string {
   return id === undefined ? base : `${base}/${encodeURIComponent(String(id))}`;
 }
 
-async function workflowCommand(fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>, url: string, method: string, meta?: Record<string, unknown>) {
+async function workflowCommand(fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>, url: string, method: string, payload?: unknown, meta?: Record<string, unknown>) {
   if (method !== "post" || !/^\/api\/v1\/orders\/[0-9a-f-]{36}\/(submit|approve|ship|cancel)$/.test(url) || !allowed.has("orders")) throw new Error("Unknown workflow command");
   const idempotencyKey = meta?.idempotencyKey;
-  const response = await fetcher(url, { method: "POST", headers: { ...authHeaders(), ...(typeof idempotencyKey === "string" ? { "idempotency-key": idempotencyKey } : {}) } });
+  const isDataflow = dataflowCommands.has(url);
+  const response = await fetcher(url, { method: "POST", headers: { ...authHeaders(), ...(isDataflow ? { "Content-Type": "application/json" } : {}), ...(typeof idempotencyKey === "string" ? { "idempotency-key": idempotencyKey } : {}) }, ...(isDataflow ? { body: JSON.stringify(payload ?? {}) } : {}) });
   const data = await response.json();
-  if (!response.ok) throw new Error(typeof data?.error === "string" ? data.error : `API error ${response.status}`);
+  if (!response.ok) throw Object.assign(new Error(typeof data?.error === "string" ? data.error : `API error ${response.status}`), { statusCode: response.status });
   return { data };
 }
 
@@ -25,14 +26,14 @@ export function createDataProvider(fetcher: QiyFetcher = fetch): DataProvider {
   async function request(url: string, init?: RequestInit): Promise<unknown> {
     const response = await fetcher(url, { ...init, headers: { ...authHeaders(), ...(init?.headers ?? {}) } });
     const content = await response.json();
-    if (!response.ok) throw new Error(typeof content?.error === "string" ? content.error : `API error ${response.status}`);
+    if (!response.ok) throw Object.assign(new Error(typeof content?.error === "string" ? content.error : `API error ${response.status}`), { statusCode: response.status });
     return content;
   }
 
   return {
     getApiUrl: () => api,
-    custom: async ({ url, method, query, meta }) => {
-      if (method === "post") return workflowCommand(fetcher, url, method, meta);
+    custom: async ({ url, method, query, payload, meta }) => {
+      if (method === "post") return workflowCommand(fetcher, url, method, payload, meta);
       const match = /^\/api\/v1\/([a-z][a-z0-9_-]*)\/(distribution|trend)$/.exec(url);
       if (method !== "get" || !match || !allowed.has(match[1]!)) throw new Error("Unknown analytics resource");
       const resource = resources.find((item) => item.name === match[1]);
@@ -87,15 +88,15 @@ function selectionFor(resource: string): string {
 async function graphqlRequest(fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>, query: string, variables?: Record<string, unknown>): Promise<any> {
   const response = await fetcher("/graphql", { method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ query, variables }) });
   const payload = await response.json() as { data?: any; errors?: Array<{ message?: string }> };
-  if (!response.ok || payload.errors?.length) throw new Error(payload.errors?.map((error) => error.message ?? "GraphQL error").join("; ") ?? `API error ${response.status}`);
+  if (!response.ok || payload.errors?.length) throw Object.assign(new Error(payload.errors?.map((error) => error.message ?? "GraphQL error").join("; ") ?? `API error ${response.status}`), { statusCode: response.ok ? 400 : response.status });
   return payload.data;
 }
 
 export function createGraphQLDataProvider(fetcher: QiyFetcher = fetch): DataProvider {
   return {
     getApiUrl: () => "/graphql",
-    custom: async ({ url, method, query, meta }) => {
-      if (method === "post") return workflowCommand(fetcher, url, method, meta);
+    custom: async ({ url, method, query, payload, meta }) => {
+      if (method === "post") return workflowCommand(fetcher, url, method, payload, meta);
       const match = /^\/api\/v1\/([a-z][a-z0-9_-]*)\/(distribution|trend)$/.exec(url);
       const resource = resources.find((item) => item.name === match?.[1]);
       const field = (query as { field?: string } | undefined)?.field;

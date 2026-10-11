@@ -1,0 +1,32 @@
+qiy v0;
+
+application guarded-inventory-admin {
+  database sqlite {}
+  entity inventory {
+    field id UUID @id;
+    field status Text;
+    field quantity Integer;
+  }
+  dataflow adjustQuantity {
+    idempotency required;
+    audit "inventory.quantityAdjusted";
+    input {
+      field inventoryId UUID @required;
+      field quantity Integer @required @comment("Replacement stock quantity, between 100 and 200 inclusive");
+    }
+    context {
+      item = entity inventory by id input.inventoryId @required;
+    }
+    step validate {
+      require input.quantity >= 100 @error("inventory.quantityTooLow");
+      require input.quantity <= 200 @error("inventory.quantityTooHigh");
+      require item.quantity >= 0 @error("inventory.corruptStock");
+      require item.quantity != 7 @error("inventory.lockedStock");
+    }
+    step adjust {
+      update item { quantity = input.quantity; }
+      require item.quantity >= 100 @error("inventory.invalidUpdatedStock");
+    }
+    result { return item; }
+  }
+}

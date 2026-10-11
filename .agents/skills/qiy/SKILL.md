@@ -24,6 +24,10 @@ For a first-time user, prefer the warehouse example over inventing a model from 
 
 ## First run
 
+The CLI can install this complete official Skill offline: run `qiy skill install` from the user's project directory. It writes `.agent/skills/qiy/SKILL.md`, references and the full modular example. Repeating installation preserves unrelated files and refuses changed official files; `qiy skill install --force` explicitly replaces those files. Some AI tools use different discovery directories; configure the tool to discover `.agent/skills` when needed.
+
+Generated projects include OpenWiki documentation and an `AGENTS.md` entrypoint, with `AGENT.MD` as a compatibility pointer. Standalone projects place them at the root; `init` places the agent entrypoints in the generated Web package and documentation in `openwiki/qiy-<admin-name>/`, preserving host instructions. Read the generated quickstart before changing application code; it lists the actual package paths and scripts, including aliases. These files describe generated capabilities, not production validation.
+
 1. Check that Qiy is installed with `qiy --version` and inspect supported commands with `qiy --help`. Installing this Skill does not install the Qiy CLI.
 2. If the CLI is missing, download the matching Windows, Linux, or macOS executable from the [Qiy GitHub Releases](https://github.com/AI-NoDev/qiy/releases), make it available on `PATH`, and retry. For a Bun project checkout, `bun run qiy -- --help` runs the local CLI.
 3. Generate, install dependencies, and run the generated project using the workflow in [CLI workflows](references/cli-workflows.md).
@@ -47,11 +51,49 @@ Use this map as orientation, then inspect the actual generated tree because enab
 
 - Add a table or field: edit the `.qiy` model, regenerate/sync, review the database migration, then update application-specific validation and tests.
 - Change menu or field presentation: edit `menu`, `dashboard`, entity/field annotations, then regenerate.
+- Add an explicit business operation: define the server transaction with `dataflow`, then expose it with an `action` using `placement list, show`. Qiy injects the current record id and generates inputs for remaining required command fields.
+- Add a complex non-CRUD page: define an `action` with `navigate` and `page manual @comment(...)`, then implement the preserved file under `apps/<web-alias>/app/extensions/`. Qiy does not overwrite extension files during `create --sync` or `init --sync`.
 - Connect a real database: set `DATABASE_URL`, generate and review migrations, apply them in the target environment, and test rollback/backup procedures.
 - Connect an existing API or identity system: use an explicit adapter for its routes, response envelope, token/cookie rules, claims and authorization. CORS alone does not adapt API contracts.
 - Deploy: choose the generated target as a starting point; configure secrets, TLS, health checks, durable storage, backups, observability and rollback for the actual platform.
 
 Generated CRUD does not infer domain workflows such as approvals, synchronization queues, connector authorization or audit policy. Put those rules in server-side domain services and test them independently.
+
+## Business action example
+
+```qiy
+dataflow revokeConnector {
+  input {
+    field connectorId UUID @required;
+    field reason Text @required @comment("Reason supplied by the operator");
+  }
+  context {
+    connector = entity connectors by id input.connectorId @required;
+  }
+  step revoke {
+    update connector { status = "revoked"; }
+  }
+  result { return connector; }
+}
+
+action revokeConnector {
+  resource connectors;
+  dataflow revokeConnector;
+  placement list, show;
+  label "Revoke";
+  confirm "Continue?";
+}
+
+action reviewConnector {
+  resource connectors;
+  navigate "/connectors/:id/review";
+  placement list, show;
+  label "Review";
+  page manual @comment("Implement the review workflow here");
+}
+```
+
+Dataflow actions are fail-closed: the generated DataProvider only posts to declared command URLs. Navigation actions require an absolute safe route containing `:id`. Keep authorization and state changes on the server even when a generated button is hidden by Refine access control.
 
 ## References
 

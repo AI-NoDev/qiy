@@ -13,7 +13,7 @@ Use this checklist when a user asks whether a generated project is ready to depl
 Before a real deployment, verify:
 
 1. Database dialect, migrations, indexes, transactions, rollback, and concurrency.
-2. The actual OIDC/OAuth2/enterprise SSO issuer, JWKS rotation, claims mapping, session policy, roles, and tenant authorization.
+2. The actual Okta/Auth0/Azure AD B2C/Keycloak/Google/Kinde or generic OIDC issuer, PKCE redirect/logout allowlists, JWKS rotation, claims mapping, session policy, roles, and tenant authorization. For OTP, verify the email/SMS adapter, rate limits, replay resistance and provider failure behavior.
 3. S3-compatible uploads, signed reads, ownership checks, orphan cleanup, retention, and failure recovery.
 4. The generated API contract against the real frontend and any host-system adapters.
 5. Docker/Kubernetes/serverless health checks, secrets, logging, metrics, backups, and SPA/API proxy routing.

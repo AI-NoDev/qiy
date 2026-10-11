@@ -1,0 +1,38 @@
+qiy v0;
+
+application international-admin {
+  database sqlite {}
+  messages {
+    default "fr-FR";
+    locale "fr-FR" {
+      "product.description" "Description du produit";
+      "qiy.new" "Nouveau";
+      "qiy.edit" "Modifier";
+      "buttons.save" "Enregistrer";
+      "product.defaultOnly" "Texte par défaut";
+      "product.greeting" "Bonjour {{name}}";
+      "product.items_one" "{{count}} produit";
+      "product.items_other" "{{count}} produits";
+    }
+    locale "en-US" {
+      "product.description" "Product description";
+      "qiy.new" "New";
+      "product.items_one" "{{count}} product";
+      "product.items_other" "{{count}} products";
+    }
+    locale "ja-JP" {
+      "product.description" "商品の説明";
+      "qiy.new" "新規作成";
+      "buttons.save" "保存";
+    }
+    locale "ar-EG" {
+      "product.description" "وصف المنتج";
+      "qiy.new" "جديد";
+      "buttons.save" "حفظ";
+    }
+  }
+  entity products @comment("International product catalog") {
+    field id UUID @id;
+    field description Text @comment(t("product.description"));
+  }
+}

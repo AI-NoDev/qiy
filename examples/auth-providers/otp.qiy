@@ -1,0 +1,30 @@
+qiy v0;
+
+application qiy-otp-admin {
+  database sqlite {}
+
+  auth {
+    provider otp;
+    user users;
+    usernameField email;
+    roleField role;
+  }
+
+  enum role {
+    value admin;
+    value operator;
+    value viewer;
+  }
+
+  entity users @label("Users") @icon(UserOutlined) {
+    field id UUID @id;
+    field email Text @unique;
+    field displayName Text;
+    field role role;
+  }
+
+  entity tickets @label("Tickets") @icon(AppstoreOutlined) {
+    field id UUID @id;
+    field title Text @filter(eq,contains,startsWith);
+  }
+}

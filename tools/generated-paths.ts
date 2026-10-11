@@ -1,5 +1,23 @@
 import { lstatSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import packageMetadata from "../package.json" with { type: "json" };
+
+declare const __QIY_VERSION__: string;
+
+export const GENERATED_MANIFEST_SCHEMA_VERSION = 1;
+export const QIY_VERSION = typeof __QIY_VERSION__ === "string" ? __QIY_VERSION__ : packageMetadata.version;
+
+export interface GeneratedManifest {
+  schemaVersion: number;
+  qiyVersion: string;
+  projectName: string;
+  mode: "standalone" | "integration";
+  files: string[];
+}
+
+export function createGeneratedManifest(projectName: string, mode: GeneratedManifest["mode"], files: string[]): GeneratedManifest {
+  return { schemaVersion: GENERATED_MANIFEST_SCHEMA_VERSION, qiyVersion: QIY_VERSION, projectName, mode, files };
+}
 
 export function generatedPath(output: string, relativePath: string): string {
   if (!relativePath || relativePath.includes("\\") || relativePath.includes(":") || relativePath.includes("\0") || relativePath.startsWith("/")) {
@@ -28,4 +46,15 @@ export function manifestFiles(value: unknown): string[] {
     throw new Error("Invalid Qiy generated-file manifest: expected a files array of strings");
   }
   return value.files;
+}
+
+export function readGeneratedManifest(value: unknown): GeneratedManifest | { files: string[] } {
+  const files = manifestFiles(value);
+  if (!("schemaVersion" in (value as object))) return { files };
+  const manifest = value as Partial<GeneratedManifest>;
+  if (manifest.schemaVersion !== GENERATED_MANIFEST_SCHEMA_VERSION) throw new Error(`Unsupported Qiy generated-file manifest schema: ${String(manifest.schemaVersion)}`);
+  if (typeof manifest.qiyVersion !== "string" || !manifest.qiyVersion) throw new Error("Invalid Qiy generated-file manifest: expected qiyVersion");
+  if (typeof manifest.projectName !== "string" || !manifest.projectName) throw new Error("Invalid Qiy generated-file manifest: expected projectName");
+  if (manifest.mode !== "standalone" && manifest.mode !== "integration") throw new Error("Invalid Qiy generated-file manifest: expected standalone or integration mode");
+  return manifest as GeneratedManifest;
 }

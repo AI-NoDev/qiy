@@ -5,9 +5,10 @@ import { generateProject } from "../generate-project";
 import { parseMpsProjectModel } from "../mps-database-ir";
 import { loadQiyProjectSource } from "../qiy-include";
 import { parseQiyProject } from "../qiy-project";
-import { generatedPath, manifestFiles } from "../generated-paths";
+import { createGeneratedManifest, generatedPath, readGeneratedManifest } from "../generated-paths";
 import { prepareEnvironmentFile } from "../environment-files";
 import { readStructureModel } from "../structure-model";
+import { generatedWiki } from "../generated-wiki";
 
 export interface GenerateAppOptions {
   sync?: boolean;
@@ -31,7 +32,16 @@ export async function generateApp(source: string, destination: string, options: 
     ?? project?.name
     ?? mpsProject?.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
     ?? "qiy-generated-app";
+  if (project?.mode === "integration") {
+    throw new Error("application mode integration must be mounted with qiy init inside an existing Bun workspace; it does not create a standalone server workspace.");
+  }
   const files = generateProject(database, appName, {
+    mode: project?.mode,
+    integration: project?.integration,
+    ui: project?.ui,
+    dataflows: project?.dataflows,
+    messages: project?.messages,
+    actions: project?.actions,
     apiClient: project?.apiClient ?? mpsProject?.apiClient,
     elysiaPlugins: project?.elysiaPlugins ?? mpsProject?.elysiaPlugins,
     corsOrigins: project?.corsOrigins,
@@ -43,13 +53,15 @@ export async function generateApp(source: string, destination: string, options: 
     scopes: project?.scopes ?? mpsProject?.scopes,
     workflows: project?.workflows ?? mpsProject?.workflows,
   });
+  Object.assign(files, generatedWiki(files, appName, source));
   const manifestPath = generatedPath(output, ".qiy-generated.json");
+  const unowned = new Set(Object.keys(files).filter((path) => path.startsWith("apps/web/app/extensions/") || path === "AGENTS.md" || path === "AGENT.MD"));
   for (const relativePath of Object.keys(files)) generatedPath(output, relativePath);
   if (options.sync && existsSync(output)) {
     const manifest = Bun.file(manifestPath);
     const staleFiles: string[] = [];
     if (await manifest.exists()) {
-      for (const relativePath of manifestFiles(await manifest.json())) {
+      for (const relativePath of readGeneratedManifest(await manifest.json()).files) {
         if (Object.hasOwn(files, relativePath)) continue;
         staleFiles.push(generatedPath(output, relativePath));
       }
@@ -59,9 +71,10 @@ export async function generateApp(source: string, destination: string, options: 
     }
     for (const path of new Set(staleFiles)) if (existsSync(path)) unlinkSync(path);
   }
-  files[".qiy-generated.json"] = JSON.stringify({ files: Object.keys(files) }, null, 2) + "\n";
+  files[".qiy-generated.json"] = JSON.stringify(createGeneratedManifest(appName, "standalone", Object.keys(files).filter((path) => !unowned.has(path))), null, 2) + "\n";
   for (const [relativePath, content] of Object.entries(files)) {
     const path = generatedPath(output, relativePath);
+    if (unowned.has(relativePath) && existsSync(path)) continue;
     mkdirSync(dirname(path), { recursive: true });
     const environmentMode = /\.env\.(development|production)$/.exec(relativePath);
     const existingEnvironmentFile = environmentMode && options.sync && await Bun.file(path).exists()

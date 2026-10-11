@@ -1,5 +1,6 @@
 export type DatabaseDialect = "postgresql" | "mysql" | "sqlite";
 export type FieldType = "UUID" | "Text" | "Integer" | "Decimal" | "Money" | "DateTime" | "File" | "Vector";
+export type FilterMode = "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in";
 
 export interface EnumValueIR {
   name: string;
@@ -15,6 +16,8 @@ export interface EnumIR {
 
 export interface FieldIR {
   name: string;
+  comment?: string;
+  commentKey?: string;
   columnName?: string;
   type: FieldType;
   nullable?: boolean;
@@ -33,6 +36,7 @@ export interface FieldIR {
   showVisible?: boolean;
   sortable?: boolean;
   filterable?: boolean;
+  filterModes?: FilterMode[];
 }
 
 export interface IndexColumnIR {
@@ -42,6 +46,8 @@ export interface IndexColumnIR {
 
 export interface IndexIR {
   name: string;
+  comment?: string;
+  commentKey?: string;
   method: "btree" | "hnsw" | "ivfflat";
   columns: IndexColumnIR[];
   unique?: boolean;
@@ -50,6 +56,8 @@ export interface IndexIR {
 
 export interface RelationIR {
   name: string;
+  comment?: string;
+  commentKey?: string;
   fromEntity: string;
   fromField: string;
   toEntity: string;
@@ -60,6 +68,8 @@ export interface RelationIR {
 
 export interface EntityIR {
   name: string;
+  comment?: string;
+  commentKey?: string;
   tableName: string;
   fields: FieldIR[];
   indexes?: IndexIR[];

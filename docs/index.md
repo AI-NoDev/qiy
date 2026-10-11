@@ -24,7 +24,7 @@ features:
   - title: 以数据为中心
     details: 用 entity、field、relation 描述业务数据，一次定义同时驱动数据库 schema、API、表单、列表与权限，消灭多端重复定义。
   - title: Bun-native 全栈
-    details: 后端是 Bun + Elysia，前端是 Refine + React Router，数据层是 Drizzle。没有 Node 子进程，没有 next build 链。
+    details: 后端运行时是 Bun + Elysia，前端是 Refine + React Router，数据层是 Drizzle。Node 只用于前端生产构建，不存在 Node 常驻服务或 Next.js 服务器。
   - title: 多数据库
     details: 同一份模型面向 PostgreSQL、SQLite、MySQL 生成 Drizzle schema 与 migration，不支持的方言能力在生成前报错。
   - title: 复杂业务可演进

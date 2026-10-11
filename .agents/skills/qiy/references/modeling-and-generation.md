@@ -1,6 +1,6 @@
 # Modeling and Includes
 
-Use `.qiy` as the public model format. Every project starts with `qiy v0;` and one `application` block. The `database` declaration is required and comes first inside the application. Add optional API, auth, storage, and workspace configuration before enums and entities; then declare relations, scopes, menus, and dashboard metrics.
+Use `.qiy` as the public model format. Every project starts with `qiy v0;` and one `application` block. The `database` declaration is required and comes first inside the application. Add optional UI, API, auth, storage, and workspace configuration before enums and entities; then declare relations, scopes, menus, and dashboard metrics.
 
 ## Smallest useful model
 
@@ -9,6 +9,7 @@ qiy v0;
 
 application inventory {
   database sqlite {}
+  ui { library antd; theme blue; themes blue, purple, green; colorMode system; allowThemeSwitch true; allowColorModeSwitch true; }
   api { client rest; }
 
   entity products @label("Products") @icon(ShoppingOutlined) {
@@ -21,6 +22,8 @@ application inventory {
 ```
 
 The generated admin exposes a resource for each entity. Fields form the database columns and Refine CRUD views. Give each entity one `UUID @id` field. `@label` controls display text; `@icon` uses an Ant Design icon name such as `ShoppingOutlined`.
+
+The optional `ui` block currently supports the complete `antd` adapter only. Theme keys are `blue`, `purple`, `green`, `orange`, and `red`; color mode is `light`, `dark`, or `system`. Generated CRUD pages prefer Refine Ant Design components, then Ant Design primitives, then Qiy custom components. Do not configure `mui`, `mantine`, or `chakra` until Qiy ships and validates their full adapters.
 
 ## Complete modular example
 
@@ -115,7 +118,23 @@ env {
 }
 ```
 
-`development generate` creates a random value only when the admin is first generated. `--sync` preserves current development/production values and custom entries, then appends new model variables. Prefix public frontend values with `VITE_`; these are bundled into client code and must never contain secrets. Never put literal credentials in `.qiy`. OIDC/OAuth2/SSO models also receive issuer, audience and JWKS URL variables; this config validates access tokens and is not an OAuth client-secret flow.
+`development generate` creates a random value only when the admin is first generated. `--sync` preserves current development/production values and custom entries, then appends new model variables. Prefix public frontend values with `VITE_`; these are bundled into client code and must never contain secrets. Never put literal credentials in `.qiy`.
+
+External identity providers use one public-client PKCE contract:
+
+```qiy
+auth { provider auth0; user users; subjectField externalSubject; roleField role; }
+```
+
+Supported provider names are `oidc`, `oauth2`, `sso`, `okta`, `auth0`, `azure-ad-b2c`, `keycloak`, `google`, and `kinde`. Generated web env files contain authorization/token/client ID/scope/redirect/logout fields; generated server env files contain issuer/audience/JWKS verification fields. Never add a client secret to a `VITE_` variable.
+
+OTP is a separate server flow:
+
+```qiy
+auth { provider otp; user users; usernameField email; roleField role; }
+```
+
+It generates request/verify endpoints and requires `QIY_AUTH_SECRET` plus an HTTPS `QIY_OTP_DELIVERY_URL` in production. `QIY_OTP_DEV_CODE` is only for explicit local development.
 
 ## Important modeling limits
 
@@ -123,5 +142,5 @@ env {
 - Use explicit `relation` declarations for foreign keys. Model many-to-many relations with an explicit join entity when supported; do not assume implicit relation generation.
 - Dashboard metrics support `count`, enum `distribution`, and date `trend`; group-by fields must exist and match the metric type.
 - `workflow orderInventory;` enables a specific PostgreSQL order/inventory workflow. It is not a general workflow language.
-- OIDC/OAuth2/SSO configuration maps identities to a user entity; it does not automatically integrate an unrelated application's refresh cookies, JWT claims, API envelope, or authorization rules.
+- External identity configuration maps identities to a user entity; it does not automatically integrate an unrelated application's refresh cookies, custom JWT claims, API envelope, or authorization rules. Real provider tenants and OTP delivery vendors require environment-specific acceptance tests.
 - Keep secrets in environment variables and secret managers, never in model files or included fragments.

@@ -8,6 +8,7 @@
  */
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import "./build-skill";
 
 const root = resolve(import.meta.dir, "..");
 const outdir = join(root, "dist");
@@ -40,6 +41,7 @@ for (const { target, outfile } of targets) {
     "--compile",
     `--target=${target}`,
     `--outfile=${outfile}`,
+    `--define=__QIY_VERSION__=${JSON.stringify(version)}`,
     "--minify",
     "--sourcemap=external",
   ];

@@ -4,9 +4,14 @@ import { exportQiy } from "./commands/export-qiy";
 import { generateApp } from "./commands/generate-app";
 import { generateDrizzle } from "./commands/generate-drizzle";
 import { initApp } from "./commands/init";
+import { installSkill } from "./commands/skill";
+import { formatDoctorReport, runDoctor } from "./commands/doctor";
 import { validateMpsModels } from "./commands/validate-mps";
+import packageMetadata from "../package.json" with { type: "json" };
 
-const VERSION = "0.1.0";
+declare const __QIY_VERSION__: string;
+
+const VERSION = typeof __QIY_VERSION__ === "string" ? __QIY_VERSION__ : packageMetadata.version;
 
 const USAGE = `qiy ${VERSION} - model-driven full-stack application generator
 
@@ -21,6 +26,9 @@ Commands:
 
   init -f <source> [-n <name>] [--sync]
                                   Mount a Qiy admin into the current Bun workspace
+
+  doctor [--json]                 Check Bun, CLI template, and current workspace readiness
+  skill install [--force]        Install the official skill into .agent/skills/qiy
 
   validate <model.mps> [...]      Validate MPS models against the Qiy structure
   export-ir <model.mps>           Print Database IR JSON for an MPS model
@@ -70,6 +78,11 @@ async function main(argv: string[]): Promise<void> {
   const [command, ...rest] = args;
   const positional = rest.filter((arg) => !arg.startsWith("-"));
   switch (command) {
+    case "skill": {
+      if (rest[0] !== "install" || rest.slice(1).some((argument) => argument !== "--force")) throw new Error("Usage: qiy skill install [--force]");
+      installSkill(process.cwd(), flag(rest, "--force"));
+      return;
+    }
     case "generate": {
       const [source, destination] = positional;
       if (!source || !destination) throw new Error("qiy generate requires <source> and <output-dir>.\n\n" + USAGE);
@@ -88,6 +101,12 @@ async function main(argv: string[]): Promise<void> {
       const source = option(rest, "-f", "--file");
       if (!source) throw new Error("qiy init requires -f <source>.\n\n" + USAGE);
       await initApp({ source, name: option(rest, "-n", "--name"), root: option(rest, "-o", "--output"), sync: flag(rest, "--sync") });
+      return;
+    }
+    case "doctor": {
+      const report = runDoctor(process.cwd());
+      process.stdout.write(flag(rest, "--json") ? `${JSON.stringify(report, null, 2)}\n` : formatDoctorReport(report));
+      if (!report.ok) process.exitCode = 1;
       return;
     }
     case "validate": {

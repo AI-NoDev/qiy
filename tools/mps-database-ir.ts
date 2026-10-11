@@ -259,7 +259,7 @@ export interface MpsProjectIR {
   apiClient?: "rest" | "graphql";
   elysiaPlugins?: { bearer?: boolean; serverTiming?: boolean; graphqlAdapter?: "native" | "yoga" | "apollo"; cron?: Array<{ name: string; pattern: string; task: "cleanupMissingAttachments" }>; jwt?: { name: string; secretEnv: string }; static?: { assets: string; prefix: string }; html?: boolean; drizzle?: boolean };
   storageProvider?: "local" | "s3";
-  auth?: { provider: "oidc" | "oauth2" | "sso"; userEntity: string; subjectField: string; roleField: string };
+  auth?: { provider: "oidc" | "oauth2" | "sso" | "okta" | "auth0" | "azure-ad-b2c" | "keycloak" | "google" | "kinde"; userEntity: string; subjectField: string; roleField: string };
   scopes?: Array<{ resource: string; field: string; claim: string }>;
   menuGroups?: Array<{ name: string; label: string; icon?: string; parent?: string; resources: string[] }>;
   dashboardMetrics?: Array<{ name: string; resource: string; label: string; icon?: string; span: 8 | 12 | 24; type?: "count" | "distribution" | "trend"; groupBy?: string; days?: number }>;
@@ -338,11 +338,12 @@ export function parseMpsProjectModel(modelXml: string, structureXml: string): Mp
   const authNode = authNodes[0];
   if (authNode) only(authNode, "AuthConfig", ["provider", "userEntity", "subjectField", "roleField"]);
   const provider = authNode && required(authNode, "provider");
-  if (provider !== undefined && provider !== "oidc" && provider !== "oauth2" && provider !== "sso") {
-    throw new Error(`MPS ${authNode?.id}: auth provider must be oidc, oauth2 or sso`);
+  const mpsAuthProviders = new Set(["oidc", "oauth2", "sso", "okta", "auth0", "azure-ad-b2c", "keycloak", "google", "kinde"]);
+  if (provider !== undefined && !mpsAuthProviders.has(provider)) {
+    throw new Error(`MPS ${authNode?.id}: auth provider must be oidc, oauth2 or sso, or a supported external provider; received ${provider}`);
   }
   const auth = authNode && {
-    provider: provider as "oidc" | "oauth2" | "sso",
+    provider: provider as "oidc" | "oauth2" | "sso" | "okta" | "auth0" | "azure-ad-b2c" | "keycloak" | "google" | "kinde",
     userEntity: required(authNode, "userEntity"),
     subjectField: required(authNode, "subjectField"),
     roleField: required(authNode, "roleField"),

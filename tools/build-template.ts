@@ -8,6 +8,7 @@
  */
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
+import "./build-skill";
 
 const root = resolve(import.meta.dir, "../templates/admin");
 const structurePath = resolve(import.meta.dir, "../languages/qiy/models/qiy.structure.mps");

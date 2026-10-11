@@ -87,3 +87,55 @@ apps/ops-console/app/hooks/use-connector-status.ts
 ```
 
 当前版本不会自动把 Qiy 的 REST/GraphQL DataProvider 转换为任意现有 API。已有 JWT、刷新 Cookie、请求头、响应 envelope、权限与审计规则，应在上述扩展层显式实现并测试。CORS 仅解决浏览器 Origin 检查，不解决 API 契约差异。
+
+## 仅接入现有 API
+
+如果宿主已拥有 Bun/Elysia API、用户体系和数据库，不应生成第二套 server。使用 `mode integration` 只挂载一个 Refine Web package：
+
+```qiy [models/catalog-admin.qiy]
+qiy v0;
+application catalog-admin {
+  database sqlite {}
+  mode integration;
+  integration {
+    apiBase "/api/v2";
+    auth cookie { csrfCookie "XSRF-TOKEN"; csrfHeader "X-XSRF-TOKEN"; };
+  }
+  workspace {
+    name catalog;
+    aliases { web host-admin; }
+    packages { web "@example/host-admin"; }
+  }
+  entity products {
+    field id UUID @id;
+    field title Text;
+  }
+}
+```
+
+只能在宿主根目录运行：
+
+```bash
+qiy init -f ./models/catalog-admin.qiy
+```
+
+Integration 默认只生成 list/show 页面，并不创建 `apps/server`、Drizzle schema、迁移、Docker/Compose 或部署文件。`apps/host-admin/app/host/data-provider.ts`、`auth.ts`、`access-control.ts` 是未托管适配器，`qiy init --sync` 不会覆盖它们。请在这些文件中映射宿主的 JWT、刷新 Cookie、API URL、envelope 和权限；不要把 token 或 client secret 写到 `.qiy`。
+
+生成的 Refine 已接入宿主 AccessControlProvider。请在宿主桥接对象中提供 `can`，返回明确的 `{ can: true }` 才允许访问；缺失、异常或无效响应均拒绝。导航 action 的按钮和页面会提交同一资源/action 名称及 `params.id`，直接访问业务页也会检查。
+
+```ts [apps/host-admin/app/host/access-control.ts]
+import type { QiyHostAuthBridge } from "./auth";
+
+window.qiyHostAuth = {
+  ...window.qiyHostAuth,
+  can: async ({ resource, action }) => {
+    return { can: resource === "products" && ["list", "show"].includes(action) };
+  },
+} satisfies QiyHostAuthBridge;
+```
+
+上例只演示接口，实际项目应保留生成适配器的异常拒绝逻辑，并依据宿主策略验证记录权限。客户端判断不能替代 API 授权。已有未托管 `access-control.ts` 在同步时保留；升级后若缺少 `qiyIntegrationAccessControlProvider` 导出，请手动合并适配器与宿主策略。
+
+Cookie 模式要求 API 与后台同源，非 GET/HEAD/OPTIONS 请求必须存在配置的可读 CSRF Cookie；登录会话 Cookie 本身仍应由宿主设为 HttpOnly。Bearer/portal 模式可配置外部 API。生成的请求 helper 将目标限制在有效 `apiBase` 的 origin 与路径内，并拒绝自动重定向，避免向其他地址发送 token 或 CSRF 值；`VITE_QIY_API_BASE` 同时影响 DataProvider 与认证请求。既有未托管 `auth.ts` 不会被 `--sync` 修补，升级时请手动审阅并移植这些限制。宿主仍需执行服务端权限、CSRF 校验和刷新会话逻辑。
+
+`dataflow`、`auth`、`storage`、`elysia`、`scope`、`workflow` 与 `env` 不能用于 integration 模式，因为它们表示 Qiy 自己生成服务端的能力。需要命令/审计时，应把 UI contract 和宿主 API 的实现一起维护在未托管扩展中。

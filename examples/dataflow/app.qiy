@@ -1,0 +1,56 @@
+qiy v0;
+
+# Minimal standalone command example: revoke a connector atomically.
+application dataflow-admin {
+  database sqlite {}
+
+  entity connectors {
+    field id UUID @id;
+    field status Text;
+    field revokedReason Text @nullable;
+  }
+
+  dataflow revokeConnector {
+    allow roles admin, operator;
+    idempotency required;
+    audit "connector.revoked";
+
+    input {
+      field connectorId UUID @required;
+      field reason Text @required @comment("Reason supplied by the operator");
+    }
+
+    context {
+      connector = entity connectors by id input.connectorId @required @comment("Connector to revoke");
+    }
+
+    step validate @order(10) {
+      require connector.status != "revoked" @error("errors.connector.alreadyRevoked");
+    }
+
+    step revoke @order(20) @comment("Persist the revoked status") {
+      update connector {
+        status = "revoked";
+        revokedReason = input.reason;
+      }
+    }
+
+    result { return connector; }
+  }
+
+  action revokeConnector {
+    resource connectors;
+    dataflow revokeConnector;
+    placement list, show;
+    label "撤销";
+    confirm "确认撤销该连接器？";
+  }
+
+  action reviewConnector {
+    resource connectors;
+    navigate "/connectors/:id/review";
+    placement list, show;
+    label "审核";
+    page manual @comment("运营审核、审批记录和第三方信息由开发者实现");
+  }
+}

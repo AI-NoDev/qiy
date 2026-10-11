@@ -1,12 +1,13 @@
-import type { DatabaseIR, EntityIR, FieldIR } from "./database-ir";
+import type { DatabaseIR, EntityIR, FieldIR, FilterMode } from "./database-ir";
 import type { QiyProject } from "./qiy-project";
 import { renderAppTemplate } from "./admin-template";
 import { validateDatabaseIR } from "./database-ir";
 import { generateDrizzlePostgres } from "./drizzle-pg";
 import { generateDrizzleMysql } from "./drizzle-mysql";
 import { generateDrizzleSqlite } from "./drizzle-sqlite";
+import { generateAudit } from "./generate-audit";
 
-function apiField(field: FieldIR, database: DatabaseIR): string {
+function apiFieldSchema(field: FieldIR, database: DatabaseIR): string {
   if (field.enumName) {
     const values = database.enums?.find((enumeration) => enumeration.name === field.enumName)?.values ?? [];
     return `t.Union([${values.map((value) => `t.Literal(${JSON.stringify(value.name)})`).join(", ")}])`;
@@ -23,22 +24,35 @@ function apiField(field: FieldIR, database: DatabaseIR): string {
   }
 }
 
+function apiField(field: FieldIR, database: DatabaseIR): string {
+  const schema = apiFieldSchema(field, database);
+  return field.comment !== undefined ? `t.Intersect([${schema}], { description: ${JSON.stringify(field.comment)} })` : schema;
+}
+
 function createFields(entity: EntityIR, database: DatabaseIR): string {
   return entity.fields.filter((field) => !field.primaryKey).map((field) => {
-    const value = field.nullable ? `t.Optional(t.Union([${apiField(field, database)}, t.Null()]))` : apiField(field, database);
+    const value = field.nullable ? `t.Optional(t.Union([${apiField(field, database)}, t.Null()], ${JSON.stringify(field.comment !== undefined ? { description: field.comment } : {})}))` : apiField(field, database);
     return `  ${JSON.stringify(field.name)}: ${value},`;
   }).join("\n");
 }
 
 function patchFields(entity: EntityIR, database: DatabaseIR): string {
   return entity.fields.filter((field) => !field.primaryKey).map((field) => {
-    const value = field.nullable ? `t.Union([${apiField(field, database)}, t.Null()])` : apiField(field, database);
+    const value = field.nullable ? `t.Union([${apiField(field, database)}, t.Null()], ${JSON.stringify(field.comment !== undefined ? { description: field.comment } : {})})` : apiField(field, database);
     return `  ${JSON.stringify(field.name)}: t.Optional(${value}),`;
   }).join("\n");
 }
 
 function modelName(entity: EntityIR): string {
   return entity.name[0]!.toUpperCase() + entity.name.slice(1);
+}
+
+function filterModesForField(field: FieldIR): FilterMode[] {
+  return field.filterModes ?? (field.enumName
+    ? ["eq"]
+    : field.type === "Text" || field.type === "File"
+      ? ["contains", "startsWith", "endsWith", "eq"]
+      : ["eq", "gt", "gte", "lt", "lte", "between", "in"]);
 }
 
 function graphqlName(name: string): string {
@@ -57,8 +71,12 @@ function graphqlType(field: FieldIR, required = true): string {
 function graphqlInputFields(entity: EntityIR, patch: boolean, hiddenFields: string[] = []): string {
   return entity.fields.filter((field) => !field.primaryKey && !hiddenFields.includes(field.name)).map((field) => {
     const required = !patch && !field.primaryKey && !field.nullable;
-    return `  ${field.name}: ${graphqlType(field, required)}`;
+    return `${graphqlDescription(field.comment, "  ")}  ${field.name}: ${graphqlType(field, required)}`;
   }).join("\n");
+}
+
+function graphqlDescription(comment: string | undefined, indentation = ""): string {
+  return comment === undefined ? "" : `${indentation}${JSON.stringify(comment)}\n`;
 }
 
 function graphqlSchema(database: DatabaseIR, hiddenFields: Record<string, string[]> = {}): string {
@@ -66,7 +84,7 @@ function graphqlSchema(database: DatabaseIR, hiddenFields: Record<string, string
   const types = database.entities.map((entity) => {
     const hidden = hiddenFields[entity.name] ?? [];
     const publicFields = entity.fields.filter((field) => !hidden.includes(field.name));
-    return `type ${modelName(entity)} {\n${publicFields.map((field) => `  ${field.name}: ${graphqlType(field)}`).join("\n")}\n}\n\ntype ${modelName(entity)}Page {\n  items: [${modelName(entity)}!]!\n  total: Int!\n  page: Int!\n  pageSize: Int!\n}\n\ninput ${modelName(entity)}CreateInput {\n${graphqlInputFields(entity, false, hidden)}\n}\n\ninput ${modelName(entity)}UpdateInput {\n${graphqlInputFields(entity, true, hidden)}\n}`;
+    return `${graphqlDescription(entity.comment)}type ${modelName(entity)} {\n${publicFields.map((field) => `${graphqlDescription(field.comment, "  ")}  ${field.name}: ${graphqlType(field)}`).join("\n")}\n}\n\ntype ${modelName(entity)}Page {\n  items: [${modelName(entity)}!]!\n  total: Int!\n  page: Int!\n  pageSize: Int!\n}\n\n${graphqlDescription(entity.comment)}input ${modelName(entity)}CreateInput {\n${graphqlInputFields(entity, false, hidden)}\n}\n\n${graphqlDescription(entity.comment)}input ${modelName(entity)}UpdateInput {\n${graphqlInputFields(entity, true, hidden)}\n}`;
   }).join("\n\n");
   const queries = database.entities.flatMap((entity) => [
     `  ${entity.name}(page: Int = 1, pageSize: Int = 20, search: String, sort: String, order: String, filters: [QiyFilterInput!]): ${modelName(entity)}Page!`,
@@ -80,19 +98,20 @@ function graphqlSchema(database: DatabaseIR, hiddenFields: Record<string, string
     `  delete${modelName(entity)}(id: ID!): ${modelName(entity)}`,
     `  delete${modelName(entity)}Many(ids: [ID!]!): [${modelName(entity)}!]!`,
   ]).join("\n");
-  return `${enums ? `${enums}\n\n` : ""}input QiyFilterInput {\n  field: String!\n  value: String!\n}\n\ntype QiyDistribution {\n  value: String\n  count: Int!\n}\n\ntype QiyTrend {\n  day: String!\n  count: Int!\n}\n\n${types}\n\ntype Query {\n${queries}\n}\n\ntype Mutation {\n${mutations}\n}`;
+  return `${enums ? `${enums}\n\n` : ""}input QiyFilterInput {\n  field: String!\n  operator: String = "eq"\n  value: String!\n}\n\ntype QiyDistribution {\n  value: String\n  count: Int!\n}\n\ntype QiyTrend {\n  day: String!\n  count: Int!\n}\n\n${types}\n\ntype Query {\n${queries}\n}\n\ntype Mutation {\n${mutations}\n}`;
 }
 
 function graphqlResolver(entity: EntityIR): string {
   const name = modelName(entity);
   const sortableFields = JSON.stringify(entity.fields.filter((field) => field.sortable !== false).map((field) => field.name));
   const filterableFields = JSON.stringify(entity.fields.filter((field) => field.filterable !== false).map((field) => field.name));
-  return `  ${entity.name}Distribution: ({ field }: { field: string }, context: { scopeFor: (resource: string) => { field: string; value: string } | undefined }) => (${JSON.stringify(entity.fields.filter((item) => item.enumName).map((item) => item.name))} as string[]).includes(field) ? services.${entity.name}.distribution(field, context.scopeFor("${entity.name}")) : Promise.reject(new Error("Unsupported distribution field")),\n  ${entity.name}Trend: ({ field, days }: { field: string; days: number }, context: { scopeFor: (resource: string) => { field: string; value: string } | undefined }) => (${JSON.stringify(entity.fields.filter((item) => item.type === "DateTime").map((item) => item.name))} as string[]).includes(field) && Number.isInteger(days) && days >= 1 && days <= 365 ? services.${entity.name}.trend(field, days, context.scopeFor("${entity.name}")) : Promise.reject(new Error("Invalid trend query")),\n` + `  ${entity.name}: async (args: { page?: number; pageSize?: number; search?: string; sort?: string; order?: string; filters?: Array<{ field: string; value: string }> }, context: { scopeFor: (resource: string) => { field: string; value: string } | undefined }) => {\n    const sortableFields = ${sortableFields} as string[];\n    const filterableFields = ${filterableFields} as string[];\n    if (args.sort && !sortableFields.includes(args.sort)) throw new Error("Unsupported sort field");\n    if ((args.filters ?? []).some((filter) => !filterableFields.includes(filter.field))) throw new Error("Unsupported filter field");\n    const result = await services.${entity.name}.list(args.page ?? 1, args.pageSize ?? 20, {\n      search: args.search, sort: args.sort, order: args.order === "desc" ? "desc" : "asc",\n      filters: Object.fromEntries((args.filters ?? []).map((filter) => [filter.field, filter.value])), scope: context.scopeFor("${entity.name}"),\n    });\n    return { ...result, items: result.data, page: args.page ?? 1, pageSize: args.pageSize ?? 20 };\n  },\n  ${entity.name}ById: ({ id }: { id: string }, context: { scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.one(id, context.scopeFor("${entity.name}")),\n  create${name}: ({ input }: { input: Record<string, unknown> }, context: { actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.create(input, context.actorId, context.scopeFor("${entity.name}")),\n  update${name}: ({ id, input }: { id: string; input: Record<string, unknown> }, context: { actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.update(id, input, context.actorId, context.scopeFor("${entity.name}")),\n  delete${name}: ({ id }: { id: string }, context: { actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.delete(id, context.actorId, context.scopeFor("${entity.name}")),\n  delete${name}Many: ({ ids }: { ids: string[] }, context: { actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.deleteMany(ids, context.actorId, context.scopeFor("${entity.name}")),`;
+  const filterModes = JSON.stringify(Object.fromEntries(entity.fields.filter((field) => field.filterable !== false).map((field) => [field.name, filterModesForField(field)])));
+  return `  ${entity.name}Distribution: ({ field }: { field: string }, context: { scopeFor: (resource: string) => { field: string; value: string } | undefined }) => (${JSON.stringify(entity.fields.filter((item) => item.enumName).map((item) => item.name))} as string[]).includes(field) ? services.${entity.name}.distribution(field, context.scopeFor("${entity.name}")) : Promise.reject(new Error("Unsupported distribution field")),\n  ${entity.name}Trend: ({ field, days }: { field: string; days: number }, context: { scopeFor: (resource: string) => { field: string; value: string } | undefined }) => (${JSON.stringify(entity.fields.filter((item) => item.type === "DateTime").map((item) => item.name))} as string[]).includes(field) && Number.isInteger(days) && days >= 1 && days <= 365 ? services.${entity.name}.trend(field, days, context.scopeFor("${entity.name}")) : Promise.reject(new Error("Invalid trend query")),\n` + `  ${entity.name}: async (args: { page?: number; pageSize?: number; search?: string; sort?: string; order?: string; filters?: Array<{ field: string; operator?: FilterOperator; value: string }> }, context: { scopeFor: (resource: string) => { field: string; value: string } | undefined }) => {\n    const sortableFields = ${sortableFields} as string[];\n    const filterableFields = ${filterableFields} as string[];\n    const filterModes = ${filterModes} as Record<string, FilterOperator[]>;\n    if (args.sort && !sortableFields.includes(args.sort)) throw new Error("Unsupported sort field");\n    if ((args.filters ?? []).some((filter) => !filterableFields.includes(filter.field))) throw new Error("Unsupported filter field");\n    if ((args.filters ?? []).some((filter) => !filterModes[filter.field]?.includes(filter.operator ?? "eq"))) throw new Error("Unsupported filter operator");\n    const result = await services.${entity.name}.list(args.page ?? 1, args.pageSize ?? 20, {\n      search: args.search, sort: args.sort, order: args.order === "desc" ? "desc" : "asc",\n      filters: (args.filters ?? []).map((filter) => ({ ...filter, operator: filter.operator ?? "eq" })), scope: context.scopeFor("${entity.name}"),\n    });\n    return { ...result, items: result.data, page: args.page ?? 1, pageSize: args.pageSize ?? 20 };\n  },\n  ${entity.name}ById: ({ id }: { id: string }, context: { scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.one(id, context.scopeFor("${entity.name}")),\n  create${name}: ({ input }: { input: Record<string, unknown> }, context: { actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.create(input, context.actorId, context.scopeFor("${entity.name}")),\n  update${name}: ({ id, input }: { id: string; input: Record<string, unknown> }, context: { actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.update(id, input, context.actorId, context.scopeFor("${entity.name}")),\n  delete${name}: ({ id }: { id: string }, context: { actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.delete(id, context.actorId, context.scopeFor("${entity.name}")),\n  delete${name}Many: ({ ids }: { ids: string[] }, context: { actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.deleteMany(ids, context.actorId, context.scopeFor("${entity.name}")),`;
 }
 
 function renderGraphQL(database: DatabaseIR, hiddenFields: Record<string, string[]> = {}): string {
   const schema = JSON.stringify(graphqlSchema(database, hiddenFields));
-  const serviceImports = database.entities.map((entity) => `import { create${modelName(entity)}Service } from "./modules/${entity.name}/${entity.name}.service";`).join("\n") + '\nimport { withPaginationLimit } from "./pagination";';
+  const serviceImports = database.entities.map((entity) => `import { create${modelName(entity)}Service } from "./modules/${entity.name}/${entity.name}.service";`).join("\n") + '\nimport { withPaginationLimit } from "./pagination";\n\ntype FilterOperator = "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in";';
   const services = database.entities.map((entity) => `  ${entity.name}: withPaginationLimit(create${modelName(entity)}Service(repositories.${entity.name})),`).join("\n");
   const resolvers = database.entities.map(graphqlResolver).join("\n");
   const scopeDefinitions = JSON.stringify((database as DatabaseIR & { scopes?: Array<{ resource: string; field: string; claim: string }> }).scopes ?? []);
@@ -344,6 +363,7 @@ function renderRoutes(entity: EntityIR, database: DatabaseIR, scopes: Array<{ re
   const scopeLiteral = scope ? JSON.stringify({ field: scope.field, claim: scope.claim }) : "null";
   const sortableFields = JSON.stringify(entity.fields.filter((field) => field.sortable !== false).map((field) => field.name));
   const filterableFields = JSON.stringify(entity.fields.filter((field) => field.filterable !== false).map((field) => field.name));
+  const filterModes = JSON.stringify(Object.fromEntries(entity.fields.filter((field) => field.filterable !== false).map((field) => [field.name, filterModesForField(field)])));
   const allowed = entity.fields.filter((field) => !field.primaryKey).map((field) => JSON.stringify(field.name)).join(", ");
   const sanitize = hiddenFields.length ? `const privateFields = ${JSON.stringify(hiddenFields)} as string[];
 const redact = (record: Record<string, unknown>) => { const safe = { ...record }; for (const field of privateFields) delete safe[field]; return safe; };` : "const redact = (record: Record<string, unknown>) => record;";
@@ -357,11 +377,11 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
   return `
 const create${name} = t.Object({
 ${createFields(entity, database)}
-}, { additionalProperties: false });
+}, { additionalProperties: false${entity.comment !== undefined ? `, description: ${JSON.stringify(entity.comment)}` : ""} });
 
 const patch${name} = t.Object({
 ${patchFields(entity, database)}
-}, { additionalProperties: false });
+}, { additionalProperties: false${entity.comment !== undefined ? `, description: ${JSON.stringify(entity.comment)}` : ""} });
 
 export interface ${name}Repository {
   distribution(field: string, scope?: { field: string; value: string }): Promise<Array<{ value: string | null; count: number }>>;
@@ -374,11 +394,14 @@ export interface ${name}Repository {
   deleteMany(ids: string[], actorId?: string, scope?: { field: string; value: string }): Promise<Array<Record<string, unknown>>>;
 }
 
+export type FilterOperator = "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in";
+export interface FilterClause { field: string; operator: FilterOperator; value: string; }
+
 export interface ListQuery {
   search?: string;
   sort?: string;
   order?: "asc" | "desc";
-  filters?: Record<string, string>;
+  filters?: Record<string, string> | FilterClause[];
   scope?: { field: string; value: string };
 }
 
@@ -386,6 +409,7 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
   ${sanitize}
   const sortableFields = ${sortableFields} as string[];
   const filterableFields = ${filterableFields} as string[];
+  const filterModes = ${filterModes} as Record<string, FilterOperator[]>;
   const resolveScope = async (request: Request) => {
     const principal = await authenticate(request);
     const scopeConfig = ${scopeLiteral} as { field: string; claim: string } | null;
@@ -399,17 +423,21 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
   return new Elysia({ prefix: ${route} })${privateInputGuard}\n    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)\n    .get("/distribution", async ({ query, status, request }) => (${JSON.stringify(entity.fields.filter((field) => field.enumName).map((field) => field.name))} as string[]).includes(query.field) ? repository.distribution(query.field, await resolveScope(request)) : status(400, { error: "Unsupported distribution field" }), { query: t.Object({ field: t.String() }) })
     .get("/trend", async ({ query, status, request }) => (${JSON.stringify(entity.fields.filter((field) => field.type === "DateTime").map((field) => field.name))} as string[]).includes(query.field) ? repository.trend(query.field, query.days, await resolveScope(request)) : status(400, { error: "Unsupported trend field" }), { query: t.Object({ field: t.String(), days: t.Numeric({ minimum: 1, maximum: 365 }) }) })
     .get("/", async ({ query, status, request }) => {
-      let filters: Record<string, string> | undefined;
+      let filters: Record<string, string> | FilterClause[] | undefined;
       if (query.filters) {
         try {
           const parsed: unknown = JSON.parse(query.filters);
-          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || Object.values(parsed).some((value) => typeof value !== "string")) return status(400, { error: "Invalid filters" });
-          filters = parsed as Record<string, string>;
+          const oldShape = parsed && typeof parsed === "object" && !Array.isArray(parsed) && Object.values(parsed).every((value) => typeof value === "string");
+          const newShape = Array.isArray(parsed) && parsed.every((filter) => filter && typeof filter === "object" && typeof filter.field === "string" && typeof filter.operator === "string" && typeof filter.value === "string");
+          if (!oldShape && !newShape) return status(400, { error: "Invalid filters" });
+          filters = parsed as Record<string, string> | FilterClause[];
         }
         catch { return status(400, { error: "Invalid filters" }); }
       }
       if (query.sort && !sortableFields.includes(query.sort)) return status(400, { error: "Unsupported sort field" });
-      if (filters && Object.keys(filters).some((field) => !filterableFields.includes(field))) return status(400, { error: "Unsupported filter field" });
+      const filterClauses = Array.isArray(filters) ? filters : Object.entries(filters ?? {}).map(([field, value]) => ({ field, operator: "eq" as const, value }));
+      if (filterClauses.some((filter) => !filterableFields.includes(filter.field))) return status(400, { error: "Unsupported filter field" });
+      if (filterClauses.some((filter) => !filterModes[filter.field]?.includes(filter.operator))) return status(400, { error: "Unsupported filter operator" });
       const scope = await resolveScope(request);
       const result = await repository.list(query.page ?? 1, query.pageSize ?? 20, { ...query, filters, scope });
       return { ...result, data: result.data.map((record) => redact(record)) };
@@ -453,6 +481,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR): string
   const sortFields = entity.fields.filter((field) => field.sortable !== false).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
   const filterableEntityFields = entity.fields.filter((field) => field.filterable !== false);
   const filterFields = filterableEntityFields.map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
+  const filterTypes = JSON.stringify(Object.fromEntries(filterableEntityFields.map((field) => [field.name, field.type])));
   const configuredScopes = (database as DatabaseIR & { scopes?: Array<{ resource: string; field: string; claim: string }> }).scopes ?? [];
   const scopeFields = entity.fields.filter((field) => configuredScopes.some((scope) => (scope.resource === entity.name || scope.resource === entity.tableName) && scope.field === field.name));
   const scopeColumnFields = [...new Set([...filterableEntityFields, ...scopeFields])].map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
@@ -606,9 +635,31 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR): string
     if (options.sort && !sortColumn) throw new Error("Unsupported sort field");
     const orderBy = options.order === "desc" ? desc(sortColumn) : asc(sortColumn);
     const filterColumns: Record<string, any> = { ${filterFields} };
-    const filters = Object.entries(options.filters ?? {});
-    if (filters.some(([field]) => !filterColumns[field])) throw new Error("Unsupported filter field");
-    const filterConditions = filters.map(([field, value]) => eq(filterColumns[field], value));
+    const filterTypes = ${filterTypes} as Record<string, string>;
+    const filters = Array.isArray(options.filters) ? options.filters : Object.entries(options.filters ?? {}).map(([field, value]) => ({ field, operator: "eq" as const, value }));
+    if (filters.some(({ field }) => !filterColumns[field])) throw new Error("Unsupported filter field");
+    const coerce = (field: string, value: string) => filterTypes[field] === "Integer" ? Number(value) : filterTypes[field] === "DateTime" ? new Date(value) : value;
+    const filterConditions = filters.map(({ field, operator, value }) => {
+      const column = filterColumns[field];
+      if (operator === "contains") return ${searchOperator}(column, "%" + value + "%");
+      if (operator === "startsWith") return ${searchOperator}(column, value + "%");
+      if (operator === "endsWith") return ${searchOperator}(column, "%" + value);
+      if (operator === "gt") return gt(column, coerce(field, value));
+      if (operator === "gte") return gte(column, coerce(field, value));
+      if (operator === "lt") return lt(column, coerce(field, value));
+      if (operator === "lte") return lte(column, coerce(field, value));
+      if (operator === "between") {
+        const [lower, upper, extra] = value.split(",").map((item) => item.trim());
+        if (!lower || !upper || extra !== undefined) throw new Error("Between filter requires two values");
+        return and(gte(column, coerce(field, lower)), lte(column, coerce(field, upper)));
+      }
+      if (operator === "in") {
+        const values = value.split(",").map((item) => item.trim()).filter(Boolean).map((item) => coerce(field, item));
+        if (values.length === 0) throw new Error("In filter requires at least one value");
+        return inArray(column, values);
+      }
+      return eq(column, coerce(field, value));
+    });
     const scopeColumns: Record<string, any> = { ${scopeColumns} };
     const scopeCondition = options.scope && scopeColumns[options.scope.field] ? eq(scopeColumns[options.scope.field], options.scope.value) : undefined;
     const whereCondition = and(searchCondition, scopeCondition, ...filterConditions);
@@ -684,7 +735,20 @@ const repository: ${name}Repository = {
   async list(page, pageSize, options = {}) {
     const data = [...records.values()];
     const filtered = options.search ? data.filter((record) => Object.values(record).some((value) => String(value ?? "").toLowerCase().includes(options.search!.toLowerCase()))) : data;
-    const filteredByFields = Object.entries(options.filters ?? {}).reduce((rows, [field, value]) => rows.filter((record) => String(record[field] ?? "") === value), filtered);
+    const clauses = Array.isArray(options.filters) ? options.filters : Object.entries(options.filters ?? {}).map(([field, value]) => ({ field, operator: "eq" as const, value }));
+    const filteredByFields = clauses.reduce((rows, { field, operator, value }) => rows.filter((record) => {
+      const actual = record[field]; const text = String(actual ?? "");
+      if (operator === "contains") return text.toLowerCase().includes(value.toLowerCase());
+      if (operator === "startsWith") return text.toLowerCase().startsWith(value.toLowerCase());
+      if (operator === "endsWith") return text.toLowerCase().endsWith(value.toLowerCase());
+      if (operator === "in") return value.split(",").map((item) => item.trim()).includes(text);
+      if (operator === "between") { const [lower, upper] = value.split(",").map(Number); return Number(actual) >= lower! && Number(actual) <= upper!; }
+      if (operator === "gt") return Number(actual) > Number(value);
+      if (operator === "gte") return Number(actual) >= Number(value);
+      if (operator === "lt") return Number(actual) < Number(value);
+      if (operator === "lte") return Number(actual) <= Number(value);
+      return text === value;
+    }), filtered);
     const sorted = options.sort ? [...filteredByFields].sort((left, right) => String(left[options.sort!] ?? "").localeCompare(String(right[options.sort!] ?? ""))) : filteredByFields;
     if (options.order === "desc") sorted.reverse();
     return { data: sorted.slice((page - 1) * pageSize, page * pageSize), total: sorted.length };
@@ -911,7 +975,346 @@ export function createOrderWorkflowRoutes(authenticate: Authenticator) {
 `;
 }
 
-export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "storageProvider" | "auth" | "scopes" | "corsOrigins" | "elysiaPlugins" | "workflows"> = {}): Record<string, string> {
+function dataflowInputField(type: string): string {
+  switch (type) {
+    case "UUID": return 't.String({ format: "uuid" })';
+    case "Text": return "t.String({ minLength: 1 })";
+    case "Integer": return "t.Integer({ minimum: -2147483648, maximum: 2147483647 })";
+    case "Decimal": return 't.String({ pattern: "^-?[0-9]+(\\\\.[0-9]+)?$" })';
+    case "Boolean": return "t.Boolean()";
+    default: throw new Error(`Unsupported dataflow input type ${type}`);
+  }
+}
+
+function renderDataflowIdempotencySchema(dialect: DatabaseIR["dialect"]): string {
+  const table = dialect === "postgresql" ? "pgTable" : dialect === "sqlite" ? "sqliteTable" : "mysqlTable";
+  const actor = dialect === "mysql" ? 'varchar("actorId", { length: 128 })' : 'text("actorId")';
+  const flow = dialect === "mysql" ? 'varchar("flow", { length: 80 })' : 'text("flow")';
+  const key = dialect === "mysql" ? 'varchar("requestKeyHash", { length: 64 })' : 'text("requestKeyHash")';
+  return `\n\nexport const dataflowIdempotency = ${table}("dataflow_idempotency", {\n  id: ${dialect === "mysql" ? 'varchar("id", { length: 36 })' : 'text("id")'}.primaryKey(),\n  actorId: ${actor}.notNull(),\n  flow: ${flow}.notNull(),\n  requestKeyHash: ${key}.notNull(),\n  requestHash: text("requestHash").notNull(),\n  response: text("response").notNull(),\n}, (table) => [uniqueIndex("dataflow_idempotency_actor_flow_key_idx").on(table.actorId, table.flow, table.requestKeyHash)]);\n`;
+}
+
+function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, scopes: NonNullable<QiyProject["scopes"]> = []): string | undefined {
+  if (!dataflows.length) return undefined;
+  const entities = new Map(database.entities.map((entity) => [entity.name, entity]));
+  const scopeFor = (entity: EntityIR) => scopes.find((scope) => scope.resource === entity.name || scope.resource === entity.tableName);
+  const synchronous = database.dialect === "sqlite";
+  const selectOne = (query: string) => synchronous ? `${query}.get()` : `(await ${query})[0]`;
+  const routeBlocks = dataflows.map((flow) => {
+    const contextNames = new Map(flow.context.map((binding, index) => [binding.name, `context${index}`]));
+    const inputSchema = flow.input.map((field) => {
+      const enumeration = database.enums?.find((item) => item.name === field.type);
+      if (enumeration) {
+        const schema = `t.Union([${enumeration.values.map((value) => `t.Literal(${JSON.stringify(value.name)})`).join(", ")}], ${JSON.stringify(field.comment ? { description: field.comment } : {})})`;
+        return `      ${JSON.stringify(field.name)}: ${field.required ? schema : `t.Optional(${schema})`},`;
+      }
+      const base = dataflowInputField(field.type);
+      const described = field.comment ? (base.includes("({") ? base.replace("({", `({ description: ${JSON.stringify(field.comment)},`) : base.replace("()", `({ description: ${JSON.stringify(field.comment)} })`)) : base;
+      return `      ${JSON.stringify(field.name)}: ${field.required ? described : `t.Optional(${described})`},`;
+    }).join("\n");
+    const contextLoads = flow.context.map((binding, index) => {
+      const entity = entities.get(binding.entity);
+      if (!entity) throw new Error(`Dataflow ${flow.name}: unknown entity ${binding.entity}`);
+      const [key, source] = binding.id.split(":", 2);
+      const inputName = source?.replace(/^input\./, "");
+      if (!key || !inputName) throw new Error(`Dataflow ${flow.name}: invalid context source ${binding.id}`);
+      const scope = scopeFor(entity);
+      const scopeValue = scope ? `const scope${index} = principal?.claims?.[${JSON.stringify(scope.claim)}];\n        if (scope${index} === undefined || scope${index} === null || scope${index} === "") throw new DataflowFailure(403, "Missing required data scope claim: " + ${JSON.stringify(scope.claim)});\n        ` : "";
+      const condition = scope
+        ? `and(eq(${entity.name}[${JSON.stringify(key)}], body[${JSON.stringify(inputName)}]), eq(${entity.name}[${JSON.stringify(scope.field)}], String(scope${index})))`
+        : `eq(${entity.name}[${JSON.stringify(key)}], body[${JSON.stringify(inputName)}])`;
+      return `        ${scopeValue}let context${index} = ${selectOne(`tx.select().from(${entity.name}).where(${condition}).limit(1)${synchronous ? "" : '.for("update")'}`)};\n        if (!context${index}) throw new DataflowFailure(404, "Not found", ${JSON.stringify(entity.tableName)});`;
+    }).join("\n\n");
+    const actions = flow.steps.flatMap((step) => step.actions.map((action) => {
+      if (action.kind === "require") {
+        const [binding, field] = action.left.split(".", 2);
+        const variable = binding === "input" ? "body" : contextNames.get(binding!);
+        if (!variable || !field) throw new Error(`Dataflow ${flow.name}: invalid requirement ${action.left}`);
+        return `        if (!(${variable}[${JSON.stringify(field)}] ${action.operator} ${JSON.stringify(action.right)})) throw new DataflowFailure(409, ${JSON.stringify(action.error)});`;
+      }
+      const entityName = flow.context.find((binding) => binding.name === action.context)?.entity;
+      const entity = entityName ? entities.get(entityName) : undefined;
+      const variable = contextNames.get(action.context);
+      if (!entity || !variable) throw new Error(`Dataflow ${flow.name}: invalid update context ${action.context}`);
+      const values = `{ ${action.values.map((value) => `${JSON.stringify(value.field)}: ${value.source === "input" ? `body[${JSON.stringify(value.value)}]` : JSON.stringify(value.value)}`).join(", ")} }`;
+      const where = `eq(${entity.name}.id, ${variable}.id)`;
+      const update = database.dialect === "sqlite"
+        ? `const updated = tx.update(${entity.name}).set(${values}).where(${where}).returning().get();\n        if (!updated) return { kind: "not-found" as const, resource: ${JSON.stringify(entity.tableName)} };\n        ${variable} = updated;`
+        : database.dialect === "mysql"
+          ? `await tx.update(${entity.name}).set(${values}).where(${where});\n        const updated = (await tx.select().from(${entity.name}).where(${where}).limit(1))[0];\n        if (!updated) return { kind: "not-found" as const, resource: ${JSON.stringify(entity.tableName)} };\n        ${variable} = updated;`
+          : `const updated = (await tx.update(${entity.name}).set(${values}).where(${where}).returning())[0];\n        if (!updated) return { kind: "not-found" as const, resource: ${JSON.stringify(entity.tableName)} };\n        ${variable} = updated;`;
+      return `        {\n        ${update.replaceAll(`return { kind: "not-found" as const, resource: ${JSON.stringify(entity.tableName)} }`, `throw new DataflowFailure(404, "Not found", ${JSON.stringify(entity.tableName)})`)}\n        }`;
+    })).join("\n");
+    const result = contextNames.get(flow.result);
+    if (!result) throw new Error(`Dataflow ${flow.name}: missing result context ${flow.result}`);
+    const needsIdempotency = flow.idempotency?.required === true;
+    const requestSetup = needsIdempotency ? `      const requestKey = request.headers.get("idempotency-key");
+      if (!requestKey || !/^[\\x21-\\x7E]{1,128}$/.test(requestKey)) return status(400, { error: "A valid Idempotency-Key header is required" });
+      if (!principal?.id) return status(401, { error: "Authentication is required for idempotent commands" });
+      const requestKeyHash = await hashDataflowValue(requestKey);
+      const requestHash = await hashDataflowValue(JSON.stringify([${flow.input.map((field) => `body[${JSON.stringify(field.name)}]`).join(", ")} ]));
+` : "";
+    const transactionReplay = needsIdempotency ? `        const previous = ${selectOne(`tx.select({ requestHash: dataflowIdempotency.requestHash, response: dataflowIdempotency.response }).from(dataflowIdempotency).where(and(eq(dataflowIdempotency.actorId, principal!.id), eq(dataflowIdempotency.flow, ${JSON.stringify(flow.name)}), eq(dataflowIdempotency.requestKeyHash, requestKeyHash))).limit(1)`)};
+        if (previous) return previous.requestHash === requestHash ? { kind: "replay" as const, value: JSON.parse(previous.response) } : { kind: "key-conflict" as const };
+` : "";
+    const auditWrite = flow.audit === undefined ? "" : `        await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: principal?.id ?? null, action: ${JSON.stringify(flow.audit)}, resource: ${JSON.stringify(entities.get(flow.context.find((binding) => binding.name === flow.result)!.entity)!.tableName)}, resourceId: String(value.id), metadata: ${database.dialect === "sqlite" ? 'JSON.stringify({ flow: ' + JSON.stringify(flow.name) + ' })' : '{ flow: ' + JSON.stringify(flow.name) + ' }'}, createdAt: ${database.dialect === "sqlite" || database.dialect === "postgresql" ? "new Date()" : "Date.now()"} });
+`;
+    const receiptWrite = needsIdempotency ? `        await tx.insert(dataflowIdempotency).values({ id: crypto.randomUUID(), actorId: principal!.id, flow: ${JSON.stringify(flow.name)}, requestKeyHash, requestHash, response: JSON.stringify(value) });
+` : "";
+    const catchReplay = needsIdempotency ? `      } catch (error) {
+        if (error instanceof DataflowFailure) return status(error.status, { error: error.message, ...(error.resource ? { resource: error.resource } : {}) });
+        const previous = await db.select({ requestHash: dataflowIdempotency.requestHash, response: dataflowIdempotency.response }).from(dataflowIdempotency).where(and(eq(dataflowIdempotency.actorId, principal!.id), eq(dataflowIdempotency.flow, ${JSON.stringify(flow.name)}), eq(dataflowIdempotency.requestKeyHash, requestKeyHash))).limit(1);
+        if (previous[0]) return previous[0].requestHash === requestHash ? JSON.parse(previous[0].response) : status(409, { error: "Idempotency key was already used with a different request" });
+        throw error;
+      }
+` : "      } catch (error) { if (error instanceof DataflowFailure) return status(error.status, { error: error.message, ...(error.resource ? { resource: error.resource } : {}) }); throw error; }\n";
+    return `    .post(${JSON.stringify(`/${flow.name}`)}, async ({ body, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      if (!${JSON.stringify(flow.roles ?? ["admin", "operator"])}.includes(principal.role)) return status(403, { error: "Command execution is restricted" });
+${requestSetup}      let outcome;
+      try {
+      outcome = await db.transaction(${synchronous ? "" : "async "}(tx) => {
+${contextLoads}
+${transactionReplay}
+
+${actions}
+
+        const value = ${result};
+${synchronous ? auditWrite.replace("await tx.insert", "tx.insert").replace(" });\n", " }).run();\n") : auditWrite}${synchronous ? receiptWrite.replace("await tx.insert", "tx.insert").replace(" });\n", " }).run();\n") : receiptWrite}        return { kind: "ok" as const, value };
+      });
+${catchReplay}${needsIdempotency ? `      if (outcome.kind === "replay") return outcome.value;
+      if (outcome.kind === "key-conflict") return status(409, { error: "Idempotency key was already used with a different request" });
+` : ""}
+      return outcome.value;
+    }, { body: t.Object({
+${inputSchema}
+    }, { additionalProperties: false }) })`;
+  }).join("\n");
+  const usesIdempotency = dataflows.some((flow) => flow.idempotency?.required);
+  const usesAudit = dataflows.some((flow) => flow.audit !== undefined);
+  return `import { Elysia, t } from "elysia";
+import { and, eq } from "drizzle-orm";
+import { db } from "../db";
+import { ${[...new Set([...dataflows.flatMap((flow) => flow.context.map((binding) => binding.entity)), ...(usesIdempotency ? ["dataflowIdempotency"] : []), ...(usesAudit ? ["auditEvents"] : [])])].join(", ")} } from "../schema";
+import type { Authenticator } from "../auth/guard";
+
+class DataflowFailure extends Error {
+  constructor(public readonly status: 403 | 404 | 409, message: string, public readonly resource?: string) { super(message); }
+}
+
+${usesIdempotency ? `async function hashDataflowValue(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}` : ""}
+
+export function createDataflowRoutes(authenticate: Authenticator) {
+  return new Elysia({ prefix: "/api/v1/commands" })
+${routeBlocks};
+}
+`;
+}
+
+function sqliteColumnType(field: FieldIR): string {
+  switch (field.type) {
+    case "Integer": return "integer";
+    case "Decimal":
+    case "Money": return "real";
+    case "DateTime": return "integer";
+    case "Vector": return "blob";
+    default: return "text";
+  }
+}
+
+function dataflowFixtureValue(field: FieldIR, requires: Array<{ field: string; operator: "==" | "!=" | ">" | ">=" | "<" | "<="; right: string | number }>, enums: DatabaseIR["enums"]): string {
+  const requirement = requires.find((item) => item.field === field.name);
+  const enumeration = enums?.find((item) => item.name === field.enumName);
+  if (field.type === "Integer" && requirement) {
+    const rules = requires.filter((item) => item.field === field.name && typeof item.right === "number");
+    const candidates = [7, 1, 0, -2147483648, 2147483647, ...rules.flatMap((rule) => [Number(rule.right), Number(rule.right) + 1, Number(rule.right) - 1])];
+    const value = candidates.find((candidate) => candidate >= -2147483648 && candidate <= 2147483647 && rules.every((rule) => {
+      const bound = Number(rule.right);
+      switch (rule.operator) {
+        case "==": return candidate === bound;
+        case "!=": return candidate !== bound;
+        case ">": return candidate > bound;
+        case ">=": return candidate >= bound;
+        case "<": return candidate < bound;
+        case "<=": return candidate <= bound;
+      }
+    }));
+    if (value === undefined) throw new Error(`Cannot infer a successful Dataflow test fixture for Integer field ${field.name}: contradictory requirements`);
+    return JSON.stringify(value);
+  }
+  if (enumeration) return JSON.stringify(requirement?.operator === "==" ? requirement.right : enumeration.values.find((value) => value.name !== requirement?.right)?.name ?? enumeration.values[0]!.name);
+  if (requirement) return JSON.stringify(requirement.operator === "==" ? requirement.right : `${requirement.right}-before`);
+  if (field.primaryKey || field.type === "UUID") return '"00000000-0000-4000-8000-000000000001"';
+  if (field.enumName || field.type === "Text" || field.type === "File") return '"Qiy fixture"';
+  if (field.type === "Integer") return "1";
+  if (field.type === "Decimal" || field.type === "Money") return "1";
+  if (field.type === "DateTime") return "new Date(0)";
+  return "null";
+}
+
+function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>): string | undefined {
+  if (database.dialect !== "sqlite" || !dataflows.length) return undefined;
+  const entities = new Map(database.entities.map((entity) => [entity.name, entity]));
+  const usedEntities = [...new Set(dataflows.flatMap((flow) => flow.context.map((binding) => binding.entity)))].map((name) => entities.get(name)!);
+  const imports = usedEntities.map((entity) => entity.name).join(", ");
+  const schema = usedEntities.map((entity) => {
+    const columns = entity.fields.map((field) => `${JSON.stringify(field.columnName ?? field.name)} ${sqliteColumnType(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
+    return `client.exec(${JSON.stringify(`CREATE TABLE IF NOT EXISTS ${entity.tableName} (${columns})`)});`;
+  }).join("\n");
+  const auxiliarySchema = [
+    `client.exec("CREATE TABLE IF NOT EXISTS audit_events (id text primary key, actorId text, action text not null, resource text not null, resourceId text, metadata text, createdAt integer not null)");`,
+    ...(dataflows.some((flow) => flow.idempotency?.required) ? [`client.exec("CREATE TABLE IF NOT EXISTS dataflow_idempotency (id text primary key, actorId text not null, flow text not null, requestKeyHash text not null, requestHash text not null, response text not null, UNIQUE(actorId, flow, requestKeyHash))");`] : []),
+  ].join("\n");
+  const cleanup = [
+    ...usedEntities.map((entity) => `client.exec(${JSON.stringify(`DELETE FROM ${entity.tableName}`)});`),
+    "client.exec('DELETE FROM audit_events');",
+    ...(dataflows.some((flow) => flow.idempotency?.required) ? ["client.exec('DELETE FROM dataflow_idempotency');"] : []),
+  ].join("\n");
+  const tests = dataflows.map((flow) => {
+    const input = Object.fromEntries(flow.input.map((field) => [field.name, database.enums?.find((item) => item.name === field.type)?.values.at(-1)?.name ?? (field.type === "UUID" ? "00000000-0000-4000-8000-000000000001" : field.type === "Text" ? "Qiy fixture reason" : field.type === "Integer" ? 7 : field.type === "Boolean" ? true : "1.00")]));
+    for (const field of flow.input) {
+      const requires = flow.steps.flatMap((step) => step.actions).flatMap((action) => action.kind === "require" && action.left === `input.${field.name}` ? [{ field: field.name, operator: action.operator, right: action.right }] : []);
+      if (requires.length) input[field.name] = JSON.parse(dataflowFixtureValue({ name: field.name, type: field.type === "Integer" ? "Integer" : "Text", ...(database.enums?.some((item) => item.name === field.type) ? { enumName: field.type } : {}) }, requires, database.enums));
+    }
+    const seed = flow.context.map((binding) => {
+      const entity = entities.get(binding.entity)!;
+      const written = new Set<string>();
+      const requires = flow.steps.flatMap((step) => step.actions).flatMap((action) => {
+        if (action.kind === "update" && action.context === binding.name) action.values.forEach((value) => written.add(value.field));
+        return action.kind === "require" && action.left.startsWith(`${binding.name}.`) && !written.has(action.left.slice(binding.name.length + 1)) ? [{ field: action.left.slice(binding.name.length + 1), operator: action.operator, right: action.right }] : [];
+      });
+      const values = entity.fields.map((field) => `${JSON.stringify(field.name)}: ${dataflowFixtureValue(field, requires, database.enums)}`).join(", ");
+      return `await db.insert(${entity.name}).values({ ${values} } as any);`;
+    }).join("\n    ");
+    const expectedUpdates = flow.steps.flatMap((step) => step.actions).flatMap((action) => action.kind === "update" && action.context === flow.result ? action.values : []);
+    const assertions = expectedUpdates.map((update) => `expect(result).toMatchObject({ ${JSON.stringify(update.field)}: ${JSON.stringify(update.source === "input" ? input[update.value] : update.value)} });`).join("\n    ");
+    const headers = flow.idempotency?.required ? `{ "Content-Type": "application/json", "Idempotency-Key": "qiy-test-key" }` : `{ "Content-Type": "application/json" }`;
+    const missingKeyCheck = flow.idempotency?.required ? `    const missingKey = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(${JSON.stringify(input)}) }));
+    expect(missingKey.status).toBe(400);` : "";
+    const changedInput = flow.input.find((field) => field.type !== "UUID" && (database.enums?.find((item) => item.name === field.type)?.values.length ?? 2) > 1) ?? flow.input[0]!;
+    const changedEnum = database.enums?.find((item) => item.name === changedInput.type);
+    const changedValue = changedEnum ? changedEnum.values.find((value) => value.name !== input[changedInput.name])?.name : changedInput.type === "UUID" ? "00000000-0000-4000-8000-000000000099" : changedInput.type === "Boolean" ? false : changedInput.type === "Integer" ? 2 : changedInput.type === "Decimal" ? "2.00" : "different value";
+    const replayCheck = flow.idempotency?.required ? `
+    const replay = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toEqual(result);
+    const changedPayload = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify({ ...${JSON.stringify(input)}, ${JSON.stringify(changedInput.name)}: ${JSON.stringify(changedValue)} }) }));
+    expect(changedPayload.status).toBe(409);` : "";
+    const auditCheck = flow.audit !== undefined ? `
+    expect(client.query<{ total: number }, [string]>("select count(*) as total from audit_events where action = ?").get(${JSON.stringify(flow.audit)})?.total).toBe(1);` : "";
+    const hasUpdates = flow.steps.some((step) => step.actions.some((action) => action.kind === "update"));
+    const deniedRoles = ["viewer", ...["admin", "operator"].filter((role) => !(flow.roles ?? ["admin", "operator"]).includes(role as "admin" | "operator"))];
+    const authorizationTest = `
+  test(${JSON.stringify(`${flow.name} rejects unauthenticated and disallowed roles before writing`)}, async () => {
+    ${seed}
+    const before = ${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all());
+    for (const role of [null, ...${JSON.stringify(deniedRoles)}] as const) {
+      const deniedApp = new Elysia().use(createDataflowRoutes(async () => role === null ? null : ({ id: "00000000-0000-4000-8000-000000000010", name: "Denied", role })));
+      const denied = await deniedApp.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
+      expect(denied.status).toBe(role === null ? 401 : 403);
+      expect(${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all())).toEqual(before);
+      expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM audit_events").get()?.total).toBe(0);
+      ${flow.idempotency?.required ? 'expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM dataflow_idempotency").get()?.total).toBe(0);' : ""}
+    }
+  });`;
+    const businessRollbackTest = hasUpdates ? `
+  test(${JSON.stringify(`${flow.name} rolls back earlier writes when a later requirement fails`)}, async () => {
+    ${seed}
+    const before = ${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all());
+    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: ${JSON.stringify(flow.roles?.[0] ?? "admin")} })));
+    const failed = await failureApp.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
+    expect(failed.status).toBe(409);
+    expect(await failed.json()).toMatchObject({ error: "qiy.test.lateFailure" });
+    expect(${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all())).toEqual(before);
+    expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM audit_events").get()?.total).toBe(0);
+  });` : "";
+    const rollbackTests = [flow.audit !== undefined ? "audit_events" : undefined, flow.idempotency?.required ? "dataflow_idempotency" : undefined].filter((table): table is string => Boolean(table)).map((table) => `
+  test(${JSON.stringify(`${flow.name} rolls back when ${table} insertion fails and allows retry`)}, async () => {
+    ${seed}
+    const before = ${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all());
+    client.exec(${JSON.stringify(`CREATE TRIGGER qiy_fail_insert BEFORE INSERT ON ${table} BEGIN SELECT RAISE(ABORT, 'forced failure'); END`)});
+    try {
+      const failed = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
+      expect(failed.status).toBe(500);
+      expect(${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all())).toEqual(before);
+      expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM audit_events").get()?.total).toBe(0);
+      ${flow.idempotency?.required ? 'expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM dataflow_idempotency").get()?.total).toBe(0);' : ""}
+    } finally { client.exec("DROP TRIGGER qiy_fail_insert"); }
+    const retry = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
+    expect(retry.status).toBe(200);
+  });`).join("\n");
+    const inputValidationTests = flow.input.filter((field) => field.type === "Integer" || database.enums?.some((enumeration) => enumeration.name === field.type)).map((field) => `
+  test(${JSON.stringify(`${flow.name} rejects invalid ${field.type} input ${field.name} without writes`)}, async () => {
+    ${seed}
+    const before = ${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all());
+    for (const invalid of ${JSON.stringify(field.type === "Integer" ? [-2147483649, 2147483648, 1.5, "invalid", null] : ["qiy-undeclared-enum-value", 7, null, {}])}) {
+      const rejected = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify({ ...${JSON.stringify(input)}, ${JSON.stringify(field.name)}: invalid }) }));
+      expect(rejected.status).toBe(422);
+      expect(${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all())).toEqual(before);
+      expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM audit_events").get()?.total).toBe(0);
+      ${flow.idempotency?.required ? 'expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM dataflow_idempotency").get()?.total).toBe(0);' : ""}
+    }
+  });`).join("\n");
+    const numericGuardTests = flow.steps.flatMap((step) => step.actions).flatMap((action, index) => {
+      if (action.kind !== "require" || !action.left.startsWith("input.") || typeof action.right !== "number") return [];
+      const invalid = action.operator === ">" || action.operator === "<" || action.operator === "!=" ? action.right : action.operator === ">=" ? action.right - 1 : action.operator === "<=" ? action.right + 1 : action.right === 2147483647 ? action.right - 1 : action.right + 1;
+      if (invalid < -2147483648 || invalid > 2147483647) return [];
+      const field = action.left.slice("input.".length);
+      return [`
+  test(${JSON.stringify(`${flow.name} rejects numeric business rule ${index} without writes or receipts`)}, async () => {
+    ${seed}
+    const before = ${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all());
+    const rejected = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify({ ...${JSON.stringify(input)}, ${JSON.stringify(field)}: ${invalid} }) }));
+    expect(rejected.status).toBe(409);
+    expect(${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all())).toEqual(before);
+    expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM audit_events").get()?.total).toBe(0);
+    ${flow.idempotency?.required ? 'expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM dataflow_idempotency").get()?.total).toBe(0);' : ""}
+    const retry = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
+    expect(retry.status).toBe(200);
+  });`];
+    }).join("\n");
+    return `test(${JSON.stringify(flow.idempotency?.required ? "replays a successful command without a second audit event" : `${flow.name} returns not-found and commits its supported update`)}, async () => {
+${missingKeyCheck}
+    const missing = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
+    expect(missing.status).toBe(404);
+    ${seed}
+    const response = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    ${assertions || "expect(result).toHaveProperty(\"id\");"}
+${replayCheck}${auditCheck}
+  });${authorizationTest}${rollbackTests}${businessRollbackTest}${inputValidationTests}${numericGuardTests}`;
+  }).join("\n\n");
+  return `import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { Elysia } from "elysia";
+import { client, db } from "../src/db";
+import { ${imports} } from "../src/schema";
+import { createDataflowRoutes } from "../src/dataflows";
+import { createDataflowRoutes as createFailureRoutes } from "./fixtures/dataflow-failure";
+
+beforeAll(() => {
+${schema}
+${auxiliarySchema}
+});
+
+afterEach(() => {
+${cleanup}
+});
+
+const testRoles: Record<string, "admin" | "operator"> = ${JSON.stringify(Object.fromEntries(dataflows.map((flow) => [flow.name, flow.roles?.[0] ?? "admin"])))};
+const app = new Elysia().use(createDataflowRoutes(async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: testRoles[new URL(request.url).pathname.split("/").at(-1)!] ?? "admin" })));
+
+describe("generated dataflow routes", () => {
+${tests}
+});
+`;
+}
+
+export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "storageProvider" | "auth" | "scopes" | "corsOrigins" | "elysiaPlugins" | "workflows" | "dataflows"> = {}): Record<string, string> {
   const errors = validateDatabaseIR(database);
   if (errors.length) throw new Error(errors.join("\n"));
   const graphqlTypes = new Set(["String", "Int", "Float", "Boolean", "ID", "Query", "Mutation", "QiyFilterInput", "QiyDistribution", "QiyTrend"]);
@@ -986,12 +1389,14 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
     const subject = user?.fields.find((field) => field.name === auth.subjectField);
     const role = user?.fields.find((field) => field.name === auth.roleField);
     if (!user) errors.push(`Auth: unknown user entity ${auth.userEntity}`);
-    if (auth.provider === "local") {
+    if (auth.provider === "local" || auth.provider === "otp") {
       const username = user?.fields.find((field) => field.name === auth.usernameField);
-      const password = user?.fields.find((field) => field.name === auth.passwordField);
       if (!username || username.type !== "Text" || username.nullable || !username.unique) errors.push("Auth: usernameField must be a required unique Text field");
-      if (!password || !["Text"].includes(password.type) || !password.nullable) errors.push("Auth: passwordField must be a nullable Text field storing the password hash");
-      if (username && password && username.name === password.name) errors.push("Auth: usernameField and passwordField must be different fields");
+      if (auth.provider === "local") {
+        const password = user?.fields.find((field) => field.name === auth.passwordField);
+        if (!password || !["Text"].includes(password.type) || !password.nullable) errors.push("Auth: passwordField must be a nullable Text field storing the password hash");
+        if (username && password && username.name === password.name) errors.push("Auth: usernameField and passwordField must be different fields");
+      }
     } else if (!subject || subject.type !== "Text" || subject.nullable || !subject.unique) {
       errors.push("Auth: subjectField must be a required unique Text field");
     }
@@ -1006,9 +1411,33 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
   const repositoryImports = database.entities.map((entity) => `import { ${modelName(entity)}Repository } from "./modules/${entity.name}/${entity.name}.repository";`).join("\n");
   const apps = database.entities.map((entity) => `    .use(${modelName(entity)}Routes(repositories.${entity.name}, authenticate))`).join("\n");
   const interfaces = database.entities.map((entity) => `  ${entity.name}: import("./modules/${entity.name}/${entity.name}.contract").${modelName(entity)}Repository;`).join("\n");
-  const protectedResources = JSON.stringify([...database.entities.map((entity) => ({ path: entity.tableName, query: entity.name })), { path: "files", query: "files" }]);
   const orderWorkflow = renderOrderWorkflow(database, options.scopes ?? [], options.workflows?.includes("orderInventory"));
+  const dataflowRoutes = renderDataflowRoutes(database, options.dataflows ?? [], options.scopes ?? []);
+  const protectedResources = JSON.stringify([
+    ...database.entities.map((entity) => ({ path: entity.tableName, query: entity.name })),
+    { path: "files", query: "files" },
+    ...(dataflowRoutes ? [{ path: "commands", query: "commands" }] : []),
+  ]);
   const postgresSchema = database.dialect === "postgresql" ? generateDrizzlePostgres(database) : "";
+  const baseSchema = database.dialect === "postgresql" ? postgresSchema.replace("import { ", orderWorkflow && !postgresSchema.includes("uniqueIndex") ? "import { uniqueIndex, " : "import { ") + (orderWorkflow ? `
+export const orderReservations = pgTable("order_reservations", {
+  id: uuid("id").primaryKey(),
+  orderId: uuid("orderId").notNull().references(() => orders.id, { onDelete: "cascade" }),
+  orderItemId: uuid("orderItemId").notNull().references(() => orderItems.id, { onDelete: "cascade" }),
+  inventoryItemId: uuid("inventoryItemId").notNull().references(() => inventoryItems.id, { onDelete: "restrict" }),
+  quantity: integer("quantity").notNull(),
+}, (table) => [index("order_reservations_order_idx").on(table.orderId)]);
+
+export const orderIdempotency = pgTable("order_idempotency", {
+  id: uuid("id").primaryKey(),
+  orderId: uuid("orderId").notNull().references(() => orders.id, { onDelete: "cascade" }),
+  actorId: uuid("actorId").notNull(),
+  requestKey: text("requestKey").notNull(),
+  response: jsonb("response").notNull(),
+}, (table) => [uniqueIndex("order_idempotency_scope_idx").on(table.orderId, table.actorId, table.requestKey)]);
+` : "") : database.dialect === "sqlite" ? generateDrizzleSqlite(database) : generateDrizzleMysql(database);
+  const usesDataflowIdempotency = (options.dataflows ?? []).some((flow) => flow.idempotency?.required);
+  const generatedSchema = baseSchema + (usesDataflowIdempotency ? renderDataflowIdempotencySchema(database.dialect) : "");
   const pluginDependencies: Record<string, string> = {};
   if (options.elysiaPlugins?.bearer) pluginDependencies["@elysia/bearer"] = "1.4.4";
   if (options.elysiaPlugins?.serverTiming) pluginDependencies["@elysia/server-timing"] = "1.4.1";
@@ -1056,23 +1485,7 @@ try {
   });
 }
 `,
-    "api/src/schema.ts": database.dialect === "postgresql" ? postgresSchema.replace("import { ", orderWorkflow && !postgresSchema.includes("uniqueIndex") ? "import { uniqueIndex, " : "import { ") + (orderWorkflow ? `
-export const orderReservations = pgTable("order_reservations", {
-  id: uuid("id").primaryKey(),
-  orderId: uuid("orderId").notNull().references(() => orders.id, { onDelete: "cascade" }),
-  orderItemId: uuid("orderItemId").notNull().references(() => orderItems.id, { onDelete: "cascade" }),
-  inventoryItemId: uuid("inventoryItemId").notNull().references(() => inventoryItems.id, { onDelete: "restrict" }),
-  quantity: integer("quantity").notNull(),
-}, (table) => [index("order_reservations_order_idx").on(table.orderId)]);
-
-export const orderIdempotency = pgTable("order_idempotency", {
-  id: uuid("id").primaryKey(),
-  orderId: uuid("orderId").notNull().references(() => orders.id, { onDelete: "cascade" }),
-  actorId: uuid("actorId").notNull(),
-  requestKey: text("requestKey").notNull(),
-  response: jsonb("response").notNull(),
-}, (table) => [uniqueIndex("order_idempotency_scope_idx").on(table.orderId, table.actorId, table.requestKey)]);
-` : "") : database.dialect === "sqlite" ? generateDrizzleSqlite(database) : generateDrizzleMysql(database),
+    "api/src/schema.ts": generatedSchema,
     "api/drizzle.config.ts": database.dialect === "postgresql" ? `import { defineConfig } from "drizzle-kit";\nexport default defineConfig({ dialect: "postgresql", schema: "./src/schema.ts", out: "./drizzle", dbCredentials: { url: process.env.DATABASE_URL ?? "postgres://qiy:qiy@localhost:5432/qiy" } });\n` : database.dialect === "sqlite" ? `import { defineConfig } from "drizzle-kit";\nexport default defineConfig({ dialect: "sqlite", schema: "./src/schema.ts", out: "./drizzle", dbCredentials: { url: process.env.DATABASE_URL ?? "./qiy.sqlite" } });\n` : `import { defineConfig } from "drizzle-kit";\nexport default defineConfig({ dialect: "mysql", schema: "./src/schema.ts", out: "./drizzle", dbCredentials: { url: process.env.DATABASE_URL ?? "mysql://qiy:qiy@localhost:3306/qiy" } });\n`,
     "api/src/app.ts": `import { Elysia } from "elysia";
  import { cors } from "@elysia/cors";
@@ -1100,7 +1513,7 @@ export function normalizeCorsOrigins(origins: string[]): string[] {
   return [...unique];
 }
 
-export async function createApp(repositories: Repositories, authenticate: Authenticator = async () => null, includeWorkflows = true, includeStorage = true, corsOrigins?: string[]) {
+export async function createApp(repositories: Repositories, authenticate: Authenticator = async () => null, includeWorkflows = true, includeStorage = true, corsOrigins?: string[], includeDataflows = true) {
    const configuredOrigins = ${JSON.stringify(options.corsOrigins ?? [])} as string[];
    const environmentOrigins = Bun.env.QIY_CORS_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean) ?? [];
    const allowedOrigins = normalizeCorsOrigins(corsOrigins ?? (environmentOrigins.length > 0 ? environmentOrigins : configuredOrigins));
@@ -1110,13 +1523,16 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     .get("/auth/me", async ({ request }: { request: Request }) => authenticate(request))
  ${apps};
  ${orderWorkflow ? '   const workflow = includeWorkflows ? (await import("./workflows/order")).createOrderWorkflowRoutes(authenticate) : undefined;' : ''}
+ ${dataflowRoutes ? '   const dataflows = includeDataflows ? (await import("./dataflows")).createDataflowRoutes(authenticate) : undefined;' : ''}
     const storage = includeStorage ? (await import("./storage/routes")).createStorageRoutes(authenticate) : undefined;
-    ${auth?.provider === "local" ? 'const localAuth = (await import("./auth/local")).createLocalAuthRoutes();' : ''}
+    ${auth?.provider === "local" ? 'const authRoutes = (await import("./auth/local")).createLocalAuthRoutes();' : auth?.provider === "otp" ? 'const authRoutes = (await import("./auth/otp")).createOtpAuthRoutes();' : ''}
     const application = new Elysia().use(allowedOrigins.length > 0 ? cors({ origin: allowedOrigins, credentials: false, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key"] }) : new Elysia()).onRequest(({ request }) => guard(request)).use(openapi({ path: "/api/v1/openapi", documentation: { info: { title: "Qiy Admin API", version: "1.0.0" } } })).use(routes)${options.elysiaPlugins?.graphqlAdapter && options.elysiaPlugins.graphqlAdapter !== "native" ? '' : '.use(createGraphQLRoutes(repositories, authenticate))'};
     let composed = application;
-    ${auth?.provider === "local" ? "composed = composed.use(localAuth);" : ""}
+    ${auth?.provider === "local" || auth?.provider === "otp" ? "composed = composed.use(authRoutes);" : ""}
     ${orderWorkflow ? "composed = workflow ? composed.use(workflow) : composed;" : ""}
+    ${dataflowRoutes ? "composed = dataflows ? composed.use(dataflows) : composed;" : ""}
     composed = storage ? composed.use(storage) : composed;
+    ${auth ? 'composed = composed.use((await import("./audit/routes")).createAuditRoutes(authenticate));' : ""}
     return registerPlugins(composed, { repositories, authenticate });
 }
 `,
@@ -1440,7 +1856,7 @@ test("reports cleanup failures without a silent cron callback", async () => {
     "api/src/server.ts": `import { resolve } from "node:path";
 import { createApp } from "./app";
 import { createHandler } from "./http";
-${auth ? `import { createProductionAuthenticator } from ${auth.provider === "local" ? '"./auth/local"' : '"./auth/oidc"'};` : ''}
+${auth ? `import { createProductionAuthenticator } from ${auth.provider === "local" ? '"./auth/local"' : auth.provider === "otp" ? '"./auth/otp"' : '"./auth/oidc"'};` : ''}
 ${repositoryImports}
 
 ${auth ? '' : 'if (Bun.env.QIY_DEV_MODE !== "1") {'}
@@ -1466,6 +1882,23 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: Number(Bun.env.PORT ?? 3
 console.log(\`Local-only Qiy preview: http://127.0.0.1:\${server.port}\`);
 `,
   };
+  if (dataflowRoutes) files["api/src/dataflows/index.ts"] = dataflowRoutes;
+  const dataflowTest = renderSqliteDataflowTest(database, options.dataflows ?? []);
+  if (dataflowTest) {
+    files["api/tests/dataflow.test.ts"] = dataflowTest;
+    const failureFlows = (options.dataflows ?? []).map((flow) => {
+      const updates = flow.steps.flatMap((step) => step.actions).filter((action) => action.kind === "update");
+      const last = updates.at(-1);
+      if (!last) return flow;
+      const value = last.values.at(-1)!;
+      const binding = flow.context.find((context) => context.name === last.context)!;
+      const input = value.source === "input" ? flow.input.find((field) => field.name === value.value) : undefined;
+      const numericInput = input?.type === "Integer" || database.enums?.some((enumeration) => enumeration.name === input?.type);
+      return { ...flow, steps: [...flow.steps, { name: "qiyTestLateFailure", order: Math.max(...flow.steps.map((step) => step.order)) + 1, actions: [{ kind: "require" as const, left: `${last.context}.${numericInput ? binding.id.split(":")[0] : value.field}`, operator: "!=" as const, right: numericInput ? "00000000-0000-4000-8000-000000000001" : value.source === "input" ? "Qiy fixture reason" : value.value, error: "qiy.test.lateFailure" }] }] };
+    });
+    files["api/tests/fixtures/dataflow-failure.ts"] = renderDataflowRoutes(database, failureFlows, options.scopes ?? [])!
+      .replaceAll('"../db"', '"../../src/db"').replaceAll('"../schema"', '"../../src/schema"').replaceAll('"../auth/guard"', '"../../src/auth/guard"');
+  }
   if (orderWorkflow) {
     files["api/src/workflows/order.ts"] = orderWorkflow;
     files["api/src/workflows/allocation.ts"] = `export interface StockBalance { id: string; quantity: number; reservedQuantity: number; }
@@ -1531,7 +1964,7 @@ const result = await cleanupMissingAttachmentObjects({ dryRun, limit: Number(Bun
 console.log(JSON.stringify(result));
 `;
   if (auth) {
-    if (auth.provider !== "local") files["api/src/auth/oidc.ts"] = `import { createRemoteJWKSet } from "jose";
+    if (auth.provider !== "local" && auth.provider !== "otp") files["api/src/auth/oidc.ts"] = `import { createRemoteJWKSet } from "jose";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { ${auth.userEntity} } from "../schema";
@@ -1737,6 +2170,40 @@ test("local login route issues a bearer token and rejects invalid credentials", 
 });
 `;
     }
+    if (auth.provider === "otp") {
+      const usernameField = auth.usernameField!;
+      files["api/src/auth/otp.ts"] = `import { createHmac, timingSafeEqual } from "node:crypto";
+import { Elysia, t } from "elysia";
+import { eq } from "drizzle-orm";
+import { jwtVerify, SignJWT } from "jose";
+import { db } from "../db";
+import { ${auth.userEntity} } from "../schema";
+import type { Authenticator, Principal } from "./guard";
+
+const ISSUER = "qiy-admin";
+const roles = new Set(["admin", "operator", "viewer"]);
+function secret(): string { const value = Bun.env.QIY_AUTH_SECRET; if (!value || value.length < 32) throw new Error("QIY_AUTH_SECRET must be at least 32 characters for OTP login"); return value; }
+function otpHash(identifier: string, code: string, key: string): string { return createHmac("sha256", key).update(identifier + "\\n" + code).digest("hex"); }
+function matchesHash(left: string, right: string): boolean { const a = Buffer.from(left, "hex"); const b = Buffer.from(right, "hex"); return a.length === b.length && timingSafeEqual(a, b); }
+function randomCode(): string { return String(crypto.getRandomValues(new Uint32Array(1))[0]! % 1_000_000).padStart(6, "0"); }
+async function findUser(identifier: string) { const rows = await db.select().from(${auth.userEntity}).where(eq(${auth.userEntity}.${usernameField}, identifier)).limit(2); return rows.length === 1 ? rows[0]! : null; }
+async function findPrincipal(id: string): Promise<Principal | null> { const rows = await db.select().from(${auth.userEntity}).where(eq(${auth.userEntity}.id, id)).limit(1); const row = rows[0]; if (!row || typeof row.id !== "string" || !roles.has(String(row.${auth.roleField}))) return null; return { id: row.id, name: String(row.displayName ?? row.${usernameField} ?? row.id), role: row.${auth.roleField} as Principal["role"] }; }
+async function deliver(identifier: string, code: string): Promise<void> { const endpoint = Bun.env.QIY_OTP_DELIVERY_URL; if (!endpoint) { if (Bun.env.QIY_DEV_MODE === "1" && Bun.env.QIY_OTP_DEV_CODE) return; throw new Error("QIY_OTP_DELIVERY_URL is required outside explicit development OTP mode"); } if (new URL(endpoint).protocol !== "https:") throw new Error("QIY_OTP_DELIVERY_URL must use HTTPS"); const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json", ...(Bun.env.QIY_OTP_DELIVERY_TOKEN ? { Authorization: "Bearer " + Bun.env.QIY_OTP_DELIVERY_TOKEN } : {}) }, body: JSON.stringify({ recipient: identifier, code, expiresIn: 300 }) }); if (!response.ok) throw new Error("OTP delivery adapter rejected the request"); }
+async function signAccessToken(user: { id: string; role: string }, key: string): Promise<string> { return new SignJWT({ role: user.role, typ: "qiy-otp" }).setProtectedHeader({ alg: "HS256" }).setSubject(user.id).setIssuer(ISSUER).setAudience(ISSUER).setIssuedAt().setExpirationTime("12h").sign(new TextEncoder().encode(key)); }
+
+export function createProductionAuthenticator(): Authenticator { const key = secret(); return async (request) => { const match = /^Bearer ([^\\s]+)$/.exec(request.headers.get("authorization") ?? ""); if (!match) return null; try { const { payload } = await jwtVerify(match[1]!, new TextEncoder().encode(key), { issuer: ISSUER, audience: ISSUER, algorithms: ["HS256"] }); if (payload.typ !== "qiy-otp" || typeof payload.sub !== "string" || !roles.has(String(payload.role))) return null; return await findPrincipal(payload.sub); } catch { return null; } }; }
+
+export function createOtpAuthRoutes(lookup = findUser, send = deliver, resolvePrincipal = findPrincipal) { return new Elysia({ prefix: "/api/v1/auth/otp" })
+  .post("/request", async ({ body, status }) => { const identifier = body.identifier.trim(); if (!identifier) return status(400, { error: "Login identifier is required" }); const key = secret(); const row = await lookup(identifier); const role = row && roles.has(String(row.${auth.roleField})) ? String(row.${auth.roleField}) : "viewer"; const code = Bun.env.QIY_DEV_MODE === "1" && Bun.env.QIY_OTP_DEV_CODE ? Bun.env.QIY_OTP_DEV_CODE : randomCode(); const valid = Boolean(row && typeof row.id === "string" && roles.has(role)); if (valid) await send(identifier, code); const challengeToken = await new SignJWT({ typ: "qiy-otp-challenge", identifier, otpHash: otpHash(identifier, code, key), role, valid }).setProtectedHeader({ alg: "HS256" }).setSubject(valid ? row!.id : "unknown").setIssuer(ISSUER).setAudience(ISSUER).setIssuedAt().setExpirationTime("5m").sign(new TextEncoder().encode(key)); return { challengeToken, expiresIn: 300, ...(Bun.env.QIY_DEV_MODE === "1" && Bun.env.QIY_OTP_DEV_CODE ? { devCode: code } : {}) }; }, { body: t.Object({ identifier: t.String({ minLength: 1, maxLength: 190 }) }) })
+  .post("/verify", async ({ body, status }) => { const key = secret(); try { const { payload } = await jwtVerify(body.challengeToken, new TextEncoder().encode(key), { issuer: ISSUER, audience: ISSUER, algorithms: ["HS256"] }); if (payload.typ !== "qiy-otp-challenge" || payload.valid !== true || payload.identifier !== body.identifier || typeof payload.otpHash !== "string" || typeof payload.sub !== "string" || !roles.has(String(payload.role)) || !matchesHash(payload.otpHash, otpHash(body.identifier, body.code, key))) return status(401, { error: "Invalid or expired one-time password" }); const principal = await resolvePrincipal(payload.sub); if (!principal) return status(401, { error: "Invalid or expired one-time password" }); return { accessToken: await signAccessToken({ id: principal.id, role: principal.role }, key), tokenType: "Bearer", expiresIn: 43200, ...principal }; } catch { return status(401, { error: "Invalid or expired one-time password" }); } }, { body: t.Object({ identifier: t.String({ minLength: 1, maxLength: 190 }), challengeToken: t.String({ minLength: 1, maxLength: 4096 }), code: t.String({ minLength: 4, maxLength: 12 }) }) }); }
+`;
+      files["api/tests/otp-auth.test.ts"] = `import { expect, test } from "bun:test";
+import { Elysia } from "elysia";
+import { createOtpAuthRoutes } from "../src/auth/otp";
+
+test("issues and verifies a short-lived OTP challenge without exposing a production code", async () => { Bun.env.QIY_AUTH_SECRET = "qiy-otp-test-secret-value-at-least-32"; Bun.env.QIY_DEV_MODE = "1"; Bun.env.QIY_OTP_DEV_CODE = "246810"; const sent: Array<{ identifier: string; code: string }> = []; const user = { id: "user-1", ${JSON.stringify(usernameField)}: "admin@example.com", ${JSON.stringify(auth.roleField)}: "admin" } as any; const principal = { id: "user-1", name: "Admin", role: "admin" } as const; const app = new Elysia().use(createOtpAuthRoutes(async (identifier) => identifier === "admin@example.com" ? user : null, async (identifier, code) => { sent.push({ identifier, code }); }, async (id) => id === "user-1" ? principal : null)); const request = await app.handle(new Request("http://localhost/api/v1/auth/otp/request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier: "admin@example.com" }) })); expect(request.status).toBe(200); const challenge = await request.json() as { challengeToken: string; devCode?: string }; expect(challenge.devCode).toBe("246810"); expect(sent).toEqual([{ identifier: "admin@example.com", code: "246810" }]); const verify = (code: string) => app.handle(new Request("http://localhost/api/v1/auth/otp/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier: "admin@example.com", challengeToken: challenge.challengeToken, code }) })); expect((await verify("wrong")).status).toBe(401); const success = await verify("246810"); expect(success.status).toBe(200); expect((await success.json() as { accessToken: string }).accessToken.length).toBeGreaterThan(40); });
+`;
+    }
     files["api/tests/auth.test.ts"] = `import { expect, test } from "bun:test";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { createOidcAuthenticator } from "../src/auth/verify";
@@ -1765,7 +2232,7 @@ test("verifies issuer, audience and rotating JWKS keys before resolving subject"
     const moduleRoot = `api/src/modules/${entity.name}`;
     const hiddenFields = options.auth?.provider === "local" && entity.name === options.auth.userEntity ? [options.auth.passwordField!] : [];
     const publicEntity = hiddenFields.length ? { ...entity, fields: entity.fields.filter((field) => !hiddenFields.includes(field.name)) } : entity;
-    files[`${moduleRoot}/${entity.name}.repository.ts`] = `import { and, asc, count, desc, eq, gte, lt, sql, ${database.dialect === "postgresql" ? "ilike" : "like"}, inArray, or } from "drizzle-orm";
+    files[`${moduleRoot}/${entity.name}.repository.ts`] = `import { and, asc, count, desc, eq, gt, gte, lt, lte, sql, ${database.dialect === "postgresql" ? "ilike" : "like"}, inArray, or } from "drizzle-orm";
 import { db } from "../../db";
 import { ${entity.name}, auditEvents } from "../../schema";
 import type { ${modelName(entity)}Repository as ${modelName(entity)}RepositoryContract } from "./${entity.name}.contract";
@@ -1785,11 +2252,14 @@ ${renderRepositoryMethods(publicEntity, scopedDatabase)}
   deleteMany(ids: string[], actorId?: string, scope?: { field: string; value: string }): Promise<Array<Record<string, unknown>>>;
 }
 
+export type FilterOperator = "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in";
+export interface FilterClause { field: string; operator: FilterOperator; value: string; }
+
 export interface ListQuery {
   search?: string;
   sort?: string;
   order?: "asc" | "desc";
-  filters?: Record<string, string>;
+  filters?: Record<string, string> | FilterClause[];
   scope?: { field: string; value: string };
 }
 `;
@@ -1822,12 +2292,26 @@ ${renderRoutes(publicEntity, database, options.scopes, hiddenFields).replace(`re
   }
   files["api/tests/graphql.test.ts"] = renderGraphQLTest(scopedDatabase);
   files["api/tests/graphql-schema.test.ts"] = `import { expect, test } from "bun:test";
-import { buildSchema, validateSchema } from "graphql";
+import { buildSchema, isObjectType, isInputObjectType, validateSchema } from "graphql";
 import { graphqlTypeDefs } from "../src/graphql";
 
 test("generated GraphQL schema satisfies the GraphQL type system", () => {
   expect(validateSchema(buildSchema(graphqlTypeDefs)).map((error) => error.message)).toEqual([]);
 });
+${database.entities.map((entity) => {
+    const hidden = options.auth?.provider === "local" && options.auth.userEntity === entity.name ? [options.auth.passwordField!] : [];
+    const fields = entity.fields.filter((field) => field.comment !== undefined && !hidden.includes(field.name));
+    if (entity.comment === undefined && !fields.length) return "";
+    return `\ntest(${JSON.stringify(`${entity.name} GraphQL descriptions match the model`)}, () => {
+  const schema = buildSchema(graphqlTypeDefs);
+  for (const typeName of ${JSON.stringify([modelName(entity), `${modelName(entity)}CreateInput`, `${modelName(entity)}UpdateInput`])}) {
+    const type = schema.getType(typeName);
+    if (!isObjectType(type) && !isInputObjectType(type)) throw new Error("Missing documented GraphQL type");
+    ${entity.comment !== undefined ? `expect(type.description).toBe(${JSON.stringify(entity.comment)});` : ""}
+    ${fields.map((field) => `${field.primaryKey ? `if (isObjectType(type)) ` : ""}expect(type.getFields()[${JSON.stringify(field.name)}]?.description).toBe(${JSON.stringify(field.comment)});`).join("\n    ")}
+  }
+});\n`;
+  }).join("")}
 `;
   const graphqlListOptionsTest = renderGraphQLListOptionsTest(scopedDatabase);
   if (graphqlListOptionsTest) files["api/tests/graphql-list-options.test.ts"] = graphqlListOptionsTest;
@@ -1866,9 +2350,9 @@ import { createGraphQLDataProvider } from "../../web/app/data-provider";
 
 test("official GraphQL adapter mounts the public endpoint and preserves authorization", async () => {
   const seenScopes: Array<{ field: string; value: string } | undefined> = [];
-  const seenLists: Array<{ page: number; pageSize: number; options?: { search?: string; sort?: string; order?: string; filters?: Record<string, string>; scope?: { field: string; value: string } } }> = [];
+  const seenLists: Array<{ page: number; pageSize: number; options?: { search?: string; sort?: string; order?: string; filters?: Record<string, string> | Array<{ field: string; operator: string; value: string }>; scope?: { field: string; value: string } } }> = [];
   const seenMutations: Array<{ operation: string; actorId?: string; scope?: { field: string; value: string } }> = [];
-  const repository = { distribution: async () => [], trend: async () => [], list: async (page: number, pageSize: number, options?: { search?: string; sort?: string; order?: "asc" | "desc"; filters?: Record<string, string>; scope?: { field: string; value: string } }) => { seenScopes.push(options?.scope); seenLists.push({ page, pageSize, options }); return { data: [${JSON.stringify(adapterRecord)}], total: 1 }; }, one: async (_id: string, scope?: { field: string; value: string }) => { seenScopes.push(scope); return ${JSON.stringify(adapterRecord)}; }, create: async (values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "create", actorId, scope }); return { id: "00000000-0000-4000-8000-000000000001", ...values }; }, update: async (_id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "update", actorId, scope }); return { ...${JSON.stringify(adapterRecord)}, ...values }; }, delete: async (_id: string, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "delete", actorId, scope }); return ${JSON.stringify(adapterRecord)}; }, deleteMany: async (_ids: string[], actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "deleteMany", actorId, scope }); return [${JSON.stringify(adapterRecord)}]; } };
+  const repository = { distribution: async () => [], trend: async () => [], list: async (page: number, pageSize: number, options?: { search?: string; sort?: string; order?: "asc" | "desc"; filters?: Record<string, string> | Array<{ field: string; operator: "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in"; value: string }>; scope?: { field: string; value: string } }) => { seenScopes.push(options?.scope); seenLists.push({ page, pageSize, options }); return { data: [${JSON.stringify(adapterRecord)}], total: 1 }; }, one: async (_id: string, scope?: { field: string; value: string }) => { seenScopes.push(scope); return ${JSON.stringify(adapterRecord)}; }, create: async (values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "create", actorId, scope }); return { id: "00000000-0000-4000-8000-000000000001", ...values }; }, update: async (_id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "update", actorId, scope }); return { ...${JSON.stringify(adapterRecord)}, ...values }; }, delete: async (_id: string, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "delete", actorId, scope }); return ${JSON.stringify(adapterRecord)}; }, deleteMany: async (_ids: string[], actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "deleteMany", actorId, scope }); return [${JSON.stringify(adapterRecord)}]; } };
   const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
   const app = await createApp(repositories, async () => ({ id: "adapter-user", name: "Adapter User", role: "admin", claims: ${testClaims} }), false, false);
   expect(app.routes.some((route) => route.path === "/graphql" && route.method === "POST")).toBe(true);
@@ -2065,8 +2549,8 @@ ${scope ? `  const missing = await createApp(repositories, async () => ({ id: "a
   }
   if (database.dialect === "sqlite") {
     const entity = database.entities[0]!;
-    const columns = entity.fields.map((field) => `"${field.name}" ${field.type === "Integer" ? "integer" : field.type === "Decimal" || field.type === "Money" ? "real" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
-    const values = Object.fromEntries(entity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => [field.name, field.enumName ? database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name : field.type === "Integer" ? 1 : field.type === "Decimal" || field.type === "Money" ? "1.00" : field.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : "Example"]));
+    const columns = entity.fields.map((field) => `"${field.name}" ${field.type === "Integer" || field.type === "DateTime" ? "integer" : field.type === "Decimal" || field.type === "Money" ? "real" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
+    const values = entity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => `${JSON.stringify(field.name)}: ${field.enumName ? JSON.stringify(database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name) : field.type === "Integer" ? "1" : field.type === "Decimal" || field.type === "Money" ? '"1.00"' : field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"' : '"Example"'}`).join(", ");
     files["api/tests/audit.test.ts"] = `import { expect, test } from "bun:test";
 
 test("SQLite CRUD audit rolls back the mutation when the audit insert fails", async () => {
@@ -2075,7 +2559,7 @@ test("SQLite CRUD audit rolls back the mutation when the audit insert fails", as
   const { ${modelName(entity)}Repository } = await import("../src/modules/${entity.name}/${entity.name}.repository");
   client.exec(${JSON.stringify(`DROP TABLE IF EXISTS "${entity.tableName}"; DROP TABLE IF EXISTS "audit_events"; CREATE TABLE "${entity.tableName}" (${columns}); CREATE TABLE "audit_events" ("id" text primary key, "actorId" text, "action" text not null, "resource" text not null, "resourceId" text, "metadata" text, "createdAt" integer not null);`)});
   const actorId = "00000000-0000-4000-8000-000000000001";
-  const values = ${JSON.stringify(values)};
+  const values = { ${values} };
   const created = await ${modelName(entity)}Repository.create(values, actorId);
   expect(created.id).toBeTruthy();
   expect(client.query<{ action: string; actorId: string }, []>("select action, actorId from audit_events").get()).toEqual({ action: "${entity.tableName}.created", actorId });
@@ -2084,6 +2568,37 @@ test("SQLite CRUD audit rolls back the mutation when the audit insert fails", as
   expect(client.query<{ total: number }, []>("select count(*) as total from ${entity.tableName}").get()?.total).toBe(1);
 });
 `;
+  }
+  const documentedFields = (entity: EntityIR) => entity.fields.filter((field) => !field.primaryKey && field.comment !== undefined && !(options.auth?.provider === "local" && entity.name === options.auth.userEntity && field.name === options.auth.passwordField));
+  const describedEntities = database.entities.filter((entity) => entity.comment !== undefined || documentedFields(entity).length);
+  if (describedEntities.length) {
+    files["api/tests/documentation.test.ts"] = `import { expect, test } from "bun:test";
+import { createApp, type Repositories } from "../src/app";
+
+test("publishes model descriptions in the actual OpenAPI request schemas", async () => {
+  const repository = { distribution: async () => [], trend: async () => [], list: async () => ({ data: [], total: 0 }), one: async () => undefined, create: async () => ({}), update: async () => undefined, delete: async () => undefined, deleteMany: async () => [] };
+  const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
+  const app = await createApp(repositories);
+  const response = await app.handle(new Request("http://localhost/api/v1/openapi/json"));
+  expect(response.status).toBe(200);
+  const specification = await response.json();
+  const expected: Array<{ resource: string; description?: string; fields: Record<string, string> }> = ${JSON.stringify(describedEntities.map((entity) => ({ resource: entity.tableName, description: entity.comment, fields: Object.fromEntries(documentedFields(entity).map((field) => [field.name, field.comment])) })))};
+  for (const entity of expected) {
+    for (const method of ["post", "patch"]) {
+      const path = "/api/v1/" + entity.resource + (method === "post" ? "/" : "/{id}");
+      const original = specification.paths[path][method].requestBody.content["application/json"].schema;
+      const schema = original.$ref ? specification.components.schemas[original.$ref.split("/").at(-1)] : original;
+      if (entity.description !== undefined) expect(schema.description).toBe(entity.description);
+      for (const [name, description] of Object.entries(entity.fields)) expect(schema.properties[name].description).toBe(description);
+    }
+  }
+});
+`;
+  }
+  if (auth) {
+    Object.assign(files, generateAudit(database, auth, options.scopes));
+    const userTable = database.entities.find((entity) => entity.name === auth.userEntity)!.tableName;
+    files["api/src/auth/guard.ts"] = files["api/src/auth/guard.ts"]!.replace('resource.path === "users"', `resource.path === ${JSON.stringify(userTable)}`);
   }
   return files;
 }

@@ -27,7 +27,7 @@
 - `languages/qiy/generator/templates/qiy.generator.templates@generator.mps` 包含最小 `CreateRootRule` mapping，输出独立的 `QiyGenerationMarker.java` 作为原生 generator 执行证据；它与 `.qiy` TextGen 输出并存，避免替换源根。业务生成仍通过 TextGen/Database IR 桥接。
 - `languages/qiy.runtime/` 是一个没有实际 runtime model 的 solution，未来用于生成应用的公共运行时契约。
 - `languages/qiy.sandbox/` 是一个未编译 Java 的 sandbox solution，引用 `qiy` 语言并保留字段规则的正反样例。
-- `tools/database-ir.ts` 是 Database IR 校验切片，`tools/mps-database-ir.ts` 以持久化 registry 与 structure ID 映射 MPS Model → IR；`tools/generate-app.ts <model.mps> <output-dir>` 已通过共享 Bun generators 输出完整 Turborepo。该外部桥接目前仅映射数据库 Concept；MPS 内置 generator、MPS 应用级配置和 MPS 模型的业务/API/UI Concept 映射仍未完成。
+- `tools/database-ir.ts` 是 Database IR 校验切片，`tools/mps-database-ir.ts` 以持久化 registry 与 structure ID 映射 MPS Model → IR；MPS 入口已覆盖数据库、关系、前端 transport、Elysia 插件、storage、auth、scope、workflow、菜单、Dashboard 和字段可见性，并通过共享 Bun generators 输出完整 Turborepo。文本 DSL 新增的 Dataflow、Action、环境变量、消息字典和 UI 主题配置尚未全部进入 MPS 原生结构；MPS 内置 generator 仍只有最小执行 marker，业务文件继续由 TextGen/IR 桥接生成。
 
 ## 目标生成架构
 
@@ -153,13 +153,14 @@ useTable / useForm / useList / useOne
 useCreate / useUpdate / useDelete / useSelect
 ```
 
-生成页面必须通过 DataProvider 访问后端，不应在页面里硬编码数据库访问或散落 API URL。V0 默认只选择一个 UI 组件体系，当前规划为 Mantine；一个生成项目不能混用多个主要 UI 适配器。
+生成页面必须通过 DataProvider 访问后端，不应在页面里硬编码数据库访问或散落 API URL。一个生成项目只能选择一个主要 UI adapter；当前实际生成和验收的是 Ant Design，其他 adapter 在完整实现前保持 fail-closed。
 
 前端 UI 组件库和后端 API 传输层是独立配置：
 
 ```text
 UI 适配器：只能选一个
-    Mantine | Ant Design | Material UI | Chakra UI
+    Ant Design（当前已实现）
+    Material UI | Mantine | Chakra UI（规划中）
 
 API 传输层：可以同时生成
     REST + GraphQL
@@ -186,7 +187,7 @@ ExternalIdentity
 
 有限枚举除了数据库值，还需要包含 `label`、`tagColor`、`icon` 和 `order`。这些元数据由前端生成 Select、Filter、Tag 和表格展示使用。
 
-V0 默认使用 Lucide 图标标识，但 DSL 只保存稳定的图标名，不直接保存 React 组件；未来可以替换为自定义 Icon Provider。
+当前生成器使用 Ant Design Icons 的稳定组件名，并在生成前校验名称；DSL 保存图标名而不是序列化 React 组件。未来其他 UI adapter 需要各自的 Icon Provider 映射，不能直接混用当前 Ant Design 组件。
 
 ### 菜单、布局和默认配置
 
@@ -199,7 +200,7 @@ Qiy 需要同时支持：
 - 默认配置与项目覆盖配置；
 - 表单、详情页和 Dashboard 区块分组。
 
-前端组件库通过适配器选择，V0 默认 Mantine，后续可支持 Ant Design、Material UI 等主流 Refine UI 集成。一个生成项目只选择一个主要 UI 体系。
+前端组件库通过 adapter 选择，当前默认且唯一已实现的是 Ant Design。生成的 `app/ui/` 集中管理主题 key、light/dark/system 模式和 Header 切换；后续 adapter 必须覆盖相同 Refine Provider、Layout、CRUD、表单和认证契约后才能标记支持。
 
 ## 目标服务器结构
 
@@ -414,9 +415,9 @@ Browser
 需要区分两个“纯前端”要求：
 
 1. **部署纯前端**：V0 目标，运行时只部署 `build/client`，不运行 React Router Server。
-2. **构建纯 Bun**：Catalog 示例已通过 `bun run --bun build` 构建，产物只有 `build/client` 用于部署；尚未进程级验证工具链不会启动任何 Node 子进程，不能据此宣称严格 Bun-only。
+2. **运行时 Bun，构建期 Node 回退**：生成应用的 API 与静态托管运行时为 Bun + Elysia；Linux 上 React Router 的 SPA 构建会经过其 SSR 中间阶段，而 Bun 解析 `react-dom/server.bun.js` 时仍会失败，因此 `apps/web` 的生产构建显式使用 Node.js 20+。Dockerfile 已隔离 Node 构建阶段，最终运行镜像没有 Node 服务或 Node 子进程。
 
-在这个验证完成前，不能把“静态部署不需要服务器”误认为“构建阶段完全不需要 Vite/Node”。
+不能把“运行时不需要 Node 服务”误认为“构建阶段完全不需要 Node/Vite”；用户文档和发布验收都必须明确这一边界。
 
 ## 下一步实现顺序
 

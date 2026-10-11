@@ -7,6 +7,16 @@ application qiy-erp-admin {
     extension pgvector;
   }
 
+  // Refine UI 与主题
+  ui {
+    library antd;
+    theme blue;
+    themes blue, purple, green, orange, red;
+    colorMode system;
+    allowThemeSwitch true;
+    allowColorModeSwitch true;
+  }
+
   // 前端数据源
   api {
     client graphql;
@@ -59,6 +69,31 @@ workspace {
 
 `name`、目录 alias 和 package name 都是可选的；未声明时分别回退到 `application` 名称、`<name>-server`、`<name>-web`、`<name>` 和默认 package name。`-n` 可以作为一次性 CLI 覆盖。package name 使用引号，目录 alias 使用小写字母、数字和连字符。
 
+## ui
+
+`ui` 控制生成的 Refine UI adapter、品牌色主题和明暗模式。当前正式支持 `antd`；`mui`、`mantine`、`chakra` 等名称会在生成前被拒绝，而不是生成混合 UI。
+
+```qiy
+ui {
+  library antd;
+  theme purple;
+  themes purple, blue, green, orange;
+  colorMode system;
+  allowThemeSwitch true;
+  allowColorModeSwitch true;
+}
+```
+
+- `theme` 是默认主题，必须包含在 `themes` 中；
+- 主题 key 支持 `blue`、`purple`、`green`、`orange`、`red`；
+- `colorMode` 支持 `light`、`dark`、`system`；
+- 启用切换后，Header 右上角生成主题和明暗模式控件，并使用 `localStorage` 保存选择；
+- `system` 会监听浏览器 `prefers-color-scheme`；
+- 生成页面优先使用 `@refinedev/antd` 的 `List`、`Show`、`Create`、`Edit` 和操作按钮，其次使用 Ant Design 原生组件，最后才使用 Qiy 自定义组件；
+- 主题实现集中在 `apps/web/app/ui/`，业务页面不直接维护主题算法。
+
+未声明 `ui` 时，默认使用 Ant Design、全部五个主题 key、`blue` 默认色和 `system` 明暗模式。
+
 ## api
 
 ```ts
@@ -94,7 +129,7 @@ storage { provider s3; }
 auth { provider oidc; user users; subjectField externalSubject; roleField role; }
 ```
 
-`provider` 为 `oidc`、`oauth2`、`sso`；`user` 指向应用内的用户实体。
+`provider` 支持 `local`、`otp`、`oidc`、`oauth2`、`sso`、`okta`、`auth0`、`azure-ad-b2c`、`keycloak`、`google`、`kinde`；`user` 指向应用内的用户实体。外部身份 provider 使用唯一非空 Text `subjectField`，`local` 使用 `usernameField` + nullable Text `passwordField`，`otp` 只使用唯一非空 Text `usernameField`。
 
 ## env
 
@@ -118,7 +153,7 @@ env {
 
 变量名使用大写字母、数字和下划线。未配置的自定义变量在相应文件中留空；`required` 会生成待填写的空值；`generate` 仅可用于 secret 的 development 值，每次新建 admin 时生成随机值。标记为 `secret` 的变量不能在 `.qiy` 中写入字面值。`VITE_` 前缀变量写入 web 环境文件并进入浏览器 bundle，不能标记为 secret。开发和生产 server env 文件会被 Git/Docker 忽略；example 文件用于检查字段及复制示例，不包含真实 secret。
 
-`auth provider oidc|oauth2|sso` 会自动加入 `QIY_OIDC_ISSUER`、`QIY_OIDC_AUDIENCE` 和 `QIY_OIDC_JWKS_URL`。当前这些配置用于验证 issuer/JWKS 签发的 access token，不代表生成 OAuth authorization-code client，也不会生成 client ID/secret。
+OIDC-family provider 会在 server 环境加入 `QIY_OIDC_ISSUER`、`QIY_OIDC_AUDIENCE`、`QIY_OIDC_JWKS_URL`，在 web 环境加入 `VITE_QIY_AUTHORIZATION_URL`、`VITE_QIY_TOKEN_URL`、`VITE_QIY_CLIENT_ID`、scope、redirect 和 logout URL。Web 使用 Authorization Code + PKCE，禁止 client secret。`otp` 会加入 `QIY_AUTH_SECRET`、`QIY_OTP_DELIVERY_URL`、`QIY_OTP_DELIVERY_TOKEN` 和仅开发使用的 `QIY_OTP_DEV_CODE`。
 
 ## workflow
 

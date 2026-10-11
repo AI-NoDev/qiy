@@ -27,3 +27,7 @@ draft --submit--> submitted --approve--> approved --ship--> shipped
 `orderInventory` 目前要求存在 `orders`、`orderItems`、`inventoryItems` 实体，且要求 PostgreSQL。它是一个真实业务压力测试切片，用来验证「模型到事务、API、UI」的完整链路，而不是任意业务流程 DSL。
 
 :::
+
+## dataflow（受限可执行）
+
+Qiy 的 `dataflow` 已可生成最小服务端命令：受限 input、按主键 context load、`require`、同事务 `update` 和 result 会生成到 `POST /api/v1/commands/<dataflow>`。它还没有生成确认弹窗、权限注解、审计、事件、幂等或任意查询；详情和精确语法见 [dataflow](/dsl/dataflow)。`workflow orderInventory;` 仍是更完整的 ERP 事务压力测试切片。

@@ -20,8 +20,11 @@ my-admin/
 │   └── web/                    # Refine + React Router SPA
 │       ├── app/
 │       │   ├── routes/         # list / create / edit / show / login
-│       │   ├── components/     # layout、表单等通用组件
+│       │   ├── components/     # 动态表单、业务 Action、审计等通用组件
 │       │   ├── hooks/          # 列可见性、文件下载等
+│       │   ├── providers/      # AuditLog 等 Refine Provider
+│       │   ├── ui/             # UI adapter、主题 key、明暗模式与 Header 控件
+│       │   ├── extensions/     # Qiy sync 不覆盖的手写业务页面
 │       │   ├── data-provider.ts
 │       │   └── root.tsx
 │       └── tests/
@@ -59,3 +62,5 @@ bun run tools/generate-app.ts examples/erpadmin/app.qiy out/erpadmin --sync
 ## 前后端如何连接
 
 前端是**纯前端模式**的 Refine SPA，通过 `/api/v1/*`（REST）或 `/graphql`（GraphQL）访问后端。生产部署时把 `apps/web/build/client` 的静态产物交给 server 或 nginx/Nginx 反向代理托管，路由回退到 `index.html`，API 前缀转发到 Elysia。示例配置见 `deploy/nginx.conf`。
+
+当前已验收的 UI adapter 是 Ant Design。`apps/web/app/ui/` 负责品牌主题、light/dark/system 模式与持久化；资源页面优先使用 `@refinedev/antd` 官方页面壳和按钮，再使用 Ant Design 原生组件补足动态过滤、批量操作和业务 Action。其他 UI adapter 在完整实现前会被生成器拒绝。

@@ -93,7 +93,7 @@ function expandQiyFile(file: string, state: IncludeState, fragment: boolean): st
   let result = "";
   while (index < source.length) {
     const current = source[index]!;
-    if (current === "/" && source[index + 1] === "/") {
+    if (current === "#" || (current === "/" && source[index + 1] === "/")) {
       const end = source.indexOf("\n", index);
       const commentEnd = end === -1 ? source.length : end;
       result += source.slice(index, commentEnd);

@@ -1,6 +1,138 @@
 # V3 实施状态与验收规划
 
+## 0.1.2 发布候选验收（2026-10-12）
+
+五个平台的独立可执行文件已由 Bun 1.3.13 构建，Windows x64 与 Linux x64 均实测 `--version` 返回 `0.1.2`。Windows 可执行文件从 `examples/dataflow/app.qiy` 生成 103 文件工作区，干净安装后 server/web typecheck、21 项 API 测试、11 项 Web 测试及 SPA build 通过。Linux x64 可执行文件也已在 Docker Linux 容器内完成生成、安装、typecheck 和测试。
+
+Linux 黑盒验收发现 React Router 的 SPA 构建仍会在 Bun 中加载 `react-dom/server.bun.js`，React 19.2/19.3 均无法完成其即将删除的 SSR 中间阶段。生成 Web 的 `build` 脚本现明确调用 Node.js 20+ 的 React Router CLI；Bun 继续负责依赖、测试、API 和运行时，Dockerfile 使用独立 `node:22-alpine` 构建阶段，最终镜像仍为 Bun。用户文档不再宣称构建阶段完全没有 Node。
+
+同轮发现新建工作区在首次 `bun install` 前没有 `bun.lock`，旧 Dockerfile 因强制 `COPY bun.lock` 无法构建。`qiy create` 的 Dockerfile 现从精确版本的 package manifests 执行 `bun install`；`qiy init` 集成到已有 Bun workspace 时仍复制宿主 `bun.lock` 并使用 `--frozen-lockfile`。修复后的发布候选镜像已完成非缓存依赖安装、前端构建、镜像导出并启动，开发安全开关显式开启时首页返回 HTTP 200；未配置认证且 `QIY_DEV_MODE=0` 时继续 fail-closed，属于预期生产边界。
+
+## Refine UI adapter 与主题闭环（2026-10-12）
+
+新增 `ui { library antd; theme ...; themes ...; colorMode light|dark|system; allowThemeSwitch ...; allowColorModeSwitch ...; }`，支持 `blue`、`purple`、`green`、`orange`、`red` 五个稳定主题 key。解析器校验未知 UI 库、未知/重复主题和默认主题不在可选列表；序列化往返保持配置。未声明时默认 Ant Design、五色主题、blue 与 system。
+
+生成 Web 新增 `app/ui/` adapter：Ant Design `ConfigProvider`、default/dark algorithm、浏览器 `prefers-color-scheme`、`localStorage` 恢复和 Header 右上角主题/明暗模式控件集中管理，语言选择器继续保留。List/Show/Create/Edit 外壳和常用 CRUD 按钮改为优先使用 `@refinedev/antd` 官方组件；动态过滤、列可见性、批量删除、文件下载、权限、审计、业务 Actions 和 Kbar 保持现有链路。
+
+完整样例 `examples/themes/app.qiy` 生成 95 文件工作区 `tmp/theme-admin-20261012c`。干净 `bun install` 后 Web 类型检查通过，8 项测试/32 个断言通过，SPA build 输出 `build/client/index.html`。保留 React 19 peer warning、`envFile` 弃用、React Router v8 future flag 和 i18n chunk 超过 500 kB 提示。Material UI/Mantine/Chakra adapter 尚未实现，当前 fail-closed，不把仅有主题文档或依赖安装视为支持。
+
+## Refine Kbar 与常用认证 provider（2026-10-12）
+
+默认 Web 模板已加入 `@refinedev/kbar@2.0.1`，`RefineKbarProvider` 包裹 Refine，`RefineKbar` 位于 Refine context 内，命令面板直接读取生成资源与 CRUD 路由。认证 DSL 新增 `okta`、`auth0`、`azure-ad-b2c`、`keycloak`、`google`、`kinde` 与 `otp`；原有 `local`、`oidc`、`oauth2`、`sso` 保持兼容。
+
+Okta/Auth0/Azure AD B2C/Keycloak/Google/Kinde 和通用 OIDC-family provider 共用 Authorization Code + PKCE 客户端：生成 `/auth/callback`、state/verifier session、S256 challenge、无 client secret 的 token exchange、可选 RP logout，以及 provider 对应的 env 示例。服务端继续使用 `jose` 对 issuer/audience/JWKS 验签，并按 `subjectField` 映射本地用户。Auth0 完整示例位于 `examples/auth-providers/auth0.qiy`；干净安装生成 115 文件后，server 22 项测试/124 断言通过，Web 类型检查、16 项测试/67 断言和 SPA build 通过。
+
+OTP 不复用 OIDC：`auth { provider otp; ... usernameField ... }` 生成 request/verify API、两阶段登录页、5 分钟签名 challenge、固定时间验证码摘要比较和 12 小时 access token。生产发送通过 HTTPS `QIY_OTP_DELIVERY_URL` adapter，开发固定码只在 `QIY_DEV_MODE=1` 下返回。示例 `examples/auth-providers/otp.qiy` 生成 113 文件；server 类型检查及 23 项测试/130 断言、Web 类型检查和 SPA build 通过。challenge 不依赖进程内存，但真实邮件/短信供应商的限流、反滥用、送达率与故障恢复仍需生产验收。
+
+以上验证使用本地 PKCE/token endpoint mock、JWKS 单测和 OTP adapter 注入，不等于真实 Okta/Auth0/Azure/Keycloak/Google/Kinde tenant 已验收。provider redirect/logout allowlist、真实 audience/claim、JWKS 轮换、第三方 Cookie 和 OTP 供应商仍列入外部服务验收。
+
+## 高级列表过滤器闭环（2026-10-12）
+
+字段 DSL 新增 `@filter(eq,contains,startsWith,endsWith,gt,gte,lt,lte,between,in)`，解析器拒绝未知和重复 operator，并在序列化后保持配置。生成的 Refine 列表页按字段声明显示 operator Select 与输入控件，可同时提交多个字段条件；REST DataProvider 兼容原对象等值过滤协议并为高级条件发送 clause 数组，GraphQL `QiyFilterInput` 增加默认 `operator: "eq"`。REST/GraphQL 都按字段 allowlist 和 operator allowlist 拒绝非法条件，Drizzle repository 已生成三方言共用的文本匹配、比较、区间和集合条件。
+
+完整样例为 `examples/filters/app.qiy`。实际生成 97 文件 SQLite 工作区 `tmp/filter-demo-20261012b`，干净 `bun install` 后 server/web 类型检查通过；Web 12 项测试/43 个断言、server 18 项测试/96 个断言通过。生成验收同时修复了 SQLite 审计回滚夹具对 DateTime 字段写入字符串的问题。当前多个字段条件按 AND 组合；任意嵌套 AND/OR 条件树、保存的用户筛选视图和浏览器交互验收仍未完成。
+
+## Refine providers：审计、通知、认证与访问控制（2026-10-12）
+
+生成 Web 已接入 Refine 官方 provider 组合：REST/GraphQL `DataProvider`、`AuthProvider`、`Authenticated`、`AccessControlProvider`、Ant Design notification provider，以及认证配置存在时的 `AuditLogProvider`。本地认证使用官方 Ant Design `AuthPage`，将其 email 字段映射到 `.qiy` 的 `usernameField`；外部身份已改为 Authorization Code + PKCE，OTP 使用独立两阶段登录页。
+
+列表删除、批量删除、文件下载错误、详情页错误和业务 action 通知统一走 `useNotification`，不再依赖未配置的全局 `antd` message。`CanAccess` 覆盖资源路由、菜单、CRUD action、详情 action、审计面板和声明的业务 action；它只负责前端可见性，服务端仍重复授权。
+
+服务端审计事件写入与业务 mutation 共用事务；只读 `/api/v1/audit-logs/` 通过配置的 auth user entity 左连接 author，保留已删除作者的历史 id，公开投影不包含密码哈希或原始 metadata。客户端 create/update 审计写入明确拒绝。当前 scoped resource 查询在没有持久化 scope metadata 时 fail-closed，租户审计过滤仍未完成。详情见 [Refine providers](../docs/guide/refine-providers.md)。
+
+最新 catalog 生成包已通过 server typecheck、15 项 server 测试/81 断言和 8 项 web 测试/32 断言；local auth 的生成包确认 `AuthPage` 与 username/email 映射源码。常用外部 provider 与 OTP 的本地生成验收见本页首节；真实 IdP、真实 OTP 供应商、租户审计和既有系统 cookie/refresh 契约仍需独立验收。
+
+## 多语言 Refine I18nProvider（2026-10-12）
+
+`messages` 从中英文限定扩展为规范 BCP 47 标签，支持默认字典校验与往返。生成器使用 i18next 实现官方 Refine I18nProvider：两种 translate 签名、默认文字、插值、CLDR 复数、异步 changeLocale 和独立实例；getLocale 读取实际切换后的语言，未声明语言拒绝且保持当前语言。用户仍只在 `.qiy` 配置。语言选择器使用母语标签，模型默认语言进入初始界面，页面 lang/dir 随切换更新，ar/fa/he/ur 使用 RTL。声明的已映射语言加载 Ant Design 组件语言包，未映射标签回退英语。扩充常用通知、操作、错误页和自动保存中英文键；并未完整翻译全部 Refine 组件或 Qiy 固定页面文字。
+
+完整例子 `examples/multilingual/app.qiy` 包含法、英、日、阿拉伯语及插值/复数。实际生成 95 文件工作区 `qiy-multilingual-20261012`，server/web 类型检查通过，Web 12 项测试/94 个断言、server 18 项测试/96 个断言和 SPA build 通过。原有依赖复用，仅 i18next 在独立临时目录实际安装；不代表完整干净安装验收。发现并修复无 Dataflow 模型生成 `Set<never>` 导致 web 类型检查失败。根仓 139 项测试/1234 个断言、类型检查及文档构建通过。保留 envFile 弃用、React Router future flag 与部分 chunk 超过 500 kB 提示。
+
+五平台可执行文件已刷新；Windows x64 实际 exe 和 Linux x64 Docker 中的实际二进制均生成此 95 文件例子，确认 i18next 依赖与多语言 provider 打包完整。Linux 此轮仅验证生成输出，不据此新增运行或干净安装验收；arm64/macOS 未运行。业务错误翻译、所有配置的通用 comment、选择性消息 include、新语法 MPS 对齐及 V3 其余发布门槛仍待完成。未远端发布，V3 保持 active。DSL 总览记录接口契约、语言包映射与准确回退边界。
+
+## 整数业务规则与三方言验收（2026-10-12）
+
+Dataflow `require` 支持必填 `input.field` 和 context 字段；非空 Integer 支持 `==`、`!=`、`>`、`>=`、`<`、`<=` 与有符号 32 位整数字面量。Text/enum 仍只支持字符串相等/不等。编译期拒绝类型混用、未知或可选输入、nullable Integer 和越界字面量，context 禁用保留名 `input`。运行时在事务中执行条件，晚阶段失败回滚之前的写入。完整示例为 `examples/dataflow/guarded-inputs.qiy`，使用数量 100–200、初始库存非负及写入后的再校验。
+
+SQLite 测试夹具为多个整数条件求共同合法值，并区分写入前的 context 条件与写入后条件；互相矛盾的条件报告无法推导成功夹具，尚非通用流程求解器。自动生成输入规则失败、业务/审计/回执无写入和同键重试测试。源码生成的 96 文件后台通过 server 类型检查与 24 项测试/145 个断言，复用已有依赖。根仓完整测试 138 项/1218 个断言通过，随后补充 signed32 边界和矛盾条件测试，专项 10 项/87 个断言及类型检查通过。
+
+共享实库 harness 新增数量上下限与晚阶段整数规则失败；PostgreSQL 和 MySQL 8.4 各通过实际迁移、14 项测试/76 个断言及 server 类型检查，脚本已清理各自隔离数据库，未修改原 ERP 业务库。这两份 harness 的 `bun install` 本轮成功退出；不据此把其他挂起的安装或所有生成模式的干净安装验收视为通过。认证仍为测试注入。
+
+五平台可执行文件已重新构建。Linux x64 实际二进制在自动清理的 Docker 容器中生成库存示例，server 类型检查及 24 项测试/145 个断言通过，复用镜像依赖；arm64/macOS 未运行验收，未远端发布。上轮含本地化手写 Action 页的 SPA build 本轮补验成功，`ssr:false` 删除服务器构建并输出 `build/client/index.html`；保留 React Router future flag 与 envFile 弃用提示。文档构建及 diff 空白检查通过。
+
+尚未实现字段间比较/算术、Boolean/Decimal 条件、Dataflow create/delete/call/emit、声明式 `.test.qiy`、选择性消息 include 和新语法 MPS 对齐；真实 IdP/S3 与完整 ERP 生产验收仍待完成。V3 保持 active。
+
+## GraphQL 描述与手写 Action 本地化（2026-10-12）
+
+模型实体/字段描述现在进入 GraphQL 实体类型与 Create/UpdateInput 的 SDL description，使用已解析的默认语言；公开字段过滤仍排除本地认证 passwordField。生成 GraphQL schema 测试以实际 `buildSchema` 类型与字段读取描述，覆盖主键只出现在输出类型及 nullable 字段。manual Action 的 `page manual @comment(t("key"))` 保存引用并可序列化往返，新生成的扩展占位页使用 Refine `useTranslation` 切换说明和返回按钮；既有扩展文件仍不被 sync 覆盖。模型例子为 `examples/dataflow/documented-inputs.qiy`，目前生成 103 文件。
+
+生成 server/web 类型检查、实际 OpenAPI/GraphQL 文档三项测试/18 个断言，以及 Web 消息/Action 四项测试/25 个断言通过。根仓 137 项测试/1200 个断言、类型检查、文档构建和 diff 空白检查通过。并行检查首次出现 CLI 版本测试失败与 Windows 依赖读取 EUNKNOWN，独立重试均通过；不将首次失败隐去。五平台产物已刷新，Linux x64 实际二进制在自动清理的 Docker 容器生成 103 文件后台，server 类型检查及 23 项测试/132 个断言通过，复用镜像依赖。此改动只扩展文档/占位页，不代表 GraphQL Dataflow command、动作条件/批量操作、其他语言、MPS 或干净安装已完成；V3 保持 active，未远端发布。
+
+## 本地化模型描述（2026-10-12）
+
+新增 `messages { default "en-US"; locale "en-US" { "key" "message"; } locale "zh-CN" { ... } }`；默认语言在解析期校验，缺失引用、重复语言/key 与危险属性名均拒绝。实体、字段、索引、关系及 Dataflow input/context/step 支持字面量或 `@comment(t("key"))`，IR 同时保存默认描述与引用，序列化往返不丢失引用。Refine 字段提示及命令输入描述随中英文切换，REST CRUD 和命令 TypeBox/OpenAPI 使用默认描述。示例为 `examples/dataflow/documented-inputs.qiy`。
+
+新生成的 `qiy-documented-reviews-20261012` 服务端通过类型检查及 22 项测试、122 个断言，包含实际 `/api/v1/openapi/json` 的实体/字段/nullable 描述验证；Web 通过类型检查、11 项测试、40 个断言及 SPA build。依赖复用已安装目录，并非干净安装。补充字典原型属性回退保护后，Web 再次通过类型检查与消息专项 16 个断言；TextMate 与 JetBrains 源码匹配检查覆盖新增关键字及 `#` 注释，未编译 JetBrains 插件。根仓类型检查、137 项测试/1196 个断言、文档构建与 diff 空白检查通过。首次文档构建出现 `spawn UNKNOWN`，未改配置的重试成功。
+
+五个平台的 0.1.1 可执行文件已刷新。Windows x64 实际 exe 创建 101 文件描述示例；Linux x64 在自动清理的 Docker 容器内用实际二进制生成同一示例，并通过 server 类型检查和 22 项测试/122 个断言，复用镜像已有依赖。arm64/macOS 仅有构建证据，未远端发布。索引/关系/context/step 描述尚未全面生成代码注释，manual Action 页仍仅支持字面量；GraphQL 描述、其他语言、业务错误翻译、选择性 include 与 MPS 对齐仍待完成。V3 保持 active。
+
+## MySQL 真实事务验收（2026-10-12）
+
+MySQL 8.4 隔离容器 `qiy-dataflow-mysql` 就绪后运行 `bun tools/verify-mysql-dataflow.ts qiy-dataflow-mysql`；生成的 `qiy-mysql-dataflow-lo7hl4/admin` 完成实际迁移、server 类型检查和 13 项测试/67 个断言。涵盖整数/枚举持久化、非法输入拒绝、角色和租户范围、同键/不同键并发、跨表联动，以及业务/审计/回执故障的全事务回滚与重试。脚本成功退出并清理独立测试数据库，不操作现有 ERP 数据库。认证仍是测试注入，不代表真实 IdP 验收；真实 S3、完整 ERP 生产验收及干净安装检查尚未完成。
+
+## V3 扩展路线：既有系统集成与 Dataflow（进行中，2026-10-11）
+
+枚举 Dataflow 输入与类型化实库验收：input 可引用已声明 enum，更新只能写入同一 enum 的字段；编译时同时检查枚举字面量更新及 require 的合法值。生成请求使用 TypeBox Literal Union，前端 Action 使用带 enum label 的 Ant Design Select；SQLite 夹具使用合法初始状态并验证非法输入无业务、审计或回执写入。新增完整 `examples/dataflow/enum-inputs.qiy`。生成包 `qiy-enum-inputs-86a09cd6e7df45a3a35438ec5469274c` 通过 server 23 项测试、135 个断言、server/web 类型检查与 SPA build。共享 PostgreSQL/MySQL harness 扩为 13 项；实际 PostgreSQL 包 `qiy-postgresql-dataflow-qvxiAf` 通过迁移、13 项测试、67 个断言与 server 类型检查，包含整数/枚举真实存储、回放冲突、非法输入和晚阶段回滚，隔离数据库已清理。根仓 133 项测试、1165 个断言与类型检查通过。修复 include 展开器误处理 `#` 注释内 include 和大括号，加入模块化回归。Windows x64 exe 已刷新至本轮源码并以实际 exe 生成 100 文件枚举后台，确认 Literal Union 和 Select 存在；该 exe 生成包未再次安装与运行测试。MySQL 下载及另一个干净安装仍在进行；真实 IdP/S3、i18n 引用与 MPS 对齐尚未完成，目标保持 active。
+
+类型化 Dataflow 写入与敏感字段保护：新增同类型必填 Integer input 写入，生成请求契约限制为有符号 32 位整数；Elysia 保留数字字符串转换行为，非法字符串、小数、null 和越界值拒绝且不写业务、审计或回执。Parser 禁止 Dataflow 修改主键、已声明 scope 字段与本地认证 passwordField，覆盖字面量和 input 两种写法。新增 `examples/dataflow/typed-inputs.qiy`；实际生成 SQLite 应用通过 server 类型检查、原有 21 项 server 测试及新增整数负例专项测试（Dataflow 最终 6 项、50 个断言），验证数量从 1 写入 7、回放、审计/回执故障重试及后续业务失败回滚。根仓 132 项测试、1156 个断言与类型检查通过。生成应用复用已安装依赖，不计独立干净安装验收；Boolean 实体字段、Decimal/enum 动态写入、MPS 对齐仍未完成。MySQL 镜像拉取与干净安装进程仍无完成结果，V3 保持进行中。
+
+多平台本地打包与 Linux Docker 黑盒：当前源码已构建 Windows x64、Linux x64/arm64、macOS x64/arm64 的 0.1.1 产物。Windows exe 生成枚举后台通过；Linux x64 产物在独立临时 Docker 容器中验证版本、创建 100 文件枚举后台、manifest 版本和离线 Skill 安装。该 Linux 实际 exe 生成的 server 复用已有镜像依赖，23 项测试、135 个断言通过；容器退出自动清理，未修改运行中的 ERP。此证据不代表 Linux 干净安装、arm64 或 macOS 运行验收。其余架构当前只有构建证据。文档构建和 diff 空白检查通过，未执行远端发布。
+
+导航 Action 权限与集成权限接线（2026-10-11）：认证模型支持导航 action 的 `allow roles`，允许 admin/operator/viewer 非空子集，拒绝未知角色、重复声明、无生成认证的角色声明及命令 action 的独立角色覆盖。按钮与生成业务页路由使用 `CanAccess` 并传递 `params.id`；手写扩展保持不受 sync 管理。补齐 integration 的 Refine AccessControlProvider，通过宿主 `window.qiyHostAuth.can` 判断；缺失、异常或非布尔允许响应一律拒绝。已有未托管 adapter 需要手动移植新导出，不能依靠 sync 覆盖。生成认证的 getIdentity 在无 token 时返回 null，避免匿名角色判断误用身份响应。SQLite 示例 Web 15 项测试、55 个断言通过，导航页面 typecheck 与 SPA build 通过；宿主权限专项测试覆盖拒绝、允许、记录参数传递与 sync 保留。尚未运行浏览器交互验收，此能力不替代手写页面 API 的服务端授权。
+
+整数示例补充验收：生成 Web 类型检查与 React Router SPA 构建通过，文档构建及 diff 空白检查通过。仍有 React Router 弃用提示和大 chunk 提示。本轮源码更新尚未重新打包进 Windows exe，已有 0.1.1 可执行文件不能视为包含此轮整数与字段保护改动。
+
+本轮最终检查：根仓 130 项测试、1145 个断言、类型检查和文档构建通过。集成样例 `qiy-transport-UfQhwi` 复用已安装依赖进行 Web 类型检查与 SPA 构建，均通过；独立干净安装仍在依赖解析中，不能计为安装验收。Windows x64 CLI 已重新构建，版本为 0.1.1，实际 exe 从角色示例生成 116 个文件（`qiy-actions-exe-5e060fabb6f942dbab74603dc2fad546`），确认页面守卫与记录参数存在；未发布远端 Release，V3 目标继续 active。
+
+验收范围调整：按用户要求，远端 GitHub Release 发布验收暂不作为继续实现或 V3 功能验收的阻断；保留 release-smoke 工作流及未执行的事实，优先使用本地生成包和 Docker 实库验证。真实 IdP、S3、MySQL 等未验证能力仍须明确记录，不能以跳过发布验收替代功能验证。
+
+跨方言 Dataflow 验收扩展（2026-10-11）：PostgreSQL harness 新增缺失/其他租户 claim 拒绝、已提交回执不能绕过当前 tenant scope，两张业务表均声明 tenant scope；新生成包 `qiy-postgresql-dataflow-FBUUeW` 通过迁移、11 项实库测试、55 个断言与 server 类型检查，隔离测试库已删除。共用验收脚本增加 MySQL 8.4 分支，独立入口为 `bun tools/verify-mysql-dataflow.ts <mysql-container>`；按方言使用连接关闭、SQL 执行和数据库约束故障注入，新增 CI MySQL service/job。MySQL Docker 镜像下载仍在进行，尚未取得 MySQL 执行证据；不将配置或脚本存在报告为实库通过。测试身份/tenant header 仅用于夹具，不代表生产信任请求 header 或真实 IdP 已验收。
+
+Dataflow 角色授权（2026-10-11）：新增命令级 `allow roles admin;`、`allow roles operator;` 与组合白名单；未声明时仍允许 admin/operator。解析器拒绝空白名单、重复角色/声明和未知角色。服务端在幂等查询及事务前验证角色，admin 不绕过 operator-only 限制；生成的 Refine command action 继承该策略并通过 `CanAccess` 控制。完整示例为 `examples/dataflow/roles.qiy`。新 SQLite 生成包 `qiy-role-flow-5e0d8e0d24a246d6a1bec0d5376091c7` 通过 server 34 项测试、199 个断言及 Web 15 项测试、51 个断言，双方类型检查通过。拒绝请求不改变业务表、不写审计或回执。Docker PostgreSQL 新包 `qiy-postgres-dataflow-MS2dQG` 通过 9 项测试、46 个断言和 server 类型检查，验证同一 actor 降权后无法回放已提交结果；独立测试库已删除。根仓 126 项测试、1117 个断言通过。此项未实现自定义角色、permission claims、独立导航 action 权限或 MPS 对齐；测试注入身份不等于真实 IdP 验收。
+
+Dataflow 输入写入（2026-10-11）：新增 `update connector { revokedReason = input.reason; }`，IR 区分字符串字面量与输入引用，serializer 保留引用语法，服务端只读取经 TypeBox 校验的 request body。当前仅允许必填 Text → 非 enum Text，不接受未知/可选/不匹配输入、嵌套路径或可执行表达式；原有字面量兼容。生成测试同步使用实际 input 预期，并修复晚阶段失败夹具，保证仍验证先写后失败的事务回滚。`examples/dataflow/app.qiy` 不再丢弃操作员填写的 reason。新 PostgreSQL 生成包 `qiy-postgres-dataflow-N4mFyx` 在 Docker 实库通过 8 项测试、39 个断言和 server 类型检查，验证响应及数据库均保存输入；测试库已清理。新 SQLite 生成包通过 20 项测试、108 个断言及 server 类型检查。此项不代表 numeric/enum 动态输入或其他 Dataflow 指令已完成，MPS 对齐仍待实现。语法见 [Dataflow 文档](../docs/dsl/dataflow.md)。
+
+最新 PostgreSQL Dataflow 实库验收：生成上下文查询在 PostgreSQL/MySQL 方言使用 `FOR UPDATE`（SQLite 保持同步事务），避免并发请求基于同一旧状态执行。`bun tools/verify-postgres-dataflow.ts` 使用现有 PostgreSQL Docker 容器创建独立临时数据库，执行生成 schema 的 migration generation/migrate，验证 12 个同键并发请求全部回放且仅一条审计/回执、12 个不同键仅一次状态转换、更新后业务失败完整回滚、同键输入冲突拒绝，并通过生成 server 类型检查。最新 102 文件生成包 `qiy-postgres-dataflow-z4VHfg` 的 8 项测试、37 项断言通过，新增两表联动并发、第二表校验失败、审计/回执数据库约束故障注入和故障解除后的同键重试。测试数据库已在 finally 中删除，未修改 ERP 数据库。新增 `database-smoke.yml` 在独立 PostgreSQL service 重复验收，远端 CI 尚未执行。认证为测试注入 operator；MySQL 实库、真实认证及完整 ERP workflow 仍待验收，不能将此切片视为全部数据库门槛完成。
+
+本轮整体检查：根仓 126 项测试、1117 个断言及 `bun run check` 通过；新生成双角色 SQLite 工作区 server/web 类型检查、34 项 server 测试、15 项 Web 测试和 React Router SPA 构建通过，最终仅保留 `build/client`。更新后的 `bun run docs:build` 通过。构建仍有 React Router/Vite 的弃用与 future flag 提示；没有将这一轮验证声明为严格 Bun-only 构建审计。
+
+本地可执行文件验收：刷新 template/Skill snapshot 后构建 Windows x64 CLI，`--version` 为 `0.1.1`；使用该 exe 从双角色 `.qiy` 创建独立 114 文件项目，确认服务端角色守卫与前端 action 角色元数据存在。产物位于 `dist/qiy-0.1.1-windows-x64.exe`，尚未发布；此黑盒检查未在 exe 生成包再次安装依赖或重跑运行测试，运行证据来自上述源码生成包。
+
+下面项目用于回应“可生成 CRUD，但无法安全接入已有 Bun 单体、已有 API、既有 JWT/Cookie/SSO 与真实 ERP 流程”的边界。部分 P0/P1 已落地；每项均需按实际生成与验收范围理解，不能把 parser 或前端 build 误报为生产可用。
+
+1. **P0：生成器可信度与可复现性。** 已修复发布可执行文件的构建时版本注入，并新增 `qiy doctor`。manifest 已记录 schemaVersion/qiyVersion/projectName/mode，保留旧格式读取；release-smoke 工作流已加入发布资产版本与 create/install/typecheck/test/build 检查，以及 init/sync、离线 Skill、宿主文件保护与 Cookie/CSRF 运行测试。本地重新打包的 Windows exe 已通过 integration 黑盒验收，尚未执行远端已发布 Linux 资产工作流。不能以 Web build 成功替代全栈成功。
+2. **P0：既有系统集成模式（已实现 MVP）。** `mode integration` + `integration { apiBase; auth; }` 仅允许 `qiy init` 在既有 Bun workspace 生成 Web package。它默认只读（list/show），不生成 server、Drizzle、迁移、Docker 或第二套 auth。`app/host/{data-provider,auth,access-control}.ts` 不登记为 Qiy owned file，`--sync` 保留本地映射。真实 API contract、JWT/Cookie、refresh、CORS、权限与领域逻辑仍需宿主实现并测试。
+3. **P1：治理与认证传输。** 增加 resource/menu/action/field permission、确认/审计/幂等 action、Bearer 与 same-origin HttpOnly Cookie + CSRF + 外部门户三类认证传输 profile。Qiy 不自动猜测已有 API 的路径、响应 envelope、refresh cookie 或领域权限；这些必须在 host adapter 中显式映射并测试。
+4. **P1：Dataflow 业务命令 DSL（已实现受限子集）。** `.qiy` 支持 input/context/step/result、Text/enum require/update、Integer input 写入与业务比较、可选 `audit "event";` 与 `idempotency required;`。standalone 生成 REST 命令，按 `allow roles` 检查角色，并在回放前重新检查角色和 scope。SQLite 同步事务使用异常回滚；实测包含提交、404、幂等回放、输入冲突、审计和回执写入失败回滚与重试。PostgreSQL/MySQL 两表事务、并发与故障注入已实库通过，范围见本节验收说明。显式 action 已传递幂等键，失败后相同输入重试保留键；input comment 生成 TypeBox/OpenAPI description。未实现 allow permission、自定义角色、emit、call、create、delete、GraphQL command 或幂等回执清理；MPS Concept/TextGen 未对齐。
+5. **P1：业务 Action DSL（已实现 MVP）。** `action` 可显式绑定资源与 Dataflow 命令，生成 Refine 列表 actions 列和详情操作区；当前记录主键自动注入 Dataflow input，其他必填参数生成 Ant Design 弹窗，可配置确认文案。`navigate` + `page manual @comment(...)` 生成 React Router 路由、说明占位页和 `apps/web/app/extensions/` 手写扩展文件；create/init 的 sync 均不覆盖扩展。客户端只允许调用生成白名单中的命令，任意 command URL fail-closed；认证应用的 command action 已继承 Dataflow 角色白名单，导航 action 支持显式角色与直接访问页面的守卫。尚未实现条件显示表达式、批量业务 action、复杂输入组件或 GraphQL command。
+6. **P2：i18n、注释与查询扩展（部分）。** `#` 行注释及中英文 `messages` 已实现；实体/字段/索引/关系、Dataflow input/context/step 与 manual Action 页支持 `@comment("...")` 和 `@comment(t("key"))`。实体/字段描述进入 GraphQL 类型及 CRUD 输入，字段与 Dataflow input 描述进入 REST TypeBox/OpenAPI 和 Refine 表单。完整代码注释、其他语言、消息选择性导入及可移植读取查询 DSL 尚未实现。
+7. **验收原则。** 每个阶段必须有 parser/IR 负例、生成源码、生成包 typecheck/test/build 和适用的真实服务验收。Integration mode 不得覆盖未托管扩展；Dataflow 不得以客户端联动替代服务端事务与授权。
+
+## AI 开发入口与官方 Skill 安装（2026-10-11）
+
+集成认证传输补充：生成 helper 在读取 token 前验证请求 URL，只允许有效 API base 的 origin 和路径边界；Cookie 模式要求同源，写请求缺失/损坏 CSRF Cookie 时拒绝发出，所有模式禁止自动重定向。修复认证 helper 未使用 `VITE_QIY_API_BASE` 的配置不一致。四种 transport 的实际生成模块已运行负例与请求测试，根仓 122 项测试通过；此修复仅影响新生成适配器，既有 unowned `app/host/auth.ts` 需开发者手动合并。
+
+发布集成黑盒补充：`tools/verify-release-integration.ts <executable> <version>` 在独立临时 Bun workspace 中调用实际 CLI，验证版本、integration manifest、Web package alias、无后端生成、宿主 Agent/wiki/env/script 保护和 host adapter/test 同步保留，并执行生成 Web 的安装、类型检查、Cookie/CSRF 测试及 SPA 构建。首次运行发现生成的 `authTransport as const` 导致 Cookie 模式 TS2367，已将类型声明修复为支持的 transport 联合类型。修复后 Windows exe 黑盒完整通过（`qiy-release-integration-sjCerl`），根仓 121 项测试和类型检查通过。release-smoke 同时修复 shell glob 引号及 YAML `run` 标量写法；远端 Linux 发布验收仍待执行。
+
+`create` 自动生成根目录 `AGENTS.md`、兼容入口 `AGENT.MD`，以及 `openwiki/{quickstart,architecture,development}.md`。文档从实际生成文件和 package scripts 建立目录、命令与扩展边界说明，不将生成成功表述为生产验收。`init` 在 `apps/<web-alias>/` 生成 Agent 入口，将文档隔离到 `openwiki/qiy-<admin-name>/`，保留宿主根目录的 Agent 文件与 OpenWiki；integration 模式不会声称存在未生成的 server 或迁移。同步保留自定义 Agent 入口与额外手写 wiki 页面，刷新三份生成文档。
+
+`qiy skill install` 在当前目录离线安装官方 Qiy Skill 到 `.agent/skills/qiy/`，包含 references 和完整多文件仓储示例，不安装其他框架 Skill。发布构建内嵌 12 个 Skill 文件；重复安装相同内容安全，修改过的官方文件默认拒绝覆盖，显式 `--force` 才替换，并保留其他 Skill 和额外文件。
+
+验收：根仓类型检查、121 项测试（0 失败）、文档构建通过；Windows x64 可执行文件构建成功，并在独立临时目录用真实 exe 安装 Skill，再以其中仓储示例创建 108 文件项目，确认 Agent 与 OpenWiki 入口存在。本阶段未执行远端 Release；V3 仍未达到完整发布门槛。
+
 ## Bun Workspace 集成与生成边界（2026-10-11）
+
+本轮验收：`tmp/v3-dataflow-idempotency-20261011b` 生成工作区通过 server/web typecheck；绕过 Turbo 缓存直接运行 server 20 项测试、web 10 项测试，均通过。服务器额外通过测试专用命令夹具验证“前一步已更新、后一步 require 失败”完整回滚。生成模板的 test task 禁用缓存，避免数据库测试回放旧日志。集成模式修复 apiBase 重复解析并补上 Refine Authenticated 外壳；host adapter sync 保留测试通过。根仓 118 项测试、类型检查及文档构建通过；Web 最新代码直接执行 React Router SPA build 成功，未使用缓存。V3 尚未达到发布门槛。
 
 CLI 新增 `qiy create -f <model.qiy> -n <name> -o <directory>` 用于创建独立 Turborepo + Bun workspace，以及 `qiy init -f <model.qiy> [-n <name>] [--sync]` 用于挂载现有 Bun workspace。别名、集成名称和 package name 直接写在 `.qiy` 的 `workspace` 块中，不需要额外的用户 TS 配置文件。`init` 要求根 `package.json.packageManager` 为 `bun@...`，将 server/web 放入可配置的 `apps/<alias>`，允许独立 npm package alias，并把 deploy、Dockerfile、Compose 重命名到 deploy alias 下；它保留现有 workspace pattern，补入 `apps/*` 与不冲突的 `qiy:<name>:*` scripts，并合并 ignore 文件。
 
@@ -135,21 +267,38 @@ Relations 变体还在隔离 SQLite 文件完成真实迁移，并经 `PRAGMA fo
 - 文本 `.qiy` 支持安全的模块片段 `include "relative/path.qiy";`：支持递归展开与循环链诊断，拒绝绝对路径、`..` 穿越和越出项目根目录的链接；模块内容仍需遵循 V0 应用体声明顺序。`examples/modular-catalog/` 与专项测试覆盖此路径。
 - 根目录 `deploy/` 现提供 Android 国内商店发布框架：`deploy/config.ts` 只保存 `env:NAME` 凭据引用与应用元数据，`deploy/index.ts` 可选择一个或多个目标并要求 `--confirm` 才提交。华为 AppGallery Connect 与小米应用商店适配器按官方自动发布契约生成请求；OPPO、vivo、腾讯应用宝、荣耀各自有独立适配器，通过已配置的企业 relay 对接权限化/合作伙伴 API，否则 fail-closed 并提示门户操作。发布前须以真实开发者资质、商店审核与 CI Secret 验收，不能把 dry-run 视为真实上架完成。
 
-1. **身份与安全**：OIDC/OAuth2/企业 SSO Bearer JWT、外部 subject 映射、基础角色守卫、Refine Provider 和细粒度数据范围已有生成与本地验证；`auth { provider local; ... }` 已生成用户名/密码登录、Argon2id hash 校验、12 小时本地签名 access token、首个管理员 bootstrap、Refine 表单和 `QIY_AUTH_SECRET` 配置，并通过生成 API 路由测试。PostgreSQL/MySQL 实库的管理员初始化与登录验收、跨租户关系推导、数据范围组合策略和真实 IdP 集成仍未完成。生产 server 仍需真实数据库及相应认证环境变量，不能把本地 preview 公开。
+1. **身份与安全**：Local password、OTP、通用 OIDC/OAuth2/SSO 以及 Okta/Auth0/Azure AD B2C/Keycloak/Google/Kinde 已有 DSL、Refine 登录、服务端验证与本地生成包测试；外部 provider 使用 PKCE，OTP 使用签名 challenge 和可替换发送 adapter。PostgreSQL/MySQL 实库的管理员初始化与登录验收、跨租户关系推导、数据范围组合策略、真实 IdP tenant 和真实邮件/短信供应商仍未完成。生产 server 仍需真实数据库及相应认证环境变量，不能把本地 preview 公开。
 2. **业务一致性**：`workflow orderInventory;` 显式启用订单提交/审批/出库/取消事务，多仓预占与按原库存行释放、状态条件、行锁、审计事件和持久化幂等回执；分配函数与生成包 API 已单测，并测试未声明时不生成、SQLite 明确拒绝。真实 PostgreSQL 事务集成、端到端并发/回滚和重复请求验收仍未完成。
 3. **模型能力**：文本 DSL 支持有限字段类型、单向 UUID FK；MPS 数据模型现也可声明并导出 `Relation`，删除级联策略已覆盖第一版。基于现有 FK 的详情页反向明细表已生成，但独立反向关系 API、隐式多对多、复杂约束、默认值、MSSQL/CockroachDB 和完整方言能力矩阵仍未完成。
-4. **后台配置**：多级菜单/分组、字段显示配置、权限化操作和数量/枚举状态分布卡、DateTime UTC 按日趋势卡已生成；三方言 `GROUP BY` 仓库及 REST/GraphQL 聚合端点已生成，SQLite 实库趋势验证了 UTC 日边界与租户隔离；列表每页选项已支持 10/20/50/100。持久化的用户字段布局与其他 UI 适配器尚未生成，PostgreSQL/MySQL 趋势实库验收仍缺失。当前工作台仍不是完整的分析 Dashboard。
-5. **平台集成**：local/S3 Provider、基础 File 字段、Attachment 元数据 API、owner 访问控制、受保护签名读取与前端下载 helper、数据库孤儿记录清理脚本已完成切片；真实 S3 集成测试、对象存储孤儿扫描、GraphQL schema 文档门户、异步任务、生产部署验收和严格 Bun-only 子进程审计尚未完成。Vercel 文件仍是静态站点与远程 API rewrite 草案。
-6. **MPS 一体化**：Catalog、Relations 与 PostgreSQL ERP workflow 切片已有 MPS Make → `.qiy` → Bun workspace → typecheck/tests/build/migration 验收；workflow、AuthConfig、角色枚举、菜单、dashboard 和字段级可见性 TextGen 与桥接 IR 已对比。完整 ERP 的更多业务配置、真实 IdP 验收仍未完成；`qiy.generator` 已验证最小 create-root mapping，完整业务模板仍待扩展。不能把三个已验证切片等同 V3 全部 MPS 模型完成。
+4. **后台配置剩余项**：任意嵌套 AND/OR 条件树、保存的用户筛选视图、持久化用户字段布局、其他 UI 适配器、PostgreSQL/MySQL 趋势实库验收和完整分析 Dashboard 尚未完成。
+5. **文件上传与平台集成剩余项**：File 字段仍缺 base64 上传、MIME 白名单、最大大小、文件数量和 GraphQL upload 契约；真实 S3 集成测试、对象存储孤儿扫描、GraphQL schema 文档门户、异步任务、生产部署验收和严格 Bun-only 子进程审计尚未完成。Vercel 文件仍是静态站点与远程 API rewrite 草案。
+6. **Realtime 与订阅**：尚未生成 Refine `LiveProvider`、`useListLive`、`useOneLive`、`useManyLive` 或服务端事件发布。目标 DSL 需要表达 resource CRUD、Dataflow action、自定义 event、页面/局部/全局 scope、channel/subscription key、订阅 identity 以及 role/permission allowlist；GraphQL transport 使用 GraphQL subscription，非 GraphQL transport 以 Ably 为首个 provider。服务端必须在 mutation 成功提交后发布事件，并在订阅握手和每个 channel 上重复执行身份与访问控制；需要真实 provider、浏览器页面刷新、断线重连、跨租户隔离和未授权订阅拒绝验收。
+
+   待实现语法草案如下；它当前只是 V3 设计目标，解析器和生成器尚不接受：
+
+   ```qiy
+   realtime {
+     provider ably; // api.client graphql 时改为 graphql
+     publish products crud create, update, delete channel "products";
+     publish approveOrder dataflow approveOrder channel "orders.reviewed";
+     subscribe productsList resource products events create, update, delete scope page channel "products" allow roles admin, operator;
+     subscribe orderBadge event "orders.reviewed" scope component key "orders.reviewed" identity user.id allow permission "orders.review.subscribe";
+     subscribe operations event "*" scope global allow roles admin;
+   }
+   ```
+
+   `scope page` 对接资源页 hooks，`scope component` 生成可由局部组件使用的订阅 hook，`scope global` 在应用根注册；`identity` 参与 channel/token 授权，不能仅作为客户端过滤。CRUD 与 Dataflow 发布都必须发生在事务提交之后，失败或回滚不得推送。
+7. **MPS 一体化**：Catalog、Relations 与 PostgreSQL ERP workflow 切片已有 MPS Make → `.qiy` → Bun workspace → typecheck/tests/build/migration 验收；workflow、AuthConfig、角色枚举、菜单、dashboard 和字段级可见性 TextGen 与桥接 IR 已对比。完整 ERP 的更多业务配置、真实 IdP 验收仍未完成；`qiy.generator` 已验证最小 create-root mapping，完整业务模板仍待扩展。不能把三个已验证切片等同 V3 全部 MPS 模型完成。
 
 ## 下一阶段顺序
 
-1. **MPS 原生生成扩面（当前 P0）**：Catalog/Relations 数据库切片及 PostgreSQL ERP workflow 切片均已打通 MPS Make → `.qiy` → Bun workspace；workflow、AuthConfig、枚举、菜单、dashboard 与字段级可见性 TextGen 和外部桥接 IR 等价，生成包已通过 workspace 验收。接下来扩展更完整 ERP 业务配置与 MPS generator 业务模板；已完成的切片不代表 V3 完成。
-2. **Elysia 插件生态验证（P1）**：OpenAPI/CORS 已使用官方插件；Bearer、Server Timing、受限 Cron、JWT、Static、HTML、Drizzle schema 集成及 Apollo/Yoga 均已可按 `.qiy` 配置生成。Apollo 与 Yoga 已分别在独立 Bun ERP workspace 安装官方依赖，最新各通过 typecheck 与 44 项 API 测试；adapter 实测调用生成的 Refine GraphQL data provider 完成 CRUD/batch-delete、distribution/trend；REST/GraphQL provider 的工作流命令均保持同源 REST 路径并经服务端权限、scope 与幂等键验证。下一步统一 native/adapter 错误格式和日志、完成真实数据库/IdP 组合验收。Cron 仅允许显式 `cleanupMissingAttachments`，且 `QIY_CRON_ENABLED=1` 后调度；SQLite 生成包通过官方 `trigger()` 调用/异常回归，独立 SQLite 文件实跑清理了缺失对象元数据，保留现存对象记录。尚需多副本分布式锁、故障恢复与真实 S3。Static 仍由安全约束的 Bun handler 托管，官方 Static 插件仅提供显式配置的独立静态前缀；OIDC/JWKS 继续由 `jose` 验证；Drizzle 是集成模式而非 Elysia 插件；HTML 不适用于当前纯 SPA。
-3. **业务工作流 DSL 与数据库闭环（P1）**：首个 `workflow orderInventory;` 已在 `.qiy` 与原生 MPS 路径生成工作流路由、预占/幂等表和 Refine 操作，但仍绑定现有 ERP 实体/字段约定。接下来抽象角色字段映射与状态转移声明，再明确 SQLite/MySQL 支持策略；覆盖预占/释放/出库、事务回滚、幂等重复请求、审计失败回滚、租户范围与关联查询。将已有算法/API 单测和真实数据库事务测试分开报告，不得把 SQLite CRUD 等同完整 ERP 验收。
-4. **外部服务验收（环境门槛）**：PostgreSQL/MySQL 需要可用服务或 Docker daemon 后才能执行跨方言并发、锁、回滚及审计验收；OIDC 需测试 IdP/issuer/JWKS，S3 需兼容对象存储。当前端口 5432/3306 不通且 Docker Desktop Linux engine pipe 不存在，不能把这些标成已验收。
-5. **生产与平台边界**：完成 Bun-only 启动/构建子进程审计、Docker/K8s 部署实跑、S3 签名上传与孤儿清理、SSO/local session 支持边界、多副本限制与安全配置审计。
-6. **V3 发布门槛**：MPS 原生路径必须端到端生成；ERP 生成包须通过 typecheck、server/web tests、build、migration 与适配环境的实库/IdP/S3 验收；剩余不可测试目标必须列为明确限制。未满足时保持 V3 未完成。
+1. **P0：发布与集成地基**：先交付版本注入、manifest 元数据、`qiy doctor`、发布黑盒回归，以及 `standalone|integration` / web-only / host adapter 边界。此项优先于扩大新 DSL，确保现有系统能安全采用 Qiy 而不被第二套后端、认证或同步覆盖。
+2. **P0：MPS 原生生成扩面**：Catalog/Relations 数据库切片及 PostgreSQL ERP workflow 切片均已打通 MPS Make → `.qiy` → Bun workspace；下一步让新 IR、注释与业务模型有原生 TextGen/bridge 方案，但不得把外部桥接成功误报为所有 MPS generator 完成。
+3. **P1：治理、认证、上传与实时契约**：继续完善默认只读 integration、bearer/cookie/portal transport profile、base64/大小/MIME/数量上传约束，以及 GraphQL subscription/Ably 的 LiveProvider、事件发布、订阅 scope/identity/权限；继续统一 REST/GraphQL 适配错误格式和日志。现有 API/SSO 必须经 host adapter 显式接入。
+4. **P1：Dataflow 与数据库闭环**：由 Dataflow IR 抽象当前 `orderInventory` 切片，先覆盖 typed input、context load、require/allow、事务写入、audit/emit、result 和生成测试模板；之后才增加 `*.test.qiy`。覆盖事务回滚、重复请求、审计失败、scope 与关联查询，且将算法/API 单测和 PostgreSQL 实库验收分开报告。
+5. **P2：i18n、注释、查询与多方言**：实现本地化消息、选择性模块 include、`@comment` 传播、`#` 注释、读取查询 DSL、索引/pgvector/方言能力扩展。任何“查询可表达”能力都必须在权限和租户边界下验证。
+6. **平台与外部服务验收**：PostgreSQL/MySQL 事务并发、真实 IdP/JWKS、S3、Docker/K8s、Bun-only 启动/构建审计、多副本限制与安全配置审计分别验收；不以本地 preview 或模拟服务替代生产验收。
+7. **V3 发布门槛**：MPS 原生与文本模型均能生成；独立与 integration 两种生成包分别通过 typecheck/test/build；ERP Dataflow 通过实库事务验收；真实认证/存储目标清晰记录验收或限制。未满足时保持 V3 未完成。
 
 ## 目前可执行的验收
 

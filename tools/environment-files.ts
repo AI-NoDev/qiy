@@ -6,6 +6,17 @@ type Mode = "development" | "production" | "example";
 type EnvOptions = Pick<QiyProject, "apiClient" | "corsOrigins" | "elysiaPlugins" | "storageProvider" | "auth" | "environment">;
 
 const generatedSecret = "__QIY_GENERATE_SECRET__";
+const isOidcAuth = (provider: NonNullable<QiyProject["auth"]>["provider"]): boolean => provider !== "local" && provider !== "otp";
+
+function oidcExample(provider: NonNullable<QiyProject["auth"]>["provider"]): { authorizationUrl: string; tokenUrl: string; logoutUrl: string } {
+  if (provider === "google") return { authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth", tokenUrl: "https://oauth2.googleapis.com/token", logoutUrl: "" };
+  if (provider === "auth0") return { authorizationUrl: "https://YOUR_TENANT.auth0.com/authorize", tokenUrl: "https://YOUR_TENANT.auth0.com/oauth/token", logoutUrl: "https://YOUR_TENANT.auth0.com/v2/logout" };
+  if (provider === "okta") return { authorizationUrl: "https://YOUR_OKTA_DOMAIN/oauth2/default/v1/authorize", tokenUrl: "https://YOUR_OKTA_DOMAIN/oauth2/default/v1/token", logoutUrl: "https://YOUR_OKTA_DOMAIN/oauth2/default/v1/logout" };
+  if (provider === "azure-ad-b2c") return { authorizationUrl: "https://YOUR_TENANT.b2clogin.com/YOUR_TENANT.onmicrosoft.com/YOUR_POLICY/oauth2/v2.0/authorize", tokenUrl: "https://YOUR_TENANT.b2clogin.com/YOUR_TENANT.onmicrosoft.com/YOUR_POLICY/oauth2/v2.0/token", logoutUrl: "https://YOUR_TENANT.b2clogin.com/YOUR_TENANT.onmicrosoft.com/YOUR_POLICY/oauth2/v2.0/logout" };
+  if (provider === "keycloak") return { authorizationUrl: "https://identity.example.com/realms/YOUR_REALM/protocol/openid-connect/auth", tokenUrl: "https://identity.example.com/realms/YOUR_REALM/protocol/openid-connect/token", logoutUrl: "https://identity.example.com/realms/YOUR_REALM/protocol/openid-connect/logout" };
+  if (provider === "kinde") return { authorizationUrl: "https://YOUR_SUBDOMAIN.kinde.com/oauth2/auth", tokenUrl: "https://YOUR_SUBDOMAIN.kinde.com/oauth2/token", logoutUrl: "https://YOUR_SUBDOMAIN.kinde.com/logout" };
+  return { authorizationUrl: "https://identity.example.com/oauth2/authorize", tokenUrl: "https://identity.example.com/oauth2/token", logoutUrl: "https://identity.example.com/logout" };
+}
 
 function databaseUrl(database: DatabaseIR): string {
   if (database.dialect === "sqlite") return "./qiy.sqlite";
@@ -28,8 +39,13 @@ function defaults(database: DatabaseIR, options: EnvOptions, mode: Mode): Map<st
     ["QIY_STORAGE_PROVIDER", options.storageProvider ?? "local"],
     ["QIY_STORAGE_ROOT", "./storage"],
   ]);
-  if (options.auth?.provider === "local") values.set("QIY_AUTH_SECRET", development ? generatedSecret : "");
-  if (options.auth && options.auth.provider !== "local") {
+  if (options.auth?.provider === "local" || options.auth?.provider === "otp") values.set("QIY_AUTH_SECRET", development ? generatedSecret : "");
+  if (options.auth?.provider === "otp") {
+    values.set("QIY_OTP_DELIVERY_URL", "");
+    values.set("QIY_OTP_DELIVERY_TOKEN", "");
+    values.set("QIY_OTP_DEV_CODE", development ? "246810" : "");
+  }
+  if (options.auth && isOidcAuth(options.auth.provider)) {
     values.set("QIY_OIDC_ISSUER", example ? "https://identity.example.com/" : "");
     values.set("QIY_OIDC_AUDIENCE", example ? "qiy-admin" : "");
     values.set("QIY_OIDC_JWKS_URL", example ? "https://identity.example.com/.well-known/jwks.json" : "");
@@ -69,11 +85,12 @@ function serverEnvironment(database: DatabaseIR, options: EnvOptions, mode: Mode
     "# This file is generated from the application's .qiy model.",
     ...[...values].map(([key, value]) => `${key}=${value}`),
   ];
-  if (options.auth && options.auth.provider !== "local") {
+  if (options.auth && isOidcAuth(options.auth.provider)) {
     lines.push("", "# Configure the issuer, audience and JWKS URL for the selected OIDC/OAuth2/SSO provider.");
     if (mode === "example") lines.push("# These settings validate access tokens; they are not OAuth client credentials.");
   }
   if (options.auth?.provider === "local") lines.push("", "# QIY_AUTH_SECRET is generated for development. Set a unique 32-byte value in production.");
+  if (options.auth?.provider === "otp") lines.push("", "# OTP uses QIY_AUTH_SECRET to sign challenges and access tokens. Configure an HTTPS delivery adapter in production; QIY_OTP_DEV_CODE is development-only.");
   if (options.elysiaPlugins?.jwt) lines.push("", `# ${options.elysiaPlugins.jwt.secretEnv} is required by the configured Elysia JWT plugin.`);
   if (options.storageProvider === "s3") lines.push("", "# Set the QIY_S3_* values above for Bun's S3-compatible storage adapter.");
   for (const variable of options.environment ?? []) {
@@ -86,6 +103,16 @@ function serverEnvironment(database: DatabaseIR, options: EnvOptions, mode: Mode
 
 function webEnvironment(options: EnvOptions, mode: Mode): string {
   const values = new Map<string, string>([["VITE_QIY_API_TRANSPORT", options.apiClient ?? "rest"]]);
+  if (options.auth && isOidcAuth(options.auth.provider)) {
+    const sample = oidcExample(options.auth.provider);
+    const useSample = mode === "example";
+    values.set("VITE_QIY_AUTHORIZATION_URL", useSample ? sample.authorizationUrl : "");
+    values.set("VITE_QIY_TOKEN_URL", useSample ? sample.tokenUrl : "");
+    values.set("VITE_QIY_CLIENT_ID", useSample ? "qiy-admin-spa" : "");
+    values.set("VITE_QIY_AUTH_SCOPE", "openid profile email");
+    values.set("VITE_QIY_REDIRECT_URI", "");
+    values.set("VITE_QIY_LOGOUT_URL", useSample ? sample.logoutUrl : "");
+  }
   for (const variable of options.environment ?? []) {
     if (!variable.name.startsWith("VITE_")) continue;
     const value = configuredValue(variable, mode);
@@ -93,6 +120,7 @@ function webEnvironment(options: EnvOptions, mode: Mode): string {
   }
   return [
     `# Qiy ${mode} frontend environment.`,
+    ...(options.auth && isOidcAuth(options.auth.provider) ? ["# Configure a public SPA client with Authorization Code + PKCE. Never put a client secret in VITE_* variables."] : []),
     ...[...values].map(([key, value]) => `${key}=${value}`),
     "",
   ].join("\n");

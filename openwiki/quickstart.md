@@ -29,6 +29,7 @@ Qiy Model
 - `languages/qiy.sandbox/models/qiy.catalog.mps` 和 `languages/qiy.sandbox/models/qiy.relations.mps` 是合法的生成示例；`qiy.sandbox.mps` 保留故意无效字段用于诊断，不能作为生成源。
 - `examples/catalog/app.qiy` 是 V0 受限文本语法的声明式项目配置；运行 `bun run tools/generate-app.ts examples/catalog/app.qiy out/catalog-admin` 可产生完整 Bun workspace。
 - `examples/plugin-matrix/app.qiy` 是 SQLite + OIDC + Yoga 的按需 Elysia 插件组合回归模型；运行 `bun run tools/generate-app.ts examples/plugin-matrix/app.qiy tmp/v3-elysia-plugin-matrix --sync`，再在生成包中测试。JWT 测试 secret 仅供测试，生产仍须设置对应环境变量；Static 只开放 `public` 目录下文件。
+- `examples/auth-providers/` 提供 Auth0 PKCE 与 OTP 两个完整认证样例；默认 Refine 模板同时启用 `@refinedev/kbar`。外部 provider 仍需真实 tenant redirect/audience/JWKS 验收，OTP 仍需真实邮件/短信 adapter 与限流验收。
 - MPS sandbox 模型也可用 `bun run tools/export-mps-qiy.ts <model.mps> <output.qiy>` 导出文本投影。Catalog/Relations 与 ERP workflow `.mps` 均可直接作为 `tools/generate-app.ts` 输入，生成完整 Bun workspace；ERP workflow 样例覆盖 PostgreSQL 订单、订单项、库存项、OIDC 用户/角色、彩色状态枚举、分层菜单、count/distribution/trend 指标及预占流程，并贯通 TextGen、IR 桥接及生成器。它仍不是完整 ERP，真实 IdP 未验收，`qiy.generator` 已验证最小 create-root mapping，业务模板仍待扩展。
 - `languages/qiy.sandbox/models/qiy.erpworkflow.mps` 是 PostgreSQL MPS ERP 切片，包含 `users`、`orders`、`orderItems`、`inventoryItems`、OIDC `AuthConfig`、彩色状态/角色枚举、订单审批关系、分层菜单、count/distribution/trend dashboard、字段级可见性、label/icon、sortable/filterable 与 `orderInventory`；运行 `bun run tools/generate-app.ts languages/qiy.sandbox/models/qiy.erpworkflow.mps <output-dir>` 可生成工作区。MPS smoke 验证 TextGen 与外部桥接 IR 和完整生成文件集等价。
 - `templates/admin/` 是稳定的 Turborepo + Bun 模板；`tools/generate-project.ts` 将 Qiy 模型生成的业务切片填入模板。
@@ -86,6 +87,8 @@ Elysia 官方 skill 用于 API、插件、GraphQL、部署和 Bun 集成：
 ```powershell
 npx skills add AI-NoDev/qiy --skill qiy
 ```
+
+使用 Qiy 可执行文件时，也可在目标项目根目录运行 `qiy skill install`，离线安装官方 Skill 到 `.agent/skills/qiy/`。生成应用同时包含 Agent 入口和独立 OpenWiki 文档，具体路径、同步保护及验收见 [AI 开发入口与官方 Skill 安装](v3-status.md#ai-开发入口与官方-skill-安装2026-10-11)。
 
 该 Skill 面向 CLI 使用者，包含可直接照做的安装/生成/运行步骤、完整多文件仓储系统示例、`.qiy` 与 `include` 规则、现有 Bun workspace alias/Docker 集成、manifest 同步边界及生产检查；详细内容全部随 `.agents/skills/qiy/` 发布，不依赖仓库外文档。
 

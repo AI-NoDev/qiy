@@ -35,7 +35,8 @@ test("generates local username/password auth without OIDC configuration", () => 
   expect(files["apps/server/src/graphql.ts"]).not.toContain("passwordHash: String");
   expect(files["apps/server/tests/users.test.ts"]).toContain("never returns or persists private field passwordHash");
   expect(files["apps/web/app/auth.ts"]).toContain('fetch("/api/v1/auth/login"');
-  expect(files["apps/web/app/routes/login.tsx"]).toContain("用户名和密码");
+  expect(files["apps/web/app/routes/login.tsx"]).toContain('import { AuthPage } from "@refinedev/antd"');
+  expect(files["apps/web/app/routes/login.tsx"]).toContain('type="login"');
   expect(files["apps/server/.env.example"]).toContain("QIY_AUTH_SECRET");
 });
 

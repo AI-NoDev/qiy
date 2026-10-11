@@ -1,0 +1,40 @@
+qiy v0;
+
+application enum-inputs-admin {
+  database sqlite {}
+  enum reviewState {
+    value pending label "Pending" color "gold";
+    value approved label "Approved" color "green";
+    value rejected label "Rejected" color "red";
+  }
+  entity reviews {
+    field id UUID @id;
+    field status reviewState;
+    field note Text @nullable;
+  }
+  dataflow reviewItem {
+    idempotency required;
+    audit "review.decided";
+    input {
+      field reviewId UUID @required;
+      field decision reviewState @required @comment("Choose the new review state");
+    }
+    context {
+      review = entity reviews by id input.reviewId @required;
+    }
+    step validate {
+      require review.status == "pending" @error("errors.review.alreadyDecided");
+    }
+    step decide {
+      update review { status = input.decision; }
+    }
+    result { return review; }
+  }
+  action reviewItem {
+    resource reviews;
+    dataflow reviewItem;
+    placement list, show;
+    label "Review";
+    confirm "Apply this review state?";
+  }
+}

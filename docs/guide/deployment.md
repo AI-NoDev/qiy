@@ -60,7 +60,7 @@ location /         { try_files $uri $uri/ /index.html; }
 | --- | --- |
 | Vercel | `deploy/vercel.json` |
 | AWS | 参考 Dockerfile 配合 ECR/ECS |
-| 任意 Bun 平台 | `bun run build` 产物加 `bun run preview` |
+| 常规主机 | Node.js 20+ 执行 `bun run build`，Bun 执行 `bun run preview` |
 
 :::warning 预览不等于生产
 

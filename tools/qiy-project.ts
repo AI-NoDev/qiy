@@ -1,9 +1,12 @@
-import { validateDatabaseIR, type DatabaseIR, type EntityIR, type FieldIR, type IndexIR, type IndexColumnIR, type RelationIR } from "./database-ir";
+import { validateDatabaseIR, type DatabaseIR, type EntityIR, type FieldIR, type FilterMode, type IndexIR, type IndexColumnIR, type RelationIR } from "./database-ir";
 
 export interface QiyProject {
   name: string;
   database: DatabaseIR;
+  mode?: "standalone" | "integration";
+  integration?: { apiBase: string; authTransport: "none" | "bearer" | "cookie" | "portal"; csrfCookie?: string; csrfHeader?: string };
   workspace?: QiyWorkspaceConfig;
+  ui?: QiyUiConfig;
   apiClient?: "rest" | "graphql";
   corsOrigins?: string[];
   elysiaPlugins?: {
@@ -17,12 +20,65 @@ export interface QiyProject {
     drizzle?: boolean;
   };
   storageProvider?: "local" | "s3";
-  auth?: { provider: "local" | "oidc" | "oauth2" | "sso"; userEntity: string; subjectField: string; roleField: string; usernameField?: string; passwordField?: string };
+  auth?: { provider: QiyAuthProvider; userEntity: string; subjectField: string; roleField: string; usernameField?: string; passwordField?: string };
   environment?: QiyEnvironmentVariable[];
+  messages?: { defaultLocale: string; locales: Record<string, Record<string, string>> };
   menuGroups?: Array<{ name: string; label: string; icon?: string; parent?: string; resources: string[] }>;
   dashboardMetrics?: Array<{ name: string; resource: string; label: string; icon?: string; span: 8 | 12 | 24; type?: "count" | "distribution" | "trend"; groupBy?: string; days?: number }>;
   scopes?: Array<{ resource: string; field: string; claim: string }>;
   workflows?: Array<"orderInventory">;
+  dataflows?: DataflowIR[];
+  actions?: QiyAction[];
+}
+
+export type QiyUiLibrary = "antd";
+export type QiyThemeKey = "blue" | "purple" | "green" | "orange" | "red";
+export type QiyColorMode = "light" | "dark" | "system";
+
+export interface QiyUiConfig {
+  library: QiyUiLibrary;
+  theme: QiyThemeKey;
+  themes: QiyThemeKey[];
+  colorMode: QiyColorMode;
+  allowThemeSwitch: boolean;
+  allowColorModeSwitch: boolean;
+}
+
+const qiyThemeKeys = new Set<QiyThemeKey>(["blue", "purple", "green", "orange", "red"]);
+
+export type QiyAuthProvider = "local" | "oidc" | "oauth2" | "sso" | "okta" | "auth0" | "azure-ad-b2c" | "keycloak" | "google" | "kinde" | "otp";
+
+const qiyAuthProviders = new Set<QiyAuthProvider>(["local", "oidc", "oauth2", "sso", "okta", "auth0", "azure-ad-b2c", "keycloak", "google", "kinde", "otp"]);
+
+export interface QiyAction {
+  name: string;
+  roles?: Array<"admin" | "operator" | "viewer">;
+  resource: string;
+  placements: Array<"list" | "show">;
+  label: string;
+  target:
+    | { kind: "dataflow"; dataflow: string; confirm?: string }
+    | { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string };
+}
+
+export interface DataflowIR {
+  name: string;
+  idempotency?: { required: boolean };
+  audit?: string;
+  roles?: Array<"admin" | "operator">;
+  input: Array<{ name: string; type: string; required: boolean; comment?: string; commentKey?: string }>;
+  context: Array<{ name: string; entity: string; id: string; required: boolean; comment?: string; commentKey?: string }>;
+  steps: Array<{
+    name: string;
+    order: number;
+    comment?: string;
+    commentKey?: string;
+    actions: Array<
+      | { kind: "require"; left: string; operator: "==" | "!=" | ">" | ">=" | "<" | "<="; right: string | number; error: string }
+      | { kind: "update"; context: string; values: Array<{ field: string; value: string; source?: "input" }> }
+    >;
+  }>;
+  result: string;
 }
 
 export interface QiyEnvironmentVariable {
@@ -49,12 +105,13 @@ export interface QiyWorkspaceConfig {
 }
 
 export function parseQiyProject(input: string): QiyProject {
-  const pattern = /\s+|\/\/[^\r\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[a-zA-Z_][a-zA-Z_0-9-]*|\d+|[{}();,@.]/g;
+  let messages: QiyProject["messages"];
+  const pattern = /\s+|\/\/[^\r\n]*|#[^\r\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|==|!=|>=|<=|[a-zA-Z_][a-zA-Z_0-9-]*|-?\d+|[{}();,@.=<>]/g;
   const tokens: string[] = []; 
   let end = 0;
   for (const match of input.matchAll(pattern)) {
     if (match.index !== end) throw new Error(`Unexpected Qiy syntax at offset ${end}`);
-    if (!/^\s|^\/\//.test(match[0])) tokens.push(match[0]);
+    if (!/^\s|^\/\/|^#/.test(match[0])) tokens.push(match[0]);
     end += match[0].length;
   }
   if (end !== input.length) throw new Error(`Unexpected Qiy syntax at offset ${end}`);
@@ -100,6 +157,243 @@ export function parseQiyProject(input: string): QiyProject {
     if (!/^\d+$/.test(value)) throw new Error(`Expected integer near token ${position}`);
     return Number(value);
   }
+  function dottedPath(): string {
+    const parts = [identifier()];
+    while (peek() === ".") { expect("."); parts.push(identifier()); }
+    return parts.join(".");
+  }
+  function stringLiteral(): string {
+    const token = take();
+    if (token.startsWith('"')) return JSON.parse(token) as string;
+    if (token.startsWith("'")) return token.slice(1, -1).replace(/\\([\\'])/g, "$1");
+    throw new Error(`Expected a quoted string near token ${position}`);
+  }
+  function documentation(): { comment: string; commentKey?: string } {
+    if (peek() !== "t") return { comment: stringLiteral() };
+    expect("t"); expect("("); const key = stringLiteral(); expect(")");
+    const translated = messages?.locales[messages.defaultLocale]?.[key];
+    if (translated === undefined) throw new Error(`Missing default locale message for comment: ${key}`);
+    return { comment: translated, commentKey: key };
+  }
+  function dataflow(): DataflowIR {
+    expect("dataflow");
+    const name = identifier();
+    const input: DataflowIR["input"] = [];
+    const context: DataflowIR["context"] = [];
+    const steps: DataflowIR["steps"] = [];
+    let result = "";
+    let idempotency: DataflowIR["idempotency"];
+    let audit: string | undefined;
+    let roles: DataflowIR["roles"];
+    let seenInput = false;
+    let seenContext = false;
+    let seenResult = false;
+    const seenSteps = new Set<string>();
+    expect("{");
+    while (peek() !== "}") {
+      const section = identifier();
+      if (section === "allow") {
+        if (roles) throw new Error(`Dataflow ${name}: duplicate allow roles declaration`);
+        expect("roles");
+        roles = [];
+        do {
+          const role = identifier();
+          if (role !== "admin" && role !== "operator") throw new Error(`Dataflow ${name}: unsupported command role ${role}`);
+          if (roles.includes(role)) throw new Error(`Dataflow ${name}: duplicate command role ${role}`);
+          roles.push(role);
+          if (peek() !== ",") break;
+          expect(",");
+        } while (true);
+        expect(";");
+        continue;
+      }
+      if (section === "idempotency") {
+        if (idempotency) throw new Error(`Dataflow ${name}: duplicate idempotency declaration`);
+        const mode = identifier();
+        if (mode !== "required") throw new Error(`Dataflow ${name}: idempotency must be required`);
+        expect(";");
+        idempotency = { required: true };
+        continue;
+      }
+      if (section === "audit") {
+        if (audit !== undefined) throw new Error(`Dataflow ${name}: duplicate audit declaration`);
+        audit = stringLiteral();
+        if (!audit.trim()) throw new Error(`Dataflow ${name}: audit action cannot be empty`);
+        expect(";");
+        continue;
+      }
+      if (section === "input") {
+        if (seenInput) throw new Error(`Dataflow ${name}: duplicate input block`);
+        seenInput = true;
+        expect("{");
+        while (peek() !== "}") {
+          expect("field");
+          const fieldName = identifier();
+          const type = identifier();
+          if (!new Set(["UUID", "Text", "Integer", "Decimal", "Boolean"]).has(type) && !enumNames.has(type)) throw new Error(`Dataflow ${name}: unsupported input type ${type}`);
+          let required = false;
+          let description: { comment?: string; commentKey?: string } = {};
+          while (peek() === "@") {
+            expect("@");
+            const annotation = identifier();
+            if (annotation === "required") required = true;
+            else if (annotation === "comment") { expect("("); description = documentation(); expect(")"); }
+            else throw new Error(`Dataflow ${name}: unsupported input annotation @${annotation}`);
+          }
+          expect(";");
+          if (input.some((field) => field.name === fieldName)) throw new Error(`Dataflow ${name}: duplicate input field ${fieldName}`);
+          input.push({ name: fieldName, type, required, ...description });
+        }
+        expect("}");
+        continue;
+      }
+      if (section === "context") {
+        if (seenContext) throw new Error(`Dataflow ${name}: duplicate context block`);
+        seenContext = true;
+        expect("{");
+        while (peek() !== "}") {
+          const binding = identifier(); expect("="); expect("entity");
+          const entity = identifier(); expect("by"); const key = identifier();
+          const id = dottedPath();
+          let required = false;
+          let description: { comment?: string; commentKey?: string } = {};
+          while (peek() === "@") {
+            expect("@");
+            const annotation = identifier();
+            if (annotation === "required") required = true;
+            else if (annotation === "comment") { expect("("); description = documentation(); expect(")"); }
+            else throw new Error(`Dataflow ${name}: unsupported context annotation @${annotation}`);
+          }
+          expect(";");
+          if (context.some((item) => item.name === binding)) throw new Error(`Dataflow ${name}: duplicate context binding ${binding}`);
+          context.push({ name: binding, entity, id: `${key}:${id}`, required, ...description });
+        }
+        expect("}");
+        continue;
+      }
+      if (section === "step") {
+        const stepName = identifier();
+        if (seenSteps.has(stepName)) throw new Error(`Dataflow ${name}: duplicate step ${stepName}`);
+        seenSteps.add(stepName);
+        let order = steps.length + 1;
+        let description: { comment?: string; commentKey?: string } = {};
+        while (peek() === "@") {
+          expect("@"); const annotation = identifier(); expect("(");
+          if (annotation === "order") order = integer();
+          else if (annotation === "comment") description = documentation();
+          else throw new Error(`Dataflow ${name}: unsupported step annotation @${annotation}`);
+          expect(")");
+        }
+        expect("{");
+        const actions: DataflowIR["steps"][number]["actions"] = [];
+        while (peek() !== "}") {
+          const action = identifier();
+          if (action === "require") {
+            const left = dottedPath(); const operator = take();
+            if (operator !== "==" && operator !== "!=" && operator !== ">" && operator !== ">=" && operator !== "<" && operator !== "<=") throw new Error(`Dataflow ${name}: unsupported require comparison`);
+            const right = /^-?\d+$/.test(peek()) ? Number(take()) : stringLiteral();
+            if (typeof right === "number" && (!Number.isInteger(right) || right < -2147483648 || right > 2147483647)) throw new Error(`Dataflow ${name}: require integer literal must fit signed 32-bit range`);
+            expect("@"); expect("error"); expect("("); const error = stringLiteral(); expect(")"); expect(";");
+            actions.push({ kind: "require", left, operator, right, error });
+          } else if (action === "update") {
+            const binding = identifier(); expect("{");
+            const values: Array<{ field: string; value: string; source?: "input" }> = [];
+            while (peek() !== "}") {
+              const fieldName = identifier(); expect("=");
+              if (peek() === "input") {
+                expect("input"); expect(".");
+                values.push({ field: fieldName, value: identifier(), source: "input" });
+              } else {
+                values.push({ field: fieldName, value: stringLiteral() });
+              }
+              expect(";");
+            }
+            expect("}");
+            actions.push({ kind: "update", context: binding, values });
+          } else throw new Error(`Dataflow ${name}: unsupported action ${action}`);
+        }
+        expect("}");
+        steps.push({ name: stepName, order, ...description, actions });
+        continue;
+      }
+      if (section === "result") {
+        if (seenResult) throw new Error(`Dataflow ${name}: duplicate result block`);
+        seenResult = true; expect("{"); expect("return"); result = identifier(); expect(";"); expect("}"); continue;
+      }
+      throw new Error(`Dataflow ${name}: unsupported section ${section}`);
+    }
+    expect("}");
+    if (!seenInput || !seenContext || !seenResult) throw new Error(`Dataflow ${name} requires input, context, and result blocks`);
+    if (!steps.length) throw new Error(`Dataflow ${name} requires at least one step`);
+    const orders = new Set<number>();
+    for (const step of steps) {
+      if (!Number.isSafeInteger(step.order) || step.order < 1 || orders.has(step.order)) throw new Error(`Dataflow ${name}: step order must be a unique positive integer`);
+      orders.add(step.order);
+    }
+    steps.sort((left, right) => left.order - right.order);
+    return { name, ...(idempotency && { idempotency }), ...(audit !== undefined && { audit }), ...(roles && { roles }), input, context, steps, result };
+  }
+  function action(): QiyAction {
+    expect("action");
+    const name = identifier();
+    let resource: string | undefined;
+    let label: string | undefined;
+    let dataflowName: string | undefined;
+    let navigatePath: string | undefined;
+    let confirm: string | undefined;
+    let manualComment: { comment: string; commentKey?: string } | undefined;
+    let roles: QiyAction["roles"];
+    const placements: QiyAction["placements"] = [];
+    expect("{");
+    while (peek() !== "}") {
+      const property = identifier();
+      if (property === "resource") resource = identifier();
+      else if (property === "dataflow") dataflowName = identifier();
+      else if (property === "navigate") navigatePath = stringLiteral();
+      else if (property === "label") label = stringLiteral();
+      else if (property === "confirm") confirm = stringLiteral();
+      else if (property === "allow") {
+        if (roles) throw new Error(`Action ${name}: duplicate allow roles declaration`);
+        expect("roles");
+        roles = [];
+        do {
+          const role = identifier();
+          if (role !== "admin" && role !== "operator" && role !== "viewer") throw new Error(`Action ${name}: unsupported role ${role}`);
+          if (roles.includes(role)) throw new Error(`Action ${name}: duplicate role ${role}`);
+          roles.push(role);
+          if (peek() !== ",") break;
+          expect(",");
+        } while (true);
+      }
+      else if (property === "placement") {
+        do {
+          const placement = identifier();
+          if (placement !== "list" && placement !== "show") throw new Error(`Action ${name}: placement must be list or show`);
+          if (placements.includes(placement)) throw new Error(`Action ${name}: duplicate placement ${placement}`);
+          placements.push(placement);
+          if (peek() !== ",") break;
+          expect(",");
+        } while (true);
+      } else if (property === "page") {
+        if (identifier() !== "manual") throw new Error(`Action ${name}: only page manual is supported`);
+        expect("@"); expect("comment"); expect("("); manualComment = documentation(); expect(")");
+      } else throw new Error(`Action ${name}: unsupported property ${property}`);
+      expect(";");
+    }
+    expect("}");
+    if (!resource) throw new Error(`Action ${name}: resource is required`);
+    if (!label) throw new Error(`Action ${name}: label is required`);
+    if (!placements.length) throw new Error(`Action ${name}: at least one placement is required`);
+    if (Boolean(dataflowName) === Boolean(navigatePath)) throw new Error(`Action ${name}: exactly one of dataflow or navigate is required`);
+    if (dataflowName) {
+      if (roles) throw new Error(`Action ${name}: declare roles on the dataflow instead`);
+      if (manualComment !== undefined) throw new Error(`Action ${name}: page manual is only valid for navigate actions`);
+      return { name, resource, placements, label, target: { kind: "dataflow", dataflow: dataflowName, ...(confirm !== undefined && { confirm }) } };
+    }
+    if (confirm !== undefined) throw new Error(`Action ${name}: confirm is only valid for dataflow actions`);
+    if (!manualComment?.comment) throw new Error(`Action ${name}: navigate actions require page manual @comment(...)`);
+    return { name, ...(roles && { roles }), resource, placements, label, target: { kind: "navigate", path: navigatePath!, page: "manual", ...manualComment } };
+  }
   function validateCorsOrigins(origins: string[]): string[] {
     for (const origin of origins) {
       if (origin === "*" || origin.includes("*")) throw new Error(`CORS origin must be an exact http(s) origin without a path or wildcard: ${origin}`);
@@ -134,6 +428,7 @@ export function parseQiyProject(input: string): QiyProject {
       else if (attribute === "nullable") result.nullable = booleanAttribute();
       else if (attribute === "unique") result.unique = booleanAttribute();
       else if (attribute === "label") { expect("("); result.label = value(); expect(")"); }
+      else if (attribute === "comment") { expect("("); Object.assign(result, documentation()); expect(")"); }
       else if (attribute === "icon") { expect("("); result.icon = value(); expect(")"); }
       else if (attribute === "visible") { expect("("); result.visible = boolean(); expect(")"); }
       else if (attribute === "listVisible") { expect("("); result.listVisible = boolean(); expect(")"); }
@@ -141,6 +436,21 @@ export function parseQiyProject(input: string): QiyProject {
       else if (attribute === "showVisible") { expect("("); result.showVisible = boolean(); expect(")"); }
       else if (attribute === "sortable") { expect("("); result.sortable = boolean(); expect(")"); }
       else if (attribute === "filterable") { expect("("); result.filterable = boolean(); expect(")"); }
+      else if (attribute === "filter") {
+        expect("(");
+        const modes: FilterMode[] = [];
+        do {
+          const mode = identifier() as FilterMode;
+          if (!["eq", "contains", "startsWith", "endsWith", "gt", "gte", "lt", "lte", "between", "in"].includes(mode)) throw new Error(`Unsupported filter mode ${mode}`);
+          if (modes.includes(mode)) throw new Error(`Duplicate filter mode ${mode}`);
+          modes.push(mode);
+          if (peek() !== ",") break;
+          expect(",");
+        } while (true);
+        expect(")");
+        result.filterable = true;
+        result.filterModes = modes;
+      }
       else if (attribute === "extension") {
         expect("(");
         const extension = value();
@@ -185,6 +495,7 @@ export function parseQiyProject(input: string): QiyProject {
       const attribute = identifier();
       if (attribute === "unique") result.unique = booleanAttribute();
       else if (attribute === "concurrently") result.concurrently = booleanAttribute();
+      else if (attribute === "comment") { expect("("); Object.assign(result, documentation()); expect(")"); }
       else throw new Error(`Unsupported index attribute @${attribute}`);
     }
     expect(";");
@@ -197,12 +508,14 @@ export function parseQiyProject(input: string): QiyProject {
     if (peek() === "table") { expect("table"); tableName = identifier(); }
     let label: string | undefined;
     let icon: string | undefined;
+    let description: { comment?: string; commentKey?: string } = {};
     while (peek() === "@") {
       expect("@");
       const attribute = identifier();
       expect("(");
       if (attribute === "label") label = value();
       else if (attribute === "icon") icon = value();
+      else if (attribute === "comment") description = documentation();
       else throw new Error(`Unsupported entity attribute @${attribute}`);
       expect(")");
     }
@@ -215,7 +528,7 @@ export function parseQiyProject(input: string): QiyProject {
       else throw new Error(`Expected field or index near token ${position}`);
     }
     expect("}");
-    return { name, tableName, fields, indexes, ...(label && { label }), ...(icon && { icon }) };
+    return { name, tableName, fields, indexes, ...(label && { label }), ...(icon && { icon }), ...description };
   }
   function relation(): RelationIR {
     expect("relation");
@@ -227,9 +540,11 @@ export function parseQiyProject(input: string): QiyProject {
     const cardinality = identifier();
     if (cardinality !== "one" && cardinality !== "many") throw new Error(`Unsupported relation cardinality ${cardinality}`);
     let onDelete: RelationIR["onDelete"];
+    let description: { comment?: string; commentKey?: string } = {};
     while (peek() === "@") {
       expect("@");
       const attribute = identifier();
+      if (attribute === "comment") { expect("("); description = documentation(); expect(")"); continue; }
       if (attribute !== "onDelete") throw new Error(`Unsupported relation attribute @${attribute}`);
       expect("(");
       const action = value();
@@ -239,7 +554,7 @@ export function parseQiyProject(input: string): QiyProject {
       expect(")");
     }
     expect(";");
-    return { name, fromEntity, fromField, toEntity, toField, cardinality, ...(onDelete && { onDelete }) };
+    return { name, fromEntity, fromField, toEntity, toField, cardinality, ...(onDelete && { onDelete }), ...description };
   }
   function menuGroup(): NonNullable<QiyProject["menuGroups"]>[number] {
     expect("group");
@@ -332,6 +647,60 @@ export function parseQiyProject(input: string): QiyProject {
   const extensions: string[] = [];
   while (peek() !== "}") { expect("extension"); extensions.push(identifier()); expect(";"); }
   expect("}");
+  let mode: QiyProject["mode"];
+  if (peek() === "mode") {
+    expect("mode");
+    const configuredMode = identifier();
+    if (configuredMode !== "standalone" && configuredMode !== "integration") throw new Error(`Unsupported application mode ${configuredMode}`);
+    mode = configuredMode;
+    expect(";");
+  }
+  let integration: QiyProject["integration"];
+  if (peek() === "integration") {
+    expect("integration"); expect("{");
+    let apiBase: string | undefined;
+    let authTransport: "none" | "bearer" | "cookie" | "portal" = "none";
+    let csrfCookie: string | undefined;
+    let csrfHeader: string | undefined;
+    const seen = new Set<string>();
+    while (peek() !== "}") {
+      const key = identifier();
+      if (seen.has(key)) throw new Error(`Duplicate integration setting ${key}`);
+      seen.add(key);
+      if (key === "apiBase") {
+        apiBase = value();
+        if (!apiBase.startsWith("/") && !/^https?:\/\//.test(apiBase)) throw new Error("integration apiBase must be an absolute http(s) URL or a path starting with /");
+      } else if (key === "auth") {
+        const transport = identifier();
+        if (transport !== "none" && transport !== "bearer" && transport !== "cookie" && transport !== "portal") throw new Error(`Unsupported integration auth transport ${transport}`);
+        authTransport = transport;
+        if (peek() === "{") {
+          if (transport !== "cookie") throw new Error(`Integration auth options are only supported for cookie transport`);
+          expect("{");
+          const authOptions = new Set<string>();
+          while (peek() !== "}") {
+            const option = identifier();
+            if (authOptions.has(option)) throw new Error(`Duplicate integration auth setting ${option}`);
+            authOptions.add(option);
+            const optionValue = value();
+            if (option === "csrfCookie") csrfCookie = optionValue;
+            else if (option === "csrfHeader") csrfHeader = optionValue;
+            else throw new Error(`Unsupported integration auth setting ${option}`);
+            expect(";");
+          }
+          expect("}");
+          if (csrfCookie !== undefined && !/^[A-Za-z0-9_-]+$/.test(csrfCookie)) throw new Error("integration csrfCookie must be a simple cookie name");
+          if (csrfHeader !== undefined && !/^[A-Za-z0-9-]+$/.test(csrfHeader)) throw new Error("integration csrfHeader must be a simple HTTP header name");
+        }
+      } else throw new Error(`Unsupported integration setting ${key}`);
+      expect(";");
+    }
+    expect("}");
+    if (!apiBase) throw new Error("integration requires apiBase");
+    integration = { apiBase, authTransport, ...(csrfCookie && { csrfCookie }), ...(csrfHeader && { csrfHeader }) };
+  }
+  if (mode === "integration" && !integration) throw new Error("application mode integration requires an integration block");
+  if (integration && mode !== "integration") throw new Error("integration block requires application mode integration");
   let workspace: QiyProject["workspace"];
   if (peek() === "workspace") {
     expect("workspace"); expect("{");
@@ -365,6 +734,61 @@ export function parseQiyProject(input: string): QiyProject {
     }
     expect("}");
     workspace = result;
+  }
+  let ui: QiyProject["ui"];
+  if (peek() === "ui") {
+    expect("ui"); expect("{");
+    let library: QiyUiLibrary | undefined;
+    let theme: QiyThemeKey | undefined;
+    let themes: QiyThemeKey[] | undefined;
+    let colorMode: QiyColorMode | undefined;
+    let allowThemeSwitch: boolean | undefined;
+    let allowColorModeSwitch: boolean | undefined;
+    const seen = new Set<string>();
+    while (peek() !== "}") {
+      const key = identifier();
+      if (seen.has(key)) throw new Error(`Duplicate UI setting ${key}`);
+      seen.add(key);
+      if (key === "library") {
+        const configured = identifier();
+        if (configured !== "antd") throw new Error(`Unsupported UI library ${configured}; only antd is implemented`);
+        library = configured;
+      } else if (key === "theme") {
+        const configured = identifier() as QiyThemeKey;
+        if (!qiyThemeKeys.has(configured)) throw new Error(`Unsupported UI theme ${configured}`);
+        theme = configured;
+      } else if (key === "themes") {
+        themes = [];
+        do {
+          const configured = identifier() as QiyThemeKey;
+          if (!qiyThemeKeys.has(configured)) throw new Error(`Unsupported UI theme ${configured}`);
+          if (themes.includes(configured)) throw new Error(`Duplicate UI theme ${configured}`);
+          themes.push(configured);
+          if (peek() !== ",") break;
+          expect(",");
+        } while (true);
+        if (!themes.length) throw new Error("UI themes requires at least one theme key");
+      } else if (key === "colorMode") {
+        const configured = identifier();
+        if (configured !== "light" && configured !== "dark" && configured !== "system") throw new Error(`Unsupported UI color mode ${configured}`);
+        colorMode = configured;
+      } else if (key === "allowThemeSwitch") allowThemeSwitch = boolean();
+      else if (key === "allowColorModeSwitch") allowColorModeSwitch = boolean();
+      else throw new Error(`Unsupported UI setting ${key}`);
+      expect(";");
+    }
+    expect("}");
+    const configuredThemes = themes ?? ["blue", "purple", "green", "orange", "red"];
+    const configuredTheme = theme ?? configuredThemes[0]!;
+    if (!configuredThemes.includes(configuredTheme)) throw new Error(`UI default theme ${configuredTheme} must be included in themes`);
+    ui = {
+      library: library ?? "antd",
+      theme: configuredTheme,
+      themes: configuredThemes,
+      colorMode: colorMode ?? "system",
+      allowThemeSwitch: allowThemeSwitch ?? true,
+      allowColorModeSwitch: allowColorModeSwitch ?? true,
+    };
   }
   let apiClient: QiyProject["apiClient"];
   let corsOrigins: QiyProject["corsOrigins"];
@@ -460,17 +884,19 @@ export function parseQiyProject(input: string): QiyProject {
     }
     expect("}");
     const provider = attributes.provider ?? "";
-    if (provider !== "local" && provider !== "oidc" && provider !== "oauth2" && provider !== "sso") throw new Error(`Unsupported auth provider ${provider || "(missing)"}`);
+    if (!qiyAuthProviders.has(provider as QiyAuthProvider)) throw new Error(`Unsupported auth provider ${provider || "(missing)"}`);
     if (!attributes.user) throw new Error("Auth requires a user entity");
     if (!attributes.roleField) throw new Error("Auth requires roleField");
     const subjectField = attributes.subjectField ?? "";
-    if (provider !== "local" && !subjectField) throw new Error(`Auth provider ${provider} requires subjectField`);
+    if (provider !== "local" && provider !== "otp" && !subjectField) throw new Error(`Auth provider ${provider} requires subjectField`);
     const usernameField = attributes.usernameField ?? "";
     const passwordField = attributes.passwordField ?? "";
     if (provider === "local" && (!usernameField || !passwordField)) throw new Error("Auth provider local requires usernameField and passwordField");
-    if (provider !== "local" && (usernameField || passwordField)) throw new Error(`Auth provider ${provider} does not accept usernameField or passwordField`);
+    if (provider === "otp" && !usernameField) throw new Error("Auth provider otp requires usernameField");
+    if (provider === "otp" && passwordField) throw new Error("Auth provider otp does not accept passwordField");
+    if (provider !== "local" && provider !== "otp" && (usernameField || passwordField)) throw new Error(`Auth provider ${provider} does not accept usernameField or passwordField`);
     auth = {
-      provider: provider as "local" | "oidc" | "oauth2" | "sso",
+      provider: provider as QiyAuthProvider,
       userEntity: attributes.user,
       subjectField,
       roleField: attributes.roleField,
@@ -529,6 +955,34 @@ export function parseQiyProject(input: string): QiyProject {
     }
     expect("}");
   }
+  if (peek() === "messages") {
+    expect("messages"); expect("{"); expect("default");
+    const defaultLocale = stringLiteral(); expect(";");
+    const validateLocale = (locale: string) => {
+      try {
+        if (Intl.getCanonicalLocales(locale)[0] !== locale) throw new Error("Noncanonical locale");
+      } catch { throw new Error(`Invalid message locale ${locale}: use a canonical BCP 47 language tag`); }
+    };
+    validateLocale(defaultLocale);
+    const locales: NonNullable<QiyProject["messages"]>["locales"] = {};
+    while (peek() !== "}") {
+      expect("locale"); const locale = stringLiteral();
+      validateLocale(locale);
+      if (Object.hasOwn(locales, locale)) throw new Error(`Duplicate message locale ${locale}`);
+      const entries: Record<string, string> = Object.create(null);
+      expect("{");
+      while (peek() !== "}") {
+        const key = stringLiteral();
+        if (!/^[a-zA-Z_][a-zA-Z_0-9.-]*$/.test(key) || key.split(".").some((part) => ["__proto__", "prototype", "constructor"].includes(part))) throw new Error(`Invalid message key ${key}`);
+        if (Object.hasOwn(entries, key)) throw new Error(`Duplicate message key ${locale}.${key}`);
+        entries[key] = stringLiteral(); expect(";");
+      }
+      expect("}"); locales[locale] = entries;
+    }
+    expect("}");
+    if (!locales[defaultLocale]) throw new Error(`Missing default message locale ${defaultLocale}`);
+    messages = { defaultLocale, locales };
+  }
   const workflows: NonNullable<QiyProject["workflows"]> = [];
   while (peek() === "workflow") {
     expect("workflow");
@@ -567,9 +1021,102 @@ export function parseQiyProject(input: string): QiyProject {
     while (peek() !== "}") dashboardMetrics.push(dashboardMetric());
     expect("}");
   }
+  const dataflows: DataflowIR[] = [];
+  while (peek() === "dataflow") dataflows.push(dataflow());
+  const dataflowNames = new Set<string>();
+  for (const flow of dataflows) {
+    if (dataflowNames.has(flow.name)) throw new Error(`Duplicate dataflow ${flow.name}`);
+    dataflowNames.add(flow.name);
+    const inputNames = new Set(flow.input.map((field) => field.name));
+    const contextByName = new Map(flow.context.map((binding) => [binding.name, binding]));
+    for (const binding of flow.context) {
+      if (binding.name === "input") throw new Error(`Dataflow ${flow.name}: input is a reserved context name`);
+      const entity = entities.find((candidate) => candidate.name === binding.entity);
+      if (!entity) throw new Error(`Dataflow ${flow.name}: unknown entity ${binding.entity}`);
+      const [key, source] = binding.id.split(":", 2);
+      if (!entity.fields.some((field) => field.name === key && field.primaryKey)) throw new Error(`Dataflow ${flow.name}: ${binding.entity}.${key} must be a primary key`);
+      const [root, fieldName] = source!.split(".", 2);
+      if (root !== "input" || !fieldName || !inputNames.has(fieldName)) throw new Error(`Dataflow ${flow.name}: context ${binding.name} must load by an input field`);
+      if (!flow.input.find((input) => input.name === fieldName)?.required) throw new Error(`Dataflow ${flow.name}: context ${binding.name} requires input.${fieldName} to be @required`);
+      if (!binding.required) throw new Error(`Dataflow ${flow.name}: context bindings must declare @required until optional-flow semantics are implemented`);
+    }
+    for (const step of flow.steps) for (const action of step.actions) {
+      if (action.kind === "require") {
+        const [bindingName, fieldName] = action.left.split(".", 2);
+        const binding = contextByName.get(bindingName!);
+        const entity = entities.find((candidate) => candidate.name === binding?.entity);
+        const input = bindingName === "input" ? flow.input.find((candidate) => candidate.name === fieldName) : undefined;
+        const field = entity?.fields.find((candidate) => candidate.name === fieldName);
+        if (!fieldName || (!field && !input)) throw new Error(`Dataflow ${flow.name}: unknown field reference ${action.left}`);
+        if (input && !input.required) throw new Error(`Dataflow ${flow.name}: require input must be @required (${action.left})`);
+        const type = input?.type ?? field!.type;
+        const enumName = input && enumNames.has(input.type) ? input.type : field?.enumName;
+        if (type === "Integer") {
+          if (typeof action.right !== "number") throw new Error(`Dataflow ${flow.name}: Integer require must compare an integer literal (${action.left})`);
+          if (field?.nullable) throw new Error(`Dataflow ${flow.name}: nullable Integer require is not supported (${action.left})`);
+        } else {
+          if (type !== "Text" && !enumName) throw new Error(`Dataflow ${flow.name}: require comparisons support Text, enum and Integer fields only (${action.left})`);
+          if (typeof action.right !== "string" || (action.operator !== "==" && action.operator !== "!=")) throw new Error(`Dataflow ${flow.name}: Text and enum require support == and != string comparisons only (${action.left})`);
+        }
+        if (enumName && !enums.find((enumeration) => enumeration.name === enumName)?.values.some((value) => value.name === action.right)) throw new Error(`Dataflow ${flow.name}: unknown enum value ${enumName}.${action.right}`);
+      } else {
+        const binding = contextByName.get(action.context);
+        const entity = entities.find((candidate) => candidate.name === binding?.entity);
+        if (!binding) throw new Error(`Dataflow ${flow.name}: unknown context binding ${action.context}`);
+        if (!action.values.length) throw new Error(`Dataflow ${flow.name}: update must write at least one field`);
+        const written = new Set<string>();
+        for (const value of action.values) {
+          const field = entity?.fields.find((candidate) => candidate.name === value.field);
+          if (!field) throw new Error(`Dataflow ${flow.name}: unknown update field ${binding.entity}.${value.field}`);
+          if (field.primaryKey) throw new Error(`Dataflow ${flow.name}: cannot update primary key ${binding.entity}.${value.field}`);
+          if (scopes.some((scope) => (scope.resource === entity?.name || scope.resource === entity?.tableName) && scope.field === value.field)) throw new Error(`Dataflow ${flow.name}: cannot update scope field ${binding.entity}.${value.field}`);
+          if (auth?.provider === "local" && auth.userEntity === binding.entity && auth.passwordField === value.field) throw new Error(`Dataflow ${flow.name}: cannot update password field ${binding.entity}.${value.field}`);
+          if (value.source === "input") {
+            const input = flow.input.find((candidate) => candidate.name === value.value);
+            if (!input) throw new Error(`Dataflow ${flow.name}: unknown input field input.${value.value}`);
+            if (!input.required) throw new Error(`Dataflow ${flow.name}: update requires input.${value.value} to be @required`);
+            if (field.enumName ? input.type !== field.enumName : !["Text", "Integer"].includes(field.type) || input.type !== field.type) throw new Error(`Dataflow ${flow.name}: input updates require matching Text or Integer fields, or the same declared enum (${binding.entity}.${value.field})`);
+          } else {
+            if (field.type !== "Text" && !field.enumName) throw new Error(`Dataflow ${flow.name}: literal updates currently support Text and enum fields only (${binding.entity}.${value.field})`);
+            if (field.enumName && !enums.find((enumeration) => enumeration.name === field.enumName)?.values.some((candidate) => candidate.name === value.value)) throw new Error(`Dataflow ${flow.name}: unknown enum value ${field.enumName}.${value.value}`);
+          }
+          if (written.has(value.field)) throw new Error(`Dataflow ${flow.name}: duplicate update field ${binding.entity}.${value.field}`);
+          written.add(value.field);
+        }
+      }
+    }
+    if (!contextByName.has(flow.result)) throw new Error(`Dataflow ${flow.name}: result must return a declared context binding`);
+  }
+  const actions: QiyAction[] = [];
+  while (peek() === "action") actions.push(action());
+  const actionNames = new Set<string>();
+  for (const item of actions) {
+    if (actionNames.has(item.name)) throw new Error(`Duplicate action ${item.name}`);
+    actionNames.add(item.name);
+    const entity = entities.find((candidate) => candidate.name === item.resource || candidate.tableName === item.resource);
+    if (!entity) throw new Error(`Action ${item.name}: unknown resource ${item.resource}`);
+    item.resource = entity.tableName;
+    if (item.roles && !auth) throw new Error(`Action ${item.name}: allow roles requires generated authentication; integration permissions belong in the host access-control adapter`);
+    if (item.target.kind === "dataflow") {
+      const target = item.target;
+      const flow = dataflows.find((candidate) => candidate.name === target.dataflow);
+      if (!flow) throw new Error(`Action ${item.name}: unknown dataflow ${target.dataflow}`);
+      const bindsResource = flow.context.some((binding) => binding.entity === entity.name);
+      if (!bindsResource) throw new Error(`Action ${item.name}: dataflow ${flow.name} does not load resource ${entity.tableName}`);
+    } else {
+      const path = item.target.path;
+      if (!/^\/[a-z0-9_-]+(?:\/(?:[a-z0-9_-]+|:[a-z][a-zA-Z0-9_]*))*$/.test(path) || path.includes("..") || path.includes("\\") || path.includes("?") || path.includes("#")) {
+        throw new Error(`Action ${item.name}: navigate path must be an absolute safe application route`);
+      }
+      if (!path.includes(":id")) throw new Error(`Action ${item.name}: navigate path must include :id`);
+    }
+  }
   expect("}");
   expect("<end>");
-  return { name: packageName, database: { dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}) }, ...(workspace && { workspace }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(auth && { auth }), ...(environment && { environment }), ...(scopes.length ? { scopes } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(dashboardMetrics.length && { dashboardMetrics }) };
+  if (mode === "integration" && (corsOrigins || elysiaPlugins || storageProvider || auth || environment || scopes.length || workflows.length || dataflows.length)) {
+    throw new Error("application mode integration cannot configure generated server features; use integration auth and host adapters instead.");
+  }
+  return { name: packageName, database: { dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}) }, ...(mode && { mode }), ...(integration && { integration }), ...(workspace && { workspace }), ...(ui && { ui }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(auth && { auth }), ...(environment && { environment }), ...(messages && { messages }), ...(scopes.length ? { scopes } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(dashboardMetrics.length && { dashboardMetrics }), ...(dataflows.length && { dataflows }), ...(actions.length && { actions }) };
 }
 
 function normalizePackageName(name: string): string {
@@ -585,6 +1132,10 @@ function qiyString(value: string): string {
   return JSON.stringify(value);
 }
 
+function qiyComment(target: { comment?: string; commentKey?: string }): string {
+  return target.commentKey !== undefined ? `t(${qiyString(target.commentKey)})` : qiyString(target.comment!);
+}
+
 export function serializeQiyProject(project: QiyProject): string {
   const errors = validateDatabaseIR(project.database);
   if (errors.length) throw new Error(errors.join("`n"));
@@ -593,6 +1144,18 @@ export function serializeQiyProject(project: QiyProject): string {
   const lines = ["qiy v0;", `application ${name} {`, `  database ${project.database.dialect} {`];
   for (const extension of project.database.extensions) lines.push(`    extension ${qiyIdentifier(extension, "Database extension")};`);
   lines.push("  }");
+  if (project.mode === "integration") {
+    if (!project.integration) throw new Error("application mode integration requires integration settings");
+    lines.push("  mode integration;", "  integration {");
+    lines.push(`    apiBase ${qiyString(project.integration.apiBase)};`);
+    if (project.integration.authTransport === "cookie" && (project.integration.csrfCookie || project.integration.csrfHeader)) {
+      lines.push("    auth cookie {");
+      if (project.integration.csrfCookie) lines.push(`      csrfCookie ${qiyString(project.integration.csrfCookie)};`);
+      if (project.integration.csrfHeader) lines.push(`      csrfHeader ${qiyString(project.integration.csrfHeader)};`);
+      lines.push("    };");
+    } else lines.push(`    auth ${project.integration.authTransport};`);
+    lines.push("  }");
+  }
   if (project.workspace) {
     lines.push("  workspace {");
     if (project.workspace.name) lines.push(`    name ${qiyIdentifier(project.workspace.name, "Workspace name")};`);
@@ -612,6 +1175,22 @@ export function serializeQiyProject(project: QiyProject): string {
       }
       lines.push("    }");
     }
+    lines.push("  }");
+  }
+  if (project.ui) {
+    if (project.ui.library !== "antd") throw new Error(`Unsupported UI library ${project.ui.library}; only antd is implemented`);
+    if (!qiyThemeKeys.has(project.ui.theme)) throw new Error(`Unsupported UI theme ${project.ui.theme}`);
+    if (!project.ui.themes.length) throw new Error("UI themes requires at least one theme key");
+    if (!project.ui.themes.includes(project.ui.theme)) throw new Error(`UI default theme ${project.ui.theme} must be included in themes`);
+    if (new Set(project.ui.themes).size !== project.ui.themes.length) throw new Error("UI themes must not contain duplicates");
+    for (const theme of project.ui.themes) if (!qiyThemeKeys.has(theme)) throw new Error(`Unsupported UI theme ${theme}`);
+    lines.push("  ui {");
+    lines.push(`    library ${project.ui.library};`);
+    lines.push(`    theme ${project.ui.theme};`);
+    lines.push(`    themes ${project.ui.themes.join(", ")};`);
+    lines.push(`    colorMode ${project.ui.colorMode};`);
+    lines.push(`    allowThemeSwitch ${project.ui.allowThemeSwitch};`);
+    lines.push(`    allowColorModeSwitch ${project.ui.allowColorModeSwitch};`);
     lines.push("  }");
   }
   const corsOrigins = project.corsOrigins ? [...new Set(project.corsOrigins)] : [];
@@ -677,6 +1256,15 @@ export function serializeQiyProject(project: QiyProject): string {
     }
     lines.push("  }");
   }
+  if (project.messages) {
+    lines.push("  messages {", `    default ${qiyString(project.messages.defaultLocale)};`);
+    for (const [locale, entries] of Object.entries(project.messages.locales)) {
+      lines.push(`    locale ${qiyString(locale)} {`);
+      for (const [key, message] of Object.entries(entries)) lines.push(`      ${qiyString(key)} ${qiyString(message)};`);
+      lines.push("    }");
+    }
+    lines.push("  }");
+  }
   for (const workflow of project.workflows ?? []) lines.push(`  workflow ${qiyIdentifier(workflow, "Workflow name")};`);
   for (const enumeration of project.database.enums ?? []) {
     lines.push(`  enum ${qiyIdentifier(enumeration.name, "Enum name")} {`);
@@ -691,7 +1279,7 @@ export function serializeQiyProject(project: QiyProject): string {
     lines.push("  }");
   }
   for (const entity of project.database.entities) {
-    lines.push(`  entity ${qiyIdentifier(entity.name, "Entity name")} table ${qiyIdentifier(entity.tableName, "Table name")}${entity.label !== undefined ? ` @label(${qiyString(entity.label)})` : ""}${entity.icon !== undefined ? ` @icon(${qiyString(entity.icon)})` : ""} {`);
+    lines.push(`  entity ${qiyIdentifier(entity.name, "Entity name")} table ${qiyIdentifier(entity.tableName, "Table name")}${entity.label !== undefined ? ` @label(${qiyString(entity.label)})` : ""}${entity.icon !== undefined ? ` @icon(${qiyString(entity.icon)})` : ""}${entity.comment !== undefined ? ` @comment(${qiyComment(entity)})` : ""} {`);
     for (const field of entity.fields) {
       const typeName = field.enumName ?? field.type;
       let declaration = `    field ${qiyIdentifier(field.name, "Field name")} ${qiyIdentifier(typeName, "Field type")}`;
@@ -703,6 +1291,7 @@ export function serializeQiyProject(project: QiyProject): string {
       if (field.columnName !== undefined) declaration += ` @column(${qiyString(field.columnName)})`;
       if (field.extension !== undefined) declaration += ` @extension(${qiyIdentifier(field.extension, "Field extension")})`;
       if (field.label !== undefined) declaration += ` @label(${qiyString(field.label)})`;
+      if (field.comment !== undefined) declaration += ` @comment(${qiyComment(field)})`;
       if (field.icon !== undefined) declaration += ` @icon(${qiyString(field.icon)})`;
       for (const [attribute, value] of [
         ["visible", field.visible],
@@ -714,6 +1303,7 @@ export function serializeQiyProject(project: QiyProject): string {
       ] as const) {
         if (value !== undefined) declaration += ` @${attribute}(${value})`;
       }
+      if (field.filterModes?.length) declaration += ` @filter(${field.filterModes.join(",")})`;
       lines.push(`${declaration};`);
     }
     for (const index of entity.indexes ?? []) {
@@ -721,6 +1311,7 @@ export function serializeQiyProject(project: QiyProject): string {
       let declaration = `    index ${qiyIdentifier(index.name, "Index name")} ${index.method} (${columns})`;
       if (index.unique !== undefined) declaration += ` @unique${index.unique ? "" : "(false)"}`;
       if (index.concurrently !== undefined) declaration += ` @concurrently${index.concurrently ? "" : "(false)"}`;
+      if (index.comment !== undefined) declaration += ` @comment(${qiyComment(index)})`;
       lines.push(`${declaration};`);
     }
     lines.push("  }");
@@ -728,6 +1319,7 @@ export function serializeQiyProject(project: QiyProject): string {
   for (const relation of project.database.relations ?? []) {
     let declaration = `  relation ${qiyIdentifier(relation.name, "Relation name")} ${qiyIdentifier(relation.fromEntity, "Relation source entity")} ${qiyIdentifier(relation.fromField, "Relation source field")} ${qiyIdentifier(relation.toEntity, "Relation target entity")} ${qiyIdentifier(relation.toField, "Relation target field")} ${relation.cardinality}`;
     if (relation.onDelete) declaration += ` @onDelete(${relation.onDelete})`;
+    if (relation.comment !== undefined) declaration += ` @comment(${qiyComment(relation)})`;
     lines.push(`${declaration};`);
   }
   for (const scope of project.scopes ?? []) {
@@ -755,6 +1347,53 @@ export function serializeQiyProject(project: QiyProject): string {
       if (metric.days !== undefined) declaration += ` @days(${metric.days})`;
       lines.push(`${declaration};`);
     }
+    lines.push("  }");
+  }
+  for (const flow of project.dataflows ?? []) {
+    lines.push(`  dataflow ${qiyIdentifier(flow.name, "Dataflow name")} {`);
+    if (flow.roles) lines.push(`    allow roles ${flow.roles.join(", ")};`);
+    if (flow.idempotency?.required) lines.push("    idempotency required;");
+    if (flow.audit !== undefined) lines.push(`    audit ${qiyString(flow.audit)};`);
+    lines.push("    input {");
+    for (const field of flow.input) {
+      const attributes = [field.required ? " @required" : "", field.comment !== undefined ? ` @comment(${qiyComment(field)})` : ""].join("");
+      lines.push(`      field ${qiyIdentifier(field.name, "Dataflow input")} ${qiyIdentifier(field.type, "Dataflow input type")}${attributes};`);
+    }
+    lines.push("    }", "    context {");
+    for (const binding of flow.context) {
+      const [key, source] = binding.id.split(":", 2);
+      const attributes = [binding.required ? " @required" : "", binding.comment !== undefined ? ` @comment(${qiyComment(binding)})` : ""].join("");
+      lines.push(`      ${qiyIdentifier(binding.name, "Dataflow context")} = entity ${qiyIdentifier(binding.entity, "Dataflow entity")} by ${qiyIdentifier(key!, "Dataflow key")} ${source}${attributes};`);
+    }
+    lines.push("    }");
+    for (const step of flow.steps) {
+      const comment = step.comment !== undefined ? ` @comment(${qiyComment(step)})` : "";
+      lines.push(`    step ${qiyIdentifier(step.name, "Dataflow step")} @order(${step.order})${comment} {`);
+      for (const action of step.actions) {
+        if (action.kind === "require") lines.push(`      require ${action.left} ${action.operator} ${typeof action.right === "number" ? action.right : qiyString(action.right)} @error(${qiyString(action.error)});`);
+        else {
+          lines.push(`      update ${qiyIdentifier(action.context, "Dataflow context")} {`);
+          for (const value of action.values) lines.push(`        ${qiyIdentifier(value.field, "Dataflow update field")} = ${value.source === "input" ? `input.${qiyIdentifier(value.value, "Dataflow input field")}` : qiyString(value.value)};`);
+          lines.push("      }");
+        }
+      }
+      lines.push("    }");
+    }
+    lines.push(`    result { return ${qiyIdentifier(flow.result, "Dataflow result")}; }`, "  }");
+  }
+  for (const action of project.actions ?? []) {
+    lines.push(`  action ${qiyIdentifier(action.name, "Action name")} {`);
+    if (action.roles) lines.push(`    allow roles ${action.roles.join(", ")};`);
+    lines.push(`    resource ${qiyIdentifier(action.resource, "Action resource")};`);
+    if (action.target.kind === "dataflow") {
+      lines.push(`    dataflow ${qiyIdentifier(action.target.dataflow, "Action dataflow")};`);
+    } else {
+      lines.push(`    navigate ${qiyString(action.target.path)};`);
+    }
+    lines.push(`    placement ${action.placements.join(", ")};`);
+    lines.push(`    label ${qiyString(action.label)};`);
+    if (action.target.kind === "dataflow" && action.target.confirm !== undefined) lines.push(`    confirm ${qiyString(action.target.confirm)};`);
+    if (action.target.kind === "navigate") lines.push(`    page manual @comment(${qiyComment(action.target)});`);
     lines.push("  }");
   }
   lines.push("}");

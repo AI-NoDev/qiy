@@ -1,0 +1,80 @@
+name: Verify released Qiy CLI
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to verify, for example v0.1.2
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qiy-release-smoke-${{ github.event.release.tag_name || inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  release-cli-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Select release asset
+        id: release
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          tag="${INPUT_TAG:-$EVENT_TAG}"
+          test -n "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+      - name: Download published Linux x64 CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/qiy-release"
+          gh release download "$TAG" --repo "$GH_REPO" --pattern "qiy-*-linux-x64" --dir "$RUNNER_TEMP/qiy-release"
+          chmod +x "$RUNNER_TEMP"/qiy-release/qiy-*-linux-x64
+      - name: Verify executable version
+        env:
+          QIY_BIN_DIR: ${{ runner.temp }}/qiy-release
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          bin="$(find "$QIY_BIN_DIR" -maxdepth 1 -type f -name 'qiy-*-linux-x64' -print -quit)"
+          test -n "$bin"
+          actual="$($bin --version)"
+          test "$actual" = "$EXPECTED_VERSION"
+          echo "Verified Qiy $actual"
+          echo "QIY_BIN=$bin" >> "$GITHUB_ENV"
+      - name: Generate the complete Dataflow and Action example
+        run: |
+          "$QIY_BIN" create -f examples/dataflow/app.qiy -n qiy-release-smoke -o "$RUNNER_TEMP/qiy-generated"
+      - name: Verify generated manifest provenance
+        env:
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
+          OUTPUT_DIR: ${{ runner.temp }}/qiy-generated
+        run: |
+          bun -e 'const manifest = await Bun.file(`${process.env.OUTPUT_DIR}/.qiy-generated.json`).json(); if (manifest.qiyVersion !== process.env.EXPECTED_VERSION || manifest.mode !== "standalone" || !manifest.files.includes("apps/web/app/actions.ts")) process.exit(1); console.log(`Manifest verified for Qiy ${manifest.qiyVersion}`)'
+      - name: Install generated workspace
+        working-directory: ${{ runner.temp }}/qiy-generated
+        run: bun install
+      - name: Typecheck generated workspace
+        working-directory: ${{ runner.temp }}/qiy-generated
+        run: bun run typecheck
+      - name: Test generated server and Refine actions
+        working-directory: ${{ runner.temp }}/qiy-generated
+        run: bun run test
+      - name: Build generated admin
+        working-directory: ${{ runner.temp }}/qiy-generated
+        run: bun run build
+      - name: Verify integration init and sync using the published executable
+        env:
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
+        run: bun tools/verify-release-integration.ts "$QIY_BIN" "$EXPECTED_VERSION"

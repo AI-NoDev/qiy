@@ -1,0 +1,25 @@
+qiy v0;
+
+application typed-inputs-admin {
+  database sqlite {}
+  entity inventory {
+    field id UUID @id;
+    field status Text;
+    field quantity Integer;
+  }
+  dataflow adjustQuantity {
+    idempotency required;
+    audit "inventory.quantityAdjusted";
+    input {
+      field inventoryId UUID @required;
+      field quantity Integer @required @comment("Replacement quantity; domain validation belongs in the business policy");
+    }
+    context {
+      item = entity inventory by id input.inventoryId @required;
+    }
+    step adjust {
+      update item { quantity = input.quantity; }
+    }
+    result { return item; }
+  }
+}

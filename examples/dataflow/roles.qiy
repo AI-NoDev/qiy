@@ -1,0 +1,88 @@
+qiy v0;
+
+# Explicit business permissions alongside local username/password authentication.
+application dataflow-roles-admin {
+  database sqlite {}
+  auth { provider local; user users; roleField role; usernameField email; passwordField passwordHash; }
+
+  enum userRole {
+    value admin label "Administrator";
+    value operator label "Operator";
+    value viewer label "Viewer";
+  }
+
+  entity users {
+    field id UUID @id;
+    field email Text @unique;
+    field displayName Text;
+    field passwordHash Text @nullable @listVisible(false) @showVisible(false) @formVisible(false);
+    field role userRole;
+  }
+
+  entity connectors {
+    field id UUID @id;
+    field status Text;
+    field revokedReason Text @nullable;
+  }
+
+  dataflow revokeConnector {
+    allow roles admin;
+    idempotency required;
+    audit "connector.revoked";
+    input {
+      field connectorId UUID @required;
+      field reason Text @required @comment("Reason approved by the administrator");
+    }
+    context {
+      connector = entity connectors by id input.connectorId @required;
+    }
+    step validate {
+      require connector.status != "revoked" @error("errors.connector.alreadyRevoked");
+    }
+    step revoke {
+      update connector { status = "revoked"; revokedReason = input.reason; }
+    }
+    result { return connector; }
+  }
+
+  dataflow recordReview {
+    allow roles operator;
+    idempotency required;
+    audit "connector.reviewed";
+    input {
+      field connectorId UUID @required;
+      field reason Text @required @comment("Operator review notes");
+    }
+    context {
+      connector = entity connectors by id input.connectorId @required;
+    }
+    step review {
+      update connector { status = "reviewed"; revokedReason = input.reason; }
+    }
+    result { return connector; }
+  }
+
+  action revokeConnector {
+    resource connectors;
+    dataflow revokeConnector;
+    placement list, show;
+    label "Revoke";
+    confirm "Revoke this connector?";
+  }
+
+  action recordReview {
+    resource connectors;
+    dataflow recordReview;
+    placement list, show;
+    label "Record review";
+  }
+
+  action reviewPage {
+    allow roles operator, viewer;
+    resource connectors;
+    navigate "/connectors/:id/review";
+    placement list, show;
+    label "Review details";
+    page manual @comment("Implement review details and protect its API independently");
+  }
+}

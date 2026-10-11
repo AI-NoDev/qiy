@@ -1,0 +1,20 @@
+qiy v0;
+
+application qiy-theme-demo {
+  database sqlite {}
+
+  ui {
+    library antd;
+    theme purple;
+    themes purple, blue, green, orange;
+    colorMode system;
+    allowThemeSwitch true;
+    allowColorModeSwitch true;
+  }
+
+  entity products table products @label("Products") @icon(AppstoreOutlined) {
+    field id UUID @id;
+    field name Text @label("Name");
+    field price Decimal(12,2) @label("Price");
+  }
+}

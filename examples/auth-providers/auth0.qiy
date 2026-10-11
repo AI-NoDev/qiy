@@ -1,0 +1,36 @@
+qiy v0;
+
+application qiy-auth0-admin {
+  database sqlite {}
+
+  auth {
+    provider auth0;
+    user users;
+    subjectField externalSubject;
+    roleField role;
+  }
+
+  enum role {
+    value admin label "Administrator";
+    value operator label "Operator";
+    value viewer label "Viewer";
+  }
+
+  entity users @label("Users") @icon(UserOutlined) {
+    field id UUID @id;
+    field externalSubject Text @unique @listVisible(false);
+    field displayName Text @label("Display name");
+    field role role;
+  }
+
+  entity products @label("Products") @icon(AppstoreOutlined) {
+    field id UUID @id;
+    field name Text @filter(eq,contains,startsWith);
+    field active Integer @filter(eq,gt,gte,lt,lte);
+  }
+
+  menu {
+    group access @label("Access") @icon(UserOutlined) { resource users; }
+    group catalog @label("Catalog") @icon(AppstoreOutlined) { resource products; }
+  }
+}
