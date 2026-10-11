@@ -79,12 +79,22 @@ jobs:
         shell: bash
         run: |
           if git rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" dist/qiy-* \
+            gh release create "$TAG" \
+              "dist/qiy-$VERSION-windows-x64.exe" \
+              "dist/qiy-$VERSION-linux-x64" \
+              "dist/qiy-$VERSION-linux-arm64" \
+              "dist/qiy-$VERSION-darwin-x64" \
+              "dist/qiy-$VERSION-darwin-arm64" \
               --repo "$GITHUB_REPOSITORY" \
               --title "Qiy $VERSION" \
               --generate-notes
           else
-            gh release create "$TAG" dist/qiy-* \
+            gh release create "$TAG" \
+              "dist/qiy-$VERSION-windows-x64.exe" \
+              "dist/qiy-$VERSION-linux-x64" \
+              "dist/qiy-$VERSION-linux-arm64" \
+              "dist/qiy-$VERSION-darwin-x64" \
+              "dist/qiy-$VERSION-darwin-arm64" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "Qiy $VERSION" \

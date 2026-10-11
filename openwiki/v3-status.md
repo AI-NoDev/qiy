@@ -1,12 +1,14 @@
 # V3 实施状态与验收规划
 
-## 0.1.2 发布候选验收（2026-10-12）
+## 0.1.3 发布验收（2026-10-12）
 
-五个平台的独立可执行文件已由 Bun 1.3.13 构建，Windows x64 与 Linux x64 均实测 `--version` 返回 `0.1.2`。Windows 可执行文件从 `examples/dataflow/app.qiy` 生成 103 文件工作区，干净安装后 server/web typecheck、21 项 API 测试、11 项 Web 测试及 SPA build 通过。Linux x64 可执行文件也已在 Docker Linux 容器内完成生成、安装、typecheck 和测试。
+五个平台的独立可执行文件由 Bun 1.3.13 构建。`0.1.2` 候选的 Windows x64 与 Linux x64 已完成黑盒生成、安装、typecheck、21 项 API 测试、11 项 Web 测试及 SPA/Docker build；随后发现源码 checkout 中模板 `storage/` 被模板自身 `.gitignore` 误排除，因此不移动既有 tag，改由 `0.1.3` 补丁版纳入模板源码、CI 与发布运营修复。
 
 Linux 黑盒验收发现 React Router 的 SPA 构建仍会在 Bun 中加载 `react-dom/server.bun.js`，React 19.2/19.3 均无法完成其即将删除的 SSR 中间阶段。生成 Web 的 `build` 脚本现明确调用 Node.js 20+ 的 React Router CLI；Bun 继续负责依赖、测试、API 和运行时，Dockerfile 使用独立 `node:22-alpine` 构建阶段，最终镜像仍为 Bun。用户文档不再宣称构建阶段完全没有 Node。
 
 同轮发现新建工作区在首次 `bun install` 前没有 `bun.lock`，旧 Dockerfile 因强制 `COPY bun.lock` 无法构建。`qiy create` 的 Dockerfile 现从精确版本的 package manifests 执行 `bun install`；`qiy init` 集成到已有 Bun workspace 时仍复制宿主 `bun.lock` 并使用 `--frozen-lockfile`。修复后的发布候选镜像已完成非缓存依赖安装、前端构建、镜像导出并启动，开发安全开关显式开启时首页返回 HTTP 200；未配置认证且 `QIY_DEV_MODE=0` 时继续 fail-closed，属于预期生产边界。
+
+`0.1.3` 发布前数据库 smoke 使用本机 PostgreSQL 16 与 MySQL 8.4 容器各自创建隔离数据库，分别完成生成、迁移、server typecheck 和 14 项测试/76 个断言。覆盖类型化整数/枚举写入、角色与租户范围、同键/不同键并发、跨表联动，以及业务、审计和幂等回执故障的事务回滚与同键重试；脚本最终清理隔离数据库。该证据属于通用 Dataflow 切片，不等于完整 ERP 订单工作流、真实 IdP 或真实 S3 已生产验收。
 
 ## Refine UI adapter 与主题闭环（2026-10-12）
 
@@ -96,13 +98,13 @@ MySQL 8.4 隔离容器 `qiy-dataflow-mysql` 就绪后运行 `bun tools/verify-my
 
 验收范围调整：按用户要求，远端 GitHub Release 发布验收暂不作为继续实现或 V3 功能验收的阻断；保留 release-smoke 工作流及未执行的事实，优先使用本地生成包和 Docker 实库验证。真实 IdP、S3、MySQL 等未验证能力仍须明确记录，不能以跳过发布验收替代功能验证。
 
-跨方言 Dataflow 验收扩展（2026-10-11）：PostgreSQL harness 新增缺失/其他租户 claim 拒绝、已提交回执不能绕过当前 tenant scope，两张业务表均声明 tenant scope；新生成包 `qiy-postgresql-dataflow-FBUUeW` 通过迁移、11 项实库测试、55 个断言与 server 类型检查，隔离测试库已删除。共用验收脚本增加 MySQL 8.4 分支，独立入口为 `bun tools/verify-mysql-dataflow.ts <mysql-container>`；按方言使用连接关闭、SQL 执行和数据库约束故障注入，新增 CI MySQL service/job。MySQL Docker 镜像下载仍在进行，尚未取得 MySQL 执行证据；不将配置或脚本存在报告为实库通过。测试身份/tenant header 仅用于夹具，不代表生产信任请求 header 或真实 IdP 已验收。
+跨方言 Dataflow 验收扩展（2026-10-11）：PostgreSQL harness 新增缺失/其他租户 claim 拒绝、已提交回执不能绕过当前 tenant scope，两张业务表均声明 tenant scope；新生成包 `qiy-postgresql-dataflow-FBUUeW` 通过迁移、11 项实库测试、55 个断言与 server 类型检查，隔离测试库已删除。共用验收脚本增加 MySQL 8.4 分支，独立入口为 `bun tools/verify-mysql-dataflow.ts <mysql-container>`；按方言使用连接关闭、SQL 执行和数据库约束故障注入，新增 CI MySQL service/job。后续 0.1.2 发布候选已在 PostgreSQL 16 与 MySQL 8.4 各通过 14 项实库测试/76 个断言。测试身份/tenant header 仅用于夹具，不代表生产信任请求 header 或真实 IdP 已验收。
 
 Dataflow 角色授权（2026-10-11）：新增命令级 `allow roles admin;`、`allow roles operator;` 与组合白名单；未声明时仍允许 admin/operator。解析器拒绝空白名单、重复角色/声明和未知角色。服务端在幂等查询及事务前验证角色，admin 不绕过 operator-only 限制；生成的 Refine command action 继承该策略并通过 `CanAccess` 控制。完整示例为 `examples/dataflow/roles.qiy`。新 SQLite 生成包 `qiy-role-flow-5e0d8e0d24a246d6a1bec0d5376091c7` 通过 server 34 项测试、199 个断言及 Web 15 项测试、51 个断言，双方类型检查通过。拒绝请求不改变业务表、不写审计或回执。Docker PostgreSQL 新包 `qiy-postgres-dataflow-MS2dQG` 通过 9 项测试、46 个断言和 server 类型检查，验证同一 actor 降权后无法回放已提交结果；独立测试库已删除。根仓 126 项测试、1117 个断言通过。此项未实现自定义角色、permission claims、独立导航 action 权限或 MPS 对齐；测试注入身份不等于真实 IdP 验收。
 
 Dataflow 输入写入（2026-10-11）：新增 `update connector { revokedReason = input.reason; }`，IR 区分字符串字面量与输入引用，serializer 保留引用语法，服务端只读取经 TypeBox 校验的 request body。当前仅允许必填 Text → 非 enum Text，不接受未知/可选/不匹配输入、嵌套路径或可执行表达式；原有字面量兼容。生成测试同步使用实际 input 预期，并修复晚阶段失败夹具，保证仍验证先写后失败的事务回滚。`examples/dataflow/app.qiy` 不再丢弃操作员填写的 reason。新 PostgreSQL 生成包 `qiy-postgres-dataflow-N4mFyx` 在 Docker 实库通过 8 项测试、39 个断言和 server 类型检查，验证响应及数据库均保存输入；测试库已清理。新 SQLite 生成包通过 20 项测试、108 个断言及 server 类型检查。此项不代表 numeric/enum 动态输入或其他 Dataflow 指令已完成，MPS 对齐仍待实现。语法见 [Dataflow 文档](../docs/dsl/dataflow.md)。
 
-最新 PostgreSQL Dataflow 实库验收：生成上下文查询在 PostgreSQL/MySQL 方言使用 `FOR UPDATE`（SQLite 保持同步事务），避免并发请求基于同一旧状态执行。`bun tools/verify-postgres-dataflow.ts` 使用现有 PostgreSQL Docker 容器创建独立临时数据库，执行生成 schema 的 migration generation/migrate，验证 12 个同键并发请求全部回放且仅一条审计/回执、12 个不同键仅一次状态转换、更新后业务失败完整回滚、同键输入冲突拒绝，并通过生成 server 类型检查。最新 102 文件生成包 `qiy-postgres-dataflow-z4VHfg` 的 8 项测试、37 项断言通过，新增两表联动并发、第二表校验失败、审计/回执数据库约束故障注入和故障解除后的同键重试。测试数据库已在 finally 中删除，未修改 ERP 数据库。新增 `database-smoke.yml` 在独立 PostgreSQL service 重复验收，远端 CI 尚未执行。认证为测试注入 operator；MySQL 实库、真实认证及完整 ERP workflow 仍待验收，不能将此切片视为全部数据库门槛完成。
+最新 PostgreSQL Dataflow 实库验收：生成上下文查询在 PostgreSQL/MySQL 方言使用 `FOR UPDATE`（SQLite 保持同步事务），避免并发请求基于同一旧状态执行。`bun tools/verify-postgres-dataflow.ts` 使用现有 PostgreSQL Docker 容器创建独立临时数据库，执行生成 schema 的 migration generation/migrate，验证 12 个同键并发请求全部回放且仅一条审计/回执、12 个不同键仅一次状态转换、更新后业务失败完整回滚、同键输入冲突拒绝，并通过生成 server 类型检查。最新 102 文件生成包 `qiy-postgres-dataflow-z4VHfg` 的 8 项测试、37 项断言通过，新增两表联动并发、第二表校验失败、审计/回执数据库约束故障注入和故障解除后的同键重试。测试数据库已在 finally 中删除，未修改 ERP 数据库。新增 `database-smoke.yml` 以独立 PostgreSQL/MySQL service 重复验收；0.1.2 发布候选已在本机两种真实数据库通过同一脚本。认证为测试注入 operator；真实认证及完整 ERP workflow 仍待验收，不能将此切片视为全部数据库门槛完成。
 
 本轮整体检查：根仓 126 项测试、1117 个断言及 `bun run check` 通过；新生成双角色 SQLite 工作区 server/web 类型检查、34 项 server 测试、15 项 Web 测试和 React Router SPA 构建通过，最终仅保留 `build/client`。更新后的 `bun run docs:build` 通过。构建仍有 React Router/Vite 的弃用与 future flag 提示；没有将这一轮验证声明为严格 Bun-only 构建审计。
 
@@ -204,7 +206,7 @@ MySQL Drizzle 生成修复（2026-10-07）：审计与附件的 `createdAt` 原�
 
 MPS `AuthConfig` 现在能表达 provider、userEntity、subjectField、roleField，并经编辑器、TextGen、外部桥接器往返；回归测试验证无效 provider 和缺少 user entity 都会失败。MPS `ScopeConfig` 已在 Relations sandbox 实例化 `products.categoryId → tenant.categoryId`，TextGen 与外部桥接严格等价，直连生成包已通过 SQLite scoped CRUD、REST/GraphQL claim 测试。原生 sandbox 还没有含用户角色枚举的完整认证模型，也没有真实 IdP 验收，不等于认证闭环。S3 缺少 bucket 时 fail-closed，生成测试使用 local 替代真实对象存储；SQLite `Money` 映射 `REAL`，不保证精确小数。
 
-本页以**已验证的生成结果**为准，不把 README 的远期目标当作已实现功能。截至 2026 年 10 月 7 日，V3 仍未完成生产验收。MPS 原生 Catalog 与双实体 Relations 数据库切片现已由 Make 动态输出 `.qiy`，并与外部 MPS 桥接的 Database IR 严格相等；Catalog 的 78 文件 Bun/Turborepo 已通过 typecheck、API 14/Web 7 tests、SPA build 和 Drizzle migration，迁移 SQL 包含 HNSW 与 B-tree 索引；最新 Relations 的 90 文件 Bun/Turborepo 已通过 typecheck、API 24/Web 7 tests（强制无缓存）、SPA build（强制无缓存）和 SQLite Drizzle migration，迁移 SQL 含 `ON DELETE set null` 外键。ERP 样例本轮重新生成 131 application files，workspace typecheck、API 42/Web 17 项测试、SPA build 与 Drizzle Kit 11 表 schema 检查通过（没有新的 schema 变更）；这不等于 PostgreSQL 实库迁移或事务验收。真实 PostgreSQL/MySQL、IdP/S3、MPS 全业务配置与原生 generator 业务模板尚未完成，不能公开部署。
+本页以**已验证的生成结果**为准，不把 README 的远期目标当作已实现功能。截至 2026 年 10 月 12 日，V3 仍未完成生产验收。MPS 原生 Catalog 与双实体 Relations 数据库切片现已由 Make 动态输出 `.qiy`，并与外部 MPS 桥接的 Database IR 严格相等；Catalog 的 78 文件 Bun/Turborepo 已通过 typecheck、API 14/Web 7 tests、SPA build 和 Drizzle migration，迁移 SQL 包含 HNSW 与 B-tree 索引；最新 Relations 的 90 文件 Bun/Turborepo 已通过 typecheck、API 24/Web 7 tests（强制无缓存）、SPA build（强制无缓存）和 SQLite Drizzle migration，迁移 SQL 含 `ON DELETE set null` 外键。通用 Dataflow 已在 PostgreSQL 16 与 MySQL 8.4 完成真实迁移、并发和事务回滚验收；ERP 样例也已完成 workspace typecheck、API/Web 测试、SPA build 与 schema 检查，但完整订单工作流仍未完成同等级实库验收。真实 IdP/S3、MPS 全业务配置与原生 generator 业务模板尚未完成，不能据此宣称 production-ready。
 
 `sortable=false` / `filterable=false` 已从 Qiy 字段定义贯通 API 执行面：REST 拒绝非法列表参数，GraphQL resolver 与 Drizzle repository 使用字段 allowlist，scope 字段映射独立保留。专门的原生 GraphQL 回归测试使用有效 scope claim 后分别验证禁用排序与过滤；根仓本轮 `bun run check`、70 项测试通过。MPS TextGen 已 Make 刷新并通过投影校验；本轮修复 typesystem registry 重复声明后，Make 日志未再报告原先的 typesystem 模型加载错误；仍须继续覆盖原生 generator mapping。
 

@@ -35,7 +35,7 @@ Qiy Model
 - `templates/admin/` 是稳定的 Turborepo + Bun 模板；`tools/generate-project.ts` 将 Qiy 模型生成的业务切片填入模板。
 - `examples/catalog/admin/` 是早期已生成的 Catalog Admin；最新压力样例 `examples/erpadmin/admin/` 是从 `.qiy` 生成的实际 Turborepo，包含 `apps/server/` 的 Elysia REST/GraphQL、Drizzle schema 和静态托管，以及 `apps/web/` 的 Refine + Ant Design + React Router SPA。运行 `bun install`、`bun run typecheck`、`bun run test`、`bun run build`、`bun run preview`，打开 `http://127.0.0.1:3000/orders`。
 - `examples/erpadmin/app.qiy` 声明 7 个资源模块和 6 条显式关系；生成 11 张表（含审计、订单预占、持久化幂等回执和附件元数据表）、10 个业务外键、独立的 contract/repository/service/routes 文件与关联 Select、五张可配置 Dashboard 指标卡（含服务端枚举分布），并生成订单提交/审批/出库/取消的多仓库存事务切片。ERP 默认使用本地用户名/密码，OIDC/OAuth2/SSO 仍是可选 provider；`examples/plugin-matrix/app.qiy` 保留 OIDC 组合回归。
-- 预览仅供本机开发，不可公开部署。Catalog 的 pgvector 真实数据库路径需要管理员安装扩展并配置连接。ERP 生成包已有 OIDC/OAuth2/SSO 角色守卫、订单事务、Attachment 元数据 API、基础 File 字段上传/下载和 PostgreSQL/SQLite/MySQL 生成切片；真实 IdP、数据库回滚/并发验收、多对多模型与 MPS 内置 generator 尚未完成。准确进度见 [V3 状态与规划](v3-status.md)。
+- 预览仅供本机开发，不可公开部署。Catalog 的 pgvector 真实数据库路径需要管理员安装扩展并配置连接。ERP 生成包已有 OIDC/OAuth2/SSO 角色守卫、订单事务、Attachment 元数据 API、基础 File 字段上传/下载和 PostgreSQL/SQLite/MySQL 生成切片；通用 Dataflow 已完成 PostgreSQL/MySQL 实库并发与回滚 smoke，但完整 ERP 工作流、真实 IdP、多对多模型与 MPS 内置业务 generator 尚未完成。准确进度见 [V3 状态与规划](v3-status.md)。
 
 ### MPS 构建验证
 

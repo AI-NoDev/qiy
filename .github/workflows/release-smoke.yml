@@ -3,6 +3,9 @@ name: Verify released Qiy CLI
 on:
   release:
     types: [published]
+  workflow_run:
+    workflows: ["Release Qiy CLI"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       release_tag:
@@ -19,6 +22,7 @@ concurrency:
 
 jobs:
   release-cli-smoke:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +34,10 @@ jobs:
           EVENT_TAG: ${{ github.event.release.tag_name }}
         run: |
           tag="${INPUT_TAG:-$EVENT_TAG}"
+          if [ -z "$tag" ]; then
+            version="$(bun -e 'console.log((await Bun.file("package.json").json()).version)')"
+            tag="v${version}"
+          fi
           test -n "$tag"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
