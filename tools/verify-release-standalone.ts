@@ -73,13 +73,14 @@ assert(service.spec.ports.some((port: any) => port.name === monitor.spec.endpoin
 const rules = Bun.YAML.parse(readFileSync(join(realtimeOutput, "deploy/kubernetes/realtime-prometheusrule.yaml"), "utf8")) as any;
 assert(rules.spec.groups[0].rules.length === 3, "Executable monitoring alert rules missing");
 assert(JSON.parse(readFileSync(join(realtimeOutput, "deploy/observability/grafana/qiy-realtime-outbox.json"), "utf8")).panels.length === 5, "Executable Grafana panels missing");
-await run([process.execPath, "install"], batchOutput);
+const installArgs = process.platform === "win32" ? ["install", "--linker", "hoisted"] : ["install"];
+await run([process.execPath, ...installArgs], batchOutput);
 await run([process.execPath, "run", "typecheck"], join(batchOutput, "apps/server"));
 await run([process.execPath, "test", "--timeout", "30000"], join(batchOutput, "apps/server"));
-await run([process.execPath, "install"], realtimeOutput);
+await run([process.execPath, ...installArgs], realtimeOutput);
 await run([process.execPath, "run", "typecheck"], join(realtimeOutput, "apps/server"));
 await run([process.execPath, "test", "--timeout", "30000"], join(realtimeOutput, "apps/server"));
-await run([process.execPath, "install"], output);
+await run([process.execPath, ...installArgs], output);
 for (const command of ["typecheck", "test", "build"]) await run([process.execPath, "run", command], output);
 const webRoot = join(output, "apps/web");
 assert(existsSync(join(webRoot, "build/client/index.html")), "Standalone SPA entry missing");

@@ -2,13 +2,13 @@ import type { DatabaseIR, EntityIR, FieldIR, RelationIR } from "./database-ir";
 import { validateDatabaseIR } from "./database-ir";
 import { generatedDocumentation } from "./generated-documentation";
 
-function column(field: FieldIR, relation?: RelationIR): string {
+function column(field: FieldIR, relation?: RelationIR, indexed = false): string {
   const name = JSON.stringify(field.columnName ?? field.name);
   let declaration: string;
   switch (field.type) {
     case "UUID": declaration = `varchar(${name}, { length: 36 })`; break;
     case "Text":
-    case "File": declaration = `text(${name})`; break;
+    case "File": declaration = field.unique || indexed ? `varchar(${name}, { length: 255 })` : `text(${name})`; break;
     case "Integer": declaration = `int(${name})`; break;
     case "DateTime": declaration = `datetime(${name}, { mode: "date" })`; break;
     case "Decimal":
@@ -23,9 +23,10 @@ function column(field: FieldIR, relation?: RelationIR): string {
 }
 
 function renderEntity(entity: EntityIR, relations: RelationIR[]): string {
+  const indexedFields = new Set((entity.indexes ?? []).flatMap((index) => index.columns.map((column) => column.fieldName)));
   const fields = entity.fields.map((field) => {
     const relation = relations.find((item) => item.fromEntity === entity.name && item.fromField === field.name);
-    return `${generatedDocumentation(relation, "  ")}${generatedDocumentation(field, "  ")}  ${JSON.stringify(field.name)}: ${column(field, relation)},`;
+    return `${generatedDocumentation(relation, "  ")}${generatedDocumentation(field, "  ")}  ${JSON.stringify(field.name)}: ${column(field, relation, indexedFields.has(field.name))},`;
   });
   const indexes = (entity.indexes ?? []).map((index) => {
     const factory = index.unique ? "uniqueIndex" : "index";

@@ -39,6 +39,7 @@ try {
     fields: [
       { name: "id", type: "UUID", primaryKey: true, nullable: false },
       { name: "email", type: "Text", unique: true, nullable: false },
+      { name: "displayName", type: "Text", nullable: true },
       { name: "password", type: "Text", nullable: true },
       { name: "role", type: "Text", enumName: "userRole", nullable: false },
     ],

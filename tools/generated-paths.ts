@@ -27,7 +27,8 @@ export function generatedPath(output: string, relativePath: string): string {
   if (parts.some((part) => !part || part === "." || part === ".." || /[. ]$/.test(part))) {
     throw new Error("Invalid generated file path");
   }
-  const path = join(resolve(output), ...parts);
+  const outputRoot = resolve(output);
+  const path = join(outputRoot, ...parts);
   let current = path;
   while (true) {
     let stat;
@@ -40,6 +41,7 @@ export function generatedPath(output: string, relativePath: string): string {
     if (stat?.isSymbolicLink()) throw new Error("Generated file path traverses a symbolic link");
     if (current === path && stat && !stat.isFile()) throw new Error("Generated file target is not a regular file");
     if (current !== path && stat && !stat.isDirectory()) throw new Error("Generated file parent is not a directory");
+    if (current === outputRoot) break;
     const parent = dirname(current);
     if (parent === current) break;
     current = parent;
