@@ -47,7 +47,8 @@ describe("Qiy UI themes", () => {
     expect(files["apps/web/app/routes/list.tsx"]).toContain("CreateButton, DeleteButton, EditButton, List, ShowButton");
     expect(files["apps/web/app/routes/show.tsx"]).toContain("EditButton, ListButton, Show");
     expect(files["apps/web/app/components/resource-form.tsx"]).toContain("Create, Edit, useForm, useSelect");
-    expect(JSON.parse(files["apps/web/package.json"]!).scripts.build).toBe("node node_modules/@react-router/dev/bin.js build");
+    expect(JSON.parse(files["apps/web/package.json"]!).scripts.build).toBe("node build.mjs");
+    expect(files["apps/web/build.mjs"]).toContain('require.resolve("@react-router/dev/package.json")');
     expect(files["apps/web/package.json"]).not.toContain("@refinedev/mui");
     expect(files["apps/web/package.json"]).not.toContain("@refinedev/mantine");
     expect(files["Dockerfile"]).toContain("COPY package.json turbo.json ./");
