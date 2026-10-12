@@ -30,7 +30,13 @@ export function generatedPath(output: string, relativePath: string): string {
   const path = join(resolve(output), ...parts);
   let current = path;
   while (true) {
-    const stat = lstatSync(current, { throwIfNoEntry: false });
+    let stat;
+    try {
+      stat = lstatSync(current, { throwIfNoEntry: false });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOTDIR") throw new Error("Generated file parent is not a directory");
+      throw error;
+    }
     if (stat?.isSymbolicLink()) throw new Error("Generated file path traverses a symbolic link");
     if (current === path && stat && !stat.isFile()) throw new Error("Generated file target is not a regular file");
     if (current !== path && stat && !stat.isDirectory()) throw new Error("Generated file parent is not a directory");

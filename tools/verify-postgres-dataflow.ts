@@ -32,8 +32,20 @@ async function administration(statement: string): Promise<void> {
 await administration(`CREATE DATABASE ${databaseName}`);
 try {
   const project = parseQiyProject(readFileSync("examples/dataflow/app.qiy", "utf8").replace("database sqlite", `database ${dialect}`));
+  project.database.enums = [{ name: "userRole", values: [{ name: "admin" }, { name: "operator" }, { name: "viewer" }] }];
+  project.database.entities.push({
+    name: "users",
+    tableName: "users",
+    fields: [
+      { name: "id", type: "UUID", primaryKey: true, nullable: false },
+      { name: "email", type: "Text", unique: true, nullable: false },
+      { name: "password", type: "Text", nullable: true },
+      { name: "role", type: "Text", enumName: "userRole", nullable: false },
+    ],
+  });
+  project.auth = { provider: "local", userEntity: "users", usernameField: "email", passwordField: "password", roleField: "role", subjectField: "id" };
   project.database.entities[0]!.fields.push({ name: "tenantId", columnName: "tenantId", type: "Text", nullable: false, primaryKey: false });
-  project.database.enums = [{ name: "reviewDecision", values: [{ name: "approved" }, { name: "rejected" }] }];
+  project.database.enums.push({ name: "reviewDecision", values: [{ name: "approved" }, { name: "rejected" }] });
   project.database.entities[0]!.fields.push({ name: "quantity", type: "Integer", nullable: true }, { name: "decision", type: "Text", enumName: "reviewDecision", nullable: true });
   project.scopes = [{ resource: "connectors", field: "tenantId", claim: "tenant.id" }, { resource: "reviews", field: "tenantId", claim: "tenant.id" }];
   project.dataflows![0]!.steps.push({ name: "publish", order: 25, actions: [{ kind: "emit", event: "connector.revoked", payload: [{ name: "connectorId", source: "context", context: "connector", value: "id" }, { name: "status", source: "context", context: "connector", value: "status" }, { name: "reason", source: "input", value: "reason" }, { name: "source", source: "literal", value: "qiy-acceptance" }] }] });
