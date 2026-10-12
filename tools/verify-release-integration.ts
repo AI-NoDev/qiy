@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { integrationAuthAcceptance } from "./integration-auth-acceptance";
@@ -7,7 +7,7 @@ const executable = process.argv[2];
 const expectedVersion = process.argv[3];
 if (!executable || !expectedVersion) throw new Error("Usage: bun tools/verify-release-integration.ts <executable> <version>");
 const binary = resolve(executable);
-const root = mkdtempSync(join(tmpdir(), "qiy-release-integration-"));
+const root = realpathSync.native(mkdtempSync(join(tmpdir(), "qiy-release-integration-")));
 async function run(command: string[], cwd = root): Promise<string> {
   console.log(`Integration acceptance: ${command.slice(1).join(" ") || command[0]} (${cwd})`);
   const child = Bun.spawn(command, { cwd, stdout: "pipe", stderr: "pipe" });
@@ -118,7 +118,7 @@ assert(readFileSync(join(root, ".env"), "utf8") === "HOST_VALUE=preserve\n", "Ho
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 assert(pkg.scripts["host:check"] === "bun --version" && !pkg.devDependencies?.turbo, "Host scripts or tooling changed");
 assert(JSON.parse(readFileSync(join(webRoot, "package.json"), "utf8")).name === "@release/ops-console", "Package alias mismatch");
-await run([process.execPath, "install"]);
+await run([process.execPath, "install", ...(process.platform === "win32" ? ["--linker", "hoisted"] : [])]);
 await run([process.execPath, "test", "host-auth-acceptance.test.ts"], authWebRoot);
 for (const command of ["typecheck", "test", "build"]) await run([process.execPath, "run", command], webRoot);
 assert(existsSync(join(webRoot, "build/client/index.html")), "Integration SPA entry missing");
