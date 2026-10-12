@@ -8,7 +8,7 @@ export interface Principal {
 }
 
 export type Authenticator = (request: Request) => Promise<Principal | null>;
-export interface ProtectedResource { path: string; query: string; }
+export interface ProtectedResource { path: string; query: string; mutations?: string[]; }
 
 function error(status: number, message: string): Response {
   return Response.json({ error: message }, { status, headers: { "Cache-Control": "no-store" } });
@@ -44,6 +44,7 @@ export function createAuthorizationGuard(authenticate: Authenticator, resources:
     for (const action of ["create" + name, "update" + name, "delete" + name, "delete" + name + "Many"]) {
       queryActions.set(action, { resource, method: "POST" });
     }
+    for (const action of resource.mutations ?? []) queryActions.set(action, { resource, method: "POST" });
   }
 
   return async (request: Request): Promise<Response | undefined> => {

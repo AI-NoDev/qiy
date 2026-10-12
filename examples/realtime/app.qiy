@@ -1,0 +1,58 @@
+qiy v0;
+
+application qiy-realtime-admin {
+  database sqlite {}
+  api { client rest; }
+
+  realtime {
+    mode auto;
+    resource orders {
+      events created, updated, deleted;
+      roles admin, operator;
+    }
+  }
+
+  auth { provider local; user users; roleField role; usernameField email; passwordField passwordHash; }
+
+  enum userRole {
+    value admin label "Administrator" color red icon SafetyOutlined;
+    value operator label "Operator" color blue icon UserOutlined;
+    value viewer label "Viewer" color default icon EyeOutlined;
+  }
+
+  entity users table users @label("Users") @icon(UserOutlined) {
+    field id UUID @id;
+    field email Text @unique;
+    field displayName Text;
+    field passwordHash Text @nullable @listVisible(false) @showVisible(false) @formVisible(false);
+    field role userRole @filterable(true);
+  }
+
+  entity orders table orders @label("Orders") @icon(ShoppingOutlined) {
+    field id UUID @id;
+    field number Text @unique;
+    field status Text;
+    field createdAt DateTime @nullable;
+  }
+
+  dataflow approveOrder @comment("Approve an order and publish a durable business event") {
+    allow roles admin, operator;
+    input {
+      field orderId UUID @required;
+    }
+    context {
+      order = entity orders by id input.orderId @required;
+    }
+    step validate {
+      require order.status == "pending" @error("Order is not pending");
+    }
+    step approve {
+      update order { status = "approved"; }
+      emit "order.approved" {
+        orderId = order.id;
+        status = order.status;
+      }
+    }
+    result { return order; }
+  }
+}

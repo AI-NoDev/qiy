@@ -159,6 +159,8 @@
       <node concept="3F0A7n" id="qiyEditorMenuGroupIcon" role="3EZMnx"><ref role="1NtTu8" to="onil:p720000000000001802" resolve="icon" /></node>
       <node concept="3F0ifn" id="qiyEditorMenuGroupParentLabel" role="3EZMnx"><property role="3F0ifm" value=" parent=" /></node>
       <node concept="3F0A7n" id="qiyEditorMenuGroupParent" role="3EZMnx"><ref role="1NtTu8" to="onil:p720000000000001803" resolve="parent" /></node>
+      <node concept="3F0ifn" id="qiyEditorMenuGroupCommentLabel" role="3EZMnx"><property role="3F0ifm" value=" comment=" /></node>
+      <node concept="3F0A7n" id="qiyEditorMenuGroupComment" role="3EZMnx"><ref role="1NtTu8" to="onil:p720000000000001804" resolve="comment" /></node>
       <node concept="2iRfu4" id="qiyEditorMenuGroupLayout" role="2iSdaV" />
     </node>
   </node>
@@ -175,7 +177,29 @@
       <node concept="3F0A7n" id="qiyEditorDashboardMetricResource" role="3EZMnx"><ref role="1NtTu8" to="onil:p720000000000002001" resolve="resource" /></node>
       <node concept="3F0ifn" id="qiyEditorDashboardMetricSpanLabel" role="3EZMnx"><property role="3F0ifm" value=" span=" /></node>
       <node concept="3F0A7n" id="qiyEditorDashboardMetricSpan" role="3EZMnx"><ref role="1NtTu8" to="onil:p720000000000002004" resolve="span" /></node>
+      <node concept="3F0ifn" id="qiyEditorDashboardMetricCommentLabel" role="3EZMnx"><property role="3F0ifm" value=" comment=" /></node>
+      <node concept="3F0A7n" id="qiyEditorDashboardMetricComment" role="3EZMnx"><ref role="1NtTu8" to="onil:p720000000000002008" resolve="comment" /></node>
       <node concept="2iRfu4" id="qiyEditorDashboardMetricLayout" role="2iSdaV" />
+    </node>
+  </node>
+  <node concept="24kQdi" id="qiyEditorEnum">
+    <ref role="1XX52x" to="onil:c720000000000000021" resolve="Enum" />
+    <node concept="3EZMnI" id="qiyEditorEnumCells" role="2wV5jI">
+      <node concept="3F0ifn" id="qiyEditorEnumLabel" role="3EZMnx"><property role="3F0ifm" value="enum " /></node>
+      <node concept="3F0A7n" id="qiyEditorEnumName" role="3EZMnx"><ref role="1NtTu8" to="tpck:h0TrG11" resolve="name" /></node>
+      <node concept="3F0ifn" id="qiyEditorEnumCommentLabel" role="3EZMnx"><property role="3F0ifm" value=" comment=" /></node>
+      <node concept="3F0A7n" id="qiyEditorEnumComment" role="3EZMnx"><ref role="1NtTu8" to="onil:p720000000000002101" resolve="comment" /></node>
+      <node concept="2iRfu4" id="qiyEditorEnumLayout" role="2iSdaV" />
+    </node>
+  </node>
+  <node concept="24kQdi" id="qiyEditorEnumValue">
+    <ref role="1XX52x" to="onil:c720000000000000022" resolve="EnumValue" />
+    <node concept="3EZMnI" id="qiyEditorEnumValueCells" role="2wV5jI">
+      <node concept="3F0ifn" id="qiyEditorEnumValueLabel" role="3EZMnx"><property role="3F0ifm" value="value " /></node>
+      <node concept="3F0A7n" id="qiyEditorEnumValueName" role="3EZMnx"><ref role="1NtTu8" to="tpck:h0TrG11" resolve="name" /></node>
+      <node concept="3F0ifn" id="qiyEditorEnumValueCommentLabel" role="3EZMnx"><property role="3F0ifm" value=" comment=" /></node>
+      <node concept="3F0A7n" id="qiyEditorEnumValueComment" role="3EZMnx"><ref role="1NtTu8" to="onil:p720000000000002204" resolve="comment" /></node>
+      <node concept="2iRfu4" id="qiyEditorEnumValueLayout" role="2iSdaV" />
     </node>
   </node>
   <node concept="24kQdi" id="qiyEditorCronJob">
@@ -265,6 +289,8 @@
       <node concept="3F0A7n" id="p46" role="3EZMnx">
         <ref role="1NtTu8" to="onil:502" resolve="schema" />
       </node>
+      <node concept="3F0ifn" id="qiyEditorEntityCommentLabel" role="3EZMnx"><property role="3F0ifm" value=" comment=" /></node>
+      <node concept="3F0A7n" id="qiyEditorEntityComment" role="3EZMnx"><ref role="1NtTu8" to="onil:504" resolve="comment" /></node>
       <node concept="2iRfu4" id="l49" role="2iSdaV" />
     </node>
   </node>
@@ -311,6 +337,8 @@
       <node concept="3F0A7n" id="qiyEditorFieldSortable" role="3EZMnx"><ref role="1NtTu8" to="onil:618" resolve="sortable" /></node>
       <node concept="3F0ifn" id="qiyEditorFieldFilterableLabel" role="3EZMnx"><property role="3F0ifm" value=" filterable=" /></node>
       <node concept="3F0A7n" id="qiyEditorFieldFilterable" role="3EZMnx"><ref role="1NtTu8" to="onil:619" resolve="filterable" /></node>
+      <node concept="3F0ifn" id="qiyEditorFieldCommentLabel" role="3EZMnx"><property role="3F0ifm" value=" comment=" /></node>
+      <node concept="3F0A7n" id="qiyEditorFieldComment" role="3EZMnx"><ref role="1NtTu8" to="onil:622" resolve="comment" /></node>
       <node concept="2iRfu4" id="l60" role="2iSdaV" />
     </node>
   </node>
@@ -335,6 +363,8 @@
       <node concept="3F0A7n" id="p66" role="3EZMnx">
         <ref role="1NtTu8" to="onil:702" resolve="unique" />
       </node>
+      <node concept="3F0ifn" id="qiyEditorIndexCommentLabel" role="3EZMnx"><property role="3F0ifm" value=" comment=" /></node>
+      <node concept="3F0A7n" id="qiyEditorIndexComment" role="3EZMnx"><ref role="1NtTu8" to="onil:706" resolve="comment" /></node>
       <node concept="2iRfu4" id="l69" role="2iSdaV" />
     </node>
   </node>
@@ -455,6 +485,8 @@
       <node concept="3F0A7n" id="p118" role="3EZMnx">
         <ref role="1NtTu8" to="onil:1106" resolve="onDelete" />
       </node>
+      <node concept="3F0ifn" id="qiyEditorRelationCommentLabel" role="3EZMnx"><property role="3F0ifm" value=" comment=" /></node>
+      <node concept="3F0A7n" id="qiyEditorRelationComment" role="3EZMnx"><ref role="1NtTu8" to="onil:1107" resolve="comment" /></node>
       <node concept="2iRfu4" id="l119" role="2iSdaV" />
     </node>
   </node>

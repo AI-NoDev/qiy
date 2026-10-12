@@ -1,0 +1,66 @@
+qiy v0;
+application browser-actions {
+  database sqlite {}
+  auth { provider local; user users; usernameField email; passwordField passwordHash; roleField role; }
+  messages {
+    default "en-US";
+    locale "en-US" {
+      "review.reason" "Archive reason";
+      "review.blocked" "Locked reviews cannot be archived";
+      "review.page" "Implement the review history and approval workflow here.";
+    }
+    locale "zh-CN" {
+      "review.reason" "归档原因";
+      "review.blocked" "锁定的审核记录不能归档";
+      "review.page" "请在此实现审核历史与审批流程。";
+    }
+  }
+  enum userRole { value admin; value operator; value viewer; }
+  entity users {
+    field id UUID @id;
+    field email Text @unique;
+    field displayName Text;
+    field passwordHash Text @nullable @listVisible(false) @showVisible(false) @formVisible(false);
+    field role userRole;
+  }
+  entity reviews @label("Reviews") @icon(CheckSquareOutlined) {
+    field id UUID @id;
+    field status Text;
+    field note Text;
+  }
+  dataflow archiveReview @label("Archive review") @confirm("Archive this review?") {
+    allow roles admin, operator;
+    input {
+      field reviewId UUID @required;
+      field reason Text @required @comment(t("review.reason"));
+    }
+    context { review = entity reviews by id input.reviewId @required; }
+    step validate { require review.status != "locked" @error(t("review.blocked")); }
+    step archive { update review { status = "archived"; note = input.reason; } }
+    audit "review.archived";
+    idempotency required;
+    result { return review; }
+  }
+  action archiveOne {
+    resource reviews;
+    dataflow archiveReview;
+    placement list, show;
+    when status != "archived";
+  }
+  action archiveSelected {
+    resource reviews;
+    dataflow archiveReview;
+    placement list;
+    label "Archive selected";
+    confirm "Archive all selected reviews?";
+    batch true;
+  }
+  action reviewHistory {
+    resource reviews;
+    placement list, show;
+    allow roles admin, operator;
+    label "Review history";
+    navigate "/reviews/:id/history";
+    page manual @comment(t("review.page"));
+  }
+}

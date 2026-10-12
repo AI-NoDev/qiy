@@ -52,14 +52,85 @@ function skipQuotedValue(source: string, start: number, file: string): number {
   throw includeError(file, source, start, "Unterminated string literal");
 }
 
-function readIncludeStatement(source: string, start: number, file: string): { path: string; end: number } {
+function readIncludeStatement(source: string, start: number, file: string): { path: string; selector?: string; end: number } {
   let index = start + "include".length;
   while (/\s/.test(source[index] ?? "")) index += 1;
   const quoted = readQuotedValue(source, index, file);
   index = quoted.end;
   while (/\s/.test(source[index] ?? "")) index += 1;
+  let selector: string | undefined;
+  if (source[index] === "@") {
+    const selectorStart = index;
+    index += 1;
+    const match = /^[A-Za-z_][A-Za-z0-9_.-]*/.exec(source.slice(index));
+    if (!match) throw includeError(file, source, selectorStart, "include selector must be an identifier such as @messages");
+    selector = match[0];
+    index += selector.length;
+    while (/\s/.test(source[index] ?? "")) index += 1;
+  }
   if (source[index] !== ";") throw includeError(file, source, index, "Expected ; after include path");
-  return { path: quoted.value, end: index + 1 };
+  return { path: quoted.value, ...(selector && { selector }), end: index + 1 };
+}
+
+function readBalancedBlockEnd(source: string, open: number, file: string): number {
+  let depth = 1;
+  let index = open + 1;
+  while (index < source.length) {
+    const current = source[index]!;
+    if (current === "#" || (current === "/" && source[index + 1] === "/")) {
+      const end = source.indexOf("\n", index);
+      index = end === -1 ? source.length : end;
+      continue;
+    }
+    if (current === '"' || current === "'") {
+      index = skipQuotedValue(source, index, file);
+      continue;
+    }
+    if (current === "{") depth += 1;
+    if (current === "}") {
+      depth -= 1;
+      if (depth === 0) return index + 1;
+    }
+    index += 1;
+  }
+  throw includeError(file, source, open, "Unterminated selected block");
+}
+
+function selectIncludedFragment(source: string, selector: string, file: string): string {
+  const blockName = selector === "message" ? "messages" : selector;
+  if (blockName !== "messages") {
+    throw new Error(`${file}: unsupported include selector @${selector}; currently only @message and @messages are implemented`);
+  }
+  const blocks: string[] = [];
+  let depth = 0;
+  let index = 0;
+  while (index < source.length) {
+    const current = source[index]!;
+    if (current === "#" || (current === "/" && source[index + 1] === "/")) {
+      const end = source.indexOf("\n", index);
+      index = end === -1 ? source.length : end;
+      continue;
+    }
+    if (current === '"' || current === "'") {
+      index = skipQuotedValue(source, index, file);
+      continue;
+    }
+    if (depth === 0 && source.startsWith(blockName, index) && !isWordCharacter(source[index - 1]) && !isWordCharacter(source[index + blockName.length])) {
+      let open = index + blockName.length;
+      while (/\s/.test(source[open] ?? "")) open += 1;
+      if (source[open] !== "{") throw includeError(file, source, open, `Expected { after selected ${blockName}`);
+      const end = readBalancedBlockEnd(source, open, file);
+      blocks.push(source.slice(index, end));
+      index = end;
+      continue;
+    }
+    if (current === "{") depth += 1;
+    if (current === "}") depth -= 1;
+    index += 1;
+  }
+  if (blocks.length === 0) throw new Error(`${file}: include selector @${selector} did not find a top-level ${blockName} block`);
+  if (blocks.length > 1) throw new Error(`${file}: include selector @${selector} matched multiple top-level ${blockName} blocks`);
+  return blocks[0]!;
 }
 
 function validateIncludePath(target: string, file: string, source: string, offset: number): void {
@@ -113,7 +184,8 @@ function expandQiyFile(file: string, state: IncludeState, fragment: boolean): st
       const requested = resolve(dirname(realFile), statement.path);
       if (!isInside(state.root, requested)) throw includeError(realFile, source, index, "include path escapes the project root");
       if (!existsSync(requested)) throw includeError(realFile, source, index, `Included file does not exist: ${statement.path}`);
-      result += `\n${expandQiyFile(requested, nextState, true)}\n`;
+      const expanded = expandQiyFile(requested, nextState, true);
+      result += `\n${statement.selector ? selectIncludedFragment(expanded, statement.selector, requested) : expanded}\n`;
       index = statement.end;
       continue;
     }

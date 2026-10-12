@@ -69,12 +69,15 @@ describe("ERP Admin project", () => {
     expect(ordersRepository).toContain('action: "orders.updated"');
     expect(ordersRepository).toContain('action: "orders.deleted"');
     expect(ordersRepository).toContain("actorId: actorId ?? null");
-    expect(files["apps/server/src/graphql.ts"]).toContain("contextValue: { actorId:");
+    expect(files["apps/server/src/graphql.ts"]).toContain("contextValue: { request, actorId:");
     expect(files["apps/server/src/schema.ts"]).toContain('pgTable("audit_events"');
-    expect(files["apps/server/src/storage/routes.ts"]).toContain("25 * 1024 * 1024");
+    expect(files["apps/server/src/storage/routes.ts"]).toContain('"products.datasheet"');
+    expect(files["apps/server/src/storage/routes.ts"]).toContain('"maxBytes": 10485760');
+    expect(files["apps/server/src/storage/routes.ts"]).toContain('"application/pdf"');
+    expect(files["apps/server/src/storage/routes.ts"]).toContain('.post("/base64"');
     expect(files["apps/server/src/preview.ts"]).toContain('role: "admin", claims: {"tenant.customerId":"00000000-0000-4000-8000-000000000002"} }), false, true);');
     expect(files["apps/server/src/schema.ts"]).toContain('"datasheet": text("datasheet")');
-    expect(files["apps/web/app/components/resource-form.tsx"]).toContain('<FileInput name={field.name} resource={resource.name} resourceId={id} />');
+    expect(files["apps/web/app/components/resource-form.tsx"]).toContain('<FileInput field={field} resource={resource.name} resourceId={id} />');
     expect(files["apps/web/app/components/resource-form.tsx"]).toContain('resourceId={id}');
     expect(files["apps/web/app/resources.ts"]).toContain('"orders"');
     expect(files["apps/web/app/dashboard.ts"]).toContain('"name": "orderCount"');

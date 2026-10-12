@@ -7,10 +7,14 @@ export interface EnumValueIR {
   label?: string;
   color?: string;
   icon?: string;
+  comment?: string;
+  commentKey?: string;
 }
 
 export interface EnumIR {
   name: string;
+  comment?: string;
+  commentKey?: string;
   values: EnumValueIR[];
 }
 
@@ -37,6 +41,10 @@ export interface FieldIR {
   sortable?: boolean;
   filterable?: boolean;
   filterModes?: FilterMode[];
+  uploadMode?: "binary" | "base64" | "both";
+  maxBytes?: number;
+  mimeTypes?: string[];
+  maxFiles?: number;
 }
 
 export interface IndexColumnIR {
@@ -78,6 +86,8 @@ export interface EntityIR {
 }
 
 export interface DatabaseIR {
+  comment?: string;
+  commentKey?: string;
   dialect: DatabaseDialect;
   extensions: string[];
   entities: EntityIR[];
@@ -187,6 +197,14 @@ export function validateDatabaseIR(database: DatabaseIR): string[] {
       }
       if (field.extension && !extensions.has(field.extension)) {
         errors.push(`${entity.name}.${field.name}: undeclared extension ${field.extension}`);
+      }
+      const hasUploadPolicy = field.uploadMode !== undefined || field.maxBytes !== undefined || field.mimeTypes !== undefined || field.maxFiles !== undefined;
+      if (hasUploadPolicy && field.type !== "File") errors.push(`${entity.name}.${field.name}: upload policy requires File type`);
+      if (field.type === "File") {
+        if (field.uploadMode !== undefined && !["binary", "base64", "both"].includes(field.uploadMode)) errors.push(`${entity.name}.${field.name}: invalid upload mode`);
+        if (field.maxBytes !== undefined && (!Number.isSafeInteger(field.maxBytes) || field.maxBytes < 1 || field.maxBytes > 100 * 1024 * 1024)) errors.push(`${entity.name}.${field.name}: invalid maxBytes`);
+        if (field.maxFiles !== undefined && field.maxFiles !== 1) errors.push(`${entity.name}.${field.name}: File currently supports maxFiles 1`);
+        if (field.mimeTypes !== undefined && (!field.mimeTypes.length || new Set(field.mimeTypes).size !== field.mimeTypes.length || field.mimeTypes.some((mime) => !/^[a-z0-9!#$&^_.+-]+\/(?:[a-z0-9!#$&^_.+-]+|\*)$/.test(mime)))) errors.push(`${entity.name}.${field.name}: invalid MIME types`);
       }
 
       if (field.type === "Vector") {

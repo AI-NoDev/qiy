@@ -1,0 +1,87 @@
+qiy v0;
+
+application dataflow-create-delete {
+  database sqlite {}
+
+  entity users {
+    field id UUID @id;
+    field name Text;
+  }
+
+  entity reviews {
+    field id UUID @id;
+    field userId UUID;
+    field note Text;
+    field status Text;
+  }
+
+  dataflow createReview {
+    allow roles admin, operator;
+    idempotency required;
+    audit "review.created";
+
+    input {
+      field userId UUID @required;
+      field note Text @required;
+    }
+
+    context {
+      user = entity users by id input.userId @required;
+    }
+
+    step create @order(10) {
+      create review = entity reviews {
+        userId = input.userId;
+        note = input.note;
+        status = "pending";
+      }
+    }
+
+    result { return review; }
+  }
+
+  dataflow deleteReview {
+    allow roles admin;
+    idempotency required;
+    audit "review.deleted";
+
+    input {
+      field reviewId UUID @required;
+    }
+
+    context {
+      review = entity reviews by id input.reviewId @required;
+    }
+
+    step remove @order(10) {
+      delete review;
+    }
+
+    result { return review; }
+  }
+
+  dataflow createUser {
+    allow roles admin;
+    idempotency required;
+    audit "user.created";
+    input {}
+    context {}
+    step create {
+      create user = entity users { name = "New user"; }
+    }
+    result { return user; }
+  }
+
+  dataflow transientUser {
+    allow roles admin;
+    idempotency required;
+    input {}
+    context {}
+    step create {
+      create user = entity users { name = "Temporary user"; }
+      update user { name = "Removed user"; }
+      delete user;
+    }
+    result { return user; }
+  }
+}

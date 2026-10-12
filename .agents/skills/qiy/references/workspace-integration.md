@@ -50,3 +50,7 @@ apps/ops-api/src/modules/connectors/
 apps/ops-console/app/plugins/host-data-provider.ts
 apps/ops-console/app/hooks/use-connector-status.ts
 ```
+
+For a web-only integration, declare `mode integration` and an `integration` block. Use `auth bearer` or `auth portal` when the host supplies an access token through `window.qiyHostAuth.getAccessToken`; use same-origin `auth cookie` with explicit readable CSRF cookie/header names when the session cookie is HttpOnly. Qiy confines credentials to `apiBase` and rejects redirects outside it.
+
+Implement login, identity, permissions, refresh and logout in the unowned host adapter. API failures preserve `statusCode` and reach `window.qiyHostAuth.onError(error)`. The host may refresh its token/session there, but Qiy deliberately does not replay the failed request; the caller must explicitly retry when safe. Always keep server authorization authoritative and test the real JWT claims, refresh Cookie, allowlist and API envelope.

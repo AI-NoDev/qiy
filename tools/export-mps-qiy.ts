@@ -1,9 +1,9 @@
-/** @deprecated Use `qiy export-qiy` (tools/cli.ts) instead. */
+/** Internal MPS maintenance tool. Published application generation accepts .qiy only. */
 import { exportQiy } from "./commands/export-qiy";
 
 const [source, destination] = Bun.argv.slice(2).filter((arg) => !arg.startsWith("-"));
 if (!source || !destination) {
-  console.error("Usage: qiy export-qiy <model.mps> <output.qiy> [--force]");
+  console.error("Usage: bun run tools/export-mps-qiy.ts <model.mps> <output.qiy> [--force]");
   process.exit(1);
 }
 try {

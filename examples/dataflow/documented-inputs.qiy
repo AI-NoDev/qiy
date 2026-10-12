@@ -8,13 +8,29 @@ application documented-reviews {
       "entity.reviews.note" "Explain the review decision";
       "review.context" "Load the requested review";
       "review.step" "Persist the decision explanation";
+      "review.action" "Explain review";
+      "review.confirm" "Apply this explanation?";
+      "enum.reviewState" "Review workflow states";
+      "enum.reviewState.pending" "Waiting for a reviewer";
+      "menu.reviews" "Review operations";
+      "dashboard.reviews" "Current review requests";
     }
     locale "zh-CN" {
       "entity.reviews" "审核申请";
       "entity.reviews.note" "请说明审核决定";
       "review.context" "加载待审核记录";
       "review.step" "保存审核说明";
+      "review.action" "填写审核说明";
+      "review.confirm" "确认保存这条审核说明？";
+      "enum.reviewState" "审核流程状态";
+      "enum.reviewState.pending" "等待审核人处理";
+      "menu.reviews" "审核业务入口";
+      "dashboard.reviews" "当前审核申请";
     }
+  }
+  enum reviewState @comment(t("enum.reviewState")) {
+    value pending label "Pending" color "blue" icon "ClockCircleOutlined" @comment(t("enum.reviewState.pending"));
+    value explained label "Explained" color "green" icon "CheckCircleOutlined" @comment("The reviewer supplied an explanation");
   }
   entity reviews @comment(t("entity.reviews")) {
     field id UUID @id @comment("Review identifier");
@@ -22,7 +38,15 @@ application documented-reviews {
     field detail Text @nullable @comment("Optional supporting evidence");
     index byNote btree (note) @comment("Lookup by review explanation");
   }
-  dataflow explainReview {
+  menu {
+    group reviewOperations @label("Reviews") @icon("AuditOutlined") @comment(t("menu.reviews")) {
+      resource reviews;
+    }
+  }
+  dashboard {
+    metric reviewCount reviews @label("Reviews") @span(8) @comment(t("dashboard.reviews"));
+  }
+  dataflow explainReview @label(t("review.action")) @confirm(t("review.confirm")) @comment(t("review.context")) {
     idempotency required;
     audit "review.explained";
     input {
@@ -41,13 +65,12 @@ application documented-reviews {
     resource reviews;
     dataflow explainReview;
     placement list, show;
-    label "Explain review";
   }
   action reviewDetails {
     resource reviews;
     navigate "/reviews/:id/explanation";
     placement show;
-    label "Review details";
+    label t("review.action");
     page manual @comment(t("entity.reviews.note"));
   }
 }

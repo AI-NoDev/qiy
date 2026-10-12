@@ -4,6 +4,15 @@ import { parseQiyProject } from "../tools/qiy-project";
 
 const source = await Bun.file(new URL("../examples/dataflow/roles.qiy", import.meta.url)).text();
 
+test("Refine notifications are mounted below the Ant Design application context", () => {
+  const project = parseQiyProject(source);
+  const files = generateProject(project.database, project.name, project);
+  const root = files["apps/web/app/root.tsx"]!;
+  expect(files["apps/web/app/ui/index.tsx"]).toContain("<App>{children}</App>");
+  expect(root).toContain("<RefineApplication i18nProvider={i18nProvider} /></QiyUiProvider>");
+  expect(root.indexOf("function RefineApplication")).toBeLessThan(root.indexOf("const notificationProvider = useQiyNotificationProvider()"));
+});
+
 test("standalone audit integrates server authority and Refine read-only history", () => {
   const project = parseQiyProject(source);
   const files = generateProject(project.database, project.name, project);
@@ -15,6 +24,8 @@ test("standalone audit integrates server authority and Refine read-only history"
   expect(files["apps/web/app/routes/show.tsx"]).toContain('action="audit"');
   expect(files["apps/web/app/components/business-actions.tsx"]).toContain("useNotification");
   expect(files["apps/web/app/components/business-actions.tsx"]).not.toContain("message.success");
+  expect(files["apps/web/app/components/business-actions.tsx"]).toContain('params={{ id: recordId }}');
+  expect(files["apps/web/app/components/business-actions.tsx"]).toContain('translate("notifications.success"');
   expect(files["apps/web/app/auth.ts"]).toContain("onError: async (error)");
 });
 

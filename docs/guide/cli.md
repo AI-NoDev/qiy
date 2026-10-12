@@ -10,6 +10,8 @@ qiy doctor [--json]
 qiy skill install [--force]
 ```
 
+公开生成入口只接受 `.qiy`。MPS 模型和内部 Database IR 不属于已发布 CLI 的应用输入；仓库维护者可以单独运行内部 MPS/TextGen 验证工具，但最终仍应导出 `.qiy` 后进入同一条生成链路。
+
 ## 在仓库中运行
 
 ```powershell
@@ -88,4 +90,6 @@ bun run build:exe -- --all
 
 `package.json` 的 `bin` 已暴露 `qiy` 命令；npm 发布仍需维护者单独执行并验证 registry 权限，本仓库当前自动化发布目标是 GitHub Release。
 
-维护者更新 `package.json.version` 后推送 `main`，`.github/workflows/release.yml` 会检查同版本 Release 是否已存在：已存在则跳过；不存在则构建 Windows x64、Linux x64/arm64、macOS x64/arm64 五个平台产物，创建对应 tag 与 GitHub Release。Release 发布后，`.github/workflows/release-smoke.yml` 会下载 Linux x64 资产，校验二进制版本、生成 manifest、独立项目 typecheck/test/build，以及 `qiy init` 集成与同步。不要手工重复创建同一版本 tag。
+独立项目黑盒验收还会启动已构建的本机预览服务，验证首页、静态资源、SPA 深链接、资源 API、OpenAPI 和未知 API 的 404，并确认未配置认证时生产入口拒绝启动。预览身份与数据为测试用途，不代表真实登录或数据库生产验收。
+
+维护者更新 `package.json.version` 后推送 `main`，`.github/workflows/release.yml` 会检查同版本 Release 是否已存在：已存在则跳过；不存在则先执行源码类型检查、测试和文档构建，再构建 Windows x64、Linux x64/arm64、macOS x64/arm64 五个平台产物。每个产物在对应原生平台验证版本、实际生成独立项目与 integration 项目、干净安装、typecheck/test/build、同步保护和离线 Skill，全部通过后才创建 tag 与 GitHub Release。已有 tag 但无 Release 时从该 tag 的提交构建，并核对包版本，避免资产与源码标签不一致。Release 发布后，`.github/workflows/release-smoke.yml` 还会下载 Linux x64 资产进行远端黑盒检查。不要手工重复创建同一版本 tag。

@@ -24,17 +24,19 @@
 
 ### Generator、runtime 和 sandbox
 
-- `languages/qiy/generator/templates/qiy.generator.templates@generator.mps` 包含最小 `CreateRootRule` mapping，输出独立的 `QiyGenerationMarker.java` 作为原生 generator 执行证据；它与 `.qiy` TextGen 输出并存，避免替换源根。业务生成仍通过 TextGen/Database IR 桥接。
+- `languages/qiy/generator/templates/qiy.generator.templates@generator.mps` 包含最小 `CreateRootRule` mapping，输出独立的 `QiyGenerationMarker.java` 作为 MPS generator 可执行性证据；它不承担 Refine、Elysia、Drizzle 或部署文件生成。
 - `languages/qiy.runtime/` 是一个没有实际 runtime model 的 solution，未来用于生成应用的公共运行时契约。
 - `languages/qiy.sandbox/` 是一个未编译 Java 的 sandbox solution，引用 `qiy` 语言并保留字段规则的正反样例。
-- `tools/database-ir.ts` 是 Database IR 校验切片，`tools/mps-database-ir.ts` 以持久化 registry 与 structure ID 映射 MPS Model → IR；MPS 入口已覆盖数据库、关系、前端 transport、Elysia 插件、storage、auth、scope、workflow、菜单、Dashboard 和字段可见性，并通过共享 Bun generators 输出完整 Turborepo。文本 DSL 新增的 Dataflow、Action、环境变量、消息字典和 UI 主题配置尚未全部进入 MPS 原生结构；MPS 内置 generator 仍只有最小执行 marker，业务文件继续由 TextGen/IR 桥接生成。
+- `tools/database-ir.ts` 是 Database IR 校验切片，`tools/mps-database-ir.ts` 与 `tools/mps-qiy.ts` 以持久化 registry 与 structure ID 将 MPS Model 导出为规范 `.qiy`。这是 MPS 工作台进入生产编译链路的权威桥接。公开 CLI 的应用生成入口只接受 `.qiy`；文本 DSL 新增的 Dataflow、Action、环境变量、消息字典和 UI 主题配置尚未全部进入 MPS 原生结构。MPS 原生 TextGen 仅保留已存在结构切片的兼容 smoke，不再要求复制每个新语法或业务 generator。
 
 ## 目标生成架构
 
 ```text
-MPS Qiy Model
-      ↓
-语义分析与约束检查
+.qiy 文本 ─────────────────────┐
+                               │ Bun Parser / Validator
+MPS Qiy Model                  │
+      ↓ Bun MPS exporter       │
+  canonical .qiy ──────────────┘
       ↓
 Qiy IR
   ├── Data IR
@@ -52,7 +54,7 @@ Qiy IR
   └── 测试和部署配置
 ```
 
-中间表示是重要边界。不要从每一个 MPS Concept 直接拼接某个目标文件，否则未来增加 API、业务命令或其他前端实现时会让 generator 互相耦合。
+中间表示是重要边界。公开文本模型与可选 MPS 工作台都必须先汇入同一条 `.qiy` Parser → Qiy IR 链路；不要从每一个 MPS Concept 直接拼接目标文件，也不要维护第二套业务 generator，否则新增 API、业务命令或前端实现时会发生语义漂移。`qiy.textGen` 的旧输出只比较去除注释等文档属性后的既有结构子集；完整语义以 Bun exporter 生成并重新解析的 `.qiy` 为准。
 
 ## 数据库方言
 

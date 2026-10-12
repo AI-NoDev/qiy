@@ -1,13 +1,11 @@
 import { existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import type { DatabaseIR } from "../database-ir";
 import { generateProject } from "../generate-project";
-import { parseMpsProjectModel } from "../mps-database-ir";
 import { loadQiyProjectSource } from "../qiy-include";
 import { parseQiyProject } from "../qiy-project";
+import { loadQiyTestSuite } from "../qiy-test";
 import { createGeneratedManifest, generatedPath, readGeneratedManifest } from "../generated-paths";
 import { prepareEnvironmentFile } from "../environment-files";
-import { readStructureModel } from "../structure-model";
 import { generatedWiki } from "../generated-wiki";
 
 export interface GenerateAppOptions {
@@ -20,42 +18,41 @@ export async function generateApp(source: string, destination: string, options: 
   if (existsSync(output) && readdirSync(output).length > 0 && !options.sync) {
     throw new Error(`Output directory must be empty: ${output}`);
   }
-  const project = source.endsWith(".qiy") ? parseQiyProject(await loadQiyProjectSource(source)) : undefined;
-  const mpsProject = source.endsWith(".mps")
-    ? parseMpsProjectModel(await Bun.file(source).text(), await readStructureModel())
-    : undefined;
-  if (!project && !mpsProject && !source.endsWith(".json")) {
-    throw new Error(`Unsupported input file: ${source}. Expected .qiy, .mps, or .json.`);
+  if (!source.endsWith(".qiy")) {
+    throw new Error(`Unsupported input file: ${source}. Qiy application generation only accepts .qiy source files.`);
   }
-  const database = project?.database ?? mpsProject?.database ?? await Bun.file(source).json() as DatabaseIR;
-  const appName = options.name
-    ?? project?.name
-    ?? mpsProject?.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
-    ?? "qiy-generated-app";
-  if (project?.mode === "integration") {
+  const project = parseQiyProject(await loadQiyProjectSource(source));
+  const testSuite = loadQiyTestSuite(source, project);
+  const database = project.database;
+  const appName = options.name ?? project.name;
+  if (project.mode === "integration") {
     throw new Error("application mode integration must be mounted with qiy init inside an existing Bun workspace; it does not create a standalone server workspace.");
   }
   const files = generateProject(database, appName, {
-    mode: project?.mode,
-    integration: project?.integration,
-    ui: project?.ui,
-    dataflows: project?.dataflows,
-    messages: project?.messages,
-    actions: project?.actions,
-    apiClient: project?.apiClient ?? mpsProject?.apiClient,
-    elysiaPlugins: project?.elysiaPlugins ?? mpsProject?.elysiaPlugins,
-    corsOrigins: project?.corsOrigins,
-    menuGroups: project?.menuGroups ?? mpsProject?.menuGroups,
-    dashboardMetrics: project?.dashboardMetrics ?? mpsProject?.dashboardMetrics,
-    storageProvider: project?.storageProvider ?? mpsProject?.storageProvider,
-    auth: project?.auth ?? mpsProject?.auth,
-    environment: project?.environment,
-    scopes: project?.scopes ?? mpsProject?.scopes,
-    workflows: project?.workflows ?? mpsProject?.workflows,
+    comment: project.comment,
+    commentKey: project.commentKey,
+    mode: project.mode,
+    integration: project.integration,
+    ui: project.ui,
+    dataflows: project.dataflows,
+    messages: project.messages,
+    actions: project.actions,
+    apiClient: project.apiClient,
+    elysiaPlugins: project.elysiaPlugins,
+    corsOrigins: project.corsOrigins,
+    menuGroups: project.menuGroups,
+    dashboardMetrics: project.dashboardMetrics,
+    realtime: project.realtime,
+    storageProvider: project.storageProvider,
+    auth: project.auth,
+    environment: project.environment,
+    scopes: project.scopes,
+    workflows: project.workflows,
+    testSuite,
   });
   Object.assign(files, generatedWiki(files, appName, source));
   const manifestPath = generatedPath(output, ".qiy-generated.json");
-  const unowned = new Set(Object.keys(files).filter((path) => path.startsWith("apps/web/app/extensions/") || path === "AGENTS.md" || path === "AGENT.MD"));
+  const unowned = new Set(Object.keys(files).filter((path) => path.startsWith("apps/web/app/extensions/") || path.startsWith("apps/server/src/extensions/") || path === "AGENTS.md" || path === "AGENT.MD"));
   for (const relativePath of Object.keys(files)) generatedPath(output, relativePath);
   if (options.sync && existsSync(output)) {
     const manifest = Bun.file(manifestPath);

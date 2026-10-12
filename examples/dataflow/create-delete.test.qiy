@@ -1,0 +1,20 @@
+qiy test v0;
+application dataflow-create-delete;
+
+scenario create-user-command {
+  when dataflow createUser {}
+  expect status == 200;
+}
+
+scenario create-review-command {
+  given user = entity users {
+    id = "00000000-0000-4000-8000-000000000001";
+    name = "Scenario User";
+  }
+  when dataflow createReview {
+    userId = user.id;
+    note = "Created by declarative test";
+  }
+  expect status == 200;
+  expect user.name == "Scenario User";
+}

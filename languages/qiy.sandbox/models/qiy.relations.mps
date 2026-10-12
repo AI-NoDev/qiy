@@ -37,6 +37,7 @@
         <property id="720000000000001801" name="label" index="qmenuLabel" />
         <property id="720000000000001802" name="icon" index="qmenuIcon" />
         <property id="720000000000001803" name="parent" index="qmenuParent" />
+        <property id="720000000000001804" name="comment" index="qmenuComment" />
         <child id="72000000000001801" name="resources" index="qmenuResources" />
       </concept>
       <concept id="720000000000000019" name="qiy.structure.MenuResource" flags="nn" index="qmenuResource">
@@ -50,14 +51,17 @@
         <property id="720000000000002005" name="type" index="qmetricType" />
         <property id="720000000000002006" name="groupBy" index="qmetricGroupBy" />
         <property id="720000000000002007" name="days" index="qmetricDays" />
+        <property id="720000000000002008" name="comment" index="qmetricComment" />
       </concept>
       <concept id="720000000000000021" name="qiy.structure.Enum" flags="nn" index="qenum">
+        <property id="720000000000002101" name="comment" index="qenumComment" />
         <child id="72000000000002101" name="values" index="qenumValues" />
       </concept>
       <concept id="720000000000000022" name="qiy.structure.EnumValue" flags="nn" index="qenumValue">
         <property id="720000000000002201" name="label" index="qenumLabel" />
         <property id="720000000000002202" name="color" index="qenumColor" />
         <property id="720000000000002203" name="icon" index="qenumIcon" />
+        <property id="720000000000002204" name="comment" index="qenumValueComment" />
       </concept>
       <concept id="720000000000000015" name="qiy.structure.StorageConfig" flags="nn" index="qstorageConfig">
         <property id="720000000000001501" name="provider" index="qstorageProvider" />
@@ -85,6 +89,7 @@
       </concept>
       <concept id="720000000000000005" name="qiy.structure.Entity" flags="nn" index="qk">
         <property id="720000000000000501" name="tableName" index="ql" />
+        <property id="720000000000000504" name="comment" index="qentityComment" />
         <child id="72000000000000501" name="fields" index="qo" />
         <child id="72000000000000502" name="indexes" index="qindexes" />
       </concept>
@@ -104,11 +109,13 @@
         <property id="720000000000000619" name="filterable" index="qfilterable" />
         <property id="720000000000000620" name="label" index="qfieldLabel" />
         <property id="720000000000000621" name="icon" index="qfieldIcon" />
+        <property id="720000000000000622" name="comment" index="qfieldComment" />
       </concept>
       <concept id="720000000000000007" name="qiy.structure.Index" flags="nn" index="qindex">
         <property id="720000000000000701" name="method" index="qmethod" />
         <property id="720000000000000702" name="unique" index="qunique" />
         <property id="720000000000000704" name="concurrently" index="qconcurrently" />
+        <property id="720000000000000706" name="comment" index="qindexComment" />
         <child id="72000000000000701" name="columns" index="qcolumns" />
       </concept>
       <concept id="720000000000000008" name="qiy.structure.IndexColumn" flags="nn" index="qcolumn">
@@ -121,6 +128,7 @@
         <property id="720000000000001104" name="toField" index="qtoField" />
         <property id="720000000000001105" name="cardinality" index="qcardinality" />
         <property id="720000000000001106" name="onDelete" index="qonDelete" />
+        <property id="720000000000001107" name="comment" index="qrelationComment" />
       </concept>
     </language>
     <language id="ceab5195-25ea-4f22-9b92-103b95ca8c0c" name="jetbrains.mps.lang.core">
@@ -161,6 +169,7 @@
       <property role="TrG5h" value="catalog" />
       <property role="qmenuLabel" value="Catalog" />
       <property role="qmenuIcon" value="AppstoreOutlined" />
+      <property role="qmenuComment" value="Catalog master data" />
       <node concept="qmenuResource" id="120000000000025" role="qmenuResources"><property role="qmenuResourceName" value="categories" /></node>
     </node>
     <node concept="qmenuGroup" id="120000000000027" role="qmenuGroups">
@@ -175,6 +184,7 @@
       <property role="qmetricLabel" value="Products" />
       <property role="qmetricIcon" value="ShoppingOutlined" />
       <property role="qmetricSpan" value="8" />
+      <property role="qmetricComment" value="Current product records" />
     </node>
     <node concept="qdashboardMetric" id="120000000000030" role="qdashboards">
       <property role="TrG5h" value="productsByCategory" />
@@ -195,12 +205,14 @@
     </node>
     <node concept="qenum" id="120000000000032" role="qenums">
       <property role="TrG5h" value="ProductStatus" />
-      <node concept="qenumValue" id="120000000000033" role="qenumValues"><property role="TrG5h" value="active" /><property role="qenumLabel" value="Active" /><property role="qenumColor" value="green" /></node>
+      <property role="qenumComment" value="Product lifecycle" />
+      <node concept="qenumValue" id="120000000000033" role="qenumValues"><property role="TrG5h" value="active" /><property role="qenumLabel" value="Active" /><property role="qenumColor" value="green" /><property role="qenumValueComment" value="Available for ordering" /></node>
       <node concept="qenumValue" id="120000000000034" role="qenumValues"><property role="TrG5h" value="archived" /><property role="qenumLabel" value="Archived" /><property role="qenumColor" value="orange" /></node>
     </node>
     <node concept="qk" id="120000000000003" role="qe">
       <property role="TrG5h" value="categories" />
       <property role="ql" value="categories" />
+      <property role="qentityComment" value="Product categories" />
       <node concept="qp" id="120000000000004" role="qo">
         <property role="TrG5h" value="id" />
         <property role="qq" value="UUID" />
@@ -211,6 +223,7 @@
         <property role="qq" value="Text" />
         <property role="qt" value="false" />
         <property role="qu" value="true" />
+        <property role="qfieldComment" value="Human-readable category name" />
       </node>
     </node>
     <node concept="qk" id="120000000000006" role="qe">
@@ -245,6 +258,7 @@
         <property role="TrG5h" value="products_category_title_key" />
         <property role="qmethod" value="btree" />
         <property role="qunique" value="true" />
+        <property role="qindexComment" value="One title per category" />
         <node concept="qcolumn" id="120000000000012" role="qcolumns">
           <property role="qfield" value="categoryId" />
         </node>
@@ -270,6 +284,7 @@
       <property role="qtoField" value="id" />
       <property role="qcardinality" value="one" />
       <property role="qonDelete" value="setNull" />
+      <property role="qrelationComment" value="Product belongs to an optional category" />
     </node>
   </node>
 </model>

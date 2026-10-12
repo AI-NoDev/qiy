@@ -44,6 +44,10 @@ deploy/kubernetes/
 -- secret.example.yaml
 ```
 
+## Realtime 监控
+
+声明 REST Realtime 后还会生成 ServiceMonitor、PrometheusRule 和 Grafana Dashboard。配置应用 Secret 中的 `QIY_REALTIME_METRICS_TOKEN`，并让 Prometheus Operator 的 selector 选中生成对象；该凭据只允许读取 Prometheus 文本指标。安装要求、凭据轮换和当前验收边界见 [Realtime 监控](../dsl/realtime.md#prometheus-operator-与-grafana)。
+
 ## Nginx 反向代理
 
 前端是纯 SPA，不使用 HashRouter，服务器需要把未知路径回退到 `index.html`，同时把 API 前缀转发给 Elysia：

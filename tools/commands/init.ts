@@ -4,6 +4,7 @@ import { generateProject } from "../generate-project";
 import { createGeneratedManifest, generatedPath, readGeneratedManifest } from "../generated-paths";
 import { loadQiyProjectSource } from "../qiy-include";
 import { parseQiyProject, type QiyWorkspaceConfig } from "../qiy-project";
+import { loadQiyTestSuite } from "../qiy-test";
 import { prepareEnvironmentFile } from "../environment-files";
 import { generatedWiki } from "../generated-wiki";
 
@@ -146,9 +147,13 @@ export async function initApp(options: InitAppOptions): Promise<string> {
     throw new Error("qiy init requires package.json.packageManager to declare Bun, for example bun@1.3.13.");
   }
   if (!options.source.endsWith(".qiy")) throw new Error("qiy init accepts a .qiy model. Export MPS models to .qiy before mounting them into an existing project.");
-  const project = parseQiyProject(await loadQiyProjectSource(resolve(root, options.source)));
+  const sourcePath = resolve(root, options.source);
+  const project = parseQiyProject(await loadQiyProjectSource(sourcePath));
+  const testSuite = loadQiyTestSuite(sourcePath, project);
   const config = resolveConfig(project.name, project.workspace, options.name);
   const generated = generateProject(project.database, config.name, {
+    comment: project.comment,
+    commentKey: project.commentKey,
     mode: project.mode,
     integration: project.integration,
     ui: project.ui,
@@ -160,11 +165,13 @@ export async function initApp(options: InitAppOptions): Promise<string> {
     corsOrigins: project.corsOrigins,
     menuGroups: project.menuGroups,
     dashboardMetrics: project.dashboardMetrics,
+    realtime: project.realtime,
     storageProvider: project.storageProvider,
     auth: project.auth,
     environment: project.environment,
     scopes: project.scopes,
     workflows: project.workflows,
+    testSuite,
   });
   const files = Object.fromEntries(Object.entries(generated).flatMap(([path, content]) => {
     const rewritten = rewriteFile(path, content, config);

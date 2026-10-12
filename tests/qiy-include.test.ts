@@ -55,6 +55,68 @@ entity products @label("Products") {
   }
 });
 
+test("selectively imports one top-level messages block", async () => {
+  const testFixture = fixture();
+  try {
+    testFixture.write("modules/catalog.qiy", `messages {
+  default "en-US";
+  locale "en-US" { "catalog.title" "Catalog"; }
+  locale "zh-CN" { "catalog.title" "商品目录"; }
+}
+enum hiddenStatus { value active; }
+entity hiddenProducts { field id UUID @id; }`);
+    const source = testFixture.write("app.qiy", `qiy v0;
+application selective-messages {
+  database sqlite {}
+  include "modules/catalog.qiy" @messages;
+  entity products { field id UUID @id; field title Text; }
+}`);
+
+    const expanded = await loadQiyProjectSource(source);
+    expect(expanded).toContain('"catalog.title" "Catalog"');
+    expect(expanded).not.toContain("enum hiddenStatus");
+    expect(expanded).not.toContain("entity hiddenProducts");
+    expect(parseQiyProject(expanded).messages).toEqual({
+      defaultLocale: "en-US",
+      locales: {
+        "en-US": { "catalog.title": "Catalog" },
+        "zh-CN": { "catalog.title": "商品目录" },
+      },
+    });
+    const output = join(testFixture.root, "selected-admin");
+    await generateApp(source, output);
+    expect(await Bun.file(join(output, "apps/web/app/messages.ts")).text()).toContain('"catalog.title": "Catalog"');
+    expect(await Bun.file(join(output, "apps/web/app/resources.ts")).text()).not.toContain("hiddenProducts");
+
+    const alias = testFixture.write("alias.qiy", `qiy v0;
+application selective-message-alias {
+  database sqlite {}
+  include "modules/catalog.qiy" @message;
+  entity products { field id UUID @id; field title Text; }
+}`);
+    expect(parseQiyProject(await loadQiyProjectSource(alias)).messages?.defaultLocale).toBe("en-US");
+
+    testFixture.write("modules/no-messages.qiy", "entity products { field id UUID @id; }");
+    const missing = testFixture.write("missing.qiy", `qiy v0; application missing-messages { database sqlite {} include "modules/no-messages.qiy" @messages; }`);
+    await expect(loadQiyProjectSource(missing)).rejects.toThrow("did not find a top-level messages block");
+
+    testFixture.write("modules/duplicate.qiy", `messages { default "en-US"; locale "en-US" { "a" "A"; } }
+messages { default "en-US"; locale "en-US" { "b" "B"; } }`);
+    const duplicate = testFixture.write("duplicate.qiy", `qiy v0; application duplicate-messages { database sqlite {} include "modules/duplicate.qiy" @messages; }`);
+    await expect(loadQiyProjectSource(duplicate)).rejects.toThrow("matched multiple top-level messages blocks");
+
+    const unsupported = testFixture.write("unsupported.qiy", `qiy v0; application unsupported-selector { database sqlite {} include "modules/catalog.qiy" @menu.operations; }`);
+    await expect(loadQiyProjectSource(unsupported)).rejects.toThrow("unsupported include selector @menu.operations");
+
+    testFixture.write("modules/cycle-a.qiy", 'include "cycle-b.qiy"; messages { default "en-US"; locale "en-US" { "a" "A"; } }');
+    testFixture.write("modules/cycle-b.qiy", 'include "cycle-a.qiy";');
+    const cycle = testFixture.write("cycle.qiy", `qiy v0; application selected-cycle { database sqlite {} include "modules/cycle-a.qiy" @messages; }`);
+    await expect(loadQiyProjectSource(cycle)).rejects.toThrow("include cycle detected");
+  } finally {
+    rmSync(testFixture.root, { recursive: true, force: true });
+  }
+});
+
 test("rejects unsafe, missing, cyclic, and misplaced includes", async () => {
   const testFixture = fixture();
   try {

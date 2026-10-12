@@ -93,19 +93,21 @@ describe("MPS to Database IR", () => {
     expect(project.database.entities.map((entity) => entity.name)).toEqual(["users", "orders", "orderItems", "inventoryItems"]);
     expect(project.auth).toEqual({ provider: "oidc", userEntity: "users", subjectField: "externalSubject", roleField: "role" });
     expect(project.database.enums?.find((item) => item.name === "userRole")?.values.map((item) => item.name)).toEqual(["admin", "operator", "viewer"]);
-    expect(project.database.enums?.find((item) => item.name === "orderStatus")?.values[1]).toMatchObject({ name: "submitted", label: "已提交", color: "blue", icon: "SendOutlined" });
+    expect(project.database.enums?.find((item) => item.name === "orderStatus")).toMatchObject({ comment: "订单生命周期" });
+    expect(project.database.enums?.find((item) => item.name === "orderStatus")?.values[1]).toMatchObject({ name: "submitted", label: "已提交", color: "blue", icon: "SendOutlined", comment: "等待审批" });
     expect(project.database.entities.find((item) => item.name === "users")?.fields.find((item) => item.name === "externalSubject")).toMatchObject({ listVisible: false, showVisible: false });
     expect(project.database.entities.find((item) => item.name === "orders")?.fields.find((item) => item.name === "status")?.listVisible).toBe(false);
-    expect(project.database.entities.find((item) => item.name === "orders")?.fields.find((item) => item.name === "status")).toMatchObject({ label: "订单状态", icon: "TagsOutlined", sortable: false, filterable: true });
+    expect(project.database.entities.find((item) => item.name === "orders")).toMatchObject({ comment: "销售订单" });
+    expect(project.database.entities.find((item) => item.name === "orders")?.fields.find((item) => item.name === "status")).toMatchObject({ label: "订单状态", icon: "TagsOutlined", sortable: false, filterable: true, comment: "订单当前状态" });
     expect(project.database.entities.find((item) => item.name === "orders")?.fields.find((item) => item.name === "approvedBy")).toMatchObject({ listVisible: false, formVisible: false, filterable: false });
     expect(project.menuGroups).toEqual([
-      { name: "operations", label: "业务运营", icon: "ShopOutlined", resources: [] },
+      { name: "operations", label: "业务运营", icon: "ShopOutlined", comment: "订单与库存业务入口", resources: [] },
       { name: "sales", label: "销售管理", icon: "ShoppingOutlined", parent: "operations", resources: ["orders", "order_items"] },
       { name: "inventory", label: "库存管理", icon: "InboxOutlined", parent: "operations", resources: ["inventory_items"] },
       { name: "administration", label: "系统管理", icon: "SettingOutlined", resources: ["users"] },
     ]);
     expect(project.dashboardMetrics).toEqual([
-      { name: "orderCount", resource: "orders", label: "订单总数", icon: "ShoppingOutlined", span: 8 },
+      { name: "orderCount", resource: "orders", label: "订单总数", icon: "ShoppingOutlined", comment: "当前订单记录", span: 8 },
       { name: "orderStatus", resource: "orders", label: "订单状态分布", span: 12, type: "distribution", groupBy: "status" },
       { name: "orderTrend", resource: "orders", label: "近 30 天订单趋势", span: 24, type: "trend", groupBy: "createdAt", days: 30 },
     ]);
@@ -139,11 +141,11 @@ describe("MPS to Database IR", () => {
     expect(project.storageProvider).toBe("s3");
     expect(project.scopes).toEqual([{ resource: "products", field: "categoryId", claim: "tenant.categoryId" }]);
     expect(project.menuGroups).toEqual([
-      { name: "catalog", label: "Catalog", icon: "AppstoreOutlined", resources: ["categories"] },
+      { name: "catalog", label: "Catalog", icon: "AppstoreOutlined", comment: "Catalog master data", resources: ["categories"] },
       { name: "operations", label: "Operations", parent: "catalog", resources: ["products"] },
     ]);
     expect(project.dashboardMetrics).toEqual([
-      { name: "productCount", resource: "products", label: "Products", span: 8, icon: "ShoppingOutlined" },
+      { name: "productCount", resource: "products", label: "Products", span: 8, icon: "ShoppingOutlined", comment: "Current product records" },
       { name: "productsByCategory", resource: "products", label: "Products by category", span: 12, type: "distribution", groupBy: "status" },
       { name: "productTrend", resource: "products", label: "Product trend", span: 24, type: "trend", groupBy: "createdAt", days: 7 },
     ]);
@@ -163,15 +165,19 @@ describe("MPS to Database IR", () => {
     expect(validateDatabaseIR(project.database)).toEqual([]);
     expect(project.database.relations).toEqual([{
       name: "productCategory", fromEntity: "products", fromField: "categoryId",
-      toEntity: "categories", toField: "id", cardinality: "one", onDelete: "setNull",
+      toEntity: "categories", toField: "id", cardinality: "one", onDelete: "setNull", comment: "Product belongs to an optional category",
     }]);
     expect(project.database.entities[1]?.indexes).toEqual([
-      { name: "products_category_title_key", method: "btree", unique: true,
+      { name: "products_category_title_key", method: "btree", unique: true, comment: "One title per category",
         columns: [{ fieldName: "categoryId" }, { fieldName: "title" }] },
       { name: "products_title_idx", method: "btree", unique: false, concurrently: false,
         columns: [{ fieldName: "title" }] },
     ]);
     expect(project.database.entities[0]?.fields.find((field) => field.name === "name")?.unique).toBe(true);
+    expect(project.database.entities[0]?.comment).toBe("Product categories");
+    expect(project.database.entities[0]?.fields.find((field) => field.name === "name")?.comment).toBe("Human-readable category name");
+    expect(project.database.enums?.[0]?.comment).toBe("Product lifecycle");
+    expect(project.database.enums?.[0]?.values.find((value) => value.name === "active")?.comment).toBe("Available for ordering");
     expect(project.database.entities[0]?.fields.find((field) => field.name === "name")?.primaryKey).toBe(false);
     expect(project.database.entities[1]?.fields.find((field) => field.name === "title")?.columnName).toBe("product_title");
     expect(project.database.entities[1]?.fields.find((field) => field.name === "title")?.nullable).toBe(false);
@@ -183,13 +189,19 @@ describe("MPS to Database IR", () => {
     expect(files["apps/server/src/schema.ts"]).toContain('"title": text("product_title")');
     expect(files["apps/web/app/resources.ts"]).toContain('"resource": "categories"');
     expect(files["apps/web/app/resources.ts"]).toContain('"labelField": "name"');
-    expect(parseQiyProject(exportMpsProjectAsQiy(relationsXml, structureXml)).database).toEqual(project.database);
-    expect(parseQiyProject(exportMpsProjectAsQiy(relationsXml, structureXml)).apiClient).toBe("graphql");
-    expect(parseQiyProject(exportMpsProjectAsQiy(relationsXml, structureXml)).elysiaPlugins).toEqual(project.elysiaPlugins);
-    expect(parseQiyProject(exportMpsProjectAsQiy(relationsXml, structureXml)).storageProvider).toBe("s3");
-    expect(parseQiyProject(exportMpsProjectAsQiy(relationsXml, structureXml)).scopes).toEqual(project.scopes);
-    expect(parseQiyProject(exportMpsProjectAsQiy(relationsXml, structureXml)).menuGroups).toEqual(project.menuGroups);
-    expect(parseQiyProject(exportMpsProjectAsQiy(relationsXml, structureXml)).dashboardMetrics).toEqual(project.dashboardMetrics);
+    const exportedSource = exportMpsProjectAsQiy(relationsXml, structureXml);
+    expect(exportedSource).toContain('@comment("Product lifecycle")');
+    expect(exportedSource).toContain('@comment("Available for ordering")');
+    expect(exportedSource).toContain('@comment("Catalog master data")');
+    expect(exportedSource).toContain('@comment("Current product records")');
+    const exportedProject = parseQiyProject(exportedSource);
+    expect(exportedProject.database).toEqual(project.database);
+    expect(exportedProject.apiClient).toBe("graphql");
+    expect(exportedProject.elysiaPlugins).toEqual(project.elysiaPlugins);
+    expect(exportedProject.storageProvider).toBe("s3");
+    expect(exportedProject.scopes).toEqual(project.scopes);
+    expect(exportedProject.menuGroups).toEqual(project.menuGroups);
+    expect(exportedProject.dashboardMetrics).toEqual(project.dashboardMetrics);
   });
 
   test("keeps TextGen registry feature IDs unique and aligned with MPS interfaces", () => {

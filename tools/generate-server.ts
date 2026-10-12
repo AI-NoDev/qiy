@@ -1,11 +1,13 @@
 import type { DatabaseIR, EntityIR, FieldIR, FilterMode } from "./database-ir";
-import type { QiyProject } from "./qiy-project";
+import type { QiyProject, DataflowIR } from "./qiy-project";
+import { resolveQiyTestValue, type QiyTestSuite, type QiyTestScenario } from "./qiy-test";
 import { renderAppTemplate } from "./admin-template";
 import { validateDatabaseIR } from "./database-ir";
 import { generateDrizzlePostgres } from "./drizzle-pg";
 import { generateDrizzleMysql } from "./drizzle-mysql";
 import { generateDrizzleSqlite } from "./drizzle-sqlite";
 import { generateAudit } from "./generate-audit";
+import { generatedDocumentation } from "./generated-documentation";
 
 function apiFieldSchema(field: FieldIR, database: DatabaseIR): string {
   if (field.enumName) {
@@ -79,7 +81,39 @@ function graphqlDescription(comment: string | undefined, indentation = ""): stri
   return comment === undefined ? "" : `${indentation}${JSON.stringify(comment)}\n`;
 }
 
-function graphqlSchema(database: DatabaseIR, hiddenFields: Record<string, string[]> = {}): string {
+function dataflowGraphqlName(name: string): string {
+  return name.split(/[-_]/).filter(Boolean).map((part) => part[0]!.toUpperCase() + part.slice(1)).join("");
+}
+
+function dataflowResultEntity(database: DatabaseIR, flow: DataflowIR): EntityIR {
+  const contextEntity = flow.context.find((binding) => binding.name === flow.result)?.entity;
+  const creation = flow.steps
+    .flatMap((step) => step.actions)
+    .find((action): action is Extract<DataflowIR["steps"][number]["actions"][number], { kind: "create" }> => action.kind === "create" && action.context === flow.result);
+  const createdEntity = creation?.entity;
+  const entity = database.entities.find((candidate) => candidate.name === (contextEntity ?? createdEntity));
+  if (!entity) throw new Error(`Dataflow ${flow.name}: missing GraphQL result entity`);
+  return entity;
+}
+
+function graphqlDataflowInputType(database: DatabaseIR, type: string): string {
+  if (database.enums?.some((enumeration) => enumeration.name === type)) return graphqlName(type);
+  if (type === "UUID") return "ID";
+  if (type === "Integer") return "Int";
+  if (type === "Boolean") return "Boolean";
+  return "String";
+}
+
+function graphqlDataflowResultType(entity: EntityIR): string {
+  const fieldType = (field: FieldIR) => {
+    const base = field.type === "Integer" ? "number" : field.type === "Vector" ? "number[]" : "string";
+    return field.nullable ? `${base} | null` : base;
+  };
+  return `{ ${entity.fields.map((field) => `${field.name}?: ${fieldType(field)}`).join("; ")} }`;
+}
+
+function graphqlSchema(database: DatabaseIR, hiddenFields: Record<string, string[]> = {}, dataflows: DataflowIR[] = [], actions: NonNullable<QiyProject["actions"]> = []): string {
+  const batchFlows = new Set(actions.filter((action) => action.batch && action.target.kind === "dataflow").map((action) => action.target.kind === "dataflow" ? action.target.dataflow : ""));
   const enums = (database.enums ?? []).map((enumeration) => `enum ${graphqlName(enumeration.name)} {\n${enumeration.values.map((value) => `  ${value.name}`).join("\n")}\n}`).join("\n\n");
   const types = database.entities.map((entity) => {
     const hidden = hiddenFields[entity.name] ?? [];
@@ -92,13 +126,23 @@ function graphqlSchema(database: DatabaseIR, hiddenFields: Record<string, string
     `  ${entity.name}Distribution(field: String!): [QiyDistribution!]!`,
     `  ${entity.name}Trend(field: String!, days: Int!): [QiyTrend!]!`,
   ]).join("\n");
+  const dataflowInputs = dataflows.filter((flow) => flow.input.length > 0).map((flow) => `${graphqlDescription(flow.comment)}input ${dataflowGraphqlName(flow.name)}CommandInput {\n${flow.input.map((field) => `${graphqlDescription(field.comment, "  ")}  ${field.name}: ${graphqlDataflowInputType(database, field.type)}${field.required ? "!" : ""}`).join("\n")}\n}`).join("\n\n");
   const mutations = database.entities.flatMap((entity) => [
     `  create${modelName(entity)}(input: ${modelName(entity)}CreateInput!): ${modelName(entity)}!`,
     `  update${modelName(entity)}(id: ID!, input: ${modelName(entity)}UpdateInput!): ${modelName(entity)}`,
     `  delete${modelName(entity)}(id: ID!): ${modelName(entity)}`,
     `  delete${modelName(entity)}Many(ids: [ID!]!): [${modelName(entity)}!]!`,
   ]).join("\n");
-  return `${enums ? `${enums}\n\n` : ""}input QiyFilterInput {\n  field: String!\n  operator: String = "eq"\n  value: String!\n}\n\ntype QiyDistribution {\n  value: String\n  count: Int!\n}\n\ntype QiyTrend {\n  day: String!\n  count: Int!\n}\n\n${types}\n\ntype Query {\n${queries}\n}\n\ntype Mutation {\n${mutations}\n}`;
+  const dataflowMutations = dataflows.flatMap((flow) => {
+    const name = dataflowGraphqlName(flow.name);
+    const argumentsList = [flow.input.length > 0 ? `input: ${name}CommandInput!` : undefined, flow.idempotency?.required ? "idempotencyKey: String!" : undefined].filter((value): value is string => Boolean(value));
+    const single = `${graphqlDescription(flow.comment, "  ")}  run${name}${argumentsList.length ? `(${argumentsList.join(", ")})` : ""}: ${modelName(dataflowResultEntity(database, flow))}!`;
+    const batch = batchFlows.has(flow.name)
+      ? `${graphqlDescription(`Atomically execute ${flow.comment ?? flow.label ?? flow.name} for a selected collection`, "  ")}  run${name}Batch(items: [${name}CommandInput!]!, idempotencyKey: String!): [${modelName(dataflowResultEntity(database, flow))}!]!`
+      : undefined;
+    return batch ? [single, batch] : [single];
+  }).join("\n");
+  return `${enums ? `${enums}\n\n` : ""}input QiyFilterInput {\n  field: String!\n  operator: String = "eq"\n  value: String!\n}\n\ntype QiyDistribution {\n  value: String\n  count: Int!\n}\n\ntype QiyTrend {\n  day: String!\n  count: Int!\n}\n\n${types}${dataflowInputs ? `\n\n${dataflowInputs}` : ""}\n\ntype Query {\n${queries}\n}\n\ntype Mutation {\n${mutations}${dataflowMutations ? `\n${dataflowMutations}` : ""}\n}`;
 }
 
 function graphqlResolver(entity: EntityIR): string {
@@ -109,24 +153,122 @@ function graphqlResolver(entity: EntityIR): string {
   return `  ${entity.name}Distribution: ({ field }: { field: string }, context: { scopeFor: (resource: string) => { field: string; value: string } | undefined }) => (${JSON.stringify(entity.fields.filter((item) => item.enumName).map((item) => item.name))} as string[]).includes(field) ? services.${entity.name}.distribution(field, context.scopeFor("${entity.name}")) : Promise.reject(new Error("Unsupported distribution field")),\n  ${entity.name}Trend: ({ field, days }: { field: string; days: number }, context: { scopeFor: (resource: string) => { field: string; value: string } | undefined }) => (${JSON.stringify(entity.fields.filter((item) => item.type === "DateTime").map((item) => item.name))} as string[]).includes(field) && Number.isInteger(days) && days >= 1 && days <= 365 ? services.${entity.name}.trend(field, days, context.scopeFor("${entity.name}")) : Promise.reject(new Error("Invalid trend query")),\n` + `  ${entity.name}: async (args: { page?: number; pageSize?: number; search?: string; sort?: string; order?: string; filters?: Array<{ field: string; operator?: FilterOperator; value: string }> }, context: { scopeFor: (resource: string) => { field: string; value: string } | undefined }) => {\n    const sortableFields = ${sortableFields} as string[];\n    const filterableFields = ${filterableFields} as string[];\n    const filterModes = ${filterModes} as Record<string, FilterOperator[]>;\n    if (args.sort && !sortableFields.includes(args.sort)) throw new Error("Unsupported sort field");\n    if ((args.filters ?? []).some((filter) => !filterableFields.includes(filter.field))) throw new Error("Unsupported filter field");\n    if ((args.filters ?? []).some((filter) => !filterModes[filter.field]?.includes(filter.operator ?? "eq"))) throw new Error("Unsupported filter operator");\n    const result = await services.${entity.name}.list(args.page ?? 1, args.pageSize ?? 20, {\n      search: args.search, sort: args.sort, order: args.order === "desc" ? "desc" : "asc",\n      filters: (args.filters ?? []).map((filter) => ({ ...filter, operator: filter.operator ?? "eq" })), scope: context.scopeFor("${entity.name}"),\n    });\n    return { ...result, items: result.data, page: args.page ?? 1, pageSize: args.pageSize ?? 20 };\n  },\n  ${entity.name}ById: ({ id }: { id: string }, context: { scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.one(id, context.scopeFor("${entity.name}")),\n  create${name}: ({ input }: { input: Record<string, unknown> }, context: { actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.create(input, context.actorId, context.scopeFor("${entity.name}")),\n  update${name}: ({ id, input }: { id: string; input: Record<string, unknown> }, context: { actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.update(id, input, context.actorId, context.scopeFor("${entity.name}")),\n  delete${name}: ({ id }: { id: string }, context: { actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.delete(id, context.actorId, context.scopeFor("${entity.name}")),\n  delete${name}Many: ({ ids }: { ids: string[] }, context: { actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.deleteMany(ids, context.actorId, context.scopeFor("${entity.name}")),`;
 }
 
-function renderGraphQL(database: DatabaseIR, hiddenFields: Record<string, string[]> = {}): string {
-  const schema = JSON.stringify(graphqlSchema(database, hiddenFields));
+function renderGraphQL(database: DatabaseIR, hiddenFields: Record<string, string[]> = {}, dataflows: DataflowIR[] = [], actions: NonNullable<QiyProject["actions"]> = []): string {
+  const schema = JSON.stringify(graphqlSchema(database, hiddenFields, dataflows, actions));
+  const batchFlows = new Set(actions.filter((action) => action.batch && action.target.kind === "dataflow").map((action) => action.target.kind === "dataflow" ? action.target.dataflow : ""));
   const serviceImports = database.entities.map((entity) => `import { create${modelName(entity)}Service } from "./modules/${entity.name}/${entity.name}.service";`).join("\n") + '\nimport { withPaginationLimit } from "./pagination";\n\ntype FilterOperator = "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in";';
   const services = database.entities.map((entity) => `  ${entity.name}: withPaginationLimit(create${modelName(entity)}Service(repositories.${entity.name})),`).join("\n");
   const resolvers = database.entities.map(graphqlResolver).join("\n");
+  const commandResolvers = dataflows.flatMap((flow) => {
+    const operation = `run${dataflowGraphqlName(flow.name)}`;
+    const single = `  ${operation}: (args: { input?: Record<string, unknown>; idempotencyKey?: string }, context: { request: Request }) => executeDataflowCommand<${graphqlDataflowResultType(dataflowResultEntity(database, flow))}>(commandRoutes, context.request, ${JSON.stringify(flow.name)}, args.input ?? {}, args.idempotencyKey),`;
+    const batch = batchFlows.has(flow.name)
+      ? `  ${operation}Batch: (args: { items: Array<Record<string, unknown>>; idempotencyKey: string }, context: { request: Request }) => executeDataflowCommand<Array<${graphqlDataflowResultType(dataflowResultEntity(database, flow))}>>(commandRoutes, context.request, ${JSON.stringify(`${flow.name}/batch`)}, { items: args.items }, args.idempotencyKey),`
+      : undefined;
+    return batch ? [single, batch] : [single];
+  }).join("\n");
   const scopeDefinitions = JSON.stringify((database as DatabaseIR & { scopes?: Array<{ resource: string; field: string; claim: string }> }).scopes ?? []);
-  return `import { Elysia, t } from "elysia";\nimport { buildSchema, graphql, parse, getOperationAST, Kind } from "graphql";\nimport type { Repositories } from "./app";\nimport type { Authenticator } from "./auth/guard";\n${serviceImports}\n\nexport const graphqlTypeDefs = ${schema};\nconst schema = buildSchema(graphqlTypeDefs);\nconst scopeDefinitions = ${scopeDefinitions} as Array<{ resource: string; field: string; claim: string }>;\n\nexport async function createGraphQLContext(authenticate: Authenticator, request: Request) {\n  const principal = await authenticate(request);\n  const scopes = Object.fromEntries(scopeDefinitions.map(({ resource, field, claim }) => [resource, { field, value: String(principal?.claims?.[claim] ?? "") }]));\n  return { actorId: principal?.id, scopeFor: (resource: string) => { const scope = scopes[resource]; if (scope && !scope.value) throw new Error("Missing required data scope claim"); return scope; } };\n}\n\nfunction requestedFields(query: string, operationName?: string): Set<string> {\n  const document = parse(query);\n  const fragments = new Map(document.definitions.filter((definition) => definition.kind === Kind.FRAGMENT_DEFINITION).map((fragment) => [fragment.name.value, fragment]));\n  const fields = new Set<string>();\n  const visit = (selections: readonly import("graphql").SelectionNode[], seen = new Set<string>()) => {\n    for (const selection of selections) {\n      if (selection.kind === Kind.FIELD) fields.add(selection.name.value);\n      else if (selection.kind === Kind.INLINE_FRAGMENT) visit(selection.selectionSet.selections, seen);\n      else {\n        if (seen.has(selection.name.value)) continue;\n        const fragment = fragments.get(selection.name.value);\n        if (fragment) visit(fragment.selectionSet.selections, new Set([...seen, selection.name.value]));\n      }\n    }\n  };\n  const operation = getOperationAST(document, operationName);\n  if (operation) visit(operation.selectionSet.selections);\n  return fields;\n}\n\ninterface GraphQLRequest { query: string; variables?: Record<string, unknown>; operationName?: string; }\n\nexport function createGraphQLRoutes(repositories: Repositories, authenticate: Authenticator = async () => null) {\n  const services = {\n${services}\n  };\n  return new Elysia({ prefix: "/graphql" })\n    .post("/", async ({ body, request, status }) => {\n      const operation = body as GraphQLRequest;\n      const principal = await authenticate(request);\n      const scopes = Object.fromEntries(scopeDefinitions.map(({ resource, field, claim }) => [resource, { field, value: String(principal?.claims?.[claim] ?? "") }]));\n      let fields: Set<string>;\n      try { fields = requestedFields(operation.query, operation.operationName); } catch { fields = new Set(); }\n      if (scopeDefinitions.some(({ resource }) => [resource, resource + "ById", resource + "Distribution", resource + "Trend", "create" + resource[0]!.toUpperCase() + resource.slice(1), "update" + resource[0]!.toUpperCase() + resource.slice(1), "delete" + resource[0]!.toUpperCase() + resource.slice(1), "delete" + resource[0]!.toUpperCase() + resource.slice(1) + "Many"].some((name) => fields.has(name)) && !scopes[resource]?.value)) return status(403, { error: "Missing required data scope claim" });\n      return graphql({ schema, rootValue: resolvers(services), contextValue: { actorId: principal?.id, scopeFor: (resource: string) => { const scope = scopes[resource]; if (scope && !scope.value) throw new Error("Missing required data scope claim"); return scope; } }, source: operation.query, variableValues: operation.variables, operationName: operation.operationName });\n    }, { body: t.Object({ query: t.String({ minLength: 1 }), variables: t.Optional(t.Record(t.String(), t.Any())), operationName: t.Optional(t.String()) }) });\n}\n\nfunction resolvers(services: {\n${database.entities.map((entity) => `  ${entity.name}: ReturnType<typeof create${modelName(entity)}Service>;`).join("\n")}\n}) {\n  return {\n${resolvers}\n  };\n}\n\nexport function createGraphQLResolvers(repositories: Repositories) {\n  const services = {\n${services}\n  };\n  return resolvers(services);\n}\n`;
+  const commandImport = dataflows.length ? 'import { createDataflowRoutes } from "./dataflows";\n' : "";
+  const commandSetup = dataflows.length ? "  const commandRoutes = createDataflowRoutes(authenticate);\n" : "";
+  const commandArgument = dataflows.length ? ", commandRoutes" : "";
+  const commandParameter = dataflows.length ? ", commandRoutes: ReturnType<typeof createDataflowRoutes>" : "";
+  const commandHelpers = dataflows.length ? `async function executeDataflowCommand<T>(routes: ReturnType<typeof createDataflowRoutes>, request: Request, flow: string, input: Record<string, unknown>, idempotencyKey?: string): Promise<T> {
+  const headers = new Headers(request.headers);
+  headers.set("content-type", "application/json");
+  if (idempotencyKey) headers.set("idempotency-key", idempotencyKey);
+  const path = flow.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+  const response = await routes.handle(new Request("http://qiy.internal/api/v1/commands/" + path, { method: "POST", headers, body: JSON.stringify(input) }));
+  const payload = await response.json() as { error?: string; errorKey?: string } & Record<string, unknown>;
+  if (!response.ok) throw new GraphQLError(payload.error ?? "Dataflow command failed", { extensions: { status: response.status, ...(payload.errorKey ? { errorKey: payload.errorKey } : {}) } });
+  return payload as T;
 }
 
-function renderGraphQLAdapter(database: DatabaseIR): string {
+` : "";
+  return `import { Elysia, t } from "elysia";
+import { buildSchema, graphql, parse, getOperationAST, Kind, GraphQLError } from "graphql";
+import type { Repositories } from "./app";
+import type { Authenticator } from "./auth/guard";
+${commandImport}${serviceImports}
+
+export const graphqlTypeDefs = ${schema};
+const schema = buildSchema(graphqlTypeDefs);
+const scopeDefinitions = ${scopeDefinitions} as Array<{ resource: string; field: string; claim: string }>;
+
+${commandHelpers}export async function createGraphQLContext(authenticate: Authenticator, request: Request) {
+  const principal = await authenticate(request);
+  const scopes = Object.fromEntries(scopeDefinitions.map(({ resource, field, claim }) => [resource, { field, value: String(principal?.claims?.[claim] ?? "") }]));
+  return { request, actorId: principal?.id, scopeFor: (resource: string) => { const scope = scopes[resource]; if (scope && !scope.value) throw new Error("Missing required data scope claim"); return scope; } };
+}
+
+function requestedFields(query: string, operationName?: string): Set<string> {
+  const document = parse(query);
+  const fragments = new Map(document.definitions.filter((definition) => definition.kind === Kind.FRAGMENT_DEFINITION).map((fragment) => [fragment.name.value, fragment]));
+  const fields = new Set<string>();
+  const visit = (selections: readonly import("graphql").SelectionNode[], seen = new Set<string>()) => {
+    for (const selection of selections) {
+      if (selection.kind === Kind.FIELD) fields.add(selection.name.value);
+      else if (selection.kind === Kind.INLINE_FRAGMENT) visit(selection.selectionSet.selections, seen);
+      else {
+        if (seen.has(selection.name.value)) continue;
+        const fragment = fragments.get(selection.name.value);
+        if (fragment) visit(fragment.selectionSet.selections, new Set([...seen, selection.name.value]));
+      }
+    }
+  };
+  const operation = getOperationAST(document, operationName);
+  if (operation) visit(operation.selectionSet.selections);
+  return fields;
+}
+
+interface GraphQLRequest { query: string; variables?: Record<string, unknown>; operationName?: string; }
+
+export function createGraphQLRoutes(repositories: Repositories, authenticate: Authenticator = async () => null) {
+  const services = {
+${services}
+  };
+${commandSetup}  return new Elysia({ prefix: "/graphql" })
+    .post("/", async ({ body, request, status }) => {
+      const operation = body as GraphQLRequest;
+      const principal = await authenticate(request);
+      const scopes = Object.fromEntries(scopeDefinitions.map(({ resource, field, claim }) => [resource, { field, value: String(principal?.claims?.[claim] ?? "") }]));
+      let fields: Set<string>;
+      try { fields = requestedFields(operation.query, operation.operationName); } catch { fields = new Set(); }
+      if (scopeDefinitions.some(({ resource }) => [resource, resource + "ById", resource + "Distribution", resource + "Trend", "create" + resource[0]!.toUpperCase() + resource.slice(1), "update" + resource[0]!.toUpperCase() + resource.slice(1), "delete" + resource[0]!.toUpperCase() + resource.slice(1), "delete" + resource[0]!.toUpperCase() + resource.slice(1) + "Many"].some((name) => fields.has(name)) && !scopes[resource]?.value)) return status(403, { error: "Missing required data scope claim" });
+      return graphql({ schema, rootValue: resolvers(services${commandArgument}), contextValue: { request, actorId: principal?.id, scopeFor: (resource: string) => { const scope = scopes[resource]; if (scope && !scope.value) throw new Error("Missing required data scope claim"); return scope; } }, source: operation.query, variableValues: operation.variables, operationName: operation.operationName });
+    }, { body: t.Object({ query: t.String({ minLength: 1 }), variables: t.Optional(t.Record(t.String(), t.Any())), operationName: t.Optional(t.String()) }) });
+}
+
+function resolvers(services: {
+${database.entities.map((entity) => `  ${entity.name}: ReturnType<typeof create${modelName(entity)}Service>;`).join("\n")}
+}${commandParameter}) {
+  return {
+${resolvers}${commandResolvers ? `\n${commandResolvers}` : ""}
+  };
+}
+
+export function createGraphQLResolvers(repositories: Repositories, authenticate: Authenticator = async () => null) {
+  const services = {
+${services}
+  };
+${commandSetup}  return resolvers(services${commandArgument});
+}
+`;
+}
+
+function renderGraphQLAdapter(database: DatabaseIR, dataflows: DataflowIR[] = [], actions: NonNullable<QiyProject["actions"]> = []): string {
+  const batchFlows = new Set(actions.filter((action) => action.batch && action.target.kind === "dataflow").map((action) => action.target.kind === "dataflow" ? action.target.dataflow : ""));
+  const commandMutations = dataflows.flatMap((flow) => {
+    const operation = `run${dataflowGraphqlName(flow.name)}`;
+    return batchFlows.has(flow.name) ? [operation, `${operation}Batch`] : [operation];
+  });
   const adapterResolvers = `export function createGraphQLAdapterResolvers(repositories: Repositories, authenticate: Authenticator) {
-  const root = createGraphQLResolvers(repositories);
+  const root = createGraphQLResolvers(repositories, authenticate);
   return {
     Query: {
-${database.entities.flatMap((entity) => [entity.name, `${entity.name}ById`, `${entity.name}Distribution`, `${entity.name}Trend`].map((field) => `      ${field}: async (_parent: unknown, args: Parameters<typeof root.${field}>[0], context: { request: Request }) => root.${field}(args, await createGraphQLContext(authenticate, context.request)),`)).join("\n")}
+${database.entities.flatMap((entity) => [entity.name, `${entity.name}ById`, `${entity.name}Distribution`, `${entity.name}Trend`].map((field) => `      ${field}: async (_parent: unknown, args: any, context: { request: Request }) => root.${field}(args, await createGraphQLContext(authenticate, context.request)),`)).join("\n")}
     },
     Mutation: {
-${database.entities.flatMap((entity) => [`create${modelName(entity)}`, `update${modelName(entity)}`, `delete${modelName(entity)}`, `delete${modelName(entity)}Many`].map((field) => `      ${field}: async (_parent: unknown, args: Parameters<typeof root.${field}>[0], context: { request: Request }) => root.${field}(args, await createGraphQLContext(authenticate, context.request)),`)).join("\n")}
+${[...database.entities.flatMap((entity) => [`create${modelName(entity)}`, `update${modelName(entity)}`, `delete${modelName(entity)}`, `delete${modelName(entity)}Many`]), ...commandMutations].map((field) => `      ${field}: async (_parent: unknown, args: any, context: { request: Request }) => root.${field}(args, await createGraphQLContext(authenticate, context.request)),`).join("\n")}
     },
   };
 }`;
@@ -475,7 +617,7 @@ export const ${entity.name}WritableFields = [${allowed}] as const;
 `;
 }
 
-function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR): string {
+function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtimeEvents: ReadonlySet<string> = new Set()): string {
   const searchOperator = database.dialect === "postgresql" ? "ilike" : "like";
   const searchableFields = entity.fields.filter((field) => field.type === "Text").map((field) => `${entity.name}.${field.name}`).join(", ");
   const sortFields = entity.fields.filter((field) => field.sortable !== false).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
@@ -488,11 +630,18 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR): string
   const groupFields = entity.fields.filter((field) => field.enumName).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
   const dateFields = entity.fields.filter((field) => field.type === "DateTime").map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
   const scopeColumns = scopeColumnFields || "";
+  const realtimeWrite = (type: "created" | "updated" | "deleted", payload: string) => realtimeEvents.has(type)
+    ? `${database.dialect === "sqlite" ? "" : "await "}tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: ${JSON.stringify(`qiy:${entity.tableName}`)}, type: ${JSON.stringify(type)}, payload: JSON.stringify(${payload}), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() })${database.dialect === "sqlite" ? ".run()" : ""};`
+    : "";
+  const realtimeDeleteManyWrite = realtimeEvents.has("deleted")
+    ? `${database.dialect === "sqlite" ? "" : "await "}tx.insert(realtimeOutbox).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), channel: ${JSON.stringify(`qiy:${entity.tableName}`)}, type: "deleted", payload: JSON.stringify(record), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() })))${database.dialect === "sqlite" ? ".run()" : ""};`
+    : "";
   const auditedMutationMethods = database.dialect === "sqlite" ? `  async create(values, actorId, scope) {
     return db.transaction((tx) => {
       const record = tx.insert(${entity.name}).values({ ...values, ...(scope ? { [scope.field]: scope.value } : {}), id: crypto.randomUUID() } as typeof ${entity.name}.$inferInsert).returning().get();
       if (!record) throw new Error("Insert returned no record");
       tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.created", resource: "${entity.tableName}", resourceId: record.id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
+       ${realtimeWrite("created", "record")}
       return record;
     });
   },
@@ -502,6 +651,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR): string
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       const record = tx.update(${entity.name}).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(eq(${entity.name}.id, id), scopeCondition)).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.updated", resource: "${entity.tableName}", resourceId: id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
+       if (record) ${realtimeWrite("updated", "record") || "void 0;"}
       return record;
     });
   },
@@ -511,6 +661,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR): string
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       const record = tx.delete(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition)).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: id, metadata: "{}", createdAt: new Date() }).run();
+       if (record) ${realtimeWrite("deleted", "record") || "void 0;"}
       return record;
     });
   },
@@ -520,6 +671,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR): string
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       const deletedRows = tx.delete(${entity.name}).where(and(inArray(${entity.name}.id, ids), scopeCondition)).returning().all();
       if (deletedRows.length) tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: record.id, metadata: "{}", createdAt: new Date() }))).run();
+       if (deletedRows.length) ${realtimeDeleteManyWrite || "void 0;"}
       return deletedRows;
     });
   },
@@ -530,6 +682,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR): string
       const [record] = await tx.select().from(${entity.name}).where(eq(${entity.name}.id, id)).limit(1);
       if (!record) throw new Error("Insert returned no record");
       await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.created", resource: "${entity.tableName}", resourceId: id, metadata: { fields: Object.keys(values) }, createdAt: Date.now() });
+       ${realtimeWrite("created", "record")}
       return record;
     });
   },
@@ -542,6 +695,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR): string
       await tx.update(${entity.name}).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(eq(${entity.name}.id, id), scopeCondition));
       const [record] = await tx.select().from(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition)).limit(1);
       if (record) await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.updated", resource: "${entity.tableName}", resourceId: id, metadata: { fields: Object.keys(values) }, createdAt: Date.now() });
+       if (record) ${realtimeWrite("updated", "record") || "void 0;"}
       return record;
     });
   },
@@ -553,6 +707,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR): string
       if (!record) return undefined;
       await tx.delete(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition));
       await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: id, metadata: {}, createdAt: Date.now() });
+       ${realtimeWrite("deleted", "record")}
       return record;
     });
   },
@@ -564,6 +719,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR): string
       if (deletedRows.length) {
         await tx.delete(${entity.name}).where(and(inArray(${entity.name}.id, deletedRows.map((record) => record.id)), scopeCondition));
         await tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: record.id, metadata: {}, createdAt: Date.now() })));
+         ${realtimeDeleteManyWrite}
       }
       return deletedRows;
     });
@@ -573,6 +729,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR): string
       const [record] = await tx.insert(${entity.name}).values({ ...values, ...(scope ? { [scope.field]: scope.value } : {}), id: crypto.randomUUID() } as typeof ${entity.name}.$inferInsert).returning();
       if (!record) throw new Error("Insert returned no record");
       await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.created", resource: "${entity.tableName}", resourceId: record.id, metadata: { fields: Object.keys(values) } });
+       ${realtimeWrite("created", "record")}
       return record;
     });
   },
@@ -582,6 +739,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR): string
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       const [record] = await tx.update(${entity.name}).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(eq(${entity.name}.id, id), scopeCondition)).returning();
       if (record) await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.updated", resource: "${entity.tableName}", resourceId: id, metadata: { fields: Object.keys(values) } });
+       if (record) ${realtimeWrite("updated", "record") || "void 0;"}
       return record;
     });
   },
@@ -591,6 +749,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR): string
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       const [record] = await tx.delete(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition)).returning();
       if (record) await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: id, metadata: {} });
+       if (record) ${realtimeWrite("deleted", "record") || "void 0;"}
       return record;
     });
   },
@@ -600,6 +759,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR): string
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       const deletedRows = await tx.delete(${entity.name}).where(and(inArray(${entity.name}.id, ids), scopeCondition)).returning();
       if (deletedRows.length) await tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: record.id, metadata: {} })));
+       if (deletedRows.length) ${realtimeDeleteManyWrite || "void 0;"}
       return deletedRows;
     });
   },
@@ -994,23 +1154,580 @@ function renderDataflowIdempotencySchema(dialect: DatabaseIR["dialect"]): string
   return `\n\nexport const dataflowIdempotency = ${table}("dataflow_idempotency", {\n  id: ${dialect === "mysql" ? 'varchar("id", { length: 36 })' : 'text("id")'}.primaryKey(),\n  actorId: ${actor}.notNull(),\n  flow: ${flow}.notNull(),\n  requestKeyHash: ${key}.notNull(),\n  requestHash: text("requestHash").notNull(),\n  response: text("response").notNull(),\n}, (table) => [uniqueIndex("dataflow_idempotency_actor_flow_key_idx").on(table.actorId, table.flow, table.requestKeyHash)]);\n`;
 }
 
-function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, scopes: NonNullable<QiyProject["scopes"]> = []): string | undefined {
+function renderDataflowOutboxSchema(dialect: DatabaseIR["dialect"]): string {
+  const table = dialect === "postgresql" ? "pgTable" : dialect === "sqlite" ? "sqliteTable" : "mysqlTable";
+  return `\n\nexport const dataflowOutbox = ${table}("dataflow_outbox", {\n  id: ${dialect === "mysql" ? 'varchar("id", { length: 36 })' : 'text("id")'}.primaryKey(),\n  actorId: ${dialect === "mysql" ? 'varchar("actorId", { length: 128 })' : 'text("actorId")'},\n  event: ${dialect === "mysql" ? 'varchar("event", { length: 190 })' : 'text("event")'}.notNull(),\n  payload: text("payload").notNull(),\n  createdAt: ${dialect === "postgresql" ? 'timestamp("createdAt", { withTimezone: true })' : dialect === "sqlite" ? 'integer("createdAt", { mode: "timestamp" })' : 'datetime("createdAt")'}.notNull(),\n});\n`;
+}
+
+function renderRealtimeOutboxSchema(dialect: DatabaseIR["dialect"]): string {
+  const table = dialect === "postgresql" ? "pgTable" : dialect === "sqlite" ? "sqliteTable" : "mysqlTable";
+  const string = dialect === "mysql" ? (name: string, length: number) => `varchar(${JSON.stringify(name)}, { length: ${length} })` : (name: string) => `text(${JSON.stringify(name)})`;
+  const integer = dialect === "mysql" ? "int" : "integer";
+  const date = (name: string) => dialect === "postgresql" ? `timestamp(${JSON.stringify(name)}, { withTimezone: true })` : dialect === "sqlite" ? `integer(${JSON.stringify(name)}, { mode: "timestamp_ms" })` : `datetime(${JSON.stringify(name)}, { mode: "date" })`;
+  return `\n\nexport const realtimeOutbox = ${table}("qiy_realtime_outbox", {\n  id: ${string("id", 36)}.primaryKey(),\n  channel: ${string("channel", 190)}.notNull(),\n  type: ${string("type", 80)}.notNull(),\n  payload: text("payload").notNull(),\n  attempts: ${integer}("attempts").notNull(),\n  availableAt: ${date("availableAt")}.notNull(),\n  deliveredAt: ${date("deliveredAt")},\n  deadLetteredAt: ${date("deadLetteredAt")},\n  lastError: text("lastError"),\n  leaseOwner: ${string("leaseOwner", 80)},\n  leaseUntil: ${date("leaseUntil")},\n  createdAt: ${date("createdAt")}.notNull(),\n}, (table) => [index("qiy_realtime_outbox_pending_idx").on(table.deliveredAt, table.deadLetteredAt, table.availableAt, table.leaseUntil, table.createdAt)]);\n`;
+}
+
+function renderRealtime(config: NonNullable<QiyProject["realtime"]>, dialect: DatabaseIR["dialect"], dataflows: NonNullable<QiyProject["dataflows"]> = []): string {
+  const subscriptions = JSON.stringify(config.resources);
+  const eventRoles = new Map<string, Set<string>>();
+  for (const flow of dataflows) {
+    for (const action of flow.steps.flatMap((step) => step.actions)) {
+      if (action.kind !== "emit") continue;
+      const roles = eventRoles.get(action.event) ?? new Set<string>();
+      for (const role of flow.roles ?? ["admin", "operator"]) roles.add(role);
+      eventRoles.set(action.event, roles);
+    }
+  }
+  const eventSubscriptions = JSON.stringify([...eventRoles].map(([event, roles]) => ({ event, roles: [...roles] })));
+  const metricsQuery = dialect === "sqlite"
+    ? `const pendingCondition = and(isNull(realtimeOutbox.deliveredAt), isNull(realtimeOutbox.deadLetteredAt));
+    const pending = db.select({ value: count() }).from(realtimeOutbox).where(pendingCondition).get()?.value ?? 0;
+    const leased = db.select({ value: count() }).from(realtimeOutbox).where(and(pendingCondition, isNotNull(realtimeOutbox.leaseUntil), gt(realtimeOutbox.leaseUntil, now))).get()?.value ?? 0;
+    const deadLettered = db.select({ value: count() }).from(realtimeOutbox).where(isNotNull(realtimeOutbox.deadLetteredAt)).get()?.value ?? 0;
+    const delivered = db.select({ value: count() }).from(realtimeOutbox).where(isNotNull(realtimeOutbox.deliveredAt)).get()?.value ?? 0;
+    const oldestPendingAt = db.select({ createdAt: realtimeOutbox.createdAt }).from(realtimeOutbox).where(pendingCondition).orderBy(asc(realtimeOutbox.createdAt)).limit(1).get()?.createdAt ?? null;
+    return { pending, leased, deadLettered, delivered, oldestPendingAt };`
+    : `const pendingCondition = and(isNull(realtimeOutbox.deliveredAt), isNull(realtimeOutbox.deadLetteredAt));
+    const [pendingRows, leasedRows, deadRows, deliveredRows, oldestRows] = await Promise.all([
+      db.select({ value: count() }).from(realtimeOutbox).where(pendingCondition),
+      db.select({ value: count() }).from(realtimeOutbox).where(and(pendingCondition, isNotNull(realtimeOutbox.leaseUntil), gt(realtimeOutbox.leaseUntil, now))),
+      db.select({ value: count() }).from(realtimeOutbox).where(isNotNull(realtimeOutbox.deadLetteredAt)),
+      db.select({ value: count() }).from(realtimeOutbox).where(isNotNull(realtimeOutbox.deliveredAt)),
+      db.select({ createdAt: realtimeOutbox.createdAt }).from(realtimeOutbox).where(pendingCondition).orderBy(asc(realtimeOutbox.createdAt)).limit(1),
+    ]);
+    return { pending: Number(pendingRows[0]?.value ?? 0), leased: Number(leasedRows[0]?.value ?? 0), deadLettered: Number(deadRows[0]?.value ?? 0), delivered: Number(deliveredRows[0]?.value ?? 0), oldestPendingAt: oldestRows[0]?.createdAt ?? null };`;
+  const auditValue = (action: string, resourceId: string, metadata: string) => `{ id: crypto.randomUUID(), actorId, action: ${JSON.stringify(action)}, resource: "qiy_realtime_outbox", resourceId: ${resourceId}, metadata: ${dialect === "sqlite" ? `JSON.stringify(${metadata})` : metadata}, createdAt: ${dialect === "mysql" ? "Date.now()" : "new Date()"} }`;
+  return `import { Rest } from "ably";
+import { timingSafeEqual } from "node:crypto";
+import { Elysia, t } from "elysia";
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, or } from "drizzle-orm";
+import { db } from "./db";
+import { auditEvents, realtimeOutbox } from "./schema";
+import type { Authenticator, Principal } from "./auth/guard";
+
+export type QiyRealtimeEvent = "created" | "updated" | "deleted";
+export const qiyRealtimeSubscriptions = ${subscriptions} as const;
+export const qiyRealtimeEventSubscriptions = ${eventSubscriptions} as const;
+
+type AblyClient = Pick<Rest, "auth" | "channels">;
+type AblyClientFactory = () => AblyClient;
+export interface RealtimeOutboxRecord { id: string; channel: string; type: string; payload: string; attempts: number; }
+export interface RealtimeOutboxMetrics { pending: number; leased: number; deadLettered: number; delivered: number; oldestPendingAt: Date | null; }
+export interface RealtimeOutboxStore {
+  claim(limit: number, now: Date, leaseOwner: string, leaseUntil: Date): Promise<RealtimeOutboxRecord[]>;
+  delivered(id: string, leaseOwner: string, deliveredAt: Date): Promise<void>;
+  failed(id: string, leaseOwner: string, attempts: number, lastError: string, availableAt: Date): Promise<void>;
+  dead(id: string, leaseOwner: string, attempts: number, lastError: string, deadLetteredAt: Date): Promise<void>;
+  deadLetters(limit: number): Promise<RealtimeOutboxRecord[]>;
+  replay(id: string, now: Date, actorId?: string): Promise<boolean>;
+  replayMany(ids: string[], now: Date, actorId?: string): Promise<string[]>;
+  cleanupDelivered(before: Date, audit?: { actorId: string; retentionDays: number }): Promise<number>;
+  metrics(now: Date): Promise<RealtimeOutboxMetrics>;
+}
+
+const realtimeWorkerId: string = crypto.randomUUID();
+
+function realtimeLeaseMs(): number {
+  const leaseMs = Number(Bun.env.QIY_REALTIME_LEASE_MS ?? 30000);
+  if (!Number.isSafeInteger(leaseMs) || leaseMs < 1000) throw new Error("QIY_REALTIME_LEASE_MS must be an integer of at least 1000ms");
+  return leaseMs;
+}
+
+function realtimeMaxAttempts(): number {
+  const attempts = Number(Bun.env.QIY_REALTIME_MAX_ATTEMPTS ?? 10);
+  if (!Number.isSafeInteger(attempts) || attempts < 1 || attempts > 1000) throw new Error("QIY_REALTIME_MAX_ATTEMPTS must be an integer from 1 to 1000");
+  return attempts;
+}
+
+function realtimeRetentionDays(): number {
+  const days = Number(Bun.env.QIY_REALTIME_RETENTION_DAYS ?? 7);
+  if (!Number.isSafeInteger(days) || days < 1 || days > 3650) throw new Error("QIY_REALTIME_RETENTION_DAYS must be an integer from 1 to 3650");
+  return days;
+}
+
+function realtimeCleanupMs(): number {
+  const cleanupMs = Number(Bun.env.QIY_REALTIME_CLEANUP_MS ?? 86400000);
+  if (!Number.isSafeInteger(cleanupMs) || cleanupMs < 60000) throw new Error("QIY_REALTIME_CLEANUP_MS must be an integer of at least 60000ms");
+  return cleanupMs;
+}
+
+function realtimeAlertInteger(name: "QIY_REALTIME_ALERT_MAX_PENDING" | "QIY_REALTIME_ALERT_MAX_DEAD_LETTERED" | "QIY_REALTIME_ALERT_MAX_OLDEST_PENDING_MS", fallback: number): number {
+  const value = Number(Bun.env[name] ?? fallback);
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(name + " must be a non-negative integer");
+  return value;
+}
+
+export interface RealtimeOutboxAlertThresholds {
+  maxPending: number;
+  maxDeadLettered: number;
+  maxOldestPendingMs: number;
+}
+
+export interface RealtimeOutboxHealth {
+  status: "ok" | "degraded";
+  alerts: string[];
+  metrics: Omit<RealtimeOutboxMetrics, "oldestPendingAt"> & { oldestPendingAt: string | null; oldestPendingAgeMs: number };
+  thresholds: RealtimeOutboxAlertThresholds;
+}
+
+export function realtimeAlertThresholds(): RealtimeOutboxAlertThresholds {
+  return {
+    maxPending: realtimeAlertInteger("QIY_REALTIME_ALERT_MAX_PENDING", 1000),
+    maxDeadLettered: realtimeAlertInteger("QIY_REALTIME_ALERT_MAX_DEAD_LETTERED", 0),
+    maxOldestPendingMs: realtimeAlertInteger("QIY_REALTIME_ALERT_MAX_OLDEST_PENDING_MS", 300000),
+  };
+}
+
+export function evaluateRealtimeOutboxHealth(metrics: RealtimeOutboxMetrics, now = new Date(), thresholds = realtimeAlertThresholds()): RealtimeOutboxHealth {
+  const oldestPendingAt = metrics.oldestPendingAt ? new Date(metrics.oldestPendingAt) : null;
+  const oldestPendingAgeMs = oldestPendingAt ? Math.max(0, now.getTime() - oldestPendingAt.getTime()) : 0;
+  const alerts: string[] = [];
+  if (metrics.pending > thresholds.maxPending) alerts.push("pending");
+  if (metrics.deadLettered > thresholds.maxDeadLettered) alerts.push("deadLettered");
+  if (oldestPendingAgeMs > thresholds.maxOldestPendingMs) alerts.push("oldestPendingAgeMs");
+  return {
+    status: alerts.length ? "degraded" : "ok",
+    alerts,
+    metrics: { ...metrics, oldestPendingAt: oldestPendingAt?.toISOString() ?? null, oldestPendingAgeMs },
+    thresholds,
+  };
+}
+
+export function renderRealtimePrometheus(metrics: RealtimeOutboxMetrics, now = new Date()): string {
+  const health = evaluateRealtimeOutboxHealth(metrics, now);
+  const lines = [
+    "# HELP qiy_realtime_outbox_pending Pending outbox events awaiting delivery.",
+    "# TYPE qiy_realtime_outbox_pending gauge",
+    "qiy_realtime_outbox_pending " + metrics.pending,
+    "# HELP qiy_realtime_outbox_leased Pending events currently leased by workers.",
+    "# TYPE qiy_realtime_outbox_leased gauge",
+    "qiy_realtime_outbox_leased " + metrics.leased,
+    "# HELP qiy_realtime_outbox_dead_lettered Events that exhausted delivery attempts.",
+    "# TYPE qiy_realtime_outbox_dead_lettered gauge",
+    "qiy_realtime_outbox_dead_lettered " + metrics.deadLettered,
+    "# HELP qiy_realtime_outbox_delivered Delivered events retained for operations.",
+    "# TYPE qiy_realtime_outbox_delivered gauge",
+    "qiy_realtime_outbox_delivered " + metrics.delivered,
+    "# HELP qiy_realtime_outbox_oldest_pending_age_seconds Age of the oldest pending event.",
+    "# TYPE qiy_realtime_outbox_oldest_pending_age_seconds gauge",
+    "qiy_realtime_outbox_oldest_pending_age_seconds " + (health.metrics.oldestPendingAgeMs / 1000),
+    "# HELP qiy_realtime_outbox_health Whether configured outbox alert thresholds are healthy.",
+    "# TYPE qiy_realtime_outbox_health gauge",
+    "qiy_realtime_outbox_health " + (health.status === "ok" ? 1 : 0),
+  ];
+  return lines.join("\\n") + "\\n";
+}
+
+function hasRealtimeMetricsToken(request: Request): boolean {
+  const expected = Bun.env.QIY_REALTIME_METRICS_TOKEN?.trim();
+  if (!expected) return false;
+  const authorization = request.headers.get("authorization");
+  if (!authorization?.startsWith("Bearer ")) return false;
+  const actual = authorization.slice("Bearer ".length);
+  const expectedBytes = Buffer.from(expected);
+  const actualBytes = Buffer.from(actual);
+  return expectedBytes.length === actualBytes.length && timingSafeEqual(expectedBytes, actualBytes);
+}
+
+function createAblyClient(): AblyClient {
+  const key = Bun.env.QIY_ABLY_API_KEY;
+  if (!key) throw new Error("QIY_ABLY_API_KEY is required when realtime is enabled");
+  return new Rest({ key });
+}
+
+export function realtimeCapabilities(principal: Principal): Record<string, string[]> {
+  return Object.fromEntries([
+    ...qiyRealtimeSubscriptions
+      .filter((subscription) => (subscription.roles as readonly string[]).includes(principal.role))
+      .map((subscription): [string, string[]] => ["qiy:" + subscription.resource, ["subscribe"]]),
+    ...qiyRealtimeEventSubscriptions
+      .filter((subscription) => (subscription.roles as readonly string[]).includes(principal.role))
+      .map((subscription): [string, string[]] => ["qiy:event:" + subscription.event, ["subscribe"]]),
+  ]);
+}
+
+export async function publishRealtime(resource: string, type: QiyRealtimeEvent, payload: Record<string, unknown>, clientFactory: AblyClientFactory = createAblyClient): Promise<void> {
+  if (Bun.env.QIY_REALTIME_DISABLED === "1") return;
+  const subscription = qiyRealtimeSubscriptions.find((candidate) => candidate.resource === resource);
+  if (!subscription || !(subscription.events as readonly string[]).includes(type)) return;
+  await clientFactory().channels.get("qiy:" + resource).publish(type, payload);
+}
+
+const databaseOutboxStore: RealtimeOutboxStore = {
+  async claim(limit, now, leaseOwner, leaseUntil) {
+    ${dialect === "sqlite"
+      ? "const records = db.select().from(realtimeOutbox).where(and(isNull(realtimeOutbox.deliveredAt), isNull(realtimeOutbox.deadLetteredAt), lte(realtimeOutbox.availableAt, now), or(isNull(realtimeOutbox.leaseUntil), lte(realtimeOutbox.leaseUntil, now)))).orderBy(asc(realtimeOutbox.createdAt)).limit(limit).all(); if (records.length) db.update(realtimeOutbox).set({ leaseOwner, leaseUntil }).where(inArray(realtimeOutbox.id, records.map((record) => record.id))).run(); return records;"
+      : "return await db.transaction(async (tx) => { const records = await tx.select().from(realtimeOutbox).where(and(isNull(realtimeOutbox.deliveredAt), isNull(realtimeOutbox.deadLetteredAt), lte(realtimeOutbox.availableAt, now), or(isNull(realtimeOutbox.leaseUntil), lte(realtimeOutbox.leaseUntil, now)))).orderBy(asc(realtimeOutbox.createdAt)).limit(limit).for(\"update\", { skipLocked: true }); if (records.length) await tx.update(realtimeOutbox).set({ leaseOwner, leaseUntil }).where(inArray(realtimeOutbox.id, records.map((record) => record.id))); return records; });"}
+  },
+  async delivered(id, leaseOwner, deliveredAt) {
+    ${dialect === "sqlite" ? "db.update(realtimeOutbox).set({ deliveredAt, lastError: null, leaseOwner: null, leaseUntil: null }).where(and(eq(realtimeOutbox.id, id), eq(realtimeOutbox.leaseOwner, leaseOwner))).run();" : "await db.update(realtimeOutbox).set({ deliveredAt, lastError: null, leaseOwner: null, leaseUntil: null }).where(and(eq(realtimeOutbox.id, id), eq(realtimeOutbox.leaseOwner, leaseOwner)));"}
+  },
+  async failed(id, leaseOwner, attempts, lastError, availableAt) {
+    ${dialect === "sqlite" ? "db.update(realtimeOutbox).set({ attempts, lastError, availableAt, leaseOwner: null, leaseUntil: null }).where(and(eq(realtimeOutbox.id, id), eq(realtimeOutbox.leaseOwner, leaseOwner))).run();" : "await db.update(realtimeOutbox).set({ attempts, lastError, availableAt, leaseOwner: null, leaseUntil: null }).where(and(eq(realtimeOutbox.id, id), eq(realtimeOutbox.leaseOwner, leaseOwner)));"}
+  },
+  async dead(id, leaseOwner, attempts, lastError, deadLetteredAt) {
+    ${dialect === "sqlite" ? "db.update(realtimeOutbox).set({ attempts, lastError, deadLetteredAt, leaseOwner: null, leaseUntil: null }).where(and(eq(realtimeOutbox.id, id), eq(realtimeOutbox.leaseOwner, leaseOwner))).run();" : "await db.update(realtimeOutbox).set({ attempts, lastError, deadLetteredAt, leaseOwner: null, leaseUntil: null }).where(and(eq(realtimeOutbox.id, id), eq(realtimeOutbox.leaseOwner, leaseOwner)));"}
+  },
+  async deadLetters(limit) {
+    ${dialect === "sqlite" ? "return db.select().from(realtimeOutbox).where(isNotNull(realtimeOutbox.deadLetteredAt)).orderBy(desc(realtimeOutbox.deadLetteredAt)).limit(limit).all();" : "return await db.select().from(realtimeOutbox).where(isNotNull(realtimeOutbox.deadLetteredAt)).orderBy(desc(realtimeOutbox.deadLetteredAt)).limit(limit);"}
+  },
+  async replay(id, now, actorId) {
+    ${dialect === "sqlite"
+      ? `return db.transaction((tx) => { const record = tx.select({ id: realtimeOutbox.id }).from(realtimeOutbox).where(and(eq(realtimeOutbox.id, id), isNotNull(realtimeOutbox.deadLetteredAt))).get(); if (!record) return false; tx.update(realtimeOutbox).set({ attempts: 0, availableAt: now, deadLetteredAt: null, lastError: null, leaseOwner: null, leaseUntil: null }).where(eq(realtimeOutbox.id, id)).run(); if (actorId) tx.insert(auditEvents).values(${auditValue("realtime.outbox.replayed", "id", "{ operation: \"single\" }")}).run(); return true; });`
+      : `return await db.transaction(async (tx) => { const records = await tx.select({ id: realtimeOutbox.id }).from(realtimeOutbox).where(and(eq(realtimeOutbox.id, id), isNotNull(realtimeOutbox.deadLetteredAt))).limit(1).for("update"); if (!records.length) return false; await tx.update(realtimeOutbox).set({ attempts: 0, availableAt: now, deadLetteredAt: null, lastError: null, leaseOwner: null, leaseUntil: null }).where(eq(realtimeOutbox.id, id)); if (actorId) await tx.insert(auditEvents).values(${auditValue("realtime.outbox.replayed", "id", "{ operation: \"single\" }")}); return true; });`}
+  },
+  async replayMany(ids, now, actorId) {
+    ${dialect === "sqlite"
+      ? `return db.transaction((tx) => { const records = tx.select({ id: realtimeOutbox.id }).from(realtimeOutbox).where(and(inArray(realtimeOutbox.id, ids), isNotNull(realtimeOutbox.deadLetteredAt))).all(); const replayed = records.map((record) => record.id); if (replayed.length) tx.update(realtimeOutbox).set({ attempts: 0, availableAt: now, deadLetteredAt: null, lastError: null, leaseOwner: null, leaseUntil: null }).where(inArray(realtimeOutbox.id, replayed)).run(); if (actorId) tx.insert(auditEvents).values(${auditValue("realtime.outbox.bulk_replayed", "null", "{ requested: ids.length, replayed: replayed.length }")}).run(); return replayed; });`
+      : `return await db.transaction(async (tx) => { const records = await tx.select({ id: realtimeOutbox.id }).from(realtimeOutbox).where(and(inArray(realtimeOutbox.id, ids), isNotNull(realtimeOutbox.deadLetteredAt))).for("update", { skipLocked: true }); const replayed = records.map((record) => record.id); if (replayed.length) await tx.update(realtimeOutbox).set({ attempts: 0, availableAt: now, deadLetteredAt: null, lastError: null, leaseOwner: null, leaseUntil: null }).where(inArray(realtimeOutbox.id, replayed)); if (actorId) await tx.insert(auditEvents).values(${auditValue("realtime.outbox.bulk_replayed", "null", "{ requested: ids.length, replayed: replayed.length }")}); return replayed; });`}
+  },
+  async cleanupDelivered(before, audit) {
+    ${dialect === "sqlite"
+      ? `return db.transaction((tx) => { const records = tx.select({ id: realtimeOutbox.id }).from(realtimeOutbox).where(and(isNotNull(realtimeOutbox.deliveredAt), lt(realtimeOutbox.deliveredAt, before))).all(); if (records.length) tx.delete(realtimeOutbox).where(inArray(realtimeOutbox.id, records.map((record) => record.id))).run(); if (audit) { const actorId = audit.actorId; tx.insert(auditEvents).values(${auditValue("realtime.outbox.cleaned", "null", "{ retentionDays: audit.retentionDays, deleted: records.length }")}).run(); } return records.length; });`
+      : `return await db.transaction(async (tx) => { const records = await tx.select({ id: realtimeOutbox.id }).from(realtimeOutbox).where(and(isNotNull(realtimeOutbox.deliveredAt), lt(realtimeOutbox.deliveredAt, before))); if (records.length) await tx.delete(realtimeOutbox).where(inArray(realtimeOutbox.id, records.map((record) => record.id))); if (audit) { const actorId = audit.actorId; await tx.insert(auditEvents).values(${auditValue("realtime.outbox.cleaned", "null", "{ retentionDays: audit.retentionDays, deleted: records.length }")}); } return records.length; });`}
+  },
+  async metrics(now) {
+    ${metricsQuery}
+  },
+};
+
+export async function dispatchRealtimeOutbox(limit = 100, clientFactory: AblyClientFactory = createAblyClient, store: RealtimeOutboxStore = databaseOutboxStore, leaseOwner: string = realtimeWorkerId): Promise<{ delivered: number; failed: number; deadLettered: number }> {
+  if (Bun.env.QIY_REALTIME_DISABLED === "1") return { delivered: 0, failed: 0, deadLettered: 0 };
+  const now = new Date();
+  const records = await store.claim(limit, now, leaseOwner, new Date(now.getTime() + realtimeLeaseMs()));
+  let delivered = 0;
+  let failed = 0;
+  let deadLettered = 0;
+  const client = records.length ? clientFactory() : undefined;
+  for (const record of records) {
+    try {
+      const payload = JSON.parse(record.payload) as Record<string, unknown>;
+      await client!.channels.get(record.channel).publish(record.type, payload);
+      await store.delivered(record.id, leaseOwner, new Date());
+      delivered++;
+    } catch (error) {
+      const attempts = record.attempts + 1;
+      const message = String(error).slice(0, 2000);
+      if (attempts >= realtimeMaxAttempts()) {
+        await store.dead(record.id, leaseOwner, attempts, message, new Date());
+        deadLettered++;
+      } else {
+        const delay = Math.min(60_000, 1000 * 2 ** Math.min(attempts - 1, 6));
+        await store.failed(record.id, leaseOwner, attempts, message, new Date(Date.now() + delay));
+        failed++;
+      }
+    }
+  }
+  return { delivered, failed, deadLettered };
+}
+
+export async function cleanupRealtimeOutbox(retentionDays = realtimeRetentionDays(), store: RealtimeOutboxStore = databaseOutboxStore, now = new Date(), actorId?: string): Promise<number> {
+  if (!Number.isSafeInteger(retentionDays) || retentionDays < 1 || retentionDays > 3650) throw new Error("Realtime retention days must be an integer from 1 to 3650");
+  return store.cleanupDelivered(new Date(now.getTime() - retentionDays * 86400000), actorId ? { actorId, retentionDays } : undefined);
+}
+
+export interface RealtimeOutboxWorkerHandle {
+  dispatchTimer: ReturnType<typeof setInterval>;
+  cleanupTimer: ReturnType<typeof setInterval>;
+  stop(): void;
+}
+
+export function startRealtimeOutboxWorker(): RealtimeOutboxWorkerHandle | undefined {
+  if (Bun.env.QIY_REALTIME_DISABLED === "1") return undefined;
+  const pollMs = Number(Bun.env.QIY_REALTIME_POLL_MS ?? 5000);
+  if (!Number.isSafeInteger(pollMs) || pollMs < 250) throw new Error("QIY_REALTIME_POLL_MS must be an integer of at least 250ms");
+  const cleanupMs = realtimeCleanupMs();
+  const dispatch = () => void dispatchRealtimeOutbox().catch((error) => console.error("Realtime outbox dispatch failed", error));
+  const cleanup = () => void cleanupRealtimeOutbox()
+    .then((deleted) => { if (deleted > 0) console.info("Realtime outbox cleanup removed " + deleted + " delivered record(s)"); })
+    .catch((error) => console.error("Realtime outbox cleanup failed", error));
+  dispatch();
+  cleanup();
+  const dispatchTimer = setInterval(dispatch, pollMs);
+  const cleanupTimer = setInterval(cleanup, cleanupMs);
+  dispatchTimer.unref();
+  cleanupTimer.unref();
+  return {
+    dispatchTimer,
+    cleanupTimer,
+    stop() {
+      clearInterval(dispatchTimer);
+      clearInterval(cleanupTimer);
+    },
+  };
+}
+
+export function createRealtimeRoutes(authenticate: Authenticator, clientFactory: AblyClientFactory = createAblyClient, store: RealtimeOutboxStore = databaseOutboxStore) {
+  return new Elysia({ prefix: "/api/v1/realtime" }).post("/token", async ({ request, status }) => {
+    const principal = await authenticate(request);
+    if (!principal) return status(401, { error: "Authentication required" });
+    const capability = realtimeCapabilities(principal);
+    if (!Object.keys(capability).length) return status(403, { error: "Realtime subscription is not permitted" });
+    if (Bun.env.QIY_REALTIME_DISABLED === "1") return status(503, { error: "Realtime is disabled" });
+    return clientFactory().auth.createTokenRequest({ clientId: principal.id, capability: JSON.stringify(capability) });
+  }).get("/outbox/dead", async ({ request, status }) => {
+    const principal = await authenticate(request);
+    if (!principal) return status(401, { error: "Authentication required" });
+    if (principal.role !== "admin") return status(403, { error: "Realtime outbox administration is not permitted" });
+    return { data: await store.deadLetters(100) };
+  }).get("/outbox/metrics", async ({ request, status }) => {
+    const principal = await authenticate(request);
+    if (!principal) return status(401, { error: "Authentication required" });
+    if (principal.role !== "admin") return status(403, { error: "Realtime outbox administration is not permitted" });
+    return await store.metrics(new Date());
+  }).get("/outbox/metrics/prometheus", async ({ request, status }) => {
+    if (!hasRealtimeMetricsToken(request)) {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      if (principal.role !== "admin") return status(403, { error: "Realtime outbox administration is not permitted" });
+    }
+    const now = new Date();
+    return new Response(renderRealtimePrometheus(await store.metrics(now), now), { headers: { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" } });
+  }).get("/outbox/health", async ({ request, status }) => {
+    const principal = await authenticate(request);
+    if (!principal) return status(401, { error: "Authentication required" });
+    if (principal.role !== "admin") return status(403, { error: "Realtime outbox administration is not permitted" });
+    const now = new Date();
+    const health = evaluateRealtimeOutboxHealth(await store.metrics(now), now);
+    return status(health.status === "ok" ? 200 : 503, health);
+  }).post("/outbox/replay", async ({ request, body, status }) => {
+    const principal = await authenticate(request);
+    if (!principal) return status(401, { error: "Authentication required" });
+    if (principal.role !== "admin") return status(403, { error: "Realtime outbox administration is not permitted" });
+    if (new Set(body.ids).size !== body.ids.length) return status(400, { error: "Realtime replay ids must be unique" });
+    const replayedIds = new Set(await store.replayMany(body.ids, new Date(), principal.id));
+    return { replayed: body.ids.filter((id) => replayedIds.has(id)), notFound: body.ids.filter((id) => !replayedIds.has(id)) };
+  }, { body: t.Object({ ids: t.Array(t.String({ format: "uuid" }), { minItems: 1, maxItems: 100 }) })
+  }).post("/outbox/:id/replay", async ({ request, params, status }) => {
+    const principal = await authenticate(request);
+    if (!principal) return status(401, { error: "Authentication required" });
+    if (principal.role !== "admin") return status(403, { error: "Realtime outbox administration is not permitted" });
+    if (!await store.replay(params.id, new Date(), principal.id)) return status(404, { error: "Dead-letter event was not found" });
+    return { replayed: true, id: params.id };
+  }, { params: t.Object({ id: t.String({ format: "uuid" }) }) }).delete("/outbox/delivered", async ({ request, query, status }) => {
+    const principal = await authenticate(request);
+    if (!principal) return status(401, { error: "Authentication required" });
+    if (principal.role !== "admin") return status(403, { error: "Realtime outbox administration is not permitted" });
+    const retentionDays = query.retentionDays ?? realtimeRetentionDays();
+    return { deleted: await cleanupRealtimeOutbox(retentionDays, store, new Date(), principal.id), retentionDays };
+  }, { query: t.Object({ retentionDays: t.Optional(t.Numeric({ minimum: 1, maximum: 3650 })) }) });
+}
+`;
+}
+
+function renderRealtimeAdminCli(): string {
+  return `type RealtimeAdminEnvironment = {
+  QIY_REALTIME_ADMIN_URL?: string;
+  QIY_REALTIME_ADMIN_TOKEN?: string;
+  PORT?: string;
+};
+
+type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+function usage(): string {
+  return "Usage: bun src/realtime-admin.ts <metrics|prometheus|health|dead|replay|cleanup> [ids...|retentionDays]";
+}
+
+function baseUrl(environment: RealtimeAdminEnvironment): string {
+  const configured = environment.QIY_REALTIME_ADMIN_URL ?? \`http://127.0.0.1:\${environment.PORT ?? "3000"}/api/v1/realtime/outbox\`;
+  const parsed = new URL(configured);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("QIY_REALTIME_ADMIN_URL must use http or https");
+  parsed.pathname = parsed.pathname.replace(/\\/+$/, "");
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString().replace(/\\/$/, "");
+}
+
+function parseRetentionDays(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const days = Number(value);
+  if (!Number.isInteger(days) || days < 1 || days > 3650) throw new Error("retentionDays must be an integer between 1 and 3650");
+  return days;
+}
+
+export async function runRealtimeAdmin(
+  argv: string[],
+  environment: RealtimeAdminEnvironment = Bun.env as RealtimeAdminEnvironment,
+  fetcher: Fetcher = fetch,
+): Promise<unknown> {
+  const token = environment.QIY_REALTIME_ADMIN_TOKEN?.trim();
+  if (!token) throw new Error("QIY_REALTIME_ADMIN_TOKEN is required");
+  const [command, ...arguments_] = argv;
+  const root = baseUrl(environment);
+  let url = root;
+  let method = "GET";
+  let body: string | undefined;
+  if (command === "metrics") url += "/metrics";
+  else if (command === "prometheus") url += "/metrics/prometheus";
+  else if (command === "health") url += "/health";
+  else if (command === "dead") url += "/dead";
+  else if (command === "replay") {
+    if (arguments_.length < 1 || arguments_.length > 100 || new Set(arguments_).size !== arguments_.length) throw new Error("replay requires 1-100 unique event UUIDs");
+    method = "POST";
+    url += "/replay";
+    body = JSON.stringify({ ids: arguments_ });
+  } else if (command === "cleanup") {
+    if (arguments_.length > 1) throw new Error(usage());
+    method = "DELETE";
+    const retentionDays = parseRetentionDays(arguments_[0]);
+    url += \`/delivered\${retentionDays === undefined ? "" : \`?retentionDays=\${retentionDays}\`}\`;
+  } else throw new Error(usage());
+  const response = await fetcher(url, {
+    method,
+    headers: { Authorization: \`Bearer \${token}\`, ...(body ? { "Content-Type": "application/json" } : {}) },
+    body,
+  });
+  const text = await response.text();
+  let payload: unknown = null;
+  if (text && response.headers.get("content-type")?.startsWith("text/plain")) payload = text;
+  else if (text) {
+    try { payload = JSON.parse(text); } catch { payload = { error: text }; }
+  }
+  if (!response.ok) {
+    const message = payload && typeof payload === "object" && "error" in payload ? String((payload as { error: unknown }).error) : \`Realtime administration failed with HTTP \${response.status}\`;
+    throw Object.assign(new Error(message), { statusCode: response.status, payload });
+  }
+  return payload;
+}
+
+if (import.meta.main) {
+  runRealtimeAdmin(Bun.argv.slice(2)).then((payload) => console.log(typeof payload === "string" ? payload.trimEnd() : JSON.stringify(payload))).catch((error) => {
+    console.error(JSON.stringify({ error: error instanceof Error ? error.message : String(error), statusCode: (error as { statusCode?: number }).statusCode }));
+    process.exitCode = 1;
+  });
+}
+`;
+}
+
+function renderRealtimeAdminCliTest(): string {
+  return `import { expect, test } from "bun:test";
+import { runRealtimeAdmin } from "../src/realtime-admin";
+
+test("uses an administrator bearer token and returns machine-readable metrics", async () => {
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const result = await runRealtimeAdmin(["metrics"], {
+    QIY_REALTIME_ADMIN_URL: "https://admin.example/api/v1/realtime/outbox/",
+    QIY_REALTIME_ADMIN_TOKEN: "secret-admin-token",
+  }, async (input, init) => {
+    requests.push({ url: String(input), init });
+    return Response.json({ pending: 2, leased: 1, deadLettered: 0, delivered: 5, oldestPendingAt: null });
+  });
+  expect(result).toEqual({ pending: 2, leased: 1, deadLettered: 0, delivered: 5, oldestPendingAt: null });
+  expect(requests[0]?.url).toBe("https://admin.example/api/v1/realtime/outbox/metrics");
+  expect(new Headers(requests[0]?.init?.headers).get("authorization")).toBe("Bearer secret-admin-token");
+});
+
+test("routes replay and cleanup through authenticated audited HTTP endpoints", async () => {
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const fetcher = async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push({ url: String(input), init });
+    return Response.json({ ok: true });
+  };
+  const environment = { QIY_REALTIME_ADMIN_TOKEN: "admin", PORT: "3100" };
+  await runRealtimeAdmin(["replay", "00000000-0000-4000-8000-000000000001"], environment, fetcher);
+  await runRealtimeAdmin(["cleanup", "30"], environment, fetcher);
+  expect(requests[0]?.url).toBe("http://127.0.0.1:3100/api/v1/realtime/outbox/replay");
+  expect(requests[0]?.init?.method).toBe("POST");
+  expect(requests[0]?.init?.body).toBe('{"ids":["00000000-0000-4000-8000-000000000001"]}');
+  expect(requests[1]?.url).toBe("http://127.0.0.1:3100/api/v1/realtime/outbox/delivered?retentionDays=30");
+  expect(requests[1]?.init?.method).toBe("DELETE");
+});
+
+test("reads health JSON and Prometheus text through the same authenticated API", async () => {
+  const requests: string[] = [];
+  const fetcher = async (input: string | URL | Request) => {
+    requests.push(String(input));
+    if (String(input).endsWith("/metrics/prometheus")) return new Response("qiy_realtime_outbox_pending 2\\n", { headers: { "content-type": "text/plain; version=0.0.4" } });
+    return Response.json({ status: "ok", alerts: [] });
+  };
+  const environment = { QIY_REALTIME_ADMIN_TOKEN: "admin" };
+  expect(await runRealtimeAdmin(["health"], environment, fetcher)).toEqual({ status: "ok", alerts: [] });
+  expect(await runRealtimeAdmin(["prometheus"], environment, fetcher)).toBe("qiy_realtime_outbox_pending 2\\n");
+  expect(requests).toEqual([
+    "http://127.0.0.1:3000/api/v1/realtime/outbox/health",
+    "http://127.0.0.1:3000/api/v1/realtime/outbox/metrics/prometheus",
+  ]);
+});
+
+test("fails closed without credentials or with ambiguous arguments", async () => {
+  await expect(runRealtimeAdmin(["metrics"], {})).rejects.toThrow("QIY_REALTIME_ADMIN_TOKEN is required");
+  await expect(runRealtimeAdmin(["replay", "same", "same"], { QIY_REALTIME_ADMIN_TOKEN: "admin" })).rejects.toThrow("unique event UUIDs");
+  await expect(runRealtimeAdmin(["cleanup", "0"], { QIY_REALTIME_ADMIN_TOKEN: "admin" })).rejects.toThrow("between 1 and 3650");
+});
+`;
+}
+
+function dataflowCallAdapters(dataflows: NonNullable<QiyProject["dataflows"]>): string[] {
+  return [...new Set(dataflows.flatMap((flow) => flow.steps.flatMap((step) => step.actions).flatMap((action) => action.kind === "call" ? [action.adapter] : [])))].sort();
+}
+
+function renderDataflowCallContracts(dataflows: NonNullable<QiyProject["dataflows"]>): string | undefined {
+  const adapters = dataflowCallAdapters(dataflows);
+  if (!adapters.length) return undefined;
+  return `import { dataflowCallHandlers } from "../extensions/dataflow-calls";
+
+export type DataflowCallName = ${adapters.map((adapter) => JSON.stringify(adapter)).join(" | ")};
+export interface DataflowCallRequest {
+  flow: string;
+  actor: { id: string; role: string };
+  payload: Record<string, unknown>;
+}
+export type DataflowCallResult = { ok: true } | { ok: false; error: string; errorKey?: string };
+export type DataflowCallHandlers = Record<DataflowCallName, (request: DataflowCallRequest) => DataflowCallResult>;
+
+export function invokeDataflowCall(name: DataflowCallName, request: DataflowCallRequest): DataflowCallResult {
+  return dataflowCallHandlers[name](request);
+}
+`;
+}
+
+function renderDataflowCallExtensions(dataflows: NonNullable<QiyProject["dataflows"]>): string | undefined {
+  const adapters = dataflowCallAdapters(dataflows);
+  if (!adapters.length) return undefined;
+  return `import type { DataflowCallHandlers } from "../dataflows/calls";
+
+// This file is intentionally not owned by Qiy sync. Implement deterministic,
+// synchronous local validation here. Async network calls and irreversible external
+// side effects are forbidden inside the database transaction; write an outbox event
+// with \`emit\` and deliver it after commit.
+export const dataflowCallHandlers: DataflowCallHandlers = {
+${adapters.map((adapter) => `  ${JSON.stringify(adapter)}: () => ({ ok: false, error: ${JSON.stringify(`Implement dataflow call adapter ${adapter}`)}, errorKey: "qiy.dataflow.call.notImplemented" }),`).join("\n")}
+};
+`;
+}
+
+function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, scopes: NonNullable<QiyProject["scopes"]> = [], qiyActions: NonNullable<QiyProject["actions"]> = [], realtimeEnabled = false): string | undefined {
   if (!dataflows.length) return undefined;
   const entities = new Map(database.entities.map((entity) => [entity.name, entity]));
   const scopeFor = (entity: EntityIR) => scopes.find((scope) => scope.resource === entity.name || scope.resource === entity.tableName);
   const synchronous = database.dialect === "sqlite";
   const selectOne = (query: string) => synchronous ? `${query}.get()` : `(await ${query})[0]`;
   const routeBlocks = dataflows.map((flow) => {
-    const contextNames = new Map(flow.context.map((binding, index) => [binding.name, `context${index}`]));
+    const batchAction = qiyActions.find((action) => action.batch && action.target.kind === "dataflow" && action.target.dataflow === flow.name);
+    const createdBindings = flow.steps.flatMap((step) => step.actions).filter((action) => action.kind === "create");
+    const bindings = [
+      ...flow.context.map((binding) => ({ name: binding.name, entity: binding.entity })),
+      ...createdBindings.map((action) => ({ name: action.context, entity: action.entity })),
+    ];
+    const contextNames = new Map(bindings.map((binding, index) => [binding.name, `context${index}`]));
+    const entityByBinding = new Map(bindings.map((binding) => [binding.name, binding.entity]));
+    const scopedEntities = [...new Set(bindings.map((binding) => binding.entity))].flatMap((name) => {
+      const entity = entities.get(name)!;
+      const scope = scopeFor(entity);
+      return scope ? [{ entity, scope }] : [];
+    });
+    const scopeVariables = new Map(scopedEntities.map(({ entity }, index) => [entity.name, `dataScope${index}`]));
+    const scopeSetup = scopedEntities.map(({ scope }, index) => `      const dataScope${index} = principal?.claims?.[${JSON.stringify(scope.claim)}];
+      if (dataScope${index} === undefined || dataScope${index} === null || dataScope${index} === "") return status(403, { error: "Missing required data scope claim: " + ${JSON.stringify(scope.claim)} });`).join("\n");
     const inputSchema = flow.input.map((field) => {
       const enumeration = database.enums?.find((item) => item.name === field.type);
       if (enumeration) {
         const schema = `t.Union([${enumeration.values.map((value) => `t.Literal(${JSON.stringify(value.name)})`).join(", ")}], ${JSON.stringify(field.comment ? { description: field.comment } : {})})`;
-        return `      ${JSON.stringify(field.name)}: ${field.required ? schema : `t.Optional(${schema})`},`;
+        return `${generatedDocumentation(field, "      ")}      ${JSON.stringify(field.name)}: ${field.required ? schema : `t.Optional(${schema})`},`;
       }
       const base = dataflowInputField(field.type);
       const described = field.comment ? (base.includes("({") ? base.replace("({", `({ description: ${JSON.stringify(field.comment)},`) : base.replace("()", `({ description: ${JSON.stringify(field.comment)} })`)) : base;
-      return `      ${JSON.stringify(field.name)}: ${field.required ? described : `t.Optional(${described})`},`;
+      return `${generatedDocumentation(field, "      ")}      ${JSON.stringify(field.name)}: ${field.required ? described : `t.Optional(${described})`},`;
     }).join("\n");
     const contextLoads = flow.context.map((binding, index) => {
       const entity = entities.get(binding.entity);
@@ -1019,64 +1736,128 @@ function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullable<QiyPr
       const inputName = source?.replace(/^input\./, "");
       if (!key || !inputName) throw new Error(`Dataflow ${flow.name}: invalid context source ${binding.id}`);
       const scope = scopeFor(entity);
-      const scopeValue = scope ? `const scope${index} = principal?.claims?.[${JSON.stringify(scope.claim)}];\n        if (scope${index} === undefined || scope${index} === null || scope${index} === "") throw new DataflowFailure(403, "Missing required data scope claim: " + ${JSON.stringify(scope.claim)});\n        ` : "";
+      const scopeVariable = scopeVariables.get(entity.name);
       const condition = scope
-        ? `and(eq(${entity.name}[${JSON.stringify(key)}], body[${JSON.stringify(inputName)}]), eq(${entity.name}[${JSON.stringify(scope.field)}], String(scope${index})))`
+        ? `and(eq(${entity.name}[${JSON.stringify(key)}], body[${JSON.stringify(inputName)}]), eq(${entity.name}[${JSON.stringify(scope.field)}], String(${scopeVariable})))`
         : `eq(${entity.name}[${JSON.stringify(key)}], body[${JSON.stringify(inputName)}])`;
-      return `        ${scopeValue}let context${index} = ${selectOne(`tx.select().from(${entity.name}).where(${condition}).limit(1)${synchronous ? "" : '.for("update")'}`)};\n        if (!context${index}) throw new DataflowFailure(404, "Not found", ${JSON.stringify(entity.tableName)});`;
+      return `${generatedDocumentation(binding, "        ")}        let context${index} = ${selectOne(`tx.select().from(${entity.name}).where(${condition}).limit(1)${synchronous ? "" : '.for("update")'}`)};\n        if (!context${index}) throw new DataflowFailure(404, "Not found", ${JSON.stringify(entity.tableName)});`;
     }).join("\n\n");
-    const actions = flow.steps.flatMap((step) => step.actions.map((action) => {
+    const actionCode = flow.steps.flatMap((step) => step.actions).map((action, actionIndex) => {
       if (action.kind === "require") {
         const [binding, field] = action.left.split(".", 2);
         const variable = binding === "input" ? "body" : contextNames.get(binding!);
         if (!variable || !field) throw new Error(`Dataflow ${flow.name}: invalid requirement ${action.left}`);
-        return `        if (!(${variable}[${JSON.stringify(field)}] ${action.operator} ${JSON.stringify(action.right)})) throw new DataflowFailure(409, ${JSON.stringify(action.error)});`;
+        return `        if (!(${variable}[${JSON.stringify(field)}] ${action.operator} ${JSON.stringify(action.right)})) throw new DataflowFailure(409, ${JSON.stringify(action.error)}${action.errorKey ? `, undefined, ${JSON.stringify(action.errorKey)}` : ""});`;
       }
-      const entityName = flow.context.find((binding) => binding.name === action.context)?.entity;
+      if (action.kind === "update") {
+        const entityName = entityByBinding.get(action.context);
+        const entity = entityName ? entities.get(entityName) : undefined;
+        const variable = contextNames.get(action.context);
+        if (!entity || !variable) throw new Error(`Dataflow ${flow.name}: invalid update context ${action.context}`);
+        const values = `{ ${action.values.map((value) => `${JSON.stringify(value.field)}: ${value.source === "input" ? `body[${JSON.stringify(value.value)}]` : JSON.stringify(value.value)}`).join(", ")} }`;
+        const where = `eq(${entity.name}.id, ${variable}.id)`;
+        const update = database.dialect === "sqlite"
+          ? `const updated = tx.update(${entity.name}).set(${values}).where(${where}).returning().get();\n        if (!updated) return { kind: "not-found" as const, resource: ${JSON.stringify(entity.tableName)} };\n        ${variable} = updated;`
+          : database.dialect === "mysql"
+            ? `await tx.update(${entity.name}).set(${values}).where(${where});\n        const updated = (await tx.select().from(${entity.name}).where(${where}).limit(1))[0];\n        if (!updated) return { kind: "not-found" as const, resource: ${JSON.stringify(entity.tableName)} };\n        ${variable} = updated;`
+            : `const updated = (await tx.update(${entity.name}).set(${values}).where(${where}).returning())[0];\n        if (!updated) return { kind: "not-found" as const, resource: ${JSON.stringify(entity.tableName)} };\n        ${variable} = updated;`;
+        return `        {\n        ${update.replaceAll(`return { kind: "not-found" as const, resource: ${JSON.stringify(entity.tableName)} }`, `throw new DataflowFailure(404, "Not found", ${JSON.stringify(entity.tableName)})`)}\n        }`;
+      }
+      if (action.kind === "create") {
+        const entity = entities.get(action.entity);
+        const variable = contextNames.get(action.context);
+        if (!entity || !variable) throw new Error(`Dataflow ${flow.name}: invalid create context ${action.context}`);
+        const scope = scopeFor(entity);
+        const scopeVariable = scopeVariables.get(entity.name);
+        const values = [
+          `id: crypto.randomUUID()`,
+          ...action.values.map((value) => `${JSON.stringify(value.field)}: ${value.source === "input" ? `body[${JSON.stringify(value.value)}]` : JSON.stringify(value.value)}`),
+          ...(scope ? [`${JSON.stringify(scope.field)}: String(${scopeVariable})`] : []),
+        ].join(", ");
+        if (database.dialect === "sqlite") return `        let ${variable} = tx.insert(${entity.name}).values({ ${values} } as typeof ${entity.name}.$inferInsert).returning().get();\n        if (!${variable}) throw new DataflowFailure(409, "Unable to create", ${JSON.stringify(entity.tableName)});`;
+        if (database.dialect === "mysql") {
+          const id = `created${actionIndex}Id`;
+          const mysqlValues = values.replace("id: crypto.randomUUID()", `id: ${id}`);
+          return `        const ${id} = crypto.randomUUID();\n        await tx.insert(${entity.name}).values({ ${mysqlValues} } as typeof ${entity.name}.$inferInsert);\n        let ${variable} = (await tx.select().from(${entity.name}).where(eq(${entity.name}.id, ${id})).limit(1))[0];\n        if (!${variable}) throw new DataflowFailure(409, "Unable to create", ${JSON.stringify(entity.tableName)});`;
+        }
+        return `        let ${variable} = (await tx.insert(${entity.name}).values({ ${values} } as typeof ${entity.name}.$inferInsert).returning())[0];\n        if (!${variable}) throw new DataflowFailure(409, "Unable to create", ${JSON.stringify(entity.tableName)});`;
+      }
+      if (action.kind === "emit") {
+        const payloadFields = (action.payload ?? []).map((value) => {
+          if (value.source === "literal") return `${JSON.stringify(value.name)}: ${JSON.stringify(value.value)}`;
+          if (value.source === "input") return `${JSON.stringify(value.name)}: body[${JSON.stringify(value.value)}]`;
+          const variable = contextNames.get(value.context!);
+          if (!variable) throw new Error(`Dataflow ${flow.name}: invalid emit context ${value.context}`);
+          return `${JSON.stringify(value.name)}: ${variable}[${JSON.stringify(value.value)}]`;
+        });
+        const payload = `JSON.stringify({ flow: ${JSON.stringify(flow.name)}${payloadFields.length ? `, ${payloadFields.join(", ")}` : ""} })`;
+        const insert = `tx.insert(dataflowOutbox).values({ id: crypto.randomUUID(), actorId: principal?.id ?? null, event: ${JSON.stringify(action.event)}, payload: ${payload}, createdAt: new Date() })`;
+        const realtimeInsert = `tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: ${JSON.stringify(`qiy:event:${action.event}`)}, type: ${JSON.stringify(action.event)}, payload: ${payload}, attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() })`;
+        return `        ${database.dialect === "sqlite" ? `${insert}.run();${realtimeEnabled ? `\n        ${realtimeInsert}.run();` : ""}` : `await ${insert};${realtimeEnabled ? `\n        await ${realtimeInsert};` : ""}`}`;
+      }
+      if (action.kind === "call") {
+        const payloadFields = (action.payload ?? []).map((value) => {
+          if (value.source === "literal") return `${JSON.stringify(value.name)}: ${JSON.stringify(value.value)}`;
+          if (value.source === "input") return `${JSON.stringify(value.name)}: body[${JSON.stringify(value.value)}]`;
+          const variable = contextNames.get(value.context!);
+          if (!variable) throw new Error(`Dataflow ${flow.name}: invalid call context ${value.context}`);
+          return `${JSON.stringify(value.name)}: ${variable}[${JSON.stringify(value.value)}]`;
+        });
+        return `        {
+          const callResult = invokeDataflowCall(${JSON.stringify(action.adapter)}, { flow: ${JSON.stringify(flow.name)}, actor: { id: principal.id, role: principal.role }, payload: { ${payloadFields.join(", ")} } });
+          if (!callResult.ok) throw new DataflowFailure(409, callResult.error, undefined, callResult.errorKey);
+        }`;
+      }
+      const entityName = entityByBinding.get(action.context);
       const entity = entityName ? entities.get(entityName) : undefined;
       const variable = contextNames.get(action.context);
-      if (!entity || !variable) throw new Error(`Dataflow ${flow.name}: invalid update context ${action.context}`);
-      const values = `{ ${action.values.map((value) => `${JSON.stringify(value.field)}: ${value.source === "input" ? `body[${JSON.stringify(value.value)}]` : JSON.stringify(value.value)}`).join(", ")} }`;
-      const where = `eq(${entity.name}.id, ${variable}.id)`;
-      const update = database.dialect === "sqlite"
-        ? `const updated = tx.update(${entity.name}).set(${values}).where(${where}).returning().get();\n        if (!updated) return { kind: "not-found" as const, resource: ${JSON.stringify(entity.tableName)} };\n        ${variable} = updated;`
-        : database.dialect === "mysql"
-          ? `await tx.update(${entity.name}).set(${values}).where(${where});\n        const updated = (await tx.select().from(${entity.name}).where(${where}).limit(1))[0];\n        if (!updated) return { kind: "not-found" as const, resource: ${JSON.stringify(entity.tableName)} };\n        ${variable} = updated;`
-          : `const updated = (await tx.update(${entity.name}).set(${values}).where(${where}).returning())[0];\n        if (!updated) return { kind: "not-found" as const, resource: ${JSON.stringify(entity.tableName)} };\n        ${variable} = updated;`;
-      return `        {\n        ${update.replaceAll(`return { kind: "not-found" as const, resource: ${JSON.stringify(entity.tableName)} }`, `throw new DataflowFailure(404, "Not found", ${JSON.stringify(entity.tableName)})`)}\n        }`;
-    })).join("\n");
+      if (!entity || !variable) throw new Error(`Dataflow ${flow.name}: invalid delete context ${action.context}`);
+      const deletion = database.dialect === "sqlite"
+        ? `tx.delete(${entity.name}).where(eq(${entity.name}.id, ${variable}.id)).run();`
+        : `await tx.delete(${entity.name}).where(eq(${entity.name}.id, ${variable}.id));`;
+      return `        ${deletion}`;
+    });
+    let actionOffset = 0;
+    const actions = flow.steps.map((step) => {
+      const code = actionCode.slice(actionOffset, actionOffset + step.actions.length).join("\n");
+      actionOffset += step.actions.length;
+      return generatedDocumentation(step, "        ") + code;
+    }).join("\n");
     const result = contextNames.get(flow.result);
     if (!result) throw new Error(`Dataflow ${flow.name}: missing result context ${flow.result}`);
+    const resultEntityName = entityByBinding.get(flow.result);
+    const resultEntity = resultEntityName ? entities.get(resultEntityName) : undefined;
+    if (!resultEntity) throw new Error(`Dataflow ${flow.name}: missing result entity ${flow.result}`);
     const needsIdempotency = flow.idempotency?.required === true;
     const requestSetup = needsIdempotency ? `      const requestKey = request.headers.get("idempotency-key");
       if (!requestKey || !/^[\\x21-\\x7E]{1,128}$/.test(requestKey)) return status(400, { error: "A valid Idempotency-Key header is required" });
       if (!principal?.id) return status(401, { error: "Authentication is required for idempotent commands" });
       const requestKeyHash = await hashDataflowValue(requestKey);
-      const requestHash = await hashDataflowValue(JSON.stringify([${flow.input.map((field) => `body[${JSON.stringify(field.name)}]`).join(", ")} ]));
+      const requestHash = await hashDataflowValue(JSON.stringify([${[...flow.input.map((field) => `body[${JSON.stringify(field.name)}]`), ...scopeVariables.values()].join(", ")} ]));
 ` : "";
     const transactionReplay = needsIdempotency ? `        const previous = ${selectOne(`tx.select({ requestHash: dataflowIdempotency.requestHash, response: dataflowIdempotency.response }).from(dataflowIdempotency).where(and(eq(dataflowIdempotency.actorId, principal!.id), eq(dataflowIdempotency.flow, ${JSON.stringify(flow.name)}), eq(dataflowIdempotency.requestKeyHash, requestKeyHash))).limit(1)`)};
         if (previous) return previous.requestHash === requestHash ? { kind: "replay" as const, value: JSON.parse(previous.response) } : { kind: "key-conflict" as const };
 ` : "";
-    const auditWrite = flow.audit === undefined ? "" : `        await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: principal?.id ?? null, action: ${JSON.stringify(flow.audit)}, resource: ${JSON.stringify(entities.get(flow.context.find((binding) => binding.name === flow.result)!.entity)!.tableName)}, resourceId: String(value.id), metadata: ${database.dialect === "sqlite" ? 'JSON.stringify({ flow: ' + JSON.stringify(flow.name) + ' })' : '{ flow: ' + JSON.stringify(flow.name) + ' }'}, createdAt: ${database.dialect === "sqlite" || database.dialect === "postgresql" ? "new Date()" : "Date.now()"} });
+    const auditWrite = flow.audit === undefined ? "" : `        await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: principal?.id ?? null, action: ${JSON.stringify(flow.audit)}, resource: ${JSON.stringify(resultEntity.tableName)}, resourceId: String(value.id), metadata: ${database.dialect === "sqlite" ? 'JSON.stringify({ flow: ' + JSON.stringify(flow.name) + ' })' : '{ flow: ' + JSON.stringify(flow.name) + ' }'}, createdAt: ${database.dialect === "sqlite" || database.dialect === "postgresql" ? "new Date()" : "Date.now()"} });
 `;
     const receiptWrite = needsIdempotency ? `        await tx.insert(dataflowIdempotency).values({ id: crypto.randomUUID(), actorId: principal!.id, flow: ${JSON.stringify(flow.name)}, requestKeyHash, requestHash, response: JSON.stringify(value) });
 ` : "";
     const catchReplay = needsIdempotency ? `      } catch (error) {
-        if (error instanceof DataflowFailure) return status(error.status, { error: error.message, ...(error.resource ? { resource: error.resource } : {}) });
         const previous = await db.select({ requestHash: dataflowIdempotency.requestHash, response: dataflowIdempotency.response }).from(dataflowIdempotency).where(and(eq(dataflowIdempotency.actorId, principal!.id), eq(dataflowIdempotency.flow, ${JSON.stringify(flow.name)}), eq(dataflowIdempotency.requestKeyHash, requestKeyHash))).limit(1);
         if (previous[0]) return previous[0].requestHash === requestHash ? JSON.parse(previous[0].response) : status(409, { error: "Idempotency key was already used with a different request" });
+        if (error instanceof DataflowFailure) return status(error.status, { error: error.message, ...(error.resource ? { resource: error.resource } : {}), ...(error.errorKey ? { errorKey: error.errorKey } : {}) });
         throw error;
       }
-` : "      } catch (error) { if (error instanceof DataflowFailure) return status(error.status, { error: error.message, ...(error.resource ? { resource: error.resource } : {}) }); throw error; }\n";
-    return `    .post(${JSON.stringify(`/${flow.name}`)}, async ({ body, request, status }) => {
+` : "      } catch (error) { if (error instanceof DataflowFailure) return status(error.status, { error: error.message, ...(error.resource ? { resource: error.resource } : {}), ...(error.errorKey ? { errorKey: error.errorKey } : {}) }); throw error; }\n";
+    const singleRoute = `${generatedDocumentation(flow, "    ")}    .post(${JSON.stringify(`/${flow.name}`)}, async ({ body, request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
       if (!${JSON.stringify(flow.roles ?? ["admin", "operator"])}.includes(principal.role)) return status(403, { error: "Command execution is restricted" });
-${requestSetup}      let outcome;
+${scopeSetup ? `${scopeSetup}\n` : ""}${requestSetup}      let outcome;
       try {
       outcome = await db.transaction(${synchronous ? "" : "async "}(tx) => {
-${contextLoads}
 ${transactionReplay}
+${contextLoads}
 
 ${actions}
 
@@ -1089,18 +1870,91 @@ ${catchReplay}${needsIdempotency ? `      if (outcome.kind === "replay") return 
       return outcome.value;
     }, { body: t.Object({
 ${inputSchema}
-    }, { additionalProperties: false }) })`;
+    }, { additionalProperties: false }), detail: { summary: ${JSON.stringify(flow.label ?? flow.name)}, description: ${JSON.stringify(flow.comment ?? flow.label ?? flow.name)}, tags: ["Dataflow"] } })`;
+    if (!batchAction) return singleRoute;
+    if (!needsIdempotency) throw new Error(`Batch action ${batchAction.name}: dataflow ${flow.name} must require idempotency`);
+    const batchEntity = database.entities.find((entity) => entity.tableName === batchAction.resource || entity.name === batchAction.resource);
+    const batchBinding = batchEntity ? flow.context.find((binding) => binding.entity === batchEntity.name) : undefined;
+    const batchIdInput = batchBinding?.id.split(":", 2)[1]?.replace(/^input\./, "");
+    if (!batchEntity || !batchBinding || !batchIdInput) throw new Error(`Batch action ${batchAction.name}: cannot resolve resource id input`);
+    const batchFlowName = `${flow.name}:batch`;
+    const batchTransactionReplay = `        const previous = ${selectOne(`tx.select({ requestHash: dataflowIdempotency.requestHash, response: dataflowIdempotency.response }).from(dataflowIdempotency).where(and(eq(dataflowIdempotency.actorId, principal!.id), eq(dataflowIdempotency.flow, ${JSON.stringify(batchFlowName)}), eq(dataflowIdempotency.requestKeyHash, requestKeyHash))).limit(1)`)};
+        if (previous) return previous.requestHash === requestHash ? { kind: "replay" as const, value: JSON.parse(previous.response) } : { kind: "key-conflict" as const };
+`;
+    const batchAuditWrite = synchronous
+      ? auditWrite.replace("await tx.insert", "tx.insert").replace(" });\n", " }).run();\n")
+      : auditWrite;
+    const batchReceiptWrite = synchronous
+      ? `        tx.insert(dataflowIdempotency).values({ id: crypto.randomUUID(), actorId: principal!.id, flow: ${JSON.stringify(batchFlowName)}, requestKeyHash, requestHash, response: JSON.stringify(values) }).run();\n`
+      : `        await tx.insert(dataflowIdempotency).values({ id: crypto.randomUUID(), actorId: principal!.id, flow: ${JSON.stringify(batchFlowName)}, requestKeyHash, requestHash, response: JSON.stringify(values) });\n`;
+    const batchRoute = `
+    .post(${JSON.stringify(`/${flow.name}/batch`)}, async ({ body: batch, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      if (!${JSON.stringify(flow.roles ?? ["admin", "operator"])}.includes(principal.role)) return status(403, { error: "Command execution is restricted" });
+${scopeSetup ? `${scopeSetup}\n` : ""}      const requestKey = request.headers.get("idempotency-key");
+      if (!requestKey || !/^[\\x21-\\x7E]{1,128}$/.test(requestKey)) return status(400, { error: "A valid Idempotency-Key header is required" });
+      if (!principal.id) return status(401, { error: "Authentication is required for idempotent commands" });
+      const itemIds = batch.items.map((item) => String(item[${JSON.stringify(batchIdInput)}]));
+      if (new Set(itemIds).size !== itemIds.length) return status(400, { error: "Batch item identifiers must be unique" });
+      const requestKeyHash = await hashDataflowValue(requestKey);
+      const requestHash = await hashDataflowValue(JSON.stringify([batch.items, ${[...scopeVariables.values()].join(", ")} ]));
+      let outcome;
+      try {
+        outcome = await db.transaction(${synchronous ? "" : "async "}(tx) => {
+${batchTransactionReplay}          const values = [];
+          for (let itemIndex = 0; itemIndex < batch.items.length; itemIndex += 1) {
+            const body = batch.items[itemIndex]!;
+            try {
+${contextLoads}
+
+${actions}
+
+              const value = ${result};
+${batchAuditWrite}              values.push(value);
+            } catch (error) {
+              if (error instanceof DataflowFailure) throw new BatchDataflowFailure(error.status, error.message, itemIndex, String(body[${JSON.stringify(batchIdInput)}]), error.resource, error.errorKey);
+              throw error;
+            }
+          }
+${batchReceiptWrite}          return { kind: "ok" as const, value: values };
+        });
+      } catch (error) {
+        const previous = await db.select({ requestHash: dataflowIdempotency.requestHash, response: dataflowIdempotency.response }).from(dataflowIdempotency).where(and(eq(dataflowIdempotency.actorId, principal.id), eq(dataflowIdempotency.flow, ${JSON.stringify(batchFlowName)}), eq(dataflowIdempotency.requestKeyHash, requestKeyHash))).limit(1);
+        if (previous[0]) return previous[0].requestHash === requestHash ? JSON.parse(previous[0].response) : status(409, { error: "Idempotency key was already used with a different request" });
+        if (error instanceof BatchDataflowFailure) return status(error.status, { error: error.message, item: { index: error.index, id: error.id }, ...(error.resource ? { resource: error.resource } : {}), ...(error.errorKey ? { errorKey: error.errorKey } : {}) });
+        throw error;
+      }
+      if (outcome.kind === "replay") return outcome.value;
+      if (outcome.kind === "key-conflict") return status(409, { error: "Idempotency key was already used with a different request" });
+      return outcome.value;
+    }, { body: t.Object({ items: t.Array(t.Object({
+${inputSchema}
+    }, { additionalProperties: false }), { minItems: 1, maxItems: 100 }) }, { additionalProperties: false }), detail: { summary: ${JSON.stringify(`Batch ${flow.label ?? flow.name}`)}, description: ${JSON.stringify(`Atomically execute ${flow.comment ?? flow.label ?? flow.name} for a selected collection`)}, tags: ["Dataflow"] } })`;
+    return singleRoute + batchRoute;
   }).join("\n");
   const usesIdempotency = dataflows.some((flow) => flow.idempotency?.required);
   const usesAudit = dataflows.some((flow) => flow.audit !== undefined);
+  const usesOutbox = dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit")));
+  const usesRealtimeOutbox = realtimeEnabled && usesOutbox;
+  const usesCalls = dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "call")));
+  const dataflowEntities = dataflows.flatMap((flow) => [
+    ...flow.context.map((binding) => binding.entity),
+    ...flow.steps.flatMap((step) => step.actions).flatMap((action) => action.kind === "create" ? [action.entity] : []),
+  ]);
   return `import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db";
-import { ${[...new Set([...dataflows.flatMap((flow) => flow.context.map((binding) => binding.entity)), ...(usesIdempotency ? ["dataflowIdempotency"] : []), ...(usesAudit ? ["auditEvents"] : [])])].join(", ")} } from "../schema";
+ import { ${[...new Set([...dataflowEntities, ...(usesIdempotency ? ["dataflowIdempotency"] : []), ...(usesAudit ? ["auditEvents"] : []), ...(usesOutbox ? ["dataflowOutbox"] : []), ...(usesRealtimeOutbox ? ["realtimeOutbox"] : [])])].join(", ")} } from "../schema";
 import type { Authenticator } from "../auth/guard";
+${usesCalls ? 'import { invokeDataflowCall } from "./calls";\n' : ""}
 
 class DataflowFailure extends Error {
-  constructor(public readonly status: 403 | 404 | 409, message: string, public readonly resource?: string) { super(message); }
+  constructor(public readonly status: 403 | 404 | 409, message: string, public readonly resource?: string, public readonly errorKey?: string) { super(message); }
+}
+
+class BatchDataflowFailure extends DataflowFailure {
+  constructor(status: 403 | 404 | 409, message: string, public readonly index: number, public readonly id: string, resource?: string, errorKey?: string) { super(status, message, resource, errorKey); }
 }
 
 ${usesIdempotency ? `async function hashDataflowValue(value: string): Promise<string> {
@@ -1124,6 +1978,41 @@ function sqliteColumnType(field: FieldIR): string {
     case "Vector": return "blob";
     default: return "text";
   }
+}
+
+function renderSqliteRealtimeOutboxTest(database: DatabaseIR, realtime: NonNullable<QiyProject["realtime"]>): string | undefined {
+  if (database.dialect !== "sqlite") return undefined;
+  const subscription = realtime.resources[0];
+  const entity = database.entities.find((candidate) => candidate.name === subscription?.resource || candidate.tableName === subscription?.resource);
+  if (!entity) return undefined;
+  const columns = entity.fields.map((field) => `${JSON.stringify(field.columnName ?? field.name)} ${sqliteColumnType(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
+  const fixture = (variant: 1 | 2) => entity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => {
+    const enumeration = database.enums?.find((item) => item.name === field.enumName);
+    const value = enumeration ? JSON.stringify(enumeration.values[Math.min(variant - 1, enumeration.values.length - 1)]!.name)
+      : field.type === "UUID" ? JSON.stringify(`00000000-0000-4000-8000-00000000000${variant}`)
+        : field.type === "Integer" ? String(variant)
+          : field.type === "Decimal" || field.type === "Money" ? String(variant)
+            : field.type === "DateTime" ? `new Date(${variant})`
+              : JSON.stringify(`Realtime fixture ${variant}`);
+    return `${JSON.stringify(field.name)}: ${value}`;
+  }).join(", ");
+  const repositoryName = `${modelName(entity)}Repository`;
+  return `import { expect, test } from "bun:test";
+import { client } from "../src/db";
+import { ${repositoryName} } from "../src/modules/${entity.name}/${entity.name}.repository";
+
+test("commits CRUD records and realtime outbox rows atomically", async () => {
+  client.exec(${JSON.stringify(`DROP TABLE IF EXISTS "${entity.tableName}"; DROP TABLE IF EXISTS audit_events; DROP TABLE IF EXISTS qiy_realtime_outbox; CREATE TABLE "${entity.tableName}" (${columns}); CREATE TABLE audit_events (id text primary key, actorId text, action text not null, resource text not null, resourceId text, metadata text, createdAt integer not null); CREATE TABLE qiy_realtime_outbox (id text primary key, channel text not null, type text not null, payload text not null, attempts integer not null, availableAt integer not null, deliveredAt integer, deadLetteredAt integer, lastError text, leaseOwner text, leaseUntil integer, createdAt integer not null);`)});
+  const first = await ${repositoryName}.create({ ${fixture(1)} }, "actor-1");
+  expect(first.id).toBeTruthy();
+  expect(client.query<{ total: number }, []>("select count(*) as total from qiy_realtime_outbox").get()?.total).toBe(1);
+  expect(client.query<{ channel: string; type: string }, []>("select channel, type from qiy_realtime_outbox").get()).toEqual({ channel: ${JSON.stringify(`qiy:${entity.tableName}`)}, type: "created" });
+  client.exec("DROP TABLE qiy_realtime_outbox");
+  await expect(${repositoryName}.create({ ${fixture(2)} }, "actor-2")).rejects.toThrow();
+  expect(client.query<{ total: number }, []>(${JSON.stringify(`select count(*) as total from "${entity.tableName}"`)}).get()?.total).toBe(1);
+  expect(client.query<{ total: number }, []>("select count(*) as total from audit_events").get()?.total).toBe(1);
+});
+`;
 }
 
 function dataflowFixtureValue(field: FieldIR, requires: Array<{ field: string; operator: "==" | "!=" | ">" | ">=" | "<" | "<="; right: string | number }>, enums: DatabaseIR["enums"]): string {
@@ -1156,10 +2045,14 @@ function dataflowFixtureValue(field: FieldIR, requires: Array<{ field: string; o
   return "null";
 }
 
-function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>): string | undefined {
+function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, qiyActions: NonNullable<QiyProject["actions"]> = [], realtimeEnabled = false): string | undefined {
   if (database.dialect !== "sqlite" || !dataflows.length) return undefined;
   const entities = new Map(database.entities.map((entity) => [entity.name, entity]));
-  const usedEntities = [...new Set(dataflows.flatMap((flow) => flow.context.map((binding) => binding.entity)))].map((name) => entities.get(name)!);
+  const callAdapters = dataflowCallAdapters(dataflows);
+  const usedEntities = [...new Set(dataflows.flatMap((flow) => [
+    ...flow.context.map((binding) => binding.entity),
+    ...flow.steps.flatMap((step) => step.actions).flatMap((action) => action.kind === "create" ? [action.entity] : []),
+  ]))].map((name) => entities.get(name)!);
   const imports = usedEntities.map((entity) => entity.name).join(", ");
   const schema = usedEntities.map((entity) => {
     const columns = entity.fields.map((field) => `${JSON.stringify(field.columnName ?? field.name)} ${sqliteColumnType(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
@@ -1168,11 +2061,15 @@ function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<Q
   const auxiliarySchema = [
     `client.exec("CREATE TABLE IF NOT EXISTS audit_events (id text primary key, actorId text, action text not null, resource text not null, resourceId text, metadata text, createdAt integer not null)");`,
     ...(dataflows.some((flow) => flow.idempotency?.required) ? [`client.exec("CREATE TABLE IF NOT EXISTS dataflow_idempotency (id text primary key, actorId text not null, flow text not null, requestKeyHash text not null, requestHash text not null, response text not null, UNIQUE(actorId, flow, requestKeyHash))");`] : []),
+    ...(dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) ? [`client.exec("CREATE TABLE IF NOT EXISTS dataflow_outbox (id text primary key, actorId text, event text not null, payload text not null, createdAt integer not null)");`] : []),
+    ...(realtimeEnabled && dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) ? [`client.exec("CREATE TABLE IF NOT EXISTS qiy_realtime_outbox (id text primary key, channel text not null, type text not null, payload text not null, attempts integer not null, availableAt integer not null, deliveredAt integer, deadLetteredAt integer, lastError text, leaseOwner text, leaseUntil integer, createdAt integer not null)");`] : []),
   ].join("\n");
   const cleanup = [
     ...usedEntities.map((entity) => `client.exec(${JSON.stringify(`DELETE FROM ${entity.tableName}`)});`),
     "client.exec('DELETE FROM audit_events');",
     ...(dataflows.some((flow) => flow.idempotency?.required) ? ["client.exec('DELETE FROM dataflow_idempotency');"] : []),
+    ...(dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) ? ["client.exec('DELETE FROM dataflow_outbox');"] : []),
+    ...(realtimeEnabled && dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) ? ["client.exec('DELETE FROM qiy_realtime_outbox');"] : []),
   ].join("\n");
   const tests = dataflows.map((flow) => {
     const input = Object.fromEntries(flow.input.map((field) => [field.name, database.enums?.find((item) => item.name === field.type)?.values.at(-1)?.name ?? (field.type === "UUID" ? "00000000-0000-4000-8000-000000000001" : field.type === "Text" ? "Qiy fixture reason" : field.type === "Integer" ? 7 : field.type === "Boolean" ? true : "1.00")]));
@@ -1190,23 +2087,76 @@ function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<Q
       const values = entity.fields.map((field) => `${JSON.stringify(field.name)}: ${dataflowFixtureValue(field, requires, database.enums)}`).join(", ");
       return `await db.insert(${entity.name}).values({ ${values} } as any);`;
     }).join("\n    ");
-    const expectedUpdates = flow.steps.flatMap((step) => step.actions).flatMap((action) => action.kind === "update" && action.context === flow.result ? action.values : []);
-    const assertions = expectedUpdates.map((update) => `expect(result).toMatchObject({ ${JSON.stringify(update.field)}: ${JSON.stringify(update.source === "input" ? input[update.value] : update.value)} });`).join("\n    ");
+    const flowActions = flow.steps.flatMap((step) => step.actions);
+    const resultWrites = flowActions.flatMap((action) => (action.kind === "update" || action.kind === "create") && action.context === flow.result ? action.values : []);
+    const finalWrites = new Map(resultWrites.map((write) => [write.field, write]));
+    const assertions = [...finalWrites.values()].map((update) => `expect(result).toMatchObject({ ${JSON.stringify(update.field)}: ${JSON.stringify(update.source === "input" ? input[update.value] : update.value)} });`).join("\n    ");
+    const resultCreateEntity = flowActions.flatMap((action) => action.kind === "create" && action.context === flow.result ? [action.entity] : []).at(0);
+    const resultDeleted = flowActions.some((action) => action.kind === "delete" && action.context === flow.result);
+    const resultEntityName = flow.context.find((binding) => binding.name === flow.result)?.entity ?? resultCreateEntity;
+    const resultMutationCheck = resultCreateEntity && !resultDeleted
+      ? `\n    expect(client.query("SELECT * FROM ${entities.get(resultCreateEntity)!.tableName} WHERE id = ?").get(result.id)).toBeTruthy();`
+      : resultDeleted
+        ? `\n    expect(client.query("SELECT * FROM ${entities.get(resultEntityName!)!.tableName} WHERE id = ?").get(result.id)).toBeNull();`
+        : "";
     const headers = flow.idempotency?.required ? `{ "Content-Type": "application/json", "Idempotency-Key": "qiy-test-key" }` : `{ "Content-Type": "application/json" }`;
     const missingKeyCheck = flow.idempotency?.required ? `    const missingKey = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(${JSON.stringify(input)}) }));
     expect(missingKey.status).toBe(400);` : "";
-    const changedInput = flow.input.find((field) => field.type !== "UUID" && (database.enums?.find((item) => item.name === field.type)?.values.length ?? 2) > 1) ?? flow.input[0]!;
-    const changedEnum = database.enums?.find((item) => item.name === changedInput.type);
-    const changedValue = changedEnum ? changedEnum.values.find((value) => value.name !== input[changedInput.name])?.name : changedInput.type === "UUID" ? "00000000-0000-4000-8000-000000000099" : changedInput.type === "Boolean" ? false : changedInput.type === "Integer" ? 2 : changedInput.type === "Decimal" ? "2.00" : "different value";
+    const changedInput = flow.input.find((field) => field.type !== "UUID" && (database.enums?.find((item) => item.name === field.type)?.values.length ?? 2) > 1) ?? flow.input[0];
+    const changedEnum = database.enums?.find((item) => item.name === changedInput?.type);
+    const changedValue = changedEnum ? changedEnum.values.find((value) => value.name !== input[changedInput!.name])?.name : changedInput?.type === "UUID" ? "00000000-0000-4000-8000-000000000099" : changedInput?.type === "Boolean" ? false : changedInput?.type === "Integer" ? 2 : changedInput?.type === "Decimal" ? "2.00" : "different value";
+    const graphqlName = dataflowGraphqlName(flow.name);
+    const graphqlOperation = `run${graphqlName}`;
+    const graphqlDeclarations = [flow.input.length ? `$input: ${graphqlName}CommandInput!` : undefined, flow.idempotency?.required ? "$key: String!" : undefined].filter((value): value is string => Boolean(value));
+    const graphqlArguments = [flow.input.length ? "input: $input" : undefined, flow.idempotency?.required ? "idempotencyKey: $key" : undefined].filter((value): value is string => Boolean(value));
+    const graphqlQuery = `mutation${graphqlDeclarations.length ? `(${graphqlDeclarations.join(", ")})` : ""} { ${graphqlOperation}${graphqlArguments.length ? `(${graphqlArguments.join(", ")})` : ""} { id } }`;
+    const graphqlVariables = { ...(flow.input.length ? { input } : {}), ...(flow.idempotency?.required ? { key: `graphql-${flow.name}-key` } : {}) };
+    const graphqlCommandTest = `
+  test(${JSON.stringify(`${flow.name} executes through GraphQL with REST-equivalent idempotency`)}, async () => {
+    ${seed}
+    const request = (variables: Record<string, unknown>) => new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json", "X-Test-Role": ${JSON.stringify(flow.roles?.[0] ?? "admin")} }, body: JSON.stringify({ query: ${JSON.stringify(graphqlQuery)}, variables }) });
+    const response = await graphqlApp.handle(request(${JSON.stringify(graphqlVariables)}));
+    expect(response.status).toBe(200);
+    const payload = await response.json() as { data?: Record<string, { id: string }>; errors?: Array<{ message: string; extensions?: { status?: number; errorKey?: string } }> };
+    expect(payload.errors).toBeUndefined();
+    expect(payload.data?.[${JSON.stringify(graphqlOperation)}]?.id).toBeTruthy();
+    ${flow.idempotency?.required ? `const replay = await graphqlApp.handle(request(${JSON.stringify(graphqlVariables)}));
+    expect(await replay.json()).toEqual(payload);` : ""}
+    ${flow.idempotency?.required && changedInput ? `const conflict = await graphqlApp.handle(request({ ...${JSON.stringify(graphqlVariables)}, input: { ...${JSON.stringify(input)}, ${JSON.stringify(changedInput.name)}: ${JSON.stringify(changedValue)} } }));
+    const conflictPayload = await conflict.json() as { errors?: Array<{ extensions?: { status?: number } }> };
+    expect(conflictPayload.errors?.[0]?.extensions?.status).toBe(409);` : ""}
+  });`;
     const replayCheck = flow.idempotency?.required ? `
     const replay = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
     expect(replay.status).toBe(200);
     expect(await replay.json()).toEqual(result);
-    const changedPayload = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify({ ...${JSON.stringify(input)}, ${JSON.stringify(changedInput.name)}: ${JSON.stringify(changedValue)} }) }));
-    expect(changedPayload.status).toBe(409);` : "";
+    ${changedInput ? `const changedPayload = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify({ ...${JSON.stringify(input)}, ${JSON.stringify(changedInput.name)}: ${JSON.stringify(changedValue)} }) }));
+    expect(changedPayload.status).toBe(409);` : ""}` : "";
     const auditCheck = flow.audit !== undefined ? `
     expect(client.query<{ total: number }, [string]>("select count(*) as total from audit_events where action = ?").get(${JSON.stringify(flow.audit)})?.total).toBe(1);` : "";
-    const hasUpdates = flow.steps.some((step) => step.actions.some((action) => action.kind === "update"));
+    const emittedEvents = flow.steps.flatMap((step) => step.actions).filter((action): action is Extract<DataflowIR["steps"][number]["actions"][number], { kind: "emit" }> => action.kind === "emit");
+    const outboxCheck = emittedEvents.length ? `
+    expect(client.query<{ total: number }, []>("select count(*) as total from dataflow_outbox").get()?.total).toBe(${emittedEvents.length});
+    expect(client.query<{ event: string }, []>("select event from dataflow_outbox limit 1").get()?.event).toBe(${JSON.stringify(emittedEvents[0]!.event)});` : "";
+    const realtimeOutboxCheck = realtimeEnabled && emittedEvents.length ? `
+    expect(client.query<{ total: number }, []>("select count(*) as total from qiy_realtime_outbox").get()?.total).toBe(${emittedEvents.length});
+    expect(client.query<{ channel: string; type: string }, []>("select channel, type from qiy_realtime_outbox limit 1").get()).toEqual({ channel: ${JSON.stringify(`qiy:event:${emittedEvents[0]!.event}`)}, type: ${JSON.stringify(emittedEvents[0]!.event)} });` : "";
+    const firstCall = flow.steps.flatMap((step) => step.actions).find((action): action is Extract<DataflowIR["steps"][number]["actions"][number], { kind: "call" }> => action.kind === "call");
+    const callRollbackTest = firstCall ? `
+  test(${JSON.stringify(`${flow.name} rolls back when call adapter ${firstCall.adapter} rejects`)}, async () => {
+    ${seed}
+    const before = ${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all());
+    const previous = dataflowCallHandlers[${JSON.stringify(firstCall.adapter)}];
+    dataflowCallHandlers[${JSON.stringify(firstCall.adapter)}] = () => ({ ok: false, error: "Adapter rejected", errorKey: "adapter.rejected" });
+    try {
+      const rejected = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
+      expect(rejected.status).toBe(409);
+      expect(await rejected.json()).toMatchObject({ error: "Adapter rejected", errorKey: "adapter.rejected" });
+      expect(${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all())).toEqual(before);
+      expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM audit_events").get()?.total).toBe(0);
+    } finally { dataflowCallHandlers[${JSON.stringify(firstCall.adapter)}] = previous; }
+  });` : "";
+    const hasMutations = flow.steps.some((step) => step.actions.some((action) => action.kind === "update" || action.kind === "create" || action.kind === "delete" || action.kind === "emit"));
     const deniedRoles = ["viewer", ...["admin", "operator"].filter((role) => !(flow.roles ?? ["admin", "operator"]).includes(role as "admin" | "operator"))];
     const authorizationTest = `
   test(${JSON.stringify(`${flow.name} rejects unauthenticated and disallowed roles before writing`)}, async () => {
@@ -1221,7 +2171,7 @@ function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<Q
       ${flow.idempotency?.required ? 'expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM dataflow_idempotency").get()?.total).toBe(0);' : ""}
     }
   });`;
-    const businessRollbackTest = hasUpdates ? `
+    const businessRollbackTest = hasMutations ? `
   test(${JSON.stringify(`${flow.name} rolls back earlier writes when a later requirement fails`)}, async () => {
     ${seed}
     const before = ${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all());
@@ -1231,6 +2181,7 @@ function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<Q
     expect(await failed.json()).toMatchObject({ error: "qiy.test.lateFailure" });
     expect(${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all())).toEqual(before);
     expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM audit_events").get()?.total).toBe(0);
+    ${realtimeEnabled && emittedEvents.length ? 'expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM qiy_realtime_outbox").get()?.total).toBe(0);' : ""}
   });` : "";
     const rollbackTests = [flow.audit !== undefined ? "audit_events" : undefined, flow.idempotency?.required ? "dataflow_idempotency" : undefined].filter((table): table is string => Boolean(table)).map((table) => `
   test(${JSON.stringify(`${flow.name} rolls back when ${table} insertion fails and allows retry`)}, async () => {
@@ -1270,35 +2221,90 @@ function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<Q
     const before = ${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all());
     const rejected = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify({ ...${JSON.stringify(input)}, ${JSON.stringify(field)}: ${invalid} }) }));
     expect(rejected.status).toBe(409);
+    expect(await rejected.json()).toMatchObject(${JSON.stringify({ error: action.error, ...(action.errorKey ? { errorKey: action.errorKey } : {}) })});
     expect(${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all())).toEqual(before);
     expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM audit_events").get()?.total).toBe(0);
     ${flow.idempotency?.required ? 'expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM dataflow_idempotency").get()?.total).toBe(0);' : ""}
+    ${action.errorKey ? `const graphFailure = await graphqlApp.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json", "X-Test-Role": ${JSON.stringify(flow.roles?.[0] ?? "admin")} }, body: JSON.stringify({ query: ${JSON.stringify(graphqlQuery)}, variables: { ...${JSON.stringify(graphqlVariables)}, input: { ...${JSON.stringify(input)}, ${JSON.stringify(field)}: ${invalid} } } }) }));
+    const graphFailurePayload = await graphFailure.json() as { errors?: Array<{ extensions?: { status?: number; errorKey?: string } }> };
+    expect(graphFailurePayload.errors?.[0]?.extensions).toMatchObject(${JSON.stringify({ status: 409, errorKey: action.errorKey })});` : ""}
     const retry = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
     expect(retry.status).toBe(200);
   });`];
     }).join("\n");
+    const batchAction = qiyActions.find((action) => action.batch && action.target.kind === "dataflow" && action.target.dataflow === flow.name);
+    const batchBinding = batchAction ? flow.context.find((binding) => entities.get(binding.entity)?.tableName === batchAction.resource) : undefined;
+    const batchEntity = batchBinding ? entities.get(batchBinding.entity) : undefined;
+    const batchIdInput = batchBinding?.id.split(":", 2)[1]?.replace(/^input\./, "");
+    const batchRequirement = batchBinding ? flow.steps.flatMap((step) => step.actions).find((action): action is Extract<DataflowIR["steps"][number]["actions"][number], { kind: "require" }> => action.kind === "require" && action.left.startsWith(`${batchBinding.name}.`)) : undefined;
+    const batchRequirementField = batchRequirement && batchEntity ? batchEntity.fields.find((field) => field.name === batchRequirement.left.slice(batchRequirement.left.indexOf(".") + 1)) : undefined;
+    let batchFailureSetup = "";
+    let batchFailureReset = "";
+    if (batchEntity && batchRequirement && batchRequirementField) {
+      const fieldRequirements = [{ field: batchRequirementField.name, operator: batchRequirement.operator, right: batchRequirement.right }];
+      const valid = dataflowFixtureValue(batchRequirementField, fieldRequirements, database.enums);
+      const invalid = typeof batchRequirement.right === "number"
+        ? batchRequirement.operator === ">" ? batchRequirement.right : batchRequirement.operator === ">=" ? batchRequirement.right - 1 : batchRequirement.operator === "<" ? batchRequirement.right : batchRequirement.operator === "<=" ? batchRequirement.right + 1 : batchRequirement.operator === "==" ? batchRequirement.right + 1 : batchRequirement.right
+        : batchRequirement.operator === "==" ? "__qiy_batch_invalid__" : batchRequirement.right;
+      batchFailureSetup = `    client.query(${JSON.stringify(`UPDATE ${batchEntity.tableName} SET ${batchRequirementField.columnName ?? batchRequirementField.name} = ? WHERE id = ?`)}).run(${JSON.stringify(invalid)}, "00000000-0000-4000-8000-000000000002");\n`;
+      batchFailureReset = `    client.query(${JSON.stringify(`UPDATE ${batchEntity.tableName} SET ${batchRequirementField.columnName ?? batchRequirementField.name} = ? WHERE id = ?`)}).run(${valid}, "00000000-0000-4000-8000-000000000002");\n`;
+    }
+    const batchTest = batchAction && batchBinding && batchEntity && batchIdInput ? `
+  test(${JSON.stringify(`${flow.name} batch executes atomically with one persistent idempotency receipt`)}, async () => {
+    ${seed}
+    ${seed.replaceAll("00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002")}
+${batchFailureSetup}    const items = [
+      { ...${JSON.stringify(input)}, ${JSON.stringify(batchIdInput)}: "00000000-0000-4000-8000-000000000001" },
+      { ...${JSON.stringify(input)}, ${JSON.stringify(batchIdInput)}: "00000000-0000-4000-8000-000000000002" },
+    ];
+    const headers = { "Content-Type": "application/json", "Idempotency-Key": ${JSON.stringify(`batch-${flow.name}-key`)} };
+    const request = (body: unknown, requestHeaders = headers) => app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}/batch`)}, { method: "POST", headers: requestHeaders, body: JSON.stringify(body) }));
+    const before = ${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table + " ORDER BY id").all());
+    ${batchFailureSetup ? `const failed = await request({ items });
+    expect(failed.status).toBe(409);
+    expect(await failed.json()).toMatchObject({ item: { index: 1, id: "00000000-0000-4000-8000-000000000002" } });
+    expect(${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table + " ORDER BY id").all())).toEqual(before);
+    expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM dataflow_idempotency").get()?.total).toBe(0);
+${batchFailureReset}` : ""}    const graphResponse = await graphqlApp.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json", "X-Test-Role": ${JSON.stringify(flow.roles?.[0] ?? "admin")} }, body: JSON.stringify({ query: ${JSON.stringify(`mutation($items: [${graphqlName}CommandInput!]!, $key: String!) { ${graphqlOperation}Batch(items: $items, idempotencyKey: $key) { id } }`)}, variables: { items, key: ${JSON.stringify(`batch-${flow.name}-key`)} } }) }));
+    expect(graphResponse.status).toBe(200);
+    const graphPayload = await graphResponse.json() as { data?: { ${graphqlOperation}Batch?: Array<{ id: unknown }> }; errors?: unknown[] };
+    expect(graphPayload.errors).toBeUndefined();
+    const result = graphPayload.data?.${graphqlOperation}Batch ?? [];
+    expect(result).toHaveLength(2);
+    expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM dataflow_idempotency WHERE flow = '" + ${JSON.stringify(`${flow.name}:batch`)} + "'").get()?.total).toBe(1);
+    const replay = await request({ items });
+    expect(replay.status).toBe(200);
+    const replayResult = await replay.json() as Array<Record<string, unknown>>;
+    expect(replayResult.map((record) => ({ id: record.id }))).toEqual(result);
+    const conflict = await request({ items: [...items].reverse() });
+    expect(conflict.status).toBe(409);
+    const duplicate = await request({ items: [items[0], items[0]] }, { "Content-Type": "application/json", "Idempotency-Key": ${JSON.stringify(`batch-${flow.name}-duplicate`)} });
+    expect(duplicate.status).toBe(400);
+  });` : "";
     return `test(${JSON.stringify(flow.idempotency?.required ? "replays a successful command without a second audit event" : `${flow.name} returns not-found and commits its supported update`)}, async () => {
 ${missingKeyCheck}
-    const missing = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
-    expect(missing.status).toBe(404);
+    ${flow.context.length ? `const missing = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
+    expect(missing.status).toBe(404);` : ""}
     ${seed}
     const response = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
     expect(response.status).toBe(200);
     const result = await response.json();
-    ${assertions || "expect(result).toHaveProperty(\"id\");"}
-${replayCheck}${auditCheck}
-  });${authorizationTest}${rollbackTests}${businessRollbackTest}${inputValidationTests}${numericGuardTests}`;
+    ${assertions || "expect(result).toHaveProperty(\"id\");"}${resultMutationCheck}
+    ${replayCheck}${auditCheck}${outboxCheck}${realtimeOutboxCheck}
+  });${graphqlCommandTest}${authorizationTest}${rollbackTests}${businessRollbackTest}${callRollbackTest}${inputValidationTests}${numericGuardTests}${batchTest}`;
   }).join("\n\n");
   return `import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { Elysia } from "elysia";
 import { client, db } from "../src/db";
 import { ${imports} } from "../src/schema";
 import { createDataflowRoutes } from "../src/dataflows";
+${callAdapters.length ? 'import { dataflowCallHandlers } from "../src/extensions/dataflow-calls";\n' : ""}import { createApp, type Repositories } from "../src/app";
 import { createDataflowRoutes as createFailureRoutes } from "./fixtures/dataflow-failure";
 
 beforeAll(() => {
 ${schema}
 ${auxiliarySchema}
+${callAdapters.map((adapter) => `dataflowCallHandlers[${JSON.stringify(adapter)}] = () => ({ ok: true });`).join("\n")}
 });
 
 afterEach(() => {
@@ -1307,6 +2313,7 @@ ${cleanup}
 
 const testRoles: Record<string, "admin" | "operator"> = ${JSON.stringify(Object.fromEntries(dataflows.map((flow) => [flow.name, flow.roles?.[0] ?? "admin"])))};
 const app = new Elysia().use(createDataflowRoutes(async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: testRoles[new URL(request.url).pathname.split("/").at(-1)!] ?? "admin" })));
+const graphqlApp = await createApp({} as Repositories, async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "GraphQL Dataflow Test", role: (request.headers.get("x-test-role") ?? "admin") as "admin" | "operator" }), false, false, undefined, true);
 
 describe("generated dataflow routes", () => {
 ${tests}
@@ -1314,9 +2321,206 @@ ${tests}
 `;
 }
 
-export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "storageProvider" | "auth" | "scopes" | "corsOrigins" | "elysiaPlugins" | "workflows" | "dataflows"> = {}): Record<string, string> {
+function sqliteTestIdentifier(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+function scenarioPrincipal(scenario: QiyTestScenario, flow: DataflowIR): string {
+  if (scenario.identity?.kind === "anonymous") return "null";
+  const identity = scenario.identity;
+  const principal = identity ? {
+    id: resolveQiyTestValue(scenario, identity.id), name: "Qiy Scenario", role: identity.role,
+    claims: Object.fromEntries(Object.entries(identity.claims).map(([claim, value]) => [claim, resolveQiyTestValue(scenario, value)])),
+  } : { id: "00000000-0000-4000-8000-000000000010", name: "Qiy Scenario", role: flow.roles?.[0] ?? "admin" };
+  return JSON.stringify(principal);
+}
+
+function renderQiyScenarioTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, suite?: QiyTestSuite): string | undefined {
+  if (!suite) return undefined;
+  if (database.dialect === "postgresql" || database.dialect === "mysql") return renderServerQiyScenarioTest(database, dataflows, suite);
+  if (database.dialect !== "sqlite") throw new Error("Declarative app.test.qiy scenarios require sqlite, postgresql or mysql");
+  const entities = new Map(database.entities.map((entity) => [entity.name, entity]));
+  const selectedFlows = suite.scenarios.map((scenario) => dataflows.find((flow) => flow.name === scenario.dataflow)!);
+  const entityNames = new Set<string>();
+  for (const scenario of suite.scenarios) for (const fixture of scenario.given) entityNames.add(fixture.entity);
+  for (const flow of selectedFlows) {
+    for (const context of flow.context) entityNames.add(context.entity);
+    for (const action of flow.steps.flatMap((step) => step.actions)) if (action.kind === "create") entityNames.add(action.entity);
+  }
+  const usedEntities = [...entityNames].map((name) => entities.get(name)!);
+  const schema = usedEntities.map((entity) => {
+    const columns = entity.fields.map((field) => `${sqliteTestIdentifier(field.columnName ?? field.name)} ${sqliteColumnType(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
+    return `client.exec(${JSON.stringify(`CREATE TABLE IF NOT EXISTS ${sqliteTestIdentifier(entity.tableName)} (${columns})`)});`;
+  }).join("\n");
+  const usesAudit = selectedFlows.some((flow) => flow.audit !== undefined);
+  const usesIdempotency = selectedFlows.some((flow) => flow.idempotency?.required);
+  const usesOutbox = selectedFlows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) || suite.scenarios.some((scenario) => scenario.expectedOutbox?.length);
+  const callAdapters = dataflowCallAdapters(selectedFlows);
+  const auxiliary = [
+    ...(usesAudit ? [`client.exec("CREATE TABLE IF NOT EXISTS audit_events (id text primary key, actorId text, action text not null, resource text not null, resourceId text, metadata text, createdAt integer not null)");`] : []),
+    ...(usesIdempotency ? [`client.exec("CREATE TABLE IF NOT EXISTS dataflow_idempotency (id text primary key, actorId text not null, flow text not null, requestKeyHash text not null, requestHash text not null, response text not null, UNIQUE(actorId, flow, requestKeyHash))");`] : []),
+    ...(usesOutbox ? [`client.exec("CREATE TABLE IF NOT EXISTS dataflow_outbox (id text primary key, actorId text, event text not null, payload text not null, createdAt integer not null)");`] : []),
+  ].join("\n");
+  const cleanup = [
+    ...[...usedEntities].reverse().map((entity) => `client.exec(${JSON.stringify(`DELETE FROM ${sqliteTestIdentifier(entity.tableName)}`)});`),
+    ...(usesAudit ? ["client.exec('DELETE FROM audit_events');"] : []),
+    ...(usesIdempotency ? ["client.exec('DELETE FROM dataflow_idempotency');"] : []),
+    ...(usesOutbox ? ["client.exec('DELETE FROM dataflow_outbox');"] : []),
+  ].join("\n");
+  const tests = suite.scenarios.map((scenario) => {
+    const flow = dataflows.find((item) => item.name === scenario.dataflow)!;
+    const seed = scenario.given.map((fixture) => {
+      const entity = entities.get(fixture.entity)!;
+      const fields = Object.keys(fixture.values);
+      const columns = fields.map((name) => sqliteTestIdentifier(entity.fields.find((field) => field.name === name)!.columnName ?? name));
+      const placeholders = fields.map(() => "?");
+      const values = fields.map((name) => fixture.values[name]);
+      return `client.query(${JSON.stringify(`INSERT INTO ${sqliteTestIdentifier(entity.tableName)} (${columns.join(", ")}) VALUES (${placeholders.join(", ")})`)}).run(...${JSON.stringify(values)});`;
+    }).join("\n    ");
+    const input = Object.fromEntries(Object.entries(scenario.input).map(([name, configured]) => [name, resolveQiyTestValue(scenario, configured)]));
+    const headers = `{ "Content-Type": "application/json"${flow.idempotency?.required ? `, "Idempotency-Key": ${JSON.stringify(`qiy-scenario-${scenario.name}`)}` : ""} }`;
+    const payloadExpectation = scenario.expectedErrorKey === undefined ? "" : `\n    expect(payload).toMatchObject({ errorKey: ${JSON.stringify(scenario.expectedErrorKey)} });`;
+    const fieldExpectations = scenario.expectedFields.map((expectation) => {
+      const fixture = scenario.given.find((item) => item.alias === expectation.alias)!;
+      const entity = entities.get(fixture.entity)!;
+      const primary = entity.fields.find((field) => field.primaryKey)!;
+      const primaryValue = fixture.values[primary.name]!;
+      const field = entity.fields.find((item) => item.name === expectation.field)!;
+      const expected = resolveQiyTestValue(scenario, expectation.value);
+      const query = `SELECT ${sqliteTestIdentifier(field.columnName ?? field.name)} AS value FROM ${sqliteTestIdentifier(entity.tableName)} WHERE ${sqliteTestIdentifier(primary.columnName ?? primary.name)} = ?`;
+      return `expect(client.query<{ value: unknown }, [string | number]>(${JSON.stringify(query)}).get(${JSON.stringify(primaryValue)})?.value).toBe(${JSON.stringify(expected)});`;
+    }).join("\n    ");
+    const existenceExpectations = (scenario.expectedExists ?? []).map((expectation) => {
+      const fixture = scenario.given.find((item) => item.alias === expectation.alias)!;
+      const entity = entities.get(fixture.entity)!;
+      const primary = entity.fields.find((field) => field.primaryKey)!;
+      const query = `SELECT 1 AS value FROM ${sqliteTestIdentifier(entity.tableName)} WHERE ${sqliteTestIdentifier(primary.columnName ?? primary.name)} = ?`;
+      return `expect(Boolean(client.query<{ value: number }, [string | number]>(${JSON.stringify(query)}).get(${JSON.stringify(fixture.values[primary.name])}))).toBe(${expectation.exists});`;
+    }).join("\n    ");
+    const outboxExpectations = (scenario.expectedOutbox ?? []).map((expectation) => `expect(client.query<{ total: number }, [string]>("SELECT COUNT(*) AS total FROM dataflow_outbox WHERE event = ?").get(${JSON.stringify(expectation.event)})?.total).toBe(${expectation.count});`).join("\n    ");
+    return `  test(${JSON.stringify(scenario.name)}, async () => {
+    ${seed}
+    const app = new Elysia().use(createDataflowRoutes(async () => (${scenarioPrincipal(scenario, flow)})));
+    const response = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${scenario.dataflow}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
+    expect(response.status).toBe(${scenario.expectedStatus});
+    const payload = await response.json();${payloadExpectation}
+    ${fieldExpectations || "expect(payload).toBeDefined();"}
+    ${existenceExpectations}
+    ${outboxExpectations}
+  });`;
+  }).join("\n\n");
+  return `import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { Elysia } from "elysia";
+import { client } from "../src/db";
+import { createDataflowRoutes } from "../src/dataflows";
+${callAdapters.length ? 'import { dataflowCallHandlers } from "../src/extensions/dataflow-calls";\n' : ""}
+beforeAll(() => {
+${schema}
+${auxiliary}
+${callAdapters.map((adapter) => `dataflowCallHandlers[${JSON.stringify(adapter)}] = () => ({ ok: true });`).join("\n")}
+});
+
+afterEach(() => {
+${cleanup}
+});
+
+describe("declarative qiy scenarios", () => {
+${tests}
+});
+`;
+}
+
+function renderServerQiyScenarioTest(database: DatabaseIR, dataflows: DataflowIR[], suite: QiyTestSuite): string {
+  const orderedEntities: EntityIR[] = [];
+  const visiting = new Set<string>();
+  const visit = (entity: EntityIR) => {
+    if (orderedEntities.includes(entity)) return;
+    if (visiting.has(entity.name)) throw new Error("Declarative database scenarios cannot automatically clean cyclic foreign keys");
+    visiting.add(entity.name);
+    for (const relation of database.relations ?? []) {
+      if (relation.fromEntity === entity.name) visit(database.entities.find((item) => item.name === relation.toEntity)!);
+    }
+    visiting.delete(entity.name);
+    orderedEntities.push(entity);
+  };
+  database.entities.forEach(visit);
+  const selectedFlows = suite.scenarios.map((scenario) => dataflows.find((flow) => flow.name === scenario.dataflow)!);
+  const callAdapters = dataflowCallAdapters(selectedFlows);
+  const valueCode = (field: FieldIR, value: string | number | boolean) => field.type === "DateTime"
+    ? `new Date(${JSON.stringify(value)})`
+    : field.type === "Decimal" || field.type === "Money" ? JSON.stringify(String(value)) : JSON.stringify(value);
+  const scenarios = suite.scenarios.map((scenario) => {
+    const flow = selectedFlows.find((item) => item.name === scenario.dataflow)!;
+    const seed = [...scenario.given].sort((first, second) => orderedEntities.findIndex((entity) => entity.name === first.entity) - orderedEntities.findIndex((entity) => entity.name === second.entity)).map((fixture) => {
+      const entity = database.entities.find((item) => item.name === fixture.entity)!;
+      const values = Object.entries(fixture.values).map(([name, value]) => `${JSON.stringify(name)}: ${valueCode(entity.fields.find((field) => field.name === name)!, value)}`);
+      return `await db.insert(schema.${entity.name}).values({ ${values.join(", ")} });`;
+    }).join("\n    ");
+    const input = Object.fromEntries(Object.entries(scenario.input).map(([name, value]) => [name, resolveQiyTestValue(scenario, value)]));
+    const expected = scenario.expectedFields.map((expectation, index) => {
+      const fixture = scenario.given.find((item) => item.alias === expectation.alias)!;
+      const entity = database.entities.find((item) => item.name === fixture.entity)!;
+      const primary = entity.fields.find((field) => field.primaryKey)!;
+      const field = entity.fields.find((item) => item.name === expectation.field)!;
+      return `const rows${index} = await db.select({ value: schema.${entity.name}.${field.name} }).from(schema.${entity.name}).where(eq(schema.${entity.name}.${primary.name}, ${valueCode(primary, fixture.values[primary.name]!)}));\n    expect(rows${index}[0]?.value).toEqual(${valueCode(field, resolveQiyTestValue(scenario, expectation.value))});`;
+    }).join("\n    ");
+    const existenceExpectations = (scenario.expectedExists ?? []).map((expectation, index) => {
+      const fixture = scenario.given.find((item) => item.alias === expectation.alias)!;
+      const entity = database.entities.find((item) => item.name === fixture.entity)!;
+      const primary = entity.fields.find((field) => field.primaryKey)!;
+      return `const exists${index} = await db.select({ id: schema.${entity.name}.${primary.name} }).from(schema.${entity.name}).where(eq(schema.${entity.name}.${primary.name}, ${valueCode(primary, fixture.values[primary.name]!)})).limit(1);\n    expect(exists${index}.length > 0).toBe(${expectation.exists});`;
+    }).join("\n    ");
+    const outboxExpectations = (scenario.expectedOutbox ?? []).map((expectation, index) => `const outbox${index} = await db.select({ total: count() }).from(schema.dataflowOutbox).where(eq(schema.dataflowOutbox.event, ${JSON.stringify(expectation.event)}));\n    expect(Number(outbox${index}[0]?.total)).toBe(${expectation.count});`).join("\n    ");
+    return `  test(${JSON.stringify(scenario.name)}, async () => {
+    ${seed}
+    const app = new Elysia().use(createDataflowRoutes(async () => (${scenarioPrincipal(scenario, flow)})));
+    const response = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${scenario.dataflow}`)}, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(${JSON.stringify(input)}) }));
+    expect(response.status).toBe(${scenario.expectedStatus});
+    const payload = await response.json();
+    ${scenario.expectedErrorKey === undefined ? "expect(payload).toBeDefined();" : `expect(payload).toMatchObject({ errorKey: ${JSON.stringify(scenario.expectedErrorKey)} });`}
+    ${expected}
+    ${existenceExpectations}
+    ${outboxExpectations}
+  });`;
+  }).join("\n\n");
+  const cleanup = orderedEntities.slice().reverse().map((entity) => `  await db.delete(schema.${entity.name});`).join("\n");
+  const auxiliary = [
+    ...(dataflows.some((flow) => flow.audit) ? ["auditEvents"] : []),
+    ...(dataflows.some((flow) => flow.idempotency?.required) ? ["dataflowIdempotency"] : []),
+    ...(dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) ? ["dataflowOutbox"] : []),
+  ].map((name) => `  await db.delete(schema.${name});`).join("\n");
+  return `import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { eq${suite.scenarios.some((scenario) => scenario.expectedOutbox?.length) ? ", count" : ""} } from "drizzle-orm";
+import { Elysia } from "elysia";
+
+const testUrl = Bun.env.QIY_TEST_DATABASE_URL;
+if (!testUrl || testUrl !== Bun.env.DATABASE_URL || !/^\\/qiy_test_[a-zA-Z0-9_]+$/.test(new URL(testUrl).pathname)) {
+  throw new Error("Declarative scenarios require DATABASE_URL = QIY_TEST_DATABASE_URL pointing to a dedicated qiy_test_* database; migrate it first");
+}
+const { db } = await import("../src/db");
+const schema = await import("../src/schema");
+const { createDataflowRoutes } = await import("../src/dataflows");
+${callAdapters.length ? 'const { dataflowCallHandlers } = await import("../src/extensions/dataflow-calls");' : ""}
+async function cleanup() {
+${auxiliary}
+${cleanup}
+}
+beforeEach(async () => {
+  await cleanup();
+${callAdapters.map((adapter) => `  dataflowCallHandlers[${JSON.stringify(adapter)}] = () => ({ ok: true });`).join("\n")}
+});
+afterEach(cleanup);
+describe("declarative qiy scenarios", () => {
+${scenarios}
+});
+`;
+}
+
+export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "storageProvider" | "auth" | "scopes" | "corsOrigins" | "elysiaPlugins" | "workflows" | "dataflows" | "actions" | "realtime"> & { testSuite?: QiyTestSuite } = {}): Record<string, string> {
+  if (options.realtime && !options.auth) throw new Error("Realtime requires generated authentication");
   const errors = validateDatabaseIR(database);
   if (errors.length) throw new Error(errors.join("\n"));
+  const uploadField = database.entities.flatMap((entity) => entity.fields.filter((field) => field.type === "File").map((field) => ({ entity, field }))).at(0);
   const graphqlTypes = new Set(["String", "Int", "Float", "Boolean", "ID", "Query", "Mutation", "QiyFilterInput", "QiyDistribution", "QiyTrend"]);
   const graphqlQueries = new Set<string>();
   const graphqlMutations = new Set<string>();
@@ -1348,6 +2552,21 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
     }
     if (!entity.fields.some((field) => !field.primaryKey)) errors.push(`GraphQL: ${entity.name} requires a non-primary field for create/update inputs`);
   }
+  for (const flow of options.dataflows ?? []) {
+    const name = dataflowGraphqlName(flow.name);
+    if (flow.input.length > 0) registerGraphqlType(`${name}CommandInput`);
+    const mutation = `run${name}`;
+    if (!validGraphqlName(mutation) || graphqlMutations.has(mutation)) errors.push(`GraphQL: invalid or duplicate mutation name ${mutation}`);
+    graphqlMutations.add(mutation);
+    if ((options.actions ?? []).some((action) => action.batch && action.target.kind === "dataflow" && action.target.dataflow === flow.name)) {
+      const batchMutation = `${mutation}Batch`;
+      if (!validGraphqlName(batchMutation) || graphqlMutations.has(batchMutation)) errors.push(`GraphQL: invalid or duplicate mutation name ${batchMutation}`);
+      graphqlMutations.add(batchMutation);
+    }
+    for (const field of flow.input) {
+      if (!validGraphqlName(field.name)) errors.push(`GraphQL: invalid dataflow input name ${flow.name}.${field.name}`);
+    }
+  }
   if (database.entities.some((entity) => entity.fields.some((field) => field.type === "Vector")) && database.dialect !== "postgresql") errors.push("Vector fields require PostgreSQL with pgvector");
   for (const entity of database.entities) {
     const keys = entity.fields.filter((field) => field.primaryKey);
@@ -1357,6 +2576,15 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
     if (!/^[a-z][a-z0-9_-]*$/.test(entity.tableName)) errors.push(`${entity.name}: route path must be lowercase and URL-safe`);
   }
   const auth = options.auth;
+  const realtimeResources = new Set<string>();
+  for (const subscription of options.realtime?.resources ?? []) {
+    const entity = database.entities.find((candidate) => candidate.name === subscription.resource || candidate.tableName === subscription.resource);
+    if (!entity) errors.push(`Realtime: unknown resource ${subscription.resource}`);
+    else if (realtimeResources.has(entity.tableName)) errors.push(`Realtime: duplicate resource ${entity.tableName}`);
+    else realtimeResources.add(entity.tableName);
+    if (!subscription.events.length || new Set(subscription.events).size !== subscription.events.length) errors.push(`Realtime ${subscription.resource}: events must be unique and non-empty`);
+    if (!subscription.roles.length || new Set(subscription.roles).size !== subscription.roles.length) errors.push(`Realtime ${subscription.resource}: roles must be unique and non-empty`);
+  }
   const cronNames = new Set<string>();
   for (const job of options.elysiaPlugins?.cron ?? []) {
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(job.name)) errors.push(`Cron: invalid job name ${job.name}`);
@@ -1412,11 +2640,14 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
   const apps = database.entities.map((entity) => `    .use(${modelName(entity)}Routes(repositories.${entity.name}, authenticate))`).join("\n");
   const interfaces = database.entities.map((entity) => `  ${entity.name}: import("./modules/${entity.name}/${entity.name}.contract").${modelName(entity)}Repository;`).join("\n");
   const orderWorkflow = renderOrderWorkflow(database, options.scopes ?? [], options.workflows?.includes("orderInventory"));
-  const dataflowRoutes = renderDataflowRoutes(database, options.dataflows ?? [], options.scopes ?? []);
+  const dataflowRoutes = renderDataflowRoutes(database, options.dataflows ?? [], options.scopes ?? [], options.actions ?? [], options.realtime !== undefined);
   const protectedResources = JSON.stringify([
     ...database.entities.map((entity) => ({ path: entity.tableName, query: entity.name })),
     { path: "files", query: "files" },
-    ...(dataflowRoutes ? [{ path: "commands", query: "commands" }] : []),
+    ...(dataflowRoutes ? [{ path: "commands", query: "commands", mutations: (options.dataflows ?? []).flatMap((flow) => {
+      const operation = `run${dataflowGraphqlName(flow.name)}`;
+      return (options.actions ?? []).some((action) => action.batch && action.target.kind === "dataflow" && action.target.dataflow === flow.name) ? [operation, `${operation}Batch`] : [operation];
+    }) }] : []),
   ]);
   const postgresSchema = database.dialect === "postgresql" ? generateDrizzlePostgres(database) : "";
   const baseSchema = database.dialect === "postgresql" ? postgresSchema.replace("import { ", orderWorkflow && !postgresSchema.includes("uniqueIndex") ? "import { uniqueIndex, " : "import { ") + (orderWorkflow ? `
@@ -1437,7 +2668,10 @@ export const orderIdempotency = pgTable("order_idempotency", {
 }, (table) => [uniqueIndex("order_idempotency_scope_idx").on(table.orderId, table.actorId, table.requestKey)]);
 ` : "") : database.dialect === "sqlite" ? generateDrizzleSqlite(database) : generateDrizzleMysql(database);
   const usesDataflowIdempotency = (options.dataflows ?? []).some((flow) => flow.idempotency?.required);
-  const generatedSchema = baseSchema + (usesDataflowIdempotency ? renderDataflowIdempotencySchema(database.dialect) : "");
+  const generatedSchema = baseSchema
+    + (usesDataflowIdempotency ? renderDataflowIdempotencySchema(database.dialect) : "")
+    + ((options.dataflows ?? []).some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) ? renderDataflowOutboxSchema(database.dialect) : "")
+    + (options.realtime ? renderRealtimeOutboxSchema(database.dialect) : "");
   const pluginDependencies: Record<string, string> = {};
   if (options.elysiaPlugins?.bearer) pluginDependencies["@elysia/bearer"] = "1.4.4";
   if (options.elysiaPlugins?.serverTiming) pluginDependencies["@elysia/server-timing"] = "1.4.1";
@@ -1454,6 +2688,7 @@ export const orderIdempotency = pgTable("order_idempotency", {
     pluginDependencies["@apollo/server"] = "5.0.0";
   }
   if (options.elysiaPlugins?.drizzle) pluginDependencies["drizzle-typebox"] = "0.3.3";
+  if (options.realtime) pluginDependencies.ably = "2.29.0";
   const files: Record<string, string> = {
     ...renderAppTemplate("server", "api"),
     "api/src/db.ts": database.dialect === "postgresql" ? `import { SQL } from "bun";\nimport { drizzle } from "drizzle-orm/bun-sql";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = new SQL(url);\nexport const db = drizzle({ client, schema });\n` : database.dialect === "sqlite" ? `import { Database } from "bun:sqlite";\nimport { drizzle } from "drizzle-orm/bun-sqlite";\nimport * as schema from "./schema";\n\nconst filename = Bun.env.DATABASE_URL ?? "./qiy.sqlite";\nexport const client = new Database(filename);\nexport const db = drizzle(client, { schema });\n` : `import mysql from "mysql2/promise";\nimport { drizzle } from "drizzle-orm/mysql2";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = mysql.createPool({ uri: url, timezone: "Z" });\nexport const db = drizzle({ client, schema, mode: "default" });\n`,
@@ -1485,7 +2720,7 @@ try {
   });
 }
 `,
-    "api/src/schema.ts": generatedSchema,
+    "api/src/schema.ts": `${generatedDocumentation(database)}${generatedSchema}`,
     "api/drizzle.config.ts": database.dialect === "postgresql" ? `import { defineConfig } from "drizzle-kit";\nexport default defineConfig({ dialect: "postgresql", schema: "./src/schema.ts", out: "./drizzle", dbCredentials: { url: process.env.DATABASE_URL ?? "postgres://qiy:qiy@localhost:5432/qiy" } });\n` : database.dialect === "sqlite" ? `import { defineConfig } from "drizzle-kit";\nexport default defineConfig({ dialect: "sqlite", schema: "./src/schema.ts", out: "./drizzle", dbCredentials: { url: process.env.DATABASE_URL ?? "./qiy.sqlite" } });\n` : `import { defineConfig } from "drizzle-kit";\nexport default defineConfig({ dialect: "mysql", schema: "./src/schema.ts", out: "./drizzle", dbCredentials: { url: process.env.DATABASE_URL ?? "mysql://qiy:qiy@localhost:3306/qiy" } });\n`,
     "api/src/app.ts": `import { Elysia } from "elysia";
  import { cors } from "@elysia/cors";
@@ -1493,6 +2728,7 @@ try {
  import { registerPlugins } from "./plugins";
  import { createGraphQLRoutes } from "./graphql";
  import { createAuthorizationGuard, type Authenticator } from "./auth/guard";
+ ${options.realtime ? 'import { createRealtimeRoutes } from "./realtime";' : ""}
  ${imports}
 
 export interface Repositories {
@@ -1524,6 +2760,7 @@ export async function createApp(repositories: Repositories, authenticate: Authen
  ${apps};
  ${orderWorkflow ? '   const workflow = includeWorkflows ? (await import("./workflows/order")).createOrderWorkflowRoutes(authenticate) : undefined;' : ''}
  ${dataflowRoutes ? '   const dataflows = includeDataflows ? (await import("./dataflows")).createDataflowRoutes(authenticate) : undefined;' : ''}
+    ${options.realtime ? "const realtime = createRealtimeRoutes(authenticate);" : ""}
     const storage = includeStorage ? (await import("./storage/routes")).createStorageRoutes(authenticate) : undefined;
     ${auth?.provider === "local" ? 'const authRoutes = (await import("./auth/local")).createLocalAuthRoutes();' : auth?.provider === "otp" ? 'const authRoutes = (await import("./auth/otp")).createOtpAuthRoutes();' : ''}
     const application = new Elysia().use(allowedOrigins.length > 0 ? cors({ origin: allowedOrigins, credentials: false, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key"] }) : new Elysia()).onRequest(({ request }) => guard(request)).use(openapi({ path: "/api/v1/openapi", documentation: { info: { title: "Qiy Admin API", version: "1.0.0" } } })).use(routes)${options.elysiaPlugins?.graphqlAdapter && options.elysiaPlugins.graphqlAdapter !== "native" ? '' : '.use(createGraphQLRoutes(repositories, authenticate))'};
@@ -1531,14 +2768,272 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     ${auth?.provider === "local" || auth?.provider === "otp" ? "composed = composed.use(authRoutes);" : ""}
     ${orderWorkflow ? "composed = workflow ? composed.use(workflow) : composed;" : ""}
     ${dataflowRoutes ? "composed = dataflows ? composed.use(dataflows) : composed;" : ""}
+    ${options.realtime ? "composed = composed.use(realtime);" : ""}
     composed = storage ? composed.use(storage) : composed;
     ${auth ? 'composed = composed.use((await import("./audit/routes")).createAuditRoutes(authenticate));' : ""}
     return registerPlugins(composed, { repositories, authenticate });
 }
 `,
     "api/src/modules/index.ts": database.entities.map((entity) => `export { ${modelName(entity)}Routes } from "./${entity.name}/${entity.name}.routes";`).join("\n") + "\n",
-    "api/src/graphql.ts": renderGraphQL(scopedDatabase, options.auth?.provider === "local" ? { [options.auth.userEntity]: [options.auth.passwordField!] } : {}),
-    "api/src/graphql-adapter.ts": renderGraphQLAdapter(scopedDatabase),
+    "api/src/graphql.ts": renderGraphQL(scopedDatabase, options.auth?.provider === "local" ? { [options.auth.userEntity]: [options.auth.passwordField!] } : {}, options.dataflows ?? [], options.actions ?? []),
+    "api/src/graphql-adapter.ts": renderGraphQLAdapter(scopedDatabase, options.dataflows ?? [], options.actions ?? []),
+    ...(options.realtime ? {
+      "api/src/realtime.ts": renderRealtime(options.realtime, database.dialect, options.dataflows ?? []),
+      "api/src/realtime-admin.ts": renderRealtimeAdminCli(),
+      "api/tests/realtime-admin.test.ts": renderRealtimeAdminCliTest(),
+      "api/tests/realtime.test.ts": `import { afterEach, expect, test } from "bun:test";
+import { Elysia } from "elysia";
+${database.dialect === "sqlite" ? 'import { inArray } from "drizzle-orm";\nimport { client, db } from "../src/db";\nimport { auditEvents, realtimeOutbox } from "../src/schema";\n' : ""}import { cleanupRealtimeOutbox, createRealtimeRoutes, dispatchRealtimeOutbox, publishRealtime, realtimeCapabilities, type RealtimeOutboxRecord, type RealtimeOutboxStore } from "../src/realtime";
+
+afterEach(() => { Bun.env.QIY_REALTIME_DISABLED = "1"; });
+
+test("isolates and rotates read-only metrics credentials without granting administrator access", async () => {
+  const previousToken = Bun.env.QIY_REALTIME_METRICS_TOKEN;
+  let reads = 0;
+  const store = { metrics: async () => { reads++; return { pending: 2, leased: 0, deadLettered: 0, delivered: 3, oldestPendingAt: null }; } } as unknown as RealtimeOutboxStore;
+  const app = new Elysia().use(createRealtimeRoutes(async () => null, undefined, store));
+  const request = (path: string, token?: string, method = "GET", body?: string) => app.handle(new Request("http://localhost/api/v1/realtime" + path, {
+    method, headers: { ...(token ? { authorization: "Bearer " + token } : {}), ...(body ? { "content-type": "application/json" } : {}) }, body,
+  }));
+  try {
+    delete Bun.env.QIY_REALTIME_METRICS_TOKEN;
+    expect((await request("/outbox/metrics/prometheus", "scrape-token-a")).status).toBe(401);
+    Bun.env.QIY_REALTIME_METRICS_TOKEN = "scrape-token-a";
+    expect((await request("/outbox/metrics/prometheus")).status).toBe(401);
+    expect((await request("/outbox/metrics/prometheus", "wrong")).status).toBe(401);
+    expect((await request("/outbox/metrics/prometheus", "scrape-token-b")).status).toBe(401);
+    expect(reads).toBe(0);
+    const accepted = await request("/outbox/metrics/prometheus", "scrape-token-a");
+    expect(accepted.status).toBe(200);
+    expect(await accepted.text()).toContain("qiy_realtime_outbox_pending 2");
+    for (const path of ["/outbox/metrics", "/outbox/health", "/outbox/dead"]) expect((await request(path, "scrape-token-a")).status).toBe(401);
+    expect((await request("/token", "scrape-token-a", "POST")).status).toBe(401);
+    expect((await request("/outbox/replay", "scrape-token-a", "POST", JSON.stringify({ ids: ["11111111-1111-4111-8111-111111111111"] }))).status).toBe(401);
+    expect((await request("/outbox/delivered", "scrape-token-a", "DELETE")).status).toBe(401);
+    Bun.env.QIY_REALTIME_METRICS_TOKEN = "scrape-token-b";
+    expect((await request("/outbox/metrics/prometheus", "scrape-token-a")).status).toBe(401);
+    expect((await request("/outbox/metrics/prometheus", "scrape-token-b")).status).toBe(200);
+    expect(reads).toBe(2);
+  } finally {
+    if (previousToken === undefined) delete Bun.env.QIY_REALTIME_METRICS_TOKEN;
+    else Bun.env.QIY_REALTIME_METRICS_TOKEN = previousToken;
+  }
+});
+
+test("issues role-scoped subscribe-only Ably token requests", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const client = { auth: { createTokenRequest: async (request: Record<string, unknown>) => { requests.push(request); return { keyName: "test", nonce: "nonce", mac: "mac", timestamp: 1, capability: request.capability, clientId: request.clientId }; } }, channels: { get: () => ({ publish: async () => {} }) } } as any;
+  Bun.env.QIY_REALTIME_DISABLED = "0";
+  const app = new Elysia().use(createRealtimeRoutes(async () => ({ id: "operator-1", name: "Operator", role: "operator" }), () => client));
+  const response = await app.handle(new Request("http://localhost/api/v1/realtime/token", { method: "POST" }));
+  expect(response.status).toBe(200);
+  expect(requests).toHaveLength(1);
+  expect(JSON.parse(String(requests[0]!.capability))).toEqual(realtimeCapabilities({ id: "operator-1", name: "Operator", role: "operator" }));
+  const operations = Object.values(JSON.parse(String(requests[0]!.capability)) as Record<string, string[]>).flat();
+  expect(operations.length).toBeGreaterThan(0);
+  expect(operations.every((operation) => operation === "subscribe")).toBe(true);
+});
+
+test("rejects anonymous principals and roles without subscribed channels", async () => {
+  Bun.env.QIY_REALTIME_DISABLED = "0";
+  const client = { auth: { createTokenRequest: async () => { throw new Error("token request must not be issued"); } }, channels: { get: () => ({ publish: async () => {} }) } } as any;
+  const anonymous = new Elysia().use(createRealtimeRoutes(async () => null, () => client));
+  const anonymousResponse = await anonymous.handle(new Request("http://localhost/api/v1/realtime/token", { method: "POST" }));
+  expect(anonymousResponse.status).toBe(401);
+  expect(await anonymousResponse.json()).toEqual({ error: "Authentication required" });
+
+  const unauthorized = new Elysia().use(createRealtimeRoutes(async () => ({ id: "viewer-1", name: "Viewer", role: "viewer" }), () => client));
+  const unauthorizedResponse = await unauthorized.handle(new Request("http://localhost/api/v1/realtime/token", { method: "POST" }));
+  expect(unauthorizedResponse.status).toBe(403);
+  expect(await unauthorizedResponse.json()).toEqual({ error: "Realtime subscription is not permitted" });
+});
+
+test("publishes only declared resource events after callers commit", async () => {
+  const published: unknown[] = [];
+  Bun.env.QIY_REALTIME_DISABLED = "0";
+  const client = { auth: { createTokenRequest: async () => ({}) }, channels: { get: (channel: string) => ({ publish: async (type: string, payload: unknown) => published.push({ channel, type, payload }) }) } } as any;
+  const subscription = ${JSON.stringify(options.realtime.resources[0])};
+  await publishRealtime(subscription.resource, subscription.events[0] as "created" | "updated" | "deleted", { id: "record-1" }, () => client);
+  await publishRealtime("unknown", "created", { id: "record-2" }, () => client);
+  expect(published).toEqual([{ channel: "qiy:" + subscription.resource, type: subscription.events[0], payload: { id: "record-1" } }]);
+});
+
+test("keeps failed outbox records pending and retries them", async () => {
+  Bun.env.QIY_REALTIME_DISABLED = "0";
+  const record: RealtimeOutboxRecord = { id: "event-1", channel: "qiy:orders", type: "updated", payload: JSON.stringify({ id: "order-1" }), attempts: 0 };
+  const delivered: string[] = [];
+  const failures: Array<{ id: string; attempts: number; error: string; availableAt: Date }> = [];
+  const store: RealtimeOutboxStore = {
+    claim: async () => [record],
+    delivered: async (id) => { delivered.push(id); },
+    failed: async (id, _leaseOwner, attempts, error, availableAt) => { failures.push({ id, attempts, error, availableAt }); record.attempts = attempts; },
+    dead: async () => {},
+    deadLetters: async () => [],
+    replay: async () => false,
+    replayMany: async () => [],
+    cleanupDelivered: async () => 0,
+    metrics: async () => ({ pending: 0, leased: 0, deadLettered: 0, delivered: 0, oldestPendingAt: null }),
+  };
+  const failedClient = { auth: { createTokenRequest: async () => ({}) }, channels: { get: () => ({ publish: async () => { throw new Error("provider unavailable"); } }) } } as any;
+  expect(await dispatchRealtimeOutbox(10, () => failedClient, store)).toEqual({ delivered: 0, failed: 1, deadLettered: 0 });
+  expect(failures[0]?.id).toBe("event-1");
+  expect(failures[0]?.attempts).toBe(1);
+  expect(failures[0]?.availableAt.getTime()).toBeGreaterThan(Date.now());
+  const workingClient = { auth: { createTokenRequest: async () => ({}) }, channels: { get: () => ({ publish: async () => {} }) } } as any;
+  expect(await dispatchRealtimeOutbox(10, () => workingClient, store)).toEqual({ delivered: 1, failed: 0, deadLettered: 0 });
+  expect(delivered).toEqual(["event-1"]);
+});
+
+test("claims an outbox record only once across concurrent workers", async () => {
+  Bun.env.QIY_REALTIME_DISABLED = "0";
+  Bun.env.QIY_REALTIME_LEASE_MS = "30000";
+  const record: RealtimeOutboxRecord = { id: "event-1", channel: "qiy:orders", type: "updated", payload: JSON.stringify({ id: "order-1" }), attempts: 0 };
+  let claimed = false;
+  const delivered: string[] = [];
+  const store: RealtimeOutboxStore = {
+    claim: async () => claimed ? [] : (claimed = true, [record]),
+    delivered: async (id, leaseOwner) => { delivered.push(leaseOwner + ":" + id); },
+    failed: async () => {},
+    dead: async () => {},
+    deadLetters: async () => [],
+    replay: async () => false,
+    replayMany: async () => [],
+    cleanupDelivered: async () => 0,
+    metrics: async () => ({ pending: 0, leased: 0, deadLettered: 0, delivered: 0, oldestPendingAt: null }),
+  };
+  const published: string[] = [];
+  const client = { auth: { createTokenRequest: async () => ({}) }, channels: { get: () => ({ publish: async () => { published.push("event-1"); } }) } } as any;
+  expect(await Promise.all([
+    dispatchRealtimeOutbox(10, () => client, store, "worker-a"),
+    dispatchRealtimeOutbox(10, () => client, store, "worker-b"),
+  ])).toEqual(expect.arrayContaining([{ delivered: 1, failed: 0, deadLettered: 0 }, { delivered: 0, failed: 0, deadLettered: 0 }]));
+  expect(published).toEqual(["event-1"]);
+  expect(delivered).toHaveLength(1);
+});
+
+test("dead-letters exhausted events and restricts replay and cleanup to admins", async () => {
+  Bun.env.QIY_REALTIME_DISABLED = "0";
+  Bun.env.QIY_REALTIME_MAX_ATTEMPTS = "1";
+  const eventId = "00000000-0000-4000-8000-000000000099";
+  const missingId = "00000000-0000-4000-8000-000000000100";
+  const record: RealtimeOutboxRecord = { id: eventId, channel: "qiy:orders", type: "updated", payload: JSON.stringify({ id: "order-1" }), attempts: 0 };
+  const dead: RealtimeOutboxRecord[] = [];
+  const replayed: string[] = [];
+  const store: RealtimeOutboxStore = {
+    claim: async () => dead.length ? [] : [record],
+    delivered: async () => {},
+    failed: async () => {},
+    dead: async (_id, _leaseOwner, attempts, lastError) => { record.attempts = attempts; Object.assign(record, { lastError }); dead.push(record); },
+    deadLetters: async () => dead,
+    replay: async (id) => { if (id !== eventId) return false; replayed.push(id); return true; },
+    replayMany: async (ids) => { const found = ids.filter((id) => id === eventId); replayed.push(...found); return found; },
+    cleanupDelivered: async () => 2,
+    metrics: async () => ({ pending: 4, leased: 1, deadLettered: dead.length, delivered: 9, oldestPendingAt: new Date("2026-10-01T00:00:00.000Z") }),
+  };
+  const unavailable = { auth: { createTokenRequest: async () => ({}) }, channels: { get: () => ({ publish: async () => { throw new Error("provider unavailable"); } }) } } as any;
+  expect(await dispatchRealtimeOutbox(10, () => unavailable, store, "worker-a")).toEqual({ delivered: 0, failed: 0, deadLettered: 1 });
+  expect(dead).toHaveLength(1);
+  const authenticate = async (request: Request) => ({ id: "user-1", name: "User", role: request.headers.get("x-role") === "admin" ? "admin" as const : "operator" as const });
+  const app = new Elysia().use(createRealtimeRoutes(authenticate, () => unavailable, store));
+  expect((await app.handle(new Request("http://localhost/api/v1/realtime/outbox/dead", { headers: { "x-role": "operator" } }))).status).toBe(403);
+  expect((await app.handle(new Request("http://localhost/api/v1/realtime/outbox/metrics", { headers: { "x-role": "operator" } }))).status).toBe(403);
+  expect((await app.handle(new Request("http://localhost/api/v1/realtime/outbox/metrics/prometheus", { headers: { "x-role": "operator" } }))).status).toBe(403);
+  expect((await app.handle(new Request("http://localhost/api/v1/realtime/outbox/health", { headers: { "x-role": "operator" } }))).status).toBe(403);
+  Bun.env.QIY_REALTIME_METRICS_TOKEN = "metrics-only-token";
+  const scrape = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/metrics/prometheus", { headers: { authorization: "Bearer metrics-only-token" } }));
+  expect(scrape.status).toBe(200);
+  expect(await scrape.text()).toContain("qiy_realtime_outbox_pending 4");
+  expect((await app.handle(new Request("http://localhost/api/v1/realtime/outbox/dead", { headers: { authorization: "Bearer metrics-only-token" } }))).status).toBe(403);
+  delete Bun.env.QIY_REALTIME_METRICS_TOKEN;
+  expect((await app.handle(new Request("http://localhost/api/v1/realtime/outbox/replay", { method: "POST", headers: { "content-type": "application/json", "x-role": "operator" }, body: JSON.stringify({ ids: [eventId] }) }))).status).toBe(403);
+  const listed = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/dead", { headers: { "x-role": "admin" } }));
+  expect(listed.status).toBe(200);
+  expect((await listed.json() as { data: unknown[] }).data).toHaveLength(1);
+  const metrics = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/metrics", { headers: { "x-role": "admin" } }));
+  expect(metrics.status).toBe(200);
+  expect(await metrics.json()).toEqual({ pending: 4, leased: 1, deadLettered: 1, delivered: 9, oldestPendingAt: "2026-10-01T00:00:00.000Z" });
+  Bun.env.QIY_REALTIME_ALERT_MAX_PENDING = "3";
+  Bun.env.QIY_REALTIME_ALERT_MAX_DEAD_LETTERED = "0";
+  Bun.env.QIY_REALTIME_ALERT_MAX_OLDEST_PENDING_MS = "1000";
+  const health = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/health", { headers: { "x-role": "admin" } }));
+  expect(health.status).toBe(503);
+  const healthPayload = await health.json() as { status: string; alerts: string[]; metrics: { oldestPendingAgeMs: number } };
+  expect(healthPayload.status).toBe("degraded");
+  expect(healthPayload.alerts).toEqual(["pending", "deadLettered", "oldestPendingAgeMs"]);
+  expect(healthPayload.metrics.oldestPendingAgeMs).toBeGreaterThan(1000);
+  const prometheus = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/metrics/prometheus", { headers: { "x-role": "admin" } }));
+  expect(prometheus.status).toBe(200);
+  expect(prometheus.headers.get("content-type")).toContain("text/plain");
+  const prometheusText = await prometheus.text();
+  expect(prometheusText).toContain("qiy_realtime_outbox_pending 4");
+  expect(prometheusText).toContain("qiy_realtime_outbox_dead_lettered 1");
+  expect(prometheusText).toContain("qiy_realtime_outbox_health 0");
+  delete Bun.env.QIY_REALTIME_ALERT_MAX_PENDING;
+  delete Bun.env.QIY_REALTIME_ALERT_MAX_DEAD_LETTERED;
+  delete Bun.env.QIY_REALTIME_ALERT_MAX_OLDEST_PENDING_MS;
+  const duplicateReplay = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/replay", { method: "POST", headers: { "content-type": "application/json", "x-role": "admin" }, body: JSON.stringify({ ids: [eventId, eventId] }) }));
+  expect(duplicateReplay.status).toBe(400);
+  const bulkReplay = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/replay", { method: "POST", headers: { "content-type": "application/json", "x-role": "admin" }, body: JSON.stringify({ ids: [eventId, missingId] }) }));
+  expect(bulkReplay.status).toBe(200);
+  expect(await bulkReplay.json()).toEqual({ replayed: [eventId], notFound: [missingId] });
+  const replay = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/" + eventId + "/replay", { method: "POST", headers: { "x-role": "admin" } }));
+  expect(replay.status).toBe(200);
+  expect(replayed).toEqual([eventId, eventId]);
+  const cleanup = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/delivered?retentionDays=30", { method: "DELETE", headers: { "x-role": "admin" } }));
+  expect(cleanup.status).toBe(200);
+  expect(await cleanup.json()).toEqual({ deleted: 2, retentionDays: 30 });
+});
+
+${database.dialect === "sqlite" ? `test("audits bulk replay and cleanup in the same SQLite transactions", async () => {
+  const actorId = "00000000-0000-4000-8000-000000000201";
+  const firstId = "00000000-0000-4000-8000-000000000202";
+  const secondId = "00000000-0000-4000-8000-000000000203";
+  const deliveredId = "00000000-0000-4000-8000-000000000204";
+  const eventIds = [firstId, secondId, deliveredId];
+  const actions = ["realtime.outbox.bulk_replayed", "realtime.outbox.cleaned"];
+  client.exec("CREATE TABLE IF NOT EXISTS qiy_realtime_outbox (id text primary key, channel text not null, type text not null, payload text not null, attempts integer not null, availableAt integer not null, deliveredAt integer, deadLetteredAt integer, lastError text, leaseOwner text, leaseUntil integer, createdAt integer not null)");
+  db.insert(realtimeOutbox).values([
+    { id: firstId, channel: "qiy:event:test", type: "test.failed", payload: "{}", attempts: 1, availableAt: new Date(0), deadLetteredAt: new Date(0), createdAt: new Date(0) },
+    { id: secondId, channel: "qiy:event:test", type: "test.failed", payload: "{}", attempts: 1, availableAt: new Date(0), deadLetteredAt: new Date(0), createdAt: new Date(0) },
+    { id: deliveredId, channel: "qiy:event:test", type: "test.delivered", payload: "{}", attempts: 0, availableAt: new Date(0), deliveredAt: new Date(0), createdAt: new Date(0) },
+  ]).run();
+  const app = new Elysia().use(createRealtimeRoutes(async () => ({ id: actorId, name: "Admin", role: "admin" })));
+  try {
+    const replay = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/replay", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: [firstId, secondId] }) }));
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toEqual({ replayed: [firstId, secondId], notFound: [] });
+    const cleanup = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/delivered?retentionDays=1", { method: "DELETE" }));
+    expect(cleanup.status).toBe(200);
+    expect(await cleanup.json()).toEqual({ deleted: 1, retentionDays: 1 });
+    const audits = db.select().from(auditEvents).where(inArray(auditEvents.action, actions)).all();
+    expect(audits.map((audit) => audit.action).sort()).toEqual([...actions].sort());
+    expect(audits.every((audit) => audit.actorId === actorId)).toBe(true);
+  } finally {
+    db.delete(realtimeOutbox).where(inArray(realtimeOutbox.id, eventIds)).run();
+    db.delete(auditEvents).where(inArray(auditEvents.action, actions)).run();
+    client.exec("DROP TABLE qiy_realtime_outbox");
+  }
+});
+
+` : ""}test("calculates automatic cleanup cutoff from an explicit maintenance time", async () => {
+  const cutoffs: Date[] = [];
+  const store: RealtimeOutboxStore = {
+    claim: async () => [],
+    delivered: async () => {},
+    failed: async () => {},
+    dead: async () => {},
+    deadLetters: async () => [],
+    replay: async () => false,
+    replayMany: async () => [],
+    cleanupDelivered: async (before) => { cutoffs.push(before); return 3; },
+    metrics: async () => ({ pending: 0, leased: 0, deadLettered: 0, delivered: 0, oldestPendingAt: null }),
+  };
+  const now = new Date("2026-10-12T12:00:00.000Z");
+  expect(await cleanupRealtimeOutbox(7, store, now)).toBe(3);
+  expect(cutoffs).toEqual([new Date("2026-10-05T12:00:00.000Z")]);
+});
+`,
+    } : {}),
     "api/tests/pagination.test.ts": `import { expect, test } from "bun:test";
 import { withPaginationLimit } from "../src/pagination";
 
@@ -1622,21 +3117,44 @@ test("passes the authenticated actor through REST and GraphQL mutations", async 
   expect(actors).toEqual([id, id]);
 });
 
-test("protects file storage endpoints and rejects traversal", async () => {
+${uploadField ? "test" : "test.skip"}("protects file storage endpoints and rejects traversal", async () => {
   Bun.env.QIY_STORAGE_METADATA = "memory";
   Bun.env.QIY_STORAGE_PROVIDER = "local";
   Bun.env.QIY_STORAGE_ROOT = import.meta.dir + "/.qiy-test-storage";
   const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
   const app = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: "admin", claims: ${testClaims} }));
-  const key = "orders/" + crypto.randomUUID() + ".txt";
-  const fileUrl = "http://localhost/api/v1/files?key=" + encodeURIComponent(key) + "&fileName=invoice.txt&resource=orders&resourceId=00000000-0000-4000-8000-000000000001";
+  const resource = ${JSON.stringify(uploadField?.entity.tableName ?? "missing")};
+  const field = ${JSON.stringify(uploadField?.field.name ?? "missing")};
+  const uploadMode = String(${JSON.stringify(uploadField?.field.uploadMode ?? "binary")}) as "binary" | "base64" | "both";
+  const maxBytes = ${uploadField?.field.maxBytes ?? 25 * 1024 * 1024};
+  const contentType = ${JSON.stringify(uploadField?.field.mimeTypes?.find((mime) => !mime.endsWith("/*") && mime !== "*/*") ?? (uploadField?.field.mimeTypes?.find((mime) => mime.endsWith("/*"))?.replace("*", "qiy-test") ?? "application/octet-stream"))};
+  const restrictsMime = ${JSON.stringify(Boolean(uploadField?.field.mimeTypes?.length && !uploadField.field.mimeTypes.includes("*/*")))};
+  const key = resource + "/" + crypto.randomUUID() + ".bin";
+  const fileUrlFor = (targetKey: string, targetField = field) => "http://localhost/api/v1/files?key=" + encodeURIComponent(targetKey) + "&fileName=fixture.bin&resource=" + resource + "&field=" + targetField + "&resourceId=00000000-0000-4000-8000-000000000001";
+  const base64Url = "http://localhost/api/v1/files/base64";
+  const upload = (targetKey: string, bytes = "invoice", mime = contentType) => uploadMode === "base64"
+    ? app.handle(new Request(base64Url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: targetKey, fileName: "fixture.bin", resource, field, resourceId: "00000000-0000-4000-8000-000000000001", contentType: mime, data: Buffer.from(bytes).toString("base64") }) }))
+    : app.handle(new Request(fileUrlFor(targetKey), { method: "POST", body: new Blob([bytes], { type: mime }) }));
+  const fileUrl = fileUrlFor(key);
   const metadataUrl = "http://localhost/api/v1/files/metadata?key=" + encodeURIComponent(key);
-  const upload = await app.handle(new Request(fileUrl, { method: "POST", body: "invoice" }));
-  expect(upload.status).toBe(200);
+  expect((await upload(key)).status).toBe(200);
   const metadata = await app.handle(new Request(metadataUrl));
   expect(metadata.status).toBe(200);
-  expect(await metadata.json() as { ownerId: string; size: number; storageKey: string; fileName: string; resource: string; resourceId: string }).toMatchObject({ ownerId: "admin", size: 7, storageKey: key, fileName: "invoice.txt", resource: "orders", resourceId: "00000000-0000-4000-8000-000000000001" });
-  expect((await app.handle(new Request(fileUrl, { method: "POST", body: "overwritten" }))).status).toBe(409);
+  expect(await metadata.json() as { ownerId: string; size: number; storageKey: string; fileName: string; resource: string; resourceId: string }).toMatchObject({ ownerId: "admin", size: 7, storageKey: key, fileName: "fixture.bin", resource: ${JSON.stringify(uploadField?.entity.tableName ?? "missing")}, resourceId: "00000000-0000-4000-8000-000000000001" });
+  expect((await upload(key)).status).toBe(409);
+  expect((await app.handle(new Request(fileUrlFor(resource + "/unknown.bin", "missing"), { method: "POST", body: new Blob(["ok"], { type: contentType }) }))).status).toBe(400);
+  if (restrictsMime) expect((await upload(resource + "/wrong-mime.bin", "ok", "application/x-qiy-disallowed")).status).toBe(415);
+  expect((await upload(resource + "/too-large.bin", "x".repeat(maxBytes + 1))).status).toBe(413);
+  expect((await app.handle(new Request(base64Url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: resource + "/malformed.bin", resource, field, contentType, data: "not base64" }) }))).status).toBe(400);
+  if (uploadMode === "binary") {
+    expect((await app.handle(new Request(base64Url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: resource + "/base64-rejected.bin", resource, field, contentType, data: Buffer.from("ok").toString("base64") }) }))).status).toBe(415);
+  } else {
+    const base64Key = resource + "/" + crypto.randomUUID() + "-base64.bin";
+    expect((await app.handle(new Request(base64Url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: base64Key, resource, field, contentType, data: Buffer.from("base64").toString("base64") }) }))).status).toBe(200);
+    expect((await app.handle(new Request(fileUrlFor(base64Key)))).status).toBe(200);
+    expect((await app.handle(new Request(fileUrlFor(base64Key), { method: "DELETE" }))).status).toBe(200);
+  }
+  if (uploadMode === "base64") expect((await app.handle(new Request(fileUrlFor(resource + "/binary-rejected.bin"), { method: "POST", body: new Blob(["ok"], { type: contentType }) }))).status).toBe(415);
   const download = await app.handle(new Request(fileUrl));
   expect(download.status).toBe(200);
   expect(await download.text()).toBe("invoice");
@@ -1703,8 +3221,8 @@ ${options.elysiaPlugins?.jwt ? `  { name: "jwt", setup: (app) => {
     return app.use(jwt({ name: ${JSON.stringify(options.elysiaPlugins.jwt.name)}, secret }));
   } },` : ""}
 ${options.elysiaPlugins?.static ? `  { name: "static", setup: async (app) => app.use(await staticPlugin({ assets: ${JSON.stringify(options.elysiaPlugins.static.assets)}, prefix: ${JSON.stringify(options.elysiaPlugins.static.prefix)} })) },` : ""}
-${options.elysiaPlugins?.graphqlAdapter === "yoga" ? `  { name: "graphql-yoga", setup: (app, context) => context ? app.use(yoga({ path: "/graphql", graphiql: false, landingPage: false, typeDefs: graphqlTypeDefs, resolvers: createGraphQLAdapterResolvers(context.repositories, context.authenticate), context: ({ request }) => ({ request }) })) : app },` : ""}
-${options.elysiaPlugins?.graphqlAdapter === "apollo" ? `  { name: "graphql-apollo", setup: async (app, context) => context ? app.use(await apollo({ path: "/graphql", enablePlayground: false, typeDefs: graphqlTypeDefs, resolvers: createGraphQLAdapterResolvers(context.repositories, context.authenticate), context: async ({ request }) => ({ request }) })) : app },` : ""}
+${options.elysiaPlugins?.graphqlAdapter === "yoga" ? `  { name: "graphql-yoga", setup: (app, context) => context ? app.use(yoga({ path: "/graphql", graphiql: false, landingPage: false, typeDefs: graphqlTypeDefs, resolvers: createGraphQLAdapterResolvers(context.repositories, context.authenticate) as any, context: ({ request }) => ({ request }) })) : app },` : ""}
+${options.elysiaPlugins?.graphqlAdapter === "apollo" ? `  { name: "graphql-apollo", setup: async (app, context) => context ? app.use(await apollo({ path: "/graphql", enablePlayground: false, typeDefs: graphqlTypeDefs, resolvers: createGraphQLAdapterResolvers(context.repositories, context.authenticate) as any, context: async ({ request }: any) => ({ request }) })) : app },` : ""}
 ${(options.elysiaPlugins?.cron ?? []).map((job) => `  { name: ${JSON.stringify(job.name)}, setup: (app) => Bun.env.QIY_CRON_ENABLED === "1" ? app.use(createCleanupCronJob(${JSON.stringify(job.name)}, ${JSON.stringify(job.pattern)})) : app },`).join("\n")}
 ];
 export async function registerPlugins(app: Elysia, context?: PluginContext): Promise<Elysia> {
@@ -1857,6 +3375,7 @@ test("reports cleanup failures without a silent cron callback", async () => {
 import { createApp } from "./app";
 import { createHandler } from "./http";
 ${auth ? `import { createProductionAuthenticator } from ${auth.provider === "local" ? '"./auth/local"' : auth.provider === "otp" ? '"./auth/otp"' : '"./auth/oidc"'};` : ''}
+${options.realtime ? 'import { startRealtimeOutboxWorker } from "./realtime";' : ''}
 ${repositoryImports}
 
 ${auth ? '' : 'if (Bun.env.QIY_DEV_MODE !== "1") {'}
@@ -1865,6 +3384,7 @@ ${auth ? '' : '}'}
 
 if (Bun.env.QIY_STORAGE_METADATA !== "database") throw new Error("QIY_STORAGE_METADATA=database is required for production file metadata");
 const app = await createApp({ ${database.entities.map((entity) => `${entity.name}: ${modelName(entity)}Repository`).join(", ")} }, ${auth ? 'createProductionAuthenticator()' : 'async () => ({ id: "dev", name: "Local Admin", role: "admin" })'});
+${options.realtime ? 'startRealtimeOutboxWorker();' : ''}
 const clientRoot = resolve(import.meta.dir, "../../web/build/client");
 const server = Bun.serve({ hostname: Bun.env.HOST ?? "127.0.0.1", port: Number(Bun.env.PORT ?? 3000), fetch: createHandler((request) => app.handle(request), clientRoot) });
 console.log(\`Qiy app listening on http://localhost:\${server.port}\`);
@@ -1883,10 +3403,22 @@ console.log(\`Local-only Qiy preview: http://127.0.0.1:\${server.port}\`);
 `,
   };
   if (dataflowRoutes) files["api/src/dataflows/index.ts"] = dataflowRoutes;
-  const dataflowTest = renderSqliteDataflowTest(database, options.dataflows ?? []);
+  const dataflowCallContracts = renderDataflowCallContracts(options.dataflows ?? []);
+  const dataflowCallExtensions = renderDataflowCallExtensions(options.dataflows ?? []);
+  if (dataflowCallContracts) files["api/src/dataflows/calls.ts"] = dataflowCallContracts;
+  if (dataflowCallExtensions) files["api/src/extensions/dataflow-calls.ts"] = dataflowCallExtensions;
+  const realtimeOutboxTest = options.realtime ? renderSqliteRealtimeOutboxTest(database, options.realtime) : undefined;
+  if (realtimeOutboxTest) files["api/tests/realtime-outbox-transaction.test.ts"] = realtimeOutboxTest;
+  const dataflowTest = renderSqliteDataflowTest(database, options.dataflows ?? [], options.actions ?? [], options.realtime !== undefined);
   if (dataflowTest) {
     files["api/tests/dataflow.test.ts"] = dataflowTest;
     const failureFlows = (options.dataflows ?? []).map((flow) => {
+      const mutations = flow.steps.flatMap((step) => step.actions).filter((action) => action.kind === "create" || action.kind === "delete");
+      const mutation = mutations.at(-1);
+      if (mutation) {
+        const creation = mutation.kind === "create" ? mutation : flow.steps.flatMap((step) => step.actions).find((action) => action.kind === "create" && action.context === mutation.context);
+        return { ...flow, steps: [...flow.steps, { name: "qiyTestLateFailure", order: Math.max(...flow.steps.map((step) => step.order)) + 1, actions: [{ kind: "require" as const, left: `${mutation.context}.id`, operator: creation ? "==" as const : "!=" as const, right: creation ? "00000000-0000-4000-8000-000000000000" : "00000000-0000-4000-8000-000000000001", error: "qiy.test.lateFailure" }] }] };
+      }
       const updates = flow.steps.flatMap((step) => step.actions).filter((action) => action.kind === "update");
       const last = updates.at(-1);
       if (!last) return flow;
@@ -1896,9 +3428,11 @@ console.log(\`Local-only Qiy preview: http://127.0.0.1:\${server.port}\`);
       const numericInput = input?.type === "Integer" || database.enums?.some((enumeration) => enumeration.name === input?.type);
       return { ...flow, steps: [...flow.steps, { name: "qiyTestLateFailure", order: Math.max(...flow.steps.map((step) => step.order)) + 1, actions: [{ kind: "require" as const, left: `${last.context}.${numericInput ? binding.id.split(":")[0] : value.field}`, operator: "!=" as const, right: numericInput ? "00000000-0000-4000-8000-000000000001" : value.source === "input" ? "Qiy fixture reason" : value.value, error: "qiy.test.lateFailure" }] }] };
     });
-    files["api/tests/fixtures/dataflow-failure.ts"] = renderDataflowRoutes(database, failureFlows, options.scopes ?? [])!
-      .replaceAll('"../db"', '"../../src/db"').replaceAll('"../schema"', '"../../src/schema"').replaceAll('"../auth/guard"', '"../../src/auth/guard"');
+    files["api/tests/fixtures/dataflow-failure.ts"] = renderDataflowRoutes(database, failureFlows, options.scopes ?? [], [], options.realtime !== undefined)!
+      .replaceAll('"../db"', '"../../src/db"').replaceAll('"../schema"', '"../../src/schema"').replaceAll('"../auth/guard"', '"../../src/auth/guard"').replaceAll('"./calls"', '"../../src/dataflows/calls"');
   }
+  const scenarioTest = renderQiyScenarioTest(database, options.dataflows ?? [], options.testSuite);
+  if (scenarioTest) files["api/tests/qiy-scenarios.test.ts"] = scenarioTest;
   if (orderWorkflow) {
     files["api/src/workflows/order.ts"] = orderWorkflow;
     files["api/src/workflows/allocation.ts"] = `export interface StockBalance { id: string; quantity: number; reservedQuantity: number; }
@@ -1937,6 +3471,45 @@ test("rejects shortages and invalid quantities instead of partially reserving", 
 `;
   }
   files["api/src/storage/index.ts"] = files["api/src/storage/index.ts"]!.replaceAll("__QIY_STORAGE_PROVIDER__", options.storageProvider ?? "local");
+  files["api/src/storage/routes.ts"] = files["api/src/storage/routes.ts"]!.replace("__QIY_UPLOAD_POLICIES__", JSON.stringify(Object.fromEntries(database.entities.flatMap((entity) => entity.fields.filter((field) => field.type === "File").map((field) => [`${entity.tableName}.${field.name}`, { mode: field.uploadMode ?? "binary", maxBytes: field.maxBytes ?? 25 * 1024 * 1024, mimeTypes: field.mimeTypes ?? ["*/*"], maxFiles: 1 }]))), null, 2));
+  files["api/tests/storage.test.ts"] = files["api/tests/storage.test.ts"]!
+    .replace("__QIY_STORAGE_TEST_FUNCTION__", uploadField ? "test" : "test.skip")
+    .replace("__QIY_STORAGE_TEST_RESOURCE__", uploadField?.entity.tableName ?? "missing")
+    .replace("__QIY_STORAGE_TEST_FIELD__", uploadField?.field.name ?? "missing")
+    .replace("__QIY_STORAGE_TEST_MIME__", uploadField?.field.mimeTypes?.find((mime) => !mime.endsWith("/*") && mime !== "*/*") ?? (uploadField?.field.mimeTypes?.find((mime) => mime.endsWith("/*"))?.replace("*", "qiy-test") ?? "application/octet-stream"));
+  if (database.dialect === "sqlite") {
+    files["api/tests/storage-metadata.test.ts"] = `import { expect, test } from "bun:test";
+import "./setup";
+import { Elysia } from "elysia";
+import { client } from "../src/db";
+import { createStorageRoutes, cleanupMissingAttachmentObjects } from "../src/storage/routes";
+
+${uploadField ? "test" : "test.skip"}("database attachment removal revokes reads and cleanup defaults to dry run", async () => {
+  const previous = Bun.env.QIY_STORAGE_METADATA;
+  Bun.env.QIY_STORAGE_METADATA = "database";
+  const key = "metadata/" + crypto.randomUUID() + ".txt";
+  try {
+    client.exec('CREATE TABLE IF NOT EXISTS attachments (id text primary key, storageKey text unique not null, fileName text, contentType text not null, size integer not null, ownerId text, resource text not null, resourceId text, createdAt integer not null)');
+    const app = new Elysia().use(createStorageRoutes(async () => ({ id: "metadata-owner", name: "Owner", role: "admin", claims: {} })));
+    const url = "http://localhost/api/v1/files?key=" + key + "&resource=" + ${JSON.stringify(uploadField?.entity.tableName ?? "missing")} + "&field=" + ${JSON.stringify(uploadField?.field.name ?? "missing")};
+    expect((await app.handle(new Request(url, { method: "POST", body: new Blob(["metadata test"], { type: ${JSON.stringify(uploadField?.field.mimeTypes?.find((mime) => !mime.endsWith("/*") && mime !== "*/*") ?? "application/octet-stream")} }) }))).status).toBe(200);
+    client.query("DELETE FROM attachments WHERE storageKey = ?").run(key);
+    expect((await app.handle(new Request(url))).status).toBe(404);
+    expect((await app.handle(new Request("http://localhost/api/v1/files/metadata?key=" + key))).status).toBe(404);
+    expect((await app.handle(new Request("http://localhost/api/v1/files/signed?key=" + key))).status).toBe(404);
+    expect((await app.handle(new Request(url, { method: "DELETE" }))).status).toBe(200);
+    const missingKey = "missing/" + crypto.randomUUID() + ".txt";
+    client.query("INSERT INTO attachments (id, storageKey, contentType, size, resource, createdAt) VALUES (?, ?, ?, ?, ?, ?)").run(crypto.randomUUID(), missingKey, "text/plain", 1, "test", Date.now());
+    expect((await cleanupMissingAttachmentObjects()).dryRun).toBe(true);
+    expect(client.query("SELECT id FROM attachments WHERE storageKey = ?").get(missingKey)).toBeTruthy();
+    expect((await cleanupMissingAttachmentObjects({ dryRun: false })).dryRun).toBe(false);
+    expect(client.query("SELECT id FROM attachments WHERE storageKey = ?").get(missingKey)).toBeNull();
+  } finally {
+    if (previous === undefined) delete Bun.env.QIY_STORAGE_METADATA; else Bun.env.QIY_STORAGE_METADATA = previous;
+  }
+});
+`;
+  }
   if (options.storageProvider === "s3") {
     files["api/tests/storage-config.test.ts"] = `import { expect, test } from "bun:test";
 import { createStorageFromEnv } from "../src/storage";
@@ -2230,18 +3803,20 @@ test("verifies issuer, audience and rotating JWKS keys before resolving subject"
   }
   for (const entity of database.entities) {
     const moduleRoot = `api/src/modules/${entity.name}`;
+    const realtimeSubscription = options.realtime?.resources.find((subscription) => subscription.resource === entity.name || subscription.resource === entity.tableName);
+    const realtimeEvents = new Set(realtimeSubscription?.events ?? []);
     const hiddenFields = options.auth?.provider === "local" && entity.name === options.auth.userEntity ? [options.auth.passwordField!] : [];
     const publicEntity = hiddenFields.length ? { ...entity, fields: entity.fields.filter((field) => !hiddenFields.includes(field.name)) } : entity;
     files[`${moduleRoot}/${entity.name}.repository.ts`] = `import { and, asc, count, desc, eq, gt, gte, lt, lte, sql, ${database.dialect === "postgresql" ? "ilike" : "like"}, inArray, or } from "drizzle-orm";
 import { db } from "../../db";
-import { ${entity.name}, auditEvents } from "../../schema";
+ import { ${entity.name}, auditEvents${realtimeSubscription ? ", realtimeOutbox" : ""} } from "../../schema";
 import type { ${modelName(entity)}Repository as ${modelName(entity)}RepositoryContract } from "./${entity.name}.contract";
 
 export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = {
-${renderRepositoryMethods(publicEntity, scopedDatabase)}
+${renderRepositoryMethods(publicEntity, scopedDatabase, realtimeEvents)}
 };
 `;
-    files[`${moduleRoot}/${entity.name}.contract.ts`] = `export interface ${modelName(entity)}Repository {
+    files[`${moduleRoot}/${entity.name}.contract.ts`] = `${generatedDocumentation(entity)}export interface ${modelName(entity)}Repository {
   distribution(field: string, scope?: { field: string; value: string }): Promise<Array<{ value: string | null; count: number }>>;
   trend(field: string, days: number, scope?: { field: string; value: string }): Promise<Array<{ day: string; count: number }>>;
   list(page: number, pageSize: number, options?: ListQuery): Promise<{ data: Array<Record<string, unknown>>; total: number }>;
@@ -2264,20 +3839,25 @@ export interface ListQuery {
 }
 `;
     files[`${moduleRoot}/${entity.name}.service.ts`] = `import type { ${modelName(entity)}Repository, ListQuery } from "./${entity.name}.contract";
+ ${realtimeSubscription ? 'import { dispatchRealtimeOutbox } from "../../realtime";' : ""}
 const dateFields = ${JSON.stringify(entity.fields.filter((field) => field.type === "DateTime").map((field) => field.name))} as string[];
 function normalizeDates(values: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(values).map(([field, value]) => [field, dateFields.includes(field) && typeof value === "string" ? new Date(value) : value]));
 }
-export function create${modelName(entity)}Service(repository: ${modelName(entity)}Repository) {
+ ${realtimeSubscription ? `async function dispatchCommitted(): Promise<void> {
+   try { await dispatchRealtimeOutbox(); }
+   catch (error) { console.error("Realtime outbox dispatch failed after committed mutation", { resource: ${JSON.stringify(entity.tableName)}, error }); }
+}` : ""}
+${generatedDocumentation(entity)}export function create${modelName(entity)}Service(repository: ${modelName(entity)}Repository) {
   return {
     distribution: (field: string, scope?: { field: string; value: string }) => repository.distribution(field, scope),
     trend: (field: string, days: number, scope?: { field: string; value: string }) => repository.trend(field, days, scope),
     list: (page: number, pageSize: number, options?: ListQuery) => repository.list(page, pageSize, options),
     one: (id: string, scope?: { field: string; value: string }) => repository.one(id, scope),
-    create: (values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => repository.create(normalizeDates(values), actorId, scope),
-    update: (id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => repository.update(id, normalizeDates(values), actorId, scope),
-    delete: (id: string, actorId?: string, scope?: { field: string; value: string }) => repository.delete(id, actorId, scope),
-    deleteMany: (ids: string[], actorId?: string, scope?: { field: string; value: string }) => repository.deleteMany(ids, actorId, scope),
+    create: ${realtimeEvents.has("created") ? `async (values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => { const record = await repository.create(normalizeDates(values), actorId, scope); await dispatchCommitted(); return record; }` : `(values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => repository.create(normalizeDates(values), actorId, scope)`},
+    update: ${realtimeEvents.has("updated") ? `async (id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => { const record = await repository.update(id, normalizeDates(values), actorId, scope); if (record) await dispatchCommitted(); return record; }` : `(id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => repository.update(id, normalizeDates(values), actorId, scope)`},
+    delete: ${realtimeEvents.has("deleted") ? `async (id: string, actorId?: string, scope?: { field: string; value: string }) => { const record = await repository.delete(id, actorId, scope); if (record) await dispatchCommitted(); return record; }` : `(id: string, actorId?: string, scope?: { field: string; value: string }) => repository.delete(id, actorId, scope)`},
+    deleteMany: ${realtimeEvents.has("deleted") ? `async (ids: string[], actorId?: string, scope?: { field: string; value: string }) => { const records = await repository.deleteMany(ids, actorId, scope); if (records.length) await dispatchCommitted(); return records; }` : `(ids: string[], actorId?: string, scope?: { field: string; value: string }) => repository.deleteMany(ids, actorId, scope)`},
   };
 }
 `;
@@ -2571,7 +4151,8 @@ test("SQLite CRUD audit rolls back the mutation when the audit insert fails", as
   }
   const documentedFields = (entity: EntityIR) => entity.fields.filter((field) => !field.primaryKey && field.comment !== undefined && !(options.auth?.provider === "local" && entity.name === options.auth.userEntity && field.name === options.auth.passwordField));
   const describedEntities = database.entities.filter((entity) => entity.comment !== undefined || documentedFields(entity).length);
-  if (describedEntities.length) {
+  const describedDataflows = (options.dataflows ?? []).filter((flow) => flow.label !== undefined || flow.comment !== undefined);
+  if (describedEntities.length || describedDataflows.length) {
     files["api/tests/documentation.test.ts"] = `import { expect, test } from "bun:test";
 import { createApp, type Repositories } from "../src/app";
 
@@ -2591,6 +4172,13 @@ test("publishes model descriptions in the actual OpenAPI request schemas", async
       if (entity.description !== undefined) expect(schema.description).toBe(entity.description);
       for (const [name, description] of Object.entries(entity.fields)) expect(schema.properties[name].description).toBe(description);
     }
+  }
+  const dataflows: Array<{ name: string; summary: string; description: string }> = ${JSON.stringify(describedDataflows.map((flow) => ({ name: flow.name, summary: flow.label ?? flow.name, description: flow.comment ?? flow.label ?? flow.name })))};
+  for (const flow of dataflows) {
+    const operation = specification.paths["/api/v1/commands/" + flow.name].post;
+    expect(operation.summary).toBe(flow.summary);
+    expect(operation.description).toBe(flow.description);
+    expect(operation.tags).toContain("Dataflow");
   }
 });
 `;

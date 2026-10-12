@@ -17,22 +17,26 @@ const authProviderLabels: Record<string, string> = {
   otp: "One-time password",
 };
 
-type WebOptions = Pick<QiyProject, "mode" | "integration" | "ui" | "messages" | "apiClient" | "menuGroups" | "dashboardMetrics" | "auth" | "workflows" | "dataflows" | "actions"> & { readOnly?: boolean };
+type WebOptions = Pick<QiyProject, "mode" | "integration" | "ui" | "messages" | "apiClient" | "menuGroups" | "dashboardMetrics" | "realtime" | "auth" | "workflows" | "dataflows" | "actions"> & { readOnly?: boolean };
 type GeneratedAction = {
   name: string;
   roles?: string[];
   resource: string;
   placements: Array<"list" | "show">;
+  batch?: boolean;
   label: string;
+  labelKey?: string;
+  condition?: { field: string; operator: "==" | "!="; value: string };
   target:
     | { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string }
-    | { kind: "dataflow"; dataflow: string; roles: string[]; confirm?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string }> };
+    | { kind: "dataflow"; dataflow: string; roles: string[]; confirm?: string; confirmKey?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string }> };
 };
 
-function resourceFields(database: DatabaseIR, menuGroups: NonNullable<QiyProject["menuGroups"]>): string {
+function resourceFields(database: DatabaseIR, menuGroups: NonNullable<QiyProject["menuGroups"]>, realtime?: QiyProject["realtime"]): string {
   const enumByName = new Map((database.enums ?? []).map((enumeration) => [enumeration.name, enumeration.values]));
   const entityByName = new Map(database.entities.map((entity) => [entity.name, entity]));
   const parentByResource = new Map(menuGroups.flatMap((group) => group.resources.map((resource) => [resource, `menu-${group.name}`] as const)));
+  const liveModeByResource = new Map((realtime?.resources ?? []).map((subscription) => [subscription.resource, realtime!.mode] as const));
   return JSON.stringify(database.entities.map((entity) => ({
     name: entity.tableName,
     apiName: entity.name,
@@ -40,6 +44,7 @@ function resourceFields(database: DatabaseIR, menuGroups: NonNullable<QiyProject
     ...(entity.comment !== undefined && { comment: entity.comment }),
     ...(entity.commentKey !== undefined && { commentKey: entity.commentKey }),
     icon: entity.icon ?? (entity.name.toLowerCase().includes("user") ? "UserOutlined" : entity.name.toLowerCase().includes("order") ? "ShoppingOutlined" : entity.name.toLowerCase().includes("warehouse") ? "DatabaseOutlined" : "TableOutlined"),
+    liveMode: liveModeByResource.get(entity.tableName) ?? "off",
     ...(parentByResource.has(entity.tableName) && { menuParent: parentByResource.get(entity.tableName) }),
     ...(database.relations?.some((relation) => relation.toEntity === entity.name) && { relatedResources: database.relations.filter((relation) => relation.toEntity === entity.name).map((relation) => ({ resource: entityByName.get(relation.fromEntity)!.tableName, field: relation.fromField, label: entityByName.get(relation.fromEntity)!.label ?? entityByName.get(relation.fromEntity)!.name })) }),
     fields: entity.fields.map((field) => {
@@ -60,6 +65,7 @@ function resourceFields(database: DatabaseIR, menuGroups: NonNullable<QiyProject
       sortable: field.sortable ?? true,
       filterable: field.filterable ?? true,
       filterModes: field.filterModes ?? (field.enumName ? ["eq"] : field.type === "Text" ? ["contains", "startsWith", "endsWith", "eq"] : ["eq", "gt", "gte", "lt", "lte", "between", "in"]),
+      ...(field.type === "File" && { uploadMode: field.uploadMode ?? "binary", maxBytes: field.maxBytes ?? 25 * 1024 * 1024, mimeTypes: field.mimeTypes ?? ["*/*"], maxFiles: field.maxFiles ?? 1 }),
       ...(field.enumName && { enumName: field.enumName, enumValues: enumByName.get(field.enumName) ?? [] }),
       ...(target && { relation: { resource: target.tableName, labelField: target.fields.find((candidate) => ["name", "title", "displayName", "code"].includes(candidate.name))?.name ?? "id" } }),
       ...(field.icon && { icon: field.icon }),
@@ -79,6 +85,8 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
   const integrationAuth = options.mode === "integration" && options.integration?.authTransport !== "none";
   const usesAuth = Boolean(options.auth || integrationAuth);
   const requiresAuthShell = usesAuth;
+  const usesRealtime = Boolean(options.realtime);
+  if (usesRealtime && (options.apiClient ?? "rest") !== "rest") throw new Error("GraphQL realtime subscriptions are not implemented yet; use REST/Ably or disable realtime until the GraphQL subscription transport is generated.");
   const errors = validateDatabaseIR(database);
   const menuGroups = options.menuGroups ?? [];
   const groupNames = new Set<string>();
@@ -176,7 +184,7 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
       resource: entity.tableName,
       target: {
         ...target,
-        url: `/api/v1/commands/${flow.name}`,
+        url: `/api/v1/commands/${flow.name}${action.batch ? "/batch" : ""}`,
         idempotency: flow.idempotency?.required === true,
         roles: flow.roles ?? ["admin", "operator"],
         idInput: source.split(".", 2)[1]!,
@@ -196,64 +204,85 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
       .replace("__QIY_LAYOUT_END__", requiresAuthShell ? "</Authenticated>}" : ""),
     "web/app/routes/show.tsx": show
       .replace("__QIY_ORDER_IMPORT__", [hasOrderWorkflow ? 'import { OrderWorkflowActions } from "../features/orders/order-actions";' : "", hasRelatedResources ? 'import { RelatedRecords } from "../components/related-records";' : "", actionDefinitions.length ? 'import { BusinessActions } from "../components/business-actions";' : ""].filter(Boolean).join("\n"))
-      .replace("__QIY_ORDER_ACTIONS__", [hasOrderWorkflow ? '{resource.name === "orders" && result && id && <OrderWorkflowActions id={id} status={String(result.status ?? "")} />}' : "", hasRelatedResources ? '{result && id && (resource.relatedResources ?? []).map((relation) => <RelatedRecords key={relation.resource + relation.field} relation={relation} recordId={id} />)}' : "", actionDefinitions.length ? '{id && <BusinessActions resource={resource.name} placement="show" recordId={id} />}' : ""].join("")),
+      .replace("__QIY_ORDER_ACTIONS__", [hasOrderWorkflow ? '{resource.name === "orders" && result && id && <OrderWorkflowActions id={id} status={String(result.status ?? "")} />}' : "", hasRelatedResources ? '{result && id && (resource.relatedResources ?? []).map((relation) => <RelatedRecords key={relation.resource + relation.field} relation={relation} recordId={id} />)}' : "", actionDefinitions.length ? '{id && result && <BusinessActions resource={resource.name} placement="show" record={result} />}' : ""].join("")),
     ...(actionDefinitions.length ? {
-      "web/app/actions.ts": `type QiyActionBase = { name: string; resource: string; placements: Array<"list" | "show">; label: string; roles?: string[] };
-export type QiyActionDefinition = QiyActionBase & ({ target: { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string } } | { target: { kind: "dataflow"; dataflow: string; roles: string[]; confirm?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string; commentKey?: string; options?: Array<{ value: string; label: string }> }> } });
+      "web/app/actions.ts": `type QiyActionCondition = { field: string; operator: "==" | "!="; value: string };
+type QiyActionBase = { name: string; resource: string; placements: Array<"list" | "show">; batch?: boolean; label: string; labelKey?: string; roles?: string[]; condition?: QiyActionCondition };
+export type QiyActionDefinition = QiyActionBase & ({ target: { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string } } | { target: { kind: "dataflow"; dataflow: string; roles: string[]; confirm?: string; confirmKey?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string; commentKey?: string; options?: Array<{ value: string; label: string }> }> } });
 export const qiyActions: QiyActionDefinition[] = ${JSON.stringify(actionDefinitions, null, 2)};
-export function actionsFor(resource: string, placement: "list" | "show") { return qiyActions.filter((action) => action.resource === resource && action.placements.includes(placement)); }
+export function actionMatchesRecord(action: QiyActionDefinition, record: Record<string, unknown>) { if (!action.condition) return true; if (!Object.prototype.hasOwnProperty.call(record, action.condition.field) || record[action.condition.field] == null) return false; const matches = record[action.condition.field] === action.condition.value; return action.condition.operator === "==" ? matches : !matches; }
+export function actionsFor(resource: string, placement: "list" | "show", record: Record<string, unknown>) { return qiyActions.filter((action) => !action.batch && action.resource === resource && action.placements.includes(placement) && actionMatchesRecord(action, record)); }
+export function batchActionsFor(resource: string) { return qiyActions.filter((action) => action.batch && action.resource === resource && action.placements.includes("list") && action.target.kind === "dataflow"); }
+export function hasBatchActions(resource: string) { return batchActionsFor(resource).length > 0; }
 `,
-      "web/app/components/business-actions.tsx": `import { CanAccess, useCustomMutation, useInvalidate, useTranslation } from "@refinedev/core";
-import { Button, Checkbox, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, message } from "antd";
+      "web/app/components/business-actions.tsx": `import { CanAccess, useCustomMutation, useInvalidate, useNotification, useTranslation } from "@refinedev/core";
+import { useQueryClient } from "@tanstack/react-query";
+import { Button, Checkbox, Form, Input, InputNumber, Modal, Popconfirm, Select, Space } from "antd";
 import { useRef, useState } from "react";
 import { Link } from "react-router";
-import { actionsFor, type QiyActionDefinition } from "../actions";
+import { actionsFor, batchActionsFor, type QiyActionDefinition } from "../actions";
 
 function CommandAction({ action, resource, recordId }: { action: QiyActionDefinition; resource: string; recordId: string }) {
   const { translate } = useTranslation();
-  const [open, setOpen] = useState(false); const [form] = Form.useForm(); const { mutateAsync, mutation } = useCustomMutation(); const invalidate = useInvalidate();
+  const { open: notify } = useNotification();
+  const [open, setOpen] = useState(false); const [form] = Form.useForm(); const { mutateAsync, mutation } = useCustomMutation(); const invalidate = useInvalidate(); const queryClient = useQueryClient();
   const pendingRequest = useRef<{ payload: string; key: string } | null>(null);
   if (action.target.kind !== "dataflow") return null;
   const target = action.target; const fields = target.inputs.filter((field) => field.name !== target.idInput && field.required);
+  const actionLabel = action.labelKey ? translate(action.labelKey, {}, action.label) : action.label;
+  const confirmation = target.confirmKey ? translate(target.confirmKey, {}, target.confirm) : target.confirm;
   const run = async (values: Record<string, unknown> = {}) => {
     const body = Object.fromEntries(target.inputs.map((field) => [field.name, field.name === target.idInput ? recordId : values[field.name]]));
     const payload = JSON.stringify(body);
     if (!pendingRequest.current || pendingRequest.current.payload !== payload) pendingRequest.current = { payload, key: crypto.randomUUID() };
     try {
-      await mutateAsync({ url: target.url, method: "post", values: body, ...(target.idempotency ? { meta: { idempotencyKey: pendingRequest.current.key } } : {}) });
+      await mutateAsync({ url: target.url, method: "post", successNotification: false, errorNotification: false, values: body, ...(target.idempotency ? { meta: { idempotencyKey: pendingRequest.current.key } } : {}) });
       pendingRequest.current = null;
-      setOpen(false); form.resetFields(); void message.success(action.label + "成功");
+      setOpen(false); form.resetFields(); notify?.({ type: "success", message: translate("notifications.success", {}, "Successful"), description: actionLabel });
       await invalidate({ resource, id: recordId, invalidates: ["detail", "list"] });
-    } catch (error) { void message.error(String(error)); }
+      await queryClient.invalidateQueries({ predicate: (query) => JSON.stringify(query.queryKey).toLowerCase().includes("audit") });
+    } catch (error) { notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
   };
-  const button = <Button type="link" loading={mutation.isPending} onClick={fields.length ? () => setOpen(true) : action.target.confirm ? undefined : () => void run()}>{action.label}</Button>;
-  return <CanAccess resource={resource} action={action.name}>{fields.length ? <>{button}<Modal open={open} title={action.label} okText={action.label} confirmLoading={mutation.isPending} onCancel={() => setOpen(false)} onOk={() => void form.validateFields().then(run)}>{target.confirm && <p>{target.confirm}</p>}<Form form={form} layout="vertical">{fields.map((field) => <Form.Item key={field.name} name={field.name} label={field.commentKey ? translate(field.commentKey, {}, field.comment ?? field.name) : field.comment ?? field.name} rules={[{ required: true }]} valuePropName={field.type === "Boolean" ? "checked" : "value"}>{field.options ? <Select options={field.options} /> : field.type === "Boolean" ? <Checkbox /> : field.type === "Integer" || field.type === "Decimal" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>)}</Form></Modal></> : target.confirm ? <Popconfirm title={target.confirm} onConfirm={() => void run()}>{button}</Popconfirm> : button}</CanAccess>;
+  const button = <Button type="link" loading={mutation.isPending} onClick={fields.length ? () => setOpen(true) : confirmation ? undefined : () => void run()}>{actionLabel}</Button>;
+  return <CanAccess resource={resource} action={action.name} params={{ id: recordId }}>{fields.length ? <>{button}<Modal open={open} title={actionLabel} okText={actionLabel} confirmLoading={mutation.isPending} onCancel={() => setOpen(false)} onOk={() => form.submit()}>{confirmation && <p>{confirmation}</p>}<Form form={form} layout="vertical" onFinish={(values) => void run(values)}>{fields.map((field) => <Form.Item key={field.name} name={field.name} label={field.commentKey ? translate(field.commentKey, {}, field.comment ?? field.name) : field.comment ?? field.name} rules={[{ required: true }]} valuePropName={field.type === "Boolean" ? "checked" : "value"}>{field.options ? <Select options={field.options} /> : field.type === "Boolean" ? <Checkbox /> : field.type === "Integer" || field.type === "Decimal" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>)}</Form></Modal></> : confirmation ? <Popconfirm title={confirmation} onConfirm={() => void run()}>{button}</Popconfirm> : button}</CanAccess>;
 }
 
-export function BusinessActions({ resource, placement, recordId }: { resource: string; placement: "list" | "show"; recordId: string }) { return <Space wrap>{actionsFor(resource, placement).map((action) => action.target.kind === "navigate" ? <CanAccess key={action.name} resource={resource} action={action.name} params={{ id: recordId }}><Link to={action.target.path.replace(":id", encodeURIComponent(recordId))}><Button type="link">{action.label}</Button></Link></CanAccess> : <CommandAction key={action.name} action={action} resource={resource} recordId={recordId} />)}</Space>; }
+function BatchCommandAction({ action, resource, recordIds, onComplete }: { action: QiyActionDefinition; resource: string; recordIds: string[]; onComplete(): void }) {
+  const { translate } = useTranslation(); const { open: notify } = useNotification(); const [open, setOpen] = useState(false); const [form] = Form.useForm(); const { mutateAsync, mutation } = useCustomMutation(); const invalidate = useInvalidate(); const queryClient = useQueryClient(); const pendingRequest = useRef<{ payload: string; key: string } | null>(null);
+  if (action.target.kind !== "dataflow") return null;
+  const target = action.target; const fields = target.inputs.filter((field) => field.name !== target.idInput && field.required); const actionLabel = action.labelKey ? translate(action.labelKey, {}, action.label) : action.label; const confirmation = target.confirmKey ? translate(target.confirmKey, {}, target.confirm) : target.confirm;
+  const run = async (values: Record<string, unknown> = {}) => { const items = recordIds.map((recordId) => Object.fromEntries(target.inputs.map((field) => [field.name, field.name === target.idInput ? recordId : values[field.name]]))); const body = { items }; const payload = JSON.stringify(body); if (!pendingRequest.current || pendingRequest.current.payload !== payload) pendingRequest.current = { payload, key: crypto.randomUUID() }; try { await mutateAsync({ url: target.url, method: "post", successNotification: false, errorNotification: false, values: body, meta: { idempotencyKey: pendingRequest.current.key } }); pendingRequest.current = null; setOpen(false); form.resetFields(); onComplete(); notify?.({ type: "success", message: translate("notifications.success", {}, "Successful"), description: actionLabel }); await invalidate({ resource, invalidates: ["list"] }); await queryClient.invalidateQueries({ predicate: (query) => JSON.stringify(query.queryKey).toLowerCase().includes("audit") }); } catch (error) { notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) }); } };
+  const button = <Button loading={mutation.isPending} onClick={fields.length ? () => setOpen(true) : confirmation ? undefined : () => void run()}>{actionLabel} ({recordIds.length})</Button>;
+  return <CanAccess resource={resource} action={action.name} params={{ ids: recordIds }}>{fields.length ? <>{button}<Modal open={open} title={actionLabel} okText={actionLabel} confirmLoading={mutation.isPending} onCancel={() => setOpen(false)} onOk={() => form.submit()}>{confirmation && <p>{confirmation}</p>}<Form form={form} layout="vertical" onFinish={(values) => void run(values)}>{fields.map((field) => <Form.Item key={field.name} name={field.name} label={field.commentKey ? translate(field.commentKey, {}, field.comment ?? field.name) : field.comment ?? field.name} rules={[{ required: true }]} valuePropName={field.type === "Boolean" ? "checked" : "value"}>{field.options ? <Select options={field.options} /> : field.type === "Boolean" ? <Checkbox /> : field.type === "Integer" || field.type === "Decimal" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>)}</Form></Modal></> : confirmation ? <Popconfirm title={confirmation} onConfirm={() => void run()}>{button}</Popconfirm> : button}</CanAccess>;
+}
+
+export function BusinessActions({ resource, placement, record }: { resource: string; placement: "list" | "show"; record: Record<string, unknown> }) { const { translate } = useTranslation(); const recordId = String(record.id); return <Space wrap>{actionsFor(resource, placement, record).map((action) => action.target.kind === "navigate" ? <CanAccess key={action.name} resource={resource} action={action.name} params={{ id: recordId }}><Link to={action.target.path.replace(":id", encodeURIComponent(recordId))}><Button type="link">{action.labelKey ? translate(action.labelKey, {}, action.label) : action.label}</Button></Link></CanAccess> : <CommandAction key={action.name} action={action} resource={resource} recordId={recordId} />)}</Space>; }
+export function BatchBusinessActions({ resource, recordIds, onComplete }: { resource: string; recordIds: string[]; onComplete(): void }) { if (!recordIds.length) return null; return <Space wrap>{batchActionsFor(resource).map((action) => <BatchCommandAction key={action.name} action={action} resource={resource} recordIds={recordIds} onComplete={onComplete} />)}</Space>; }
 `,
     } : {}),
     ...(hasOrderWorkflow ? {
-      "web/app/features/orders/order-actions.tsx": `import { CanAccess, useCustomMutation, useGetIdentity, useInvalidate } from "@refinedev/core";
-import { Button, Popconfirm, Space, message } from "antd";
+      "web/app/features/orders/order-actions.tsx": `import { CanAccess, useCustomMutation, useGetIdentity, useInvalidate, useNotification, useTranslation } from "@refinedev/core";
+import { Button, Popconfirm, Space } from "antd";
 
 type Command = "submit" | "approve" | "ship" | "cancel";
 export function OrderWorkflowActions({ id, status }: { id: string; status: string }) {
   const { data: identity } = useGetIdentity<{ role?: string }>();
+  const { translate } = useTranslation();
+  const { open: notify } = useNotification();
   const { mutateAsync, mutation } = useCustomMutation();
   const invalidate = useInvalidate();
   const run = async (command: Command) => {
     try {
-      await mutateAsync({ url: \`/api/v1/orders/\${encodeURIComponent(id)}/\${command}\`, method: "post", values: {}, ...(command === "submit" ? { meta: { idempotencyKey: crypto.randomUUID() } } : {}) });
+      await mutateAsync({ url: \`/api/v1/orders/\${encodeURIComponent(id)}/\${command}\`, method: "post", successNotification: false, errorNotification: false, values: {}, ...(command === "submit" ? { meta: { idempotencyKey: crypto.randomUUID() } } : {}) });
       await invalidate({ resource: "orders", id, invalidates: ["detail", "list"] });
-      void message.success("操作成功");
-    } catch (error) { void message.error(String(error)); }
+      notify?.({ type: "success", message: translate("notifications.success", {}, "Successful") });
+    } catch (error) { notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
   };
-  return <CanAccess resource="orders" action="edit"><Space wrap style={{ marginTop: 16 }}>
-    {status === "draft" && <Button type="primary" loading={mutation.isPending} onClick={() => void run("submit")}>提交订单</Button>}
-    {status === "submitted" && identity?.role === "admin" && <Button type="primary" loading={mutation.isPending} onClick={() => void run("approve")}>审批订单</Button>}
-    {status === "approved" && <Popconfirm title="确认出库并扣减库存？" onConfirm={() => void run("ship")}><Button type="primary" loading={mutation.isPending}>出库</Button></Popconfirm>}
-    {(status === "draft" || status === "submitted") && <Popconfirm title="确认取消订单并释放预占？" onConfirm={() => void run("cancel")}><Button danger loading={mutation.isPending}>取消订单</Button></Popconfirm>}
+  return <CanAccess resource="orders" action="edit" params={{ id }}><Space wrap style={{ marginTop: 16 }}>
+    {status === "draft" && <Button type="primary" loading={mutation.isPending} onClick={() => void run("submit")}>{translate("orders.actions.submit", {}, "Submit order")}</Button>}
+    {status === "submitted" && identity?.role === "admin" && <Button type="primary" loading={mutation.isPending} onClick={() => void run("approve")}>{translate("orders.actions.approve", {}, "Approve order")}</Button>}
+    {status === "approved" && <Popconfirm title={translate("orders.actions.shipConfirm", {}, "Confirm shipment and deduct inventory?")} onConfirm={() => void run("ship")}><Button type="primary" loading={mutation.isPending}>{translate("orders.actions.ship", {}, "Ship")}</Button></Popconfirm>}
+    {(status === "draft" || status === "submitted") && <Popconfirm title={translate("orders.actions.cancelConfirm", {}, "Cancel order and release reservations?")} onConfirm={() => void run("cancel")}><Button danger loading={mutation.isPending}>{translate("orders.actions.cancel", {}, "Cancel order")}</Button></Popconfirm>}
   </Space></CanAccess>;
 }
 `,
@@ -262,14 +291,26 @@ export function OrderWorkflowActions({ id, status }: { id: string; status: strin
 export const qiyIcons = { ${iconNames.join(", ")} };
 `,
     "web/app/data-provider.ts": renderAppTemplate("web", "web")["web/app/data-provider.ts"]!
+      .replace('import type { DataProvider } from "@refinedev/core";', 'import type { DataProvider } from "@refinedev/core";\nimport { qiyApiError } from "./api-error";')
+      .replace('Object.assign(new Error(typeof data?.error === "string" ? data.error : `API error ${response.status}`), { statusCode: response.status })', 'qiyApiError(data, response.status)')
+      .replace('Object.assign(new Error(typeof content?.error === "string" ? content.error : `API error ${response.status}`), { statusCode: response.status })', 'qiyApiError(content, response.status)')
       .replace('      if (Object.keys(fieldFilters).length > 0) params.set("filters", JSON.stringify(fieldFilters));', '      const advancedFilters = (filters ?? []).flatMap((filter) => { if (!("field" in filter) || filter.field === "q" || filter.field === "__search" || !("value" in filter) || filter.operator === "eq") return []; return [{ field: String(filter.field), operator: String(filter.operator), value: Array.isArray(filter.value) ? filter.value.map(String).join(",") : String(filter.value) }]; });\n      if (advancedFilters.length > 0) params.set("filters", JSON.stringify(advancedFilters));\n      else if (Object.keys(fieldFilters).length > 0) params.set("filters", JSON.stringify(fieldFilters));')
       .replace('        if (!("field" in filter) || filter.field === "q" || filter.field === "__search" || !("value" in filter) || filter.operator !== "eq") return [];\n        return [{ field: String(filter.field), value: String(filter.value) }];', '        if (!("field" in filter) || filter.field === "q" || filter.field === "__search" || !("value" in filter)) return [];\n        return filter.operator === "eq" ? [{ field: String(filter.field), value: String(filter.value) }] : [{ field: String(filter.field), operator: String(filter.operator), value: String(filter.value) }];')
       .replaceAll("__QIY_DEFAULT_API_TRANSPORT__", options.apiClient ?? "rest")
-      .replace("const allowed = new Set<string>(resourceNames);", `const allowed = new Set<string>(resourceNames);\nconst dataflowCommands = new Set<string>(${JSON.stringify((options.dataflows ?? []).map((flow) => `/api/v1/commands/${flow.name}`))});`)
+      .replace("const allowed = new Set<string>(resourceNames);", `const allowed = new Set<string>(resourceNames);\nconst dataflowCommands = new Set<string>(${JSON.stringify([...(options.dataflows ?? []).map((flow) => `/api/v1/commands/${flow.name}`), ...actionDefinitions.flatMap((action) => action.batch && action.target.kind === "dataflow" ? [action.target.url] : [])])});`)
       .replace('if (method !== "post" || !/^\\/api\\/v1\\/orders\\/[0-9a-f-]{36}\\/(submit|approve|ship|cancel)$/.test(url) || !allowed.has("orders")) throw new Error("Unknown workflow command");', 'const isOrderWorkflow = /^\\/api\\/v1\\/orders\\/[0-9a-f-]{36}\\/(submit|approve|ship|cancel)$/.test(url) && allowed.has("orders");\n  if (method !== "post" || (!isOrderWorkflow && !dataflowCommands.has(url))) throw new Error("Unknown workflow command");')
       .replace('custom: async ({ url, method, query, meta }) => {\n      if (method === "post") return workflowCommand(fetcher, url, method, meta);', 'custom: async ({ url, method, query, meta }) => {\n      if (method === "post") return workflowCommand(fetcher, url, method, meta);')
       .replace('custom: async ({ url, method, query, meta }) => {\n      if (method === "post") return workflowCommand(fetcher, url, method, meta);', 'custom: async ({ url, method, query, meta }) => {\n      if (method === "post") return workflowCommand(fetcher, url, method, meta);'),
-    "web/app/dashboard.ts": `export interface DashboardMetric { name: string; resource: string; label: string; icon?: string; span: 8 | 12 | 24; type?: "count" | "distribution" | "trend"; groupBy?: string; days?: number; }
+    "web/app/api-error.ts": `import { defaultMessageLocale, projectMessage } from "./messages";
+export function qiyApiError(payload: unknown, statusCode: number, locale = typeof document === "undefined" ? defaultMessageLocale : document.documentElement.lang) {
+  const body = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  const errorKey = typeof body.errorKey === "string" ? body.errorKey : undefined;
+  const fallback = typeof body.error === "string" ? body.error : "API error " + statusCode;
+  const message = errorKey ? projectMessage(locale, errorKey) ?? fallback : fallback;
+  return Object.assign(new Error(message), { statusCode, ...(errorKey ? { errorKey } : {}) });
+}
+`,
+    "web/app/dashboard.ts": `export interface DashboardMetric { name: string; resource: string; label: string; icon?: string; comment?: string; commentKey?: string; span: 8 | 12 | 24; type?: "count" | "distribution" | "trend"; groupBy?: string; days?: number; }
 export const dashboardMetrics: DashboardMetric[] = ${JSON.stringify(dashboardMetrics, null, 2)};
 `,
     ...(options.auth ? {
@@ -444,11 +485,13 @@ export function RelatedRecords({ relation, recordId }: { relation: RelatedResour
     "web/app/shared/types.ts": `export type ID = string;\nexport interface PageResult<T> { data: T[]; total: number; }\n`,
     "web/app/features/resources/index.ts": `export { resources, resourceNames, getResource } from "../../resources";\nexport type { ResourceDefinition, ResourceField, FieldType } from "../../resources";\n`,
     "web/app/resources.ts": `export type FieldType = "UUID" | "Text" | "Integer" | "Decimal" | "Money" | "DateTime" | "File" | "Vector";
-export interface ResourceEnumValue { name: string; label?: string; color?: string; icon?: string; }
-export interface ResourceField { name: string; label: string; comment?: string; commentKey?: string; type: FieldType; nullable: boolean; primaryKey: boolean; visible: boolean; listVisible: boolean; formVisible: boolean; showVisible: boolean; sortable: boolean; filterable: boolean; filterModes: string[]; enumName?: string; enumValues?: ResourceEnumValue[]; relation?: { resource: string; labelField: string }; icon?: string; dimension?: number; }
-export interface ResourceDefinition { name: string; apiName: string; label: string; comment?: string; commentKey?: string; icon: string; menuParent?: string; fields: ResourceField[]; relatedResources?: Array<{ resource: string; field: string; label: string }>; }
-export const menuGroups = ${JSON.stringify(menuGroups.map((group) => ({ name: `menu-${group.name}`, label: group.label, icon: group.icon ?? "AppstoreOutlined", ...(group.parent && { parent: `menu-${group.parent}` }) })), null, 2)} as Array<{ name: string; label: string; icon: string; parent?: string }>;
-export const resources: ResourceDefinition[] = ${resourceFields(database, menuGroups)};
+export interface ResourceEnumValue { name: string; label?: string; color?: string; icon?: string; comment?: string; commentKey?: string; }
+export interface ResourceEnumDefinition { name: string; comment?: string; commentKey?: string; values: ResourceEnumValue[]; }
+export interface ResourceField { name: string; label: string; comment?: string; commentKey?: string; type: FieldType; nullable: boolean; primaryKey: boolean; visible: boolean; listVisible: boolean; formVisible: boolean; showVisible: boolean; sortable: boolean; filterable: boolean; filterModes: string[]; enumName?: string; enumValues?: ResourceEnumValue[]; relation?: { resource: string; labelField: string }; icon?: string; dimension?: number; uploadMode?: "binary" | "base64" | "both"; maxBytes?: number; mimeTypes?: string[]; maxFiles?: number; }
+ export interface ResourceDefinition { name: string; apiName: string; label: string; comment?: string; commentKey?: string; icon: string; liveMode: "auto" | "manual" | "off"; menuParent?: string; fields: ResourceField[]; relatedResources?: Array<{ resource: string; field: string; label: string }>; }
+export const enumerations: ResourceEnumDefinition[] = ${JSON.stringify(database.enums ?? [], null, 2)};
+export const menuGroups = ${JSON.stringify(menuGroups.map((group) => ({ name: `menu-${group.name}`, label: group.label, icon: group.icon ?? "AppstoreOutlined", ...(group.parent && { parent: `menu-${group.parent}` }), ...(group.comment !== undefined && { comment: group.comment }), ...(group.commentKey !== undefined && { commentKey: group.commentKey }) })), null, 2)} as Array<{ name: string; label: string; icon: string; parent?: string; comment?: string; commentKey?: string }>;
+export const resources: ResourceDefinition[] = ${resourceFields(database, menuGroups, options.realtime)};
 export const resourceNames = ${JSON.stringify(resourceNames)} as const;
 export function getResource(name: string | undefined): ResourceDefinition | undefined { return resources.find((resource) => resource.name === name); }
 `,
@@ -458,16 +501,24 @@ import { Link } from "react-router";
 import { resources } from "../resources";
  import { dashboardMetrics, type DashboardMetric } from "../dashboard";
  import { qiyIcons } from "../icons";
+ import { projectMessage } from "../messages";
 import { t, type QiyLocale } from "../i18n";
 
+ function MetricDescription({ metric }: { metric: DashboardMetric }) {
+   const { getLocale } = useTranslation();
+   const description = metric.commentKey ? projectMessage(getLocale(), metric.commentKey) ?? metric.comment : metric.comment;
+   return description ? <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>{description}</Typography.Paragraph> : null;
+ }
+
  function DistributionSummary({ metric }: { metric: DashboardMetric }) {
+   const { translate } = useTranslation();
    const { result, query } = useCustom<{ items: Array<{ value: string | null; count: number }> }>({ url: \`/api/v1/\${metric.resource}/distribution\`, method: "get", config: { query: { field: metric.groupBy } } });
    const resource = resources.find((item) => item.name === metric.resource);
    const field = resource?.fields.find((item) => item.name === metric.groupBy);
    const Icon = qiyIcons[(metric.icon ?? resource?.icon ?? "TableOutlined") as keyof typeof qiyIcons] ?? qiyIcons.TableOutlined;
    const rows = result.data?.items ?? [];
    const total = rows.reduce((sum, row) => sum + row.count, 0);
-   return <Col xs={24} sm={12} lg={metric.span}><Card title={<Space><Icon style={{ color: "#1677ff" }} /><span>{metric.label}</span></Space>} loading={query.isLoading}>{query.error && <Typography.Text type="danger">{String(query.error)}</Typography.Text>}{rows.map(({ value, count }) => { const item = field?.enumValues?.find((option) => option.name === value); return <div key={value ?? "null"}><Space style={{ width: "100%", justifyContent: "space-between" }}><Typography.Text>{item?.label ?? value ?? "—"}</Typography.Text><Typography.Text type="secondary">{count}</Typography.Text></Space><Progress percent={total ? Math.round(count / total * 100) : 0} showInfo={false} /></div>; })}{!query.isLoading && !rows.length && !query.error && <Typography.Text type="secondary">—</Typography.Text>}</Card></Col>;
+   return <Col xs={24} sm={12} lg={metric.span}><Card title={<Space><Icon style={{ color: "#1677ff" }} /><span>{metric.label}</span></Space>} loading={query.isLoading}><MetricDescription metric={metric} />{query.error && <Typography.Text type="danger">{String(query.error)}</Typography.Text>}{rows.map(({ value, count }) => { const item = field?.enumValues?.find((option) => option.name === value); const comment = item?.commentKey ? translate(item.commentKey, {}, item.comment) : item?.comment; return <div key={value ?? "null"}><Space style={{ width: "100%", justifyContent: "space-between" }}><Typography.Text title={comment}>{item?.label ?? value ?? "—"}</Typography.Text><Typography.Text type="secondary">{count}</Typography.Text></Space><Progress percent={total ? Math.round(count / total * 100) : 0} showInfo={false} /></div>; })}{!query.isLoading && !rows.length && !query.error && <Typography.Text type="secondary">—</Typography.Text>}</Card></Col>;
  }
  function TrendSummary({ metric }: { metric: DashboardMetric }) {
    const { result, query } = useCustom<{ items: Array<{ day: string; count: number }> }>({ url: \`/api/v1/\${metric.resource}/trend\`, method: "get", config: { query: { field: metric.groupBy, days: metric.days } } });
@@ -475,7 +526,7 @@ import { t, type QiyLocale } from "../i18n";
    const Icon = qiyIcons[(metric.icon ?? resource?.icon ?? "TableOutlined") as keyof typeof qiyIcons] ?? qiyIcons.TableOutlined;
    const rows = result.data?.items ?? [];
    const max = Math.max(...rows.map((row) => row.count), 0);
-   return <Col xs={24} lg={metric.span}><Card title={<Space><Icon style={{ color: "#1677ff" }} /><span>{metric.label}</span></Space>} loading={query.isLoading}>{query.error && <Typography.Text type="danger">{String(query.error)}</Typography.Text>}{rows.map((row) => <div key={row.day}><Space style={{ width: "100%", justifyContent: "space-between" }}><Typography.Text>{row.day}</Typography.Text><Typography.Text type="secondary">{row.count}</Typography.Text></Space><Progress percent={max ? Math.round(row.count / max * 100) : 0} showInfo={false} /></div>)}{!query.isLoading && !rows.length && !query.error && <Typography.Text type="secondary">—</Typography.Text>}</Card></Col>;
+   return <Col xs={24} lg={metric.span}><Card title={<Space><Icon style={{ color: "#1677ff" }} /><span>{metric.label}</span></Space>} loading={query.isLoading}><MetricDescription metric={metric} />{query.error && <Typography.Text type="danger">{String(query.error)}</Typography.Text>}{rows.map((row) => <div key={row.day}><Space style={{ width: "100%", justifyContent: "space-between" }}><Typography.Text>{row.day}</Typography.Text><Typography.Text type="secondary">{row.count}</Typography.Text></Space><Progress percent={max ? Math.round(row.count / max * 100) : 0} showInfo={false} /></div>)}{!query.isLoading && !rows.length && !query.error && <Typography.Text type="secondary">—</Typography.Text>}</Card></Col>;
  }
  function ResourceSummary({ metric }: { metric: DashboardMetric }) {
    if (metric.type === "distribution") return <DistributionSummary metric={metric} />;
@@ -486,7 +537,7 @@ import { t, type QiyLocale } from "../i18n";
    const { result, query } = useList({ resource: metric.resource, pagination: { currentPage: 1, pageSize: 1 } });
    const resource = resources.find((item) => item.name === metric.resource);
    const Icon = qiyIcons[(metric.icon ?? resource?.icon ?? "TableOutlined") as keyof typeof qiyIcons] ?? qiyIcons.TableOutlined;
-   return <Col xs={24} sm={12} lg={metric.span}><Link to={\`/\${metric.resource}\`}><Card hoverable><Space><Icon style={{ fontSize: 24, color: "#1677ff" }} /><div><Typography.Text type="secondary">{metric.label}</Typography.Text><Statistic value={query.isLoading ? "—" : result.total ?? 0} /></div></Space></Card></Link></Col>;
+   return <Col xs={24} sm={12} lg={metric.span}><Link to={\`/\${metric.resource}\`}><Card hoverable><Space><Icon style={{ fontSize: 24, color: "#1677ff" }} /><div><Typography.Text type="secondary">{metric.label}</Typography.Text><MetricDescription metric={metric} /><Statistic value={query.isLoading ? "—" : result.total ?? 0} /></div></Space></Card></Link></Col>;
 }
 export default function Home() {
   const { getLocale } = useTranslation(); const locale: QiyLocale = getLocale() === "en-US" ? "en-US" : "zh-CN";
@@ -504,7 +555,7 @@ export type QiyLocale = string;
 export const supportedLocales: string[] = ${JSON.stringify([...new Set(["zh-CN", "en-US", ...Object.keys(options.messages?.locales ?? {})])])};
 export const languageOptions = supportedLocales.map((value) => ({ value, label: new Intl.DisplayNames([value], { type: "language" }).of(value) ?? value }));
 export function resolveLocale(value: string | undefined): QiyLocale { return value && supportedLocales.includes(value) ? value : defaultMessageLocale; }
-export const localeMessages = { "zh-CN": { new: "新建", edit: "编辑", view: "查看", back: "返回列表", delete: "删除", batchDelete: "批量删除", actions: "操作", visibleColumns: "显示列", confirmDelete: "确认删除选中记录？", deleted: "删除成功", unknownResource: "未知资源", detail: "详情", language: "语言", save: "保存", cancel: "取消", deleteSuccess: "删除成功", quickAccess: "快速访问" }, "en-US": { new: "New", edit: "Edit", view: "View", back: "Back to list", delete: "Delete", batchDelete: "Batch delete", actions: "Actions", visibleColumns: "Columns", confirmDelete: "Delete selected records?", deleted: "Deleted", unknownResource: "Unknown resource", detail: "Detail", language: "Language", save: "Save", cancel: "Cancel", deleteSuccess: "Deleted", quickAccess: "Quick access" } } as const;
+export const localeMessages = { "zh-CN": { new: "新建", edit: "编辑", view: "查看", back: "返回列表", delete: "删除", batchDelete: "批量删除", actions: "操作", visibleColumns: "显示列", confirmDelete: "确认删除选中记录？", deleted: "删除成功", unknownResource: "未知资源", detail: "详情", language: "语言", save: "保存", cancel: "取消", deleteSuccess: "删除成功", quickAccess: "快速访问", upload: "上传文件" }, "en-US": { new: "New", edit: "Edit", view: "View", back: "Back to list", delete: "Delete", batchDelete: "Batch delete", actions: "Actions", visibleColumns: "Columns", confirmDelete: "Delete selected records?", deleted: "Deleted", unknownResource: "Unknown resource", detail: "Detail", language: "Language", save: "Save", cancel: "Cancel", deleteSuccess: "Deleted", quickAccess: "Quick access", upload: "Upload file" } } as const;
 export const refineMessages: Record<QiyLocale, Record<string, string>> = {
   "zh-CN": { "buttons.logout": "退出登录", "buttons.create": "新建", "buttons.save": "保存", "buttons.delete": "删除", "buttons.edit": "编辑", "buttons.show": "查看", "buttons.cancel": "取消", "buttons.confirm": "确认", "buttons.refresh": "刷新", "buttons.search": "搜索", "buttons.filter": "筛选", "buttons.clear": "清除", "buttons.export": "导出", "buttons.import": "导入", "warnWhenUnsavedChanges": "更改尚未保存，确定离开吗？" },
   "en-US": { "buttons.logout": "Log out", "buttons.create": "Create", "buttons.save": "Save", "buttons.delete": "Delete", "buttons.edit": "Edit", "buttons.show": "View", "buttons.cancel": "Cancel", "buttons.confirm": "Confirm", "buttons.refresh": "Refresh", "buttons.search": "Search", "buttons.filter": "Filter", "buttons.clear": "Clear", "buttons.export": "Export", "buttons.import": "Import", "warnWhenUnsavedChanges": "You have unsaved changes. Leave this page?" },
@@ -568,11 +619,11 @@ import { t, type QiyLocale } from "../i18n";
 import { downloadFile } from "../hooks/download-file";
 import type { BaseRecord } from "@refinedev/core";
 
-function renderCell(field: { name: string; type: string; enumValues?: Array<{ name: string; label?: string; color?: string; icon?: string }> }, value: unknown, notify: ReturnType<typeof useNotification>["open"]) {
+function renderCell(field: { name: string; type: string; enumValues?: Array<{ name: string; label?: string; color?: string; icon?: string; comment?: string; commentKey?: string }> }, value: unknown, notify: ReturnType<typeof useNotification>["open"], translate: ReturnType<typeof useTranslation>["translate"]) {
   if (value === null || value === undefined || value === "") return "—";
   if (field.type === "File") return <Typography.Link onClick={() => void downloadFile(String(value)).catch((error) => { notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) }); })}>{String(value)}</Typography.Link>;
   const enumValue = field.enumValues?.find((item) => item.name === String(value));
-  if (enumValue) { const Icon = enumValue.icon ? qiyIcons[enumValue.icon as keyof typeof qiyIcons] : undefined; return <Tag color={enumValue.color} icon={Icon ? <Icon /> : undefined}>{enumValue.label ?? enumValue.name}</Tag>; }
+  if (enumValue) { const Icon = enumValue.icon ? qiyIcons[enumValue.icon as keyof typeof qiyIcons] : undefined; const comment = enumValue.commentKey ? translate(enumValue.commentKey, {}, enumValue.comment) : enumValue.comment; return <Tag title={comment} color={enumValue.color} icon={Icon ? <Icon /> : undefined}>{enumValue.label ?? enumValue.name}</Tag>; }
   if (field.name.toLowerCase().includes("status") || field.name.toLowerCase() === "role") return <Typography.Text code>{String(value)}</Typography.Text>;
   if (field.type === "Money" || field.type === "Decimal") return Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return String(value);
@@ -588,7 +639,7 @@ export default function ResourceList() {
   const fields = resource.fields.filter((field) => field.type !== "Vector" && visibleKeys.includes(field.name));
   const columns: ColumnsType<Record<string, unknown>> = fields.map((field) => {
     const Icon = field.icon ? qiyIcons[field.icon as keyof typeof qiyIcons] : undefined;
-    return { title: <Space>{Icon && <Icon />}<span>{field.label}</span></Space>, dataIndex: field.name, key: field.name, sorter: field.sortable, render: (value: unknown) => renderCell(field, value, notify) };
+    return { title: <Space>{Icon && <Icon />}<span>{field.label}</span></Space>, dataIndex: field.name, key: field.name, sorter: field.sortable, render: (value: unknown) => renderCell(field, value, notify, translate) };
   });
   columns.push({ title: t(locale, "actions"), key: "actions", fixed: "right", render: (_value, record) => <Space>
     <ShowButton resource={resource.name} recordItemId={String(record.id)} hideText />
@@ -728,8 +779,13 @@ test("implements Refine translation overloads, interpolation and asynchronous lo
   if (usesOidcAuth) generated["web/app/routes.ts"] = generated["web/app/routes.ts"]!.replace('  route("auth/login", "./routes/login.tsx"),', '  route("auth/login", "./routes/login.tsx"),\n  route("auth/callback", "./routes/auth-callback.tsx"),');
   if (actionDefinitions.length) {
     generated["web/app/routes/list.tsx"] = generated["web/app/routes/list.tsx"]!
-      .replace('import { downloadFile } from "../hooks/download-file";', 'import { downloadFile } from "../hooks/download-file";\nimport { BusinessActions } from "../components/business-actions";')
-      .replace('  </Space> });\n  const deleteSelected = async () => { await removeMany({ resource: resource.name, ids: selectedRowKeys.map(String) }); setSelectedRowKeys([]); notify?.({ type: "success", message: t(locale, "deleteSuccess") }); };', '    <BusinessActions resource={resource.name} placement="list" recordId={String(record.id)} />\n  </Space> });\n  const deleteSelected = async () => { await removeMany({ resource: resource.name, ids: selectedRowKeys.map(String) }); setSelectedRowKeys([]); notify?.({ type: "success", message: t(locale, "deleteSuccess") }); };');
+      .replace('import { downloadFile } from "../hooks/download-file";', 'import { downloadFile } from "../hooks/download-file";\nimport { BatchBusinessActions, BusinessActions } from "../components/business-actions";')
+      .replace('  </Space> });\n  const deleteSelected = async () => { await removeMany({ resource: resource.name, ids: selectedRowKeys.map(String) }); setSelectedRowKeys([]); notify?.({ type: "success", message: t(locale, "deleteSuccess") }); };', '    <BusinessActions resource={resource.name} placement="list" record={record} />\n  </Space> });\n  const deleteSelected = async () => { await removeMany({ resource: resource.name, ids: selectedRowKeys.map(String) }); setSelectedRowKeys([]); notify?.({ type: "success", message: t(locale, "deleteSuccess") }); };');
+    if (actionDefinitions.some((action) => action.batch)) {
+      generated["web/app/routes/list.tsx"] = generated["web/app/routes/list.tsx"]!
+        .replace('    {deletePermission?.can && selectedRowKeys.length > 0 && <Popconfirm', '    {selectedRowKeys.length > 0 && <BatchBusinessActions resource={resource.name} recordIds={selectedRowKeys.map(String)} onComplete={() => setSelectedRowKeys([])} />}\n    {deletePermission?.can && selectedRowKeys.length > 0 && <Popconfirm')
+        .replace(' rowSelection={deletePermission?.can ? { selectedRowKeys, onChange: setSelectedRowKeys } : undefined}', ' rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}');
+    }
     const manualActions = actionDefinitions.filter((action): action is GeneratedAction & { target: Extract<GeneratedAction["target"], { kind: "navigate" }> } => action.target.kind === "navigate");
     if (manualActions.length) {
       const routeLines = manualActions.map((action) => `  route(${JSON.stringify(action.target.path.slice(1))}, ${JSON.stringify(`./routes/actions/${action.name}.tsx`)}),`).join("\n");
@@ -740,7 +796,13 @@ test("implements Refine translation overloads, interpolation and asynchronous lo
       }
     }
     const commandAction = actionDefinitions.find((action) => action.target.kind === "dataflow");
-    if (commandAction?.target.kind === "dataflow") generated["web/tests/actions.test.ts"] = `import { expect, test } from "bun:test";\nimport { qiyActions } from "../app/actions";\nimport { createDataProvider, createGraphQLDataProvider } from "../app/data-provider";\n\ntest("declared actions preserve placement and targets", () => { expect(qiyActions.find((action) => action.name === ${JSON.stringify(commandAction.name)})?.placements).toEqual(${JSON.stringify(commandAction.placements)}); });\nfor (const [name, createProvider] of [["REST", createDataProvider], ["GraphQL", createGraphQLDataProvider]] as const) test(name + " dataflow command sends JSON values and rejects undeclared commands", async () => { const requests: Array<{ url: string; init?: RequestInit }> = []; const provider = createProvider(async (url, init) => { requests.push({ url: String(url), init }); return Response.json({ id: "record-1" }); }); const result = await provider.custom?.({ url: ${JSON.stringify(commandAction.target.url)}, method: "post", payload: { ${JSON.stringify(commandAction.target.idInput)}: "record-1" } }); expect(result?.data).toEqual({ id: "record-1" }); expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ ${JSON.stringify(commandAction.target.idInput)}: "record-1" }); expect((requests[0]?.init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json"); await expect(provider.custom?.({ url: "/api/v1/commands/not-declared", method: "post", payload: {} })).rejects.toThrow("Unknown workflow command"); });\n`;
+    const conditionalAction = actionDefinitions.find((action) => action.condition);
+    if (commandAction?.target.kind === "dataflow") {
+      const commandPayload = commandAction.batch
+        ? { items: [{ [commandAction.target.idInput]: "record-1" }, { [commandAction.target.idInput]: "record-2" }] }
+        : { [commandAction.target.idInput]: "record-1" };
+      generated["web/tests/actions.test.ts"] = `import { expect, test } from "bun:test";\nimport { actionMatchesRecord, qiyActions } from "../app/actions";\nimport { createDataProvider, createGraphQLDataProvider } from "../app/data-provider";\n\ntest("declared actions preserve placement and targets", () => { expect(qiyActions.find((action) => action.name === ${JSON.stringify(commandAction.name)})?.placements).toEqual(${JSON.stringify(commandAction.placements)}); });\n${conditionalAction?.condition ? `test("action conditions fail closed against the current record", () => { const action = qiyActions.find((candidate) => candidate.name === ${JSON.stringify(conditionalAction.name)})!; expect(actionMatchesRecord(action, { ${JSON.stringify(conditionalAction.condition.field)}: ${JSON.stringify(conditionalAction.condition.value)} })).toBe(${conditionalAction.condition.operator === "=="}); expect(actionMatchesRecord(action, { ${JSON.stringify(conditionalAction.condition.field)}: "__different__" })).toBe(${conditionalAction.condition.operator === "!="}); expect(actionMatchesRecord(action, {})).toBe(false); });\n` : ""}for (const [name, createProvider] of [["REST", createDataProvider], ["GraphQL", createGraphQLDataProvider]] as const) test(name + " ${commandAction.batch ? "batch " : ""}dataflow command sends JSON values and rejects undeclared commands", async () => { const requests: Array<{ url: string; init?: RequestInit }> = []; const provider = createProvider(async (url, init) => { requests.push({ url: String(url), init }); return Response.json(${commandAction.batch ? "[]" : '{ id: "record-1" }'}); }); await provider.custom?.({ url: ${JSON.stringify(commandAction.target.url)}, method: "post", payload: ${JSON.stringify(commandPayload)} }); expect(JSON.parse(String(requests[0]?.init?.body))).toEqual(${JSON.stringify(commandPayload)}); expect((requests[0]?.init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json"); await expect(provider.custom?.({ url: "/api/v1/commands/not-declared", method: "post", payload: {} })).rejects.toThrow("Unknown workflow command"); });\n`;
+    }
   }
   if (options.readOnly) {
     generated["web/app/root.tsx"] = generated["web/app/root.tsx"]!
@@ -772,6 +834,23 @@ test("implements Refine translation overloads, interpolation and asynchronous lo
       .replace('<CanAccess resource={resource.name} action="edit"><Link to={`/${resource.name}/${id}/edit`}><Button type="primary">{t(locale, "edit")}</Button></Link></CanAccess>', "")
       .replace('import { CanAccess, useOne, useTranslation } from "@refinedev/core";', 'import { useOne, useTranslation } from "@refinedev/core"');
     for (const path of ["web/app/routes/create.tsx", "web/app/routes/edit.tsx", "web/app/components/resource-form.tsx"]) delete generated[path];
+  }
+  const localizedFailure = (options.dataflows ?? []).flatMap((flow) => flow.steps.flatMap((step) => step.actions.flatMap((action) => action.kind === "require" && action.errorKey ? [{ flow: flow.name, error: action.error, errorKey: action.errorKey }] : [])))[0];
+  if (localizedFailure && options.messages) {
+    generated["web/tests/api-error.test.ts"] = `import { expect, test } from "bun:test";
+import { qiyApiError } from "../app/api-error";
+import { createDataProvider } from "../app/data-provider";
+const failure = ${JSON.stringify({ error: localizedFailure.error, errorKey: localizedFailure.errorKey })};
+test("translates declared business errors and keeps status and key", () => {
+${Object.entries(options.messages.locales).map(([locale, entries]) => `  expect(qiyApiError(failure, 409, ${JSON.stringify(locale)})).toMatchObject({ message: ${JSON.stringify(entries[localizedFailure.errorKey] ?? localizedFailure.error)}, statusCode: 409, errorKey: failure.errorKey });`).join("\n")}
+  expect(qiyApiError({ error: "fallback", errorKey: "missing" }, 409, "zh-CN").message).toBe("fallback");
+  expect(qiyApiError({ error: "literal" }, 409, "zh-CN").message).toBe("literal");
+});
+test("Refine custom command preserves the localized API error contract", async () => {
+  const provider = createDataProvider(async () => Response.json(failure, { status: 409 }));
+  await expect(provider.custom!({ url: ${JSON.stringify(`/api/v1/commands/${localizedFailure.flow}`)}, method: "post", payload: {} })).rejects.toMatchObject({ message: failure.error, statusCode: 409, errorKey: failure.errorKey });
+});
+`;
   }
   if (options.messages) {
     generated["web/app/root.tsx"] = generated["web/app/root.tsx"]!.replace('useState<QiyLocale>("zh-CN")', `useState<QiyLocale>(${JSON.stringify(options.messages.defaultLocale)})`);
@@ -886,15 +965,56 @@ export function AuditHistory({ resource, recordId }: { resource: string; recordI
 }
 `;
   }
-  for (const path of ["web/app/components/business-actions.tsx", "web/app/features/orders/order-actions.tsx"]) {
-    if (!generated[path]) continue;
-    generated[path] = 'import { useNotification } from "@refinedev/core";\n' + generated[path]!
-      .replace(", message } from", " } from")
-      .replace("const invalidate = useInvalidate();", "const invalidate = useInvalidate(); const { open: notify } = useNotification();")
-      .replace('method: "post", values:', 'method: "post", successNotification: false, errorNotification: false, values:')
-      .replace('void message.success(action.label + "成功");', 'notify?.({ type: "success", message: action.label });')
-      .replace('void message.success("操作成功");', 'notify?.({ type: "success", message: "操作成功" });')
-      .replace('void message.error(String(error));', 'notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) });');
+  if (usesRealtime) {
+    const webPackage = JSON.parse(generated["web/package.json"]!) as { dependencies: Record<string, string> };
+    webPackage.dependencies.ably = "2.29.0";
+    generated["web/package.json"] = `${JSON.stringify(webPackage, null, 2)}\n`;
+    generated["web/app/providers/live-provider.ts"] = `import * as Ably from "ably";
+import type { LiveEvent, LiveProvider } from "@refinedev/core";
+
+type QiySubscription = {
+  channel: Ably.RealtimeChannel;
+  types: string[];
+  listener: (message: Ably.InboundMessage) => void;
+};
+
+export function createQiyLiveProvider(fetcher: typeof fetch = fetch): LiveProvider | undefined {
+  if (typeof window === "undefined") return undefined;
+  const client = new Ably.Realtime({
+    authCallback: async (_params, callback) => {
+      try {
+        const token = window.localStorage.getItem("qiy.access_token");
+        const response = await fetcher("/api/v1/realtime/token", { method: "POST", headers: token ? { Authorization: "Bearer " + token } : {} });
+        const body = await response.json() as any;
+        if (!response.ok) throw new Error(body.error ?? "Realtime authorization failed");
+        callback(null, body);
+      } catch (error) { callback(error as any, null); }
+    },
+  });
+  return {
+    subscribe: ({ channel, types, callback, meta }) => {
+      const ablyChannel = client.channels.get("qiy:" + channel);
+      const listener = (message: Ably.InboundMessage) => {
+        const payload = message.data && typeof message.data === "object" && !Array.isArray(message.data) ? message.data : { data: message.data };
+        callback({ channel, type: message.name ?? "*", payload, date: new Date(message.timestamp ?? Date.now()), meta } satisfies LiveEvent);
+      };
+      void ablyChannel.subscribe(types, listener).catch((error) => console.error("Realtime subscription failed", { channel, error }));
+      return { channel: ablyChannel, types, listener } satisfies QiySubscription;
+    },
+    unsubscribe: (subscription: QiySubscription) => subscription.channel.unsubscribe(subscription.types, subscription.listener),
+  };
+}
+
+export const qiyLiveProvider = createQiyLiveProvider();
+`;
+    generated["web/app/root.tsx"] = 'import { qiyLiveProvider } from "./providers/live-provider";\n' + generated["web/app/root.tsx"]!.replace("dataProvider={dataProvider}", "dataProvider={dataProvider} liveProvider={qiyLiveProvider}");
+    generated["web/tests/live-provider.test.ts"] = `import { expect, test } from "bun:test";
+import { createQiyLiveProvider } from "../app/providers/live-provider";
+
+test("realtime provider stays browser-only during SSR", () => {
+  expect(createQiyLiveProvider()).toBeUndefined();
+});
+`;
   }
   return generated;
 }

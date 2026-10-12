@@ -3,7 +3,7 @@ import { generateDrizzle } from "./commands/generate-drizzle";
 
 const source = Bun.argv[2];
 if (!source) {
-  console.error("Usage: qiy drizzle <database-ir.json|qiy-model.mps>");
+  console.error("Usage: bun run tools/generate-drizzle.ts <database-ir.json|qiy-model.mps>");
   process.exit(1);
 }
 try {

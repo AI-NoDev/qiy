@@ -4,15 +4,24 @@ import { generateEnvironmentFiles } from "./environment-files";
 import { generateServer } from "./generate-server";
 import { generateWeb } from "./generate-web";
 import type { QiyProject } from "./qiy-project";
+import type { QiyTestSuite } from "./qiy-test";
 
-type ProjectOptions = Pick<QiyProject, "mode" | "integration" | "ui" | "messages" | "dataflows" | "actions" | "apiClient" | "corsOrigins" | "elysiaPlugins" | "menuGroups" | "dashboardMetrics" | "storageProvider" | "auth" | "environment" | "scopes" | "workflows">;
+type ProjectOptions = Pick<QiyProject, "comment" | "commentKey" | "mode" | "integration" | "ui" | "messages" | "dataflows" | "actions" | "apiClient" | "corsOrigins" | "elysiaPlugins" | "menuGroups" | "dashboardMetrics" | "realtime" | "storageProvider" | "auth" | "environment" | "scopes" | "workflows"> & { testSuite?: QiyTestSuite };
 
 export function generateProject(database: DatabaseIR, name: string, options: ProjectOptions = {}): Record<string, string> {
+  if (options.realtime && !options.auth) throw new Error("Realtime requires generated authentication");
   if (options.mode === "integration" && options.dataflows?.length) {
     throw new Error("Dataflow server generation is unavailable in integration mode; implement host commands in the existing API.");
   }
   if (options.mode === "integration") return generateIntegrationProject(database, options);
   const template = { ...renderWorkspaceTemplate(name, database.entities[0]?.tableName ?? ""), ...renderAdminTemplate(name, database.entities[0]?.tableName ?? "") };
+  if (options.comment) {
+    for (const path of ["package.json", "apps/server/package.json", "apps/web/package.json"]) {
+      const packageJson = JSON.parse(template[path]!) as Record<string, unknown>;
+      packageJson.description = options.comment;
+      template[path] = `${JSON.stringify(packageJson, null, 2)}\n`;
+    }
+  }
   template["apps/server/.env.example"] = renderEnvironmentExample(database, options);
   const testDatabaseUrl = database.dialect === "sqlite"
     ? ":memory:"
@@ -27,6 +36,7 @@ export function generateProject(database: DatabaseIR, name: string, options: Pro
     template["apps/server/tests/setup.ts"] += `Bun.env[${JSON.stringify(options.elysiaPlugins.jwt.secretEnv)}] ??= "qiy-test-only-jwt-secret";\n`;
   }
   if (options.auth?.provider === "local" || options.auth?.provider === "otp") template["apps/server/tests/setup.ts"] += 'Bun.env.QIY_AUTH_SECRET ??= "qiy-local-auth-test-secret-value-32";\n';
+  if (options.realtime) template["apps/server/tests/setup.ts"] += 'Bun.env.QIY_REALTIME_DISABLED = "1";\n';
   const files = { ...generateServer(database, options), ...generateWeb(database, options) };
   const apps = Object.fromEntries(Object.entries(files).map(([path, content]) => [
     path.replace(/^api\//, "apps/server/").replace(/^web\//, "apps/web/"), content,
@@ -38,7 +48,18 @@ export function generateProject(database: DatabaseIR, name: string, options: Pro
   }
   apps["apps/server/tests/setup.ts"] = template["apps/server/tests/setup.ts"]!;
   if (options.elysiaPlugins?.static) apps[`apps/server/${options.elysiaPlugins.static.assets}/.gitkeep`] = "";
-  if (options.elysiaPlugins && Object.keys(options.elysiaPlugins).length > 0) {
+  if (options.realtime) {
+    Object.assign(apps, generateRealtimeObservability(name));
+    apps["deploy/kubernetes/deployment.yaml"] = apps["deploy/kubernetes/deployment.yaml"]!.replace(
+      '            - name: QIY_DEV_MODE\n              value: "0"',
+      '            - name: QIY_DEV_MODE\n              value: "0"\n            - name: QIY_ABLY_API_KEY\n              valueFrom:\n                secretKeyRef:\n                  name: ' + name + '\n                  key: QIY_ABLY_API_KEY\n            - name: QIY_REALTIME_METRICS_TOKEN\n              valueFrom:\n                secretKeyRef:\n                  name: ' + name + '\n                  key: QIY_REALTIME_METRICS_TOKEN',
+    );
+    apps["deploy/kubernetes/secret.example.yaml"] = apps["deploy/kubernetes/secret.example.yaml"]!.replace(
+      '  QIY_AUTH_SECRET: "replace-with-a-random-32-character-minimum-secret"',
+      '  QIY_AUTH_SECRET: "replace-with-a-random-32-character-minimum-secret"\n  QIY_ABLY_API_KEY: "replace-with-your-server-only-ably-key"\n  QIY_REALTIME_METRICS_TOKEN: "replace-with-a-random-read-only-scrape-token"',
+    );
+  }
+  if ((options.elysiaPlugins && Object.keys(options.elysiaPlugins).length > 0) || options.realtime) {
     const serverPackage = JSON.parse(apps["apps/server/package.json"]!) as { dependencies: Record<string, string> };
     const generatedServerPackage = JSON.parse(files["api/package.json"]!) as { dependencies?: Record<string, string> };
     serverPackage.dependencies = { ...serverPackage.dependencies, ...generatedServerPackage.dependencies };
@@ -70,7 +91,15 @@ export function generateProject(database: DatabaseIR, name: string, options: Pro
     serverPackage.scripts["auth:bootstrap-admin"] = "bun --env-file=.env.production src/auth/bootstrap-admin.ts";
     serverPackage.scripts["auth:set-password"] = "bun --env-file=.env.production src/auth/set-password.ts";
   }
+  if (options.realtime) serverPackage.scripts["realtime:admin"] = "bun --env-file=.env.production src/realtime-admin.ts";
   apps["apps/server/package.json"] = `${JSON.stringify(serverPackage, null, 2)}\n`;
+  if (options.comment) {
+    for (const path of ["apps/server/package.json", "apps/web/package.json"]) {
+      const packageJson = JSON.parse(apps[path]!) as Record<string, unknown>;
+      packageJson.description = options.comment;
+      apps[path] = `${JSON.stringify(packageJson, null, 2)}\n`;
+    }
+  }
   delete apps["apps/server/src/repositories.ts"];
   delete apps["apps/server/src/routes/index.ts"];
   return apps;
@@ -81,6 +110,11 @@ function generateIntegrationProject(database: DatabaseIR, options: ProjectOption
   const apps = Object.fromEntries(Object.entries(generateWeb(database, { ...options, readOnly: true })).map(([path, content]) => [
     path.replace(/^web\//, "apps/web/"), content,
   ]));
+  if (options.comment && apps["apps/web/package.json"]) {
+    const packageJson = JSON.parse(apps["apps/web/package.json"]) as Record<string, unknown>;
+    packageJson.description = options.comment;
+    apps["apps/web/package.json"] = `${JSON.stringify(packageJson, null, 2)}\n`;
+  }
   for (const path of Object.keys(apps)) if (path.startsWith("apps/web/tests/")) delete apps[path];
   const apiBase = JSON.stringify(options.integration.apiBase);
   const authTransport = JSON.stringify(options.integration.authTransport);
@@ -94,7 +128,7 @@ export const authTransport = ${authTransport} as "none" | "cookie" | "bearer" | 
 export async function hostRequest(path: string, init?: RequestInit): Promise<unknown> {
   const response = await qiyIntegrationFetch(path, init);
   const payload = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(typeof payload === "object" && payload && "error" in payload ? String(payload.error) : \`Host API error \${response.status}\`);
+  if (!response.ok) throw Object.assign(new Error(typeof payload === "object" && payload && "error" in payload ? String(payload.error) : \`Host API error \${response.status}\`), { statusCode: response.status });
   return payload;
 }
 
@@ -126,6 +160,7 @@ export interface QiyHostAuthBridge {
   getPermissions?: () => unknown | Promise<unknown>;
   can?: (request: { resource?: string; action: string; params?: unknown }) => { can: boolean; reason?: string } | Promise<{ can: boolean; reason?: string }>;
   logout?: () => void | Promise<void>;
+  onError?: (error: unknown) => { logout?: boolean; redirectTo?: string } | Promise<{ logout?: boolean; redirectTo?: string }>;
 }
 declare global { interface Window { qiyHostAuth?: QiyHostAuthBridge } }
 
@@ -172,7 +207,11 @@ export const qiyIntegrationAuthProvider: AuthProvider = {
   check: async () => (await bridge()?.check?.()) === true ? { authenticated: true } : { authenticated: false, redirectTo: "/auth/login" },
   getIdentity: async () => await bridge()?.getIdentity?.() ?? null,
   getPermissions: async () => await bridge()?.getPermissions?.() ?? null,
-  onError: async ({ error }) => error?.statusCode === 401 ? { logout: false } : {},
+  onError: async (error) => {
+    const handler = bridge()?.onError;
+    if (handler) return await handler(error);
+    return error?.statusCode === 401 ? { logout: false, redirectTo: "/auth/login" } : {};
+  },
 };
 
 export const integrationAuthGuide = "Provide window.qiyHostAuth.getAccessToken for bearer/portal mode. Cookie mode includes credentials and copies the configured readable CSRF cookie into its request header. Implement host login, refresh, identity, logout, and authorization in this unowned adapter; keep secrets out of the Qiy model.";
@@ -226,7 +265,7 @@ export default defineConfig({ plugins: [reactRouter()] });
 
 function renderEnvironmentExample(
   database: DatabaseIR,
-  options: Pick<QiyProject, "corsOrigins" | "elysiaPlugins" | "storageProvider" | "auth">,
+  options: Pick<QiyProject, "corsOrigins" | "elysiaPlugins" | "realtime" | "storageProvider" | "auth">,
 ): string {
   const databaseUrl = database.dialect === "sqlite"
     ? "./qiy.sqlite"
@@ -256,6 +295,21 @@ function renderEnvironmentExample(
   if (options.corsOrigins?.length) values.set("QIY_CORS_ORIGINS", options.corsOrigins.join(","));
   if (options.elysiaPlugins?.jwt) values.set(options.elysiaPlugins.jwt.secretEnv, "");
   if (options.elysiaPlugins?.cron?.length) values.set("QIY_CRON_ENABLED", "0");
+  if (options.realtime) {
+    values.set("QIY_ABLY_API_KEY", "");
+    values.set("QIY_REALTIME_DISABLED", "0");
+    values.set("QIY_REALTIME_POLL_MS", "5000");
+    values.set("QIY_REALTIME_LEASE_MS", "30000");
+    values.set("QIY_REALTIME_MAX_ATTEMPTS", "10");
+    values.set("QIY_REALTIME_RETENTION_DAYS", "7");
+    values.set("QIY_REALTIME_CLEANUP_MS", "86400000");
+    values.set("QIY_REALTIME_ADMIN_URL", "http://127.0.0.1:3000/api/v1/realtime/outbox");
+    values.set("QIY_REALTIME_ADMIN_TOKEN", "");
+    values.set("QIY_REALTIME_METRICS_TOKEN", "");
+    values.set("QIY_REALTIME_ALERT_MAX_PENDING", "1000");
+    values.set("QIY_REALTIME_ALERT_MAX_DEAD_LETTERED", "0");
+    values.set("QIY_REALTIME_ALERT_MAX_OLDEST_PENDING_MS", "300000");
+  }
 
   const lines = [
     "# Copy this file to .env for local development.",
@@ -272,6 +326,7 @@ function renderEnvironmentExample(
     lines.push("", "# Required for OIDC/OAuth2/SSO access-token verification. These are issuer/JWKS settings, not OAuth client credentials.");
   }
   if (options.elysiaPlugins?.jwt) lines.push("", "# Required by the configured Elysia JWT plugin.");
+  if (options.realtime) lines.push("", "# Required for Ably realtime. Keep QIY_ABLY_API_KEY server-only; clients receive subscribe-only token requests.", "# realtime:admin calls the protected HTTP API; provide an admin access token through QIY_REALTIME_ADMIN_TOKEN.", "# Prometheus uses the separate read-only QIY_REALTIME_METRICS_TOKEN; do not reuse an administrator access token.");
   lines.push(
     "",
     "# Optional S3-compatible storage credentials. Keep secrets out of source control.",
@@ -284,4 +339,85 @@ function renderEnvironmentExample(
     "",
   );
   return lines.join("\n");
+}
+
+function generateRealtimeObservability(name: string): Record<string, string> {
+  const resourceName = name;
+  return {
+    "deploy/kubernetes/realtime-servicemonitor.yaml": `apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ${resourceName}-realtime
+  labels:
+    app: ${resourceName}
+spec:
+  selector:
+    matchLabels:
+      app: ${resourceName}
+  endpoints:
+    - port: http
+      path: /api/v1/realtime/outbox/metrics/prometheus
+      interval: 30s
+      scrapeTimeout: 10s
+      authorization:
+        type: Bearer
+        credentials:
+          name: ${resourceName}
+          key: QIY_REALTIME_METRICS_TOKEN
+`,
+    "deploy/kubernetes/realtime-prometheusrule.yaml": `apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ${resourceName}-realtime
+  labels:
+    app: ${resourceName}
+spec:
+  groups:
+    - name: ${resourceName}.realtime
+      rules:
+        - alert: QiyRealtimeOutboxDegraded
+          expr: qiy_realtime_outbox_health{service="${resourceName}"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Qiy realtime outbox is degraded
+            description: Pending, dead-lettered, or oldest-event thresholds are exceeded.
+        - alert: QiyRealtimeDeadLetters
+          expr: qiy_realtime_outbox_dead_lettered{service="${resourceName}"} > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: Qiy realtime outbox has dead letters
+            description: Inspect and replay failed events through the authenticated realtime administration API.
+        - alert: QiyRealtimeMetricsAbsent
+          expr: absent(qiy_realtime_outbox_health{service="${resourceName}"})
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Qiy realtime metrics are unavailable
+            description: Verify the ServiceMonitor selector, service port, and metrics token secret.
+`,
+    "deploy/observability/grafana/qiy-realtime-outbox.json": `${JSON.stringify({
+      __inputs: [{ name: "DS_PROMETHEUS", label: "Prometheus", type: "datasource", pluginId: "prometheus", pluginName: "Prometheus" }],
+      annotations: { list: [] },
+      editable: true,
+      panels: [
+        { type: "stat", title: "Outbox health", targets: [{ expr: "qiy_realtime_outbox_health" }], gridPos: { h: 8, w: 6, x: 0, y: 0 } },
+        { type: "timeseries", title: "Pending and leased", targets: [{ expr: "qiy_realtime_outbox_pending", legendFormat: "pending" }, { expr: "qiy_realtime_outbox_leased", legendFormat: "leased" }], gridPos: { h: 8, w: 9, x: 6, y: 0 } },
+        { type: "timeseries", title: "Dead letters", targets: [{ expr: "qiy_realtime_outbox_dead_lettered", legendFormat: "dead-lettered" }], gridPos: { h: 8, w: 9, x: 15, y: 0 } },
+        { type: "timeseries", title: "Oldest pending age", targets: [{ expr: "qiy_realtime_outbox_oldest_pending_age_seconds", legendFormat: "seconds" }], gridPos: { h: 8, w: 12, x: 0, y: 8 } },
+        { type: "timeseries", title: "Delivered retained", targets: [{ expr: "qiy_realtime_outbox_delivered", legendFormat: "delivered" }], gridPos: { h: 8, w: 12, x: 12, y: 8 } },
+      ].map((panel, index) => ({ ...panel, id: index + 1, datasource: { type: "prometheus", uid: "${DS_PROMETHEUS}" } })),
+      schemaVersion: 39,
+      tags: ["qiy", "realtime"],
+      templating: { list: [] },
+      time: { from: "now-6h", to: "now" },
+      title: "Qiy Realtime Outbox",
+      uid: `${resourceName}-realtime`,
+      version: 1,
+    }, null, 2)}\n`,
+  };
 }

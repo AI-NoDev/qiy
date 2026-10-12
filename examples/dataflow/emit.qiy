@@ -1,0 +1,32 @@
+qiy v0;
+
+application order-events {
+  database sqlite {}
+
+  entity orders {
+    field id UUID @id;
+    field status Text;
+  }
+
+  dataflow approveOrder {
+    input {
+      field orderId UUID @required;
+    }
+    context {
+      order = entity orders by id input.orderId @required;
+    }
+    step validate @comment("Only pending orders can be approved") {
+      require order.status == "pending" @error("Order is not pending");
+    }
+    step commit @comment("Write the state change and durable event") {
+      update order { status = "approved"; }
+      emit "order.approved" {
+        orderId = order.id;
+        status = order.status;
+        requestedBy = input.orderId;
+        source = "qiy-dashboard";
+      }
+    }
+    result { return order; }
+  }
+}

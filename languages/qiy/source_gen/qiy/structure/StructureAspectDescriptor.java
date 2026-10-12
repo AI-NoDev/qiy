@@ -207,6 +207,7 @@ public class StructureAspectDescriptor extends BaseStructureAspectDescriptor {
     b.property("type", 0x9fdf42f6e4807d5L).type(PrimitiveTypeId.STRING).origin("524293").done();
     b.property("groupBy", 0x9fdf42f6e4807d6L).type(PrimitiveTypeId.STRING).origin("524294").done();
     b.property("days", 0x9fdf42f6e4807d7L).type(PrimitiveTypeId.INTEGER).origin("524295").done();
+    b.property("comment", 0x9fdf42f6e4807d8L).type(PrimitiveTypeId.STRING).origin("524296").done();
     b.alias("dashboard-metric");
     return b.create();
   }
@@ -221,8 +222,8 @@ public class StructureAspectDescriptor extends BaseStructureAspectDescriptor {
     b.property("provider", 0x9fdf42f6e4800cbL).type(PrimitiveTypeId.STRING).origin("8195").done();
     b.property("url", 0x9fdf42f6e4800ccL).type(PrimitiveTypeId.STRING).origin("8196").done();
     b.aggregate("extensions", 0xffcb9e57d400c9L).target(0x6432b3acafe1427bL, 0x80cce4ec4b2716c5L, 0x9fdf42f6e480003L).optional(true).ordered(true).multiple(true).origin("16563194368845227476").done();
-    b.aggregate("optimization", 0xffcb9e57d400caL).target(0x6432b3acafe1427bL, 0x80cce4ec4b2716c5L, 0x9fdf42f6e480004L).optional(false).ordered(true).multiple(false).origin("6928374135012820913").done();
-    b.aggregate("capabilities", 0xffcb9e57d400cbL).target(0x6432b3acafe1427bL, 0x80cce4ec4b2716c5L, 0x9fdf42f6e48000aL).optional(true).ordered(true).multiple(true).origin("6928374135012820914").done();
+    b.aggregate("optimization", 0xffcb9e57d400caL).target(0x6432b3acafe1427bL, 0x80cce4ec4b2716c5L, 0x9fdf42f6e480004L).optional(false).ordered(true).multiple(false).origin("9098718938941389358").done();
+    b.aggregate("capabilities", 0xffcb9e57d400cbL).target(0x6432b3acafe1427bL, 0x80cce4ec4b2716c5L, 0x9fdf42f6e48000aL).optional(true).ordered(true).multiple(true).origin("9098718938941389359").done();
     b.alias("database");
     return b.create();
   }
@@ -284,9 +285,10 @@ public class StructureAspectDescriptor extends BaseStructureAspectDescriptor {
     b.property("tableName", 0x9fdf42f6e4801f5L).type(PrimitiveTypeId.STRING).origin("20481").done();
     b.property("schema", 0x9fdf42f6e4801f6L).type(PrimitiveTypeId.STRING).origin("20482").done();
     b.property("timestamps", 0x9fdf42f6e4801f7L).type(PrimitiveTypeId.BOOLEAN).origin("20483").done();
+    b.property("comment", 0x9fdf42f6e4801f8L).type(PrimitiveTypeId.STRING).origin("20484").done();
     b.aggregate("fields", 0xffcb9e57d401f5L).target(0x6432b3acafe1427bL, 0x80cce4ec4b2716c5L, 0x9fdf42f6e480006L).optional(true).ordered(true).multiple(true).origin("3085591724903704020").done();
     b.aggregate("indexes", 0xffcb9e57d401f6L).target(0x6432b3acafe1427bL, 0x80cce4ec4b2716c5L, 0x9fdf42f6e480007L).optional(true).ordered(true).multiple(true).origin("16558955260820137428").done();
-    b.aggregate("constraints", 0xffcb9e57d401f7L).target(0x6432b3acafe1427bL, 0x80cce4ec4b2716c5L, 0x9fdf42f6e480009L).optional(true).ordered(true).multiple(true).origin("6928374135012820918").done();
+    b.aggregate("constraints", 0xffcb9e57d401f7L).target(0x6432b3acafe1427bL, 0x80cce4ec4b2716c5L, 0x9fdf42f6e480009L).optional(true).ordered(true).multiple(true).origin("9098718938941389363").done();
     b.alias("entity");
     return b.create();
   }
@@ -296,6 +298,7 @@ public class StructureAspectDescriptor extends BaseStructureAspectDescriptor {
     b.parent(0xceab519525ea4f22L, 0x9b92103b95ca8c0cL, 0x110396eaaa4L);
     b.origin("r:cdc08ce6-9a71-4f69-89bd-83f257b06f70(qiy.structure)/129");
     b.version(3);
+    b.property("comment", 0x9fdf42f6e480835L).type(PrimitiveTypeId.STRING).origin("528385").done();
     b.aggregate("values", 0xffcb9e57d40835L).target(0x6432b3acafe1427bL, 0x80cce4ec4b2716c5L, 0x9fdf42f6e480016L).optional(true).ordered(true).multiple(true).origin("7983287725543728596").done();
     b.alias("enum");
     return b.create();
@@ -309,6 +312,7 @@ public class StructureAspectDescriptor extends BaseStructureAspectDescriptor {
     b.property("label", 0x9fdf42f6e480899L).type(PrimitiveTypeId.STRING).origin("532481").done();
     b.property("color", 0x9fdf42f6e48089aL).type(PrimitiveTypeId.STRING).origin("532482").done();
     b.property("icon", 0x9fdf42f6e48089bL).type(PrimitiveTypeId.STRING).origin("532483").done();
+    b.property("comment", 0x9fdf42f6e48089cL).type(PrimitiveTypeId.STRING).origin("532484").done();
     b.alias("enum-value");
     return b.create();
   }
@@ -339,6 +343,7 @@ public class StructureAspectDescriptor extends BaseStructureAspectDescriptor {
     b.property("filterable", 0x9fdf42f6e48026bL).type(PrimitiveTypeId.STRING).origin("24649").done();
     b.property("label", 0x9fdf42f6e48026cL).type(PrimitiveTypeId.STRING).origin("24704").done();
     b.property("icon", 0x9fdf42f6e48026dL).type(PrimitiveTypeId.STRING).origin("24705").done();
+    b.property("comment", 0x9fdf42f6e48026eL).type(PrimitiveTypeId.STRING).origin("24706").done();
     b.alias("field");
     return b.create();
   }
@@ -353,6 +358,7 @@ public class StructureAspectDescriptor extends BaseStructureAspectDescriptor {
     b.property("where", 0x9fdf42f6e4802bfL).type(PrimitiveTypeId.STRING).origin("28675").done();
     b.property("concurrently", 0x9fdf42f6e4802c0L).type(PrimitiveTypeId.STRING).origin("28676").done();
     b.property("include", 0x9fdf42f6e4802c1L).type(PrimitiveTypeId.STRING).origin("28677").done();
+    b.property("comment", 0x9fdf42f6e4802c2L).type(PrimitiveTypeId.STRING).origin("28678").done();
     b.aggregate("columns", 0xffcb9e57d402bdL).target(0x6432b3acafe1427bL, 0x80cce4ec4b2716c5L, 0x9fdf42f6e480008L).optional(false).ordered(true).multiple(true).origin("9661762053995832788").done();
     b.alias("index");
     return b.create();
@@ -380,6 +386,7 @@ public class StructureAspectDescriptor extends BaseStructureAspectDescriptor {
     b.property("label", 0x9fdf42f6e480709L).type(PrimitiveTypeId.STRING).origin("294913").done();
     b.property("icon", 0x9fdf42f6e48070aL).type(PrimitiveTypeId.STRING).origin("294914").done();
     b.property("parent", 0x9fdf42f6e48070bL).type(PrimitiveTypeId.STRING).origin("294915").done();
+    b.property("comment", 0x9fdf42f6e48070cL).type(PrimitiveTypeId.STRING).origin("294916").done();
     b.aggregate("resources", 0xffcb9e57d40709L).target(0x6432b3acafe1427bL, 0x80cce4ec4b2716c5L, 0x9fdf42f6e480013L).optional(true).ordered(true).multiple(true).origin("14275967456215639508").done();
     b.alias("menu-group");
     return b.create();
@@ -405,6 +412,7 @@ public class StructureAspectDescriptor extends BaseStructureAspectDescriptor {
     b.property("toField", 0x9fdf42f6e480450L).type(PrimitiveTypeId.STRING).origin("266244").done();
     b.property("cardinality", 0x9fdf42f6e480451L).type(PrimitiveTypeId.STRING).origin("266245").done();
     b.property("onDelete", 0x9fdf42f6e480452L).type(PrimitiveTypeId.STRING).origin("266246").done();
+    b.property("comment", 0x9fdf42f6e480453L).type(PrimitiveTypeId.STRING).origin("266247").done();
     b.alias("relation");
     return b.create();
   }

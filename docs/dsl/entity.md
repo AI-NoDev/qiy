@@ -37,6 +37,10 @@ entity products table products @label("产品") @icon(AppstoreOutlined) {
 | `@visible` / `@listVisible` / `@formVisible` / `@showVisible` | 布尔值 |
 | `@sortable` / `@filterable` | 布尔值 |
 | `@filter` | `@filter(contains,startsWith,eq)`；同时启用字段过滤并限制可选 operator |
+| `@upload` | 仅用于 `File`：`@upload(binary)`、`@upload(base64)` 或 `@upload(both)` |
+| `@maxBytes` | 仅用于 `File`：1 到 104857600，默认 26214400 |
+| `@mime` | 仅用于 `File`：`@mime("application/pdf","image/*")`，可重复声明并合并 |
+| `@maxFiles` | 仅用于 `File`；当前只接受 `@maxFiles(1)` |
 | `@column` | `@column("physical_name")` |
 | `@extension` | `@extension(pgvector)` |
 | `@dimension` / `@precision` / `@scale` | 整数 |
@@ -46,7 +50,10 @@ entity products table products @label("产品") @icon(AppstoreOutlined) {
 - Vector 必须 `@extension(pgvector)` 且 `dimension > 0`；
 - Decimal / Money 必须 `precision > 0` 且 `0 <= scale <= precision`；
 - 枚举名必须已通过 `enum` 声明；
+- 上传策略只能用于 `File`；未知模式、非法或重复 MIME、越界大小以及 `maxFiles` 大于 1 会在生成前报错；
 - 未实现的类型或属性会直接报错，不做静默降级。
+
+完整上传、认证、Attachment 元数据与 S3 说明见[文件存储](../guide/storage)。
 
 ## 列表过滤器
 

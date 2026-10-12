@@ -3,7 +3,7 @@ import { exportMpsIr } from "./commands/export-ir";
 
 const source = Bun.argv[2];
 if (!source) {
-  console.error("Usage: qiy export-ir <qiy-model.mps>");
+  console.error("Usage: bun run tools/export-mps-ir.ts <qiy-model.mps>");
   process.exit(1);
 }
 try {

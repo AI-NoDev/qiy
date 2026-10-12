@@ -1,4 +1,4 @@
-import { ConfigProvider, Segmented, Select, Space, theme as antdTheme, type ThemeConfig } from "antd";
+import { App, ConfigProvider, Segmented, Select, Space, theme as antdTheme, type ThemeConfig } from "antd";
 import { ThemedLayout, ThemedTitle, useNotificationProvider } from "@refinedev/antd";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { qiyUiConfig } from "./theme-config";
@@ -66,7 +66,7 @@ export function QiyUiProvider({ children, direction, locale }: { children: React
       algorithm: resolvedColorMode === "dark" ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
       token: { borderRadius: 6, ...selectedTheme.token },
     }}
-  >{children}</ConfigProvider></QiyUiContext.Provider>;
+  ><App>{children}</App></ConfigProvider></QiyUiContext.Provider>;
 }
 
 export function useQiyUi(): QiyUiState {

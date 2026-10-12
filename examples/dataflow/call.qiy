@@ -1,0 +1,32 @@
+qiy v0;
+
+application dataflow-call {
+  database sqlite {}
+
+  entity reviews {
+    field id UUID @id;
+    field status Text;
+    field note Text;
+  }
+
+  dataflow approveReview {
+    input {
+      field reviewId UUID @required;
+      field reason Text @required;
+    }
+    context {
+      review = entity reviews by id input.reviewId @required;
+    }
+    step approve {
+      update review { status = "approved"; }
+      call reviewPolicy {
+        reviewId = review.id;
+        status = review.status;
+        reason = input.reason;
+        source = "qiy-dashboard";
+        priority = 1;
+      }
+    }
+    result { return review; }
+  }
+}

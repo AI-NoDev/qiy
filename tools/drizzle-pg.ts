@@ -1,5 +1,6 @@
 import type { DatabaseIR, EntityIR, FieldIR, IndexIR, RelationIR } from "./database-ir";
 import { validateDatabaseIR } from "./database-ir";
+import { generatedDocumentation } from "./generated-documentation";
 
 function column(field: FieldIR, relation?: RelationIR): string {
   const name = JSON.stringify(field.columnName ?? field.name);
@@ -29,14 +30,17 @@ function renderIndex(index: IndexIR): string {
   const factory = index.unique ? "uniqueIndex" : "index";
   const method = index.method === "btree" ? "on" : "using";
   const args = index.method === "btree" ? columns.join(", ") : `${JSON.stringify(index.method)}, ${columns.join(", ")}`;
-  return `  ${factory}(${JSON.stringify(index.name)}).${method}(${args})${index.concurrently ? ".concurrently()" : ""},`;
+  return `${generatedDocumentation(index, "  ")}  ${factory}(${JSON.stringify(index.name)}).${method}(${args})${index.concurrently ? ".concurrently()" : ""},`;
 }
 
 function renderEntity(entity: EntityIR, relations: RelationIR[]): string {
-  const fields = entity.fields.map((field) => `  ${JSON.stringify(field.name)}: ${column(field, relations.find((relation) => relation.fromEntity === entity.name && relation.fromField === field.name))},`);
+  const fields = entity.fields.map((field) => {
+    const relation = relations.find((item) => item.fromEntity === entity.name && item.fromField === field.name);
+    return `${generatedDocumentation(relation, "  ")}${generatedDocumentation(field, "  ")}  ${JSON.stringify(field.name)}: ${column(field, relation)},`;
+  });
   const indexes = (entity.indexes ?? []).map(renderIndex);
   const extra = indexes.length ? `, (table) => [\n${indexes.join("\n")}\n]` : "";
-  return `export const ${entity.name} = pgTable(${JSON.stringify(entity.tableName)}, {\n${fields.join("\n")}\n}${extra});`;
+  return `${generatedDocumentation(entity)}export const ${entity.name} = pgTable(${JSON.stringify(entity.tableName)}, {\n${fields.join("\n")}\n}${extra});`;
 }
 
 export function generateDrizzlePostgres(database: DatabaseIR): string {

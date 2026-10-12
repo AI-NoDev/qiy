@@ -127,6 +127,43 @@ test("requires integration mode to use qiy init rather than standalone create", 
   await expect(generateApp(model, join(root, "out"))).rejects.toThrow("must be mounted with qiy init");
 });
 
+test("host API errors preserve HTTP status and reach the host auth handler", async () => {
+  const root = mkdtempSync(join(tmpdir(), "qiy-host-errors-"));
+  writeFileSync(join(root, "package.json"), JSON.stringify({ name: "host", private: true, packageManager: "bun@1.3.13" }));
+  writeFileSync(join(root, "catalog.qiy"), source.replace("https://api.example.com/api/v2", "/api/v2"));
+  await initApp({ root, source: "catalog.qiy" });
+  const transport = await import(pathToFileURL(join(root, "apps/host-admin/app/host/auth.ts")).href);
+  const provider = await import(pathToFileURL(join(root, "apps/host-admin/app/host/data-provider.ts")).href);
+  const originalFetch = globalThis.fetch;
+  const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+  let requests = 0;
+  const hostWindow: { location: { origin: string }; qiyHostAuth?: { onError: (error: unknown) => Promise<{ redirectTo: string }> } } = { location: { origin: "https://console.example.com" } };
+  try {
+    Object.defineProperty(globalThis, "window", { configurable: true, value: hostWindow });
+    for (const status of [401, 403, 500]) {
+      globalThis.fetch = (async () => { requests++; return Response.json({ error: "Host denied" }, { status }); }) as unknown as typeof fetch;
+      let failure: unknown;
+      try { await provider.hostRequest("products"); } catch (error) { failure = error; }
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toBe("Host denied");
+      expect((failure as { statusCode: number }).statusCode).toBe(status);
+      expect(await transport.qiyIntegrationAuthProvider.onError(failure)).toEqual(status === 401 ? { logout: false, redirectTo: "/auth/login" } : {});
+      let received: unknown;
+      hostWindow.qiyHostAuth = { onError: async (error: unknown) => { received = error; return { redirectTo: "/host/sign-in" }; } };
+      expect(await transport.qiyIntegrationAuthProvider.onError(failure)).toEqual({ redirectTo: "/host/sign-in" });
+      expect(received).toBe(failure);
+      delete hostWindow.qiyHostAuth;
+    }
+    expect(requests).toBe(3);
+    globalThis.fetch = (async () => new Response("not JSON", { status: 502 })) as unknown as typeof fetch;
+    await expect(provider.hostRequest("products")).rejects.toMatchObject({ message: "Host API error 502", statusCode: 502 });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
+});
+
 test("generated host transport confines tokens and CSRF to the configured API", async () => {
   const originalFetch = globalThis.fetch;
   const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");

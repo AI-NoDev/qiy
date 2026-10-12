@@ -1,0 +1,28 @@
+qiy v0;
+
+application localized-inventory-admin {
+  database sqlite {}
+  messages {
+    default "en-US";
+    locale "en-US" { "inventory.quantityTooLow" "Quantity must be at least 100"; }
+    locale "zh-CN" { "inventory.quantityTooLow" "数量不能少于 100"; }
+  }
+  entity inventory {
+    field id UUID @id;
+    field quantity Integer;
+  }
+  dataflow adjustQuantity {
+    idempotency required;
+    audit "inventory.quantityAdjusted";
+    input {
+      field inventoryId UUID @required;
+      field quantity Integer @required;
+    }
+    context { item = entity inventory by id input.inventoryId @required; }
+    step validate {
+      require input.quantity >= 100 @error(t("inventory.quantityTooLow"));
+    }
+    step adjust { update item { quantity = input.quantity; } }
+    result { return item; }
+  }
+}

@@ -83,7 +83,17 @@ QIY_OTP_DELIVERY_TOKEN=<发送适配器凭据>
 
 审计、通知、权限、认证和数据访问的生成约定见 [Refine providers](./refine-providers)。
 
-生产请求必须携带通过验证的 Bearer JWT。未设置 `QIY_DEV_MODE=1` 时 API 拒绝启动，避免无认证的服务意外上线。
+受保护的生产 API 请求必须携带通过验证的 Bearer JWT。生产应保持 `QIY_DEV_MODE=0` 并配置所选认证 provider；没有认证配置的生成应用会拒绝生产启动，开发 preview 不能替代生产认证。
+
+## 源码仓库认证验收
+
+```sh
+bun tools/verify-oidc-docker.ts --isolated
+```
+
+需要 Docker。命令创建临时网络、短期自签名证书和仅供测试的 HTTPS IdP，再从 `.qiy` 生成 SQLite/OIDC 应用，在 Docker 内安装依赖、测试 HTTP 认证和检查服务端类型。生成服务只通过临时 `NODE_EXTRA_CA_CERTS` 信任该测试证书，仍验证 TLS、签名、issuer、audience 和用户映射；结束后删除临时容器、网络及工作目录。
+
+若指定已有测试容器，例如 `bun tools/verify-oidc-docker.ts qiy-oidc`，工具要求其测试环境提供 issuer/audience、Docker 网络及映射的 8443 端口。工具会提取该本机端口的公开证书作为测试信任根，并拒绝过期证书；此方式只用于已知本机测试容器，生产 IdP 必须使用受信任的证书链。
 
 :::warning 当前限制
 

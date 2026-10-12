@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { DatabaseIR } from "../tools/database-ir";
 import { generateServer } from "../tools/generate-server";
+import { parseQiyProject } from "../tools/qiy-project";
 
 const fixture = await Bun.file(new URL("../examples/catalog.ir.json", import.meta.url)).json() as DatabaseIR;
 
@@ -85,6 +86,52 @@ describe("V0 Elysia API generation", () => {
       expect(adapterTest).toContain("expect(seenScopes).toHaveLength(3)");
       expect(adapterTest).toContain("expect(seenMutations).toHaveLength(5)");
     }
+  });
+
+  test("exposes dataflow commands through native and adapter GraphQL without duplicating transaction logic", async () => {
+    const project = parseQiyProject(await Bun.file(new URL("../examples/dataflow/create-delete.qiy", import.meta.url)).text());
+    const files = generateServer(project.database, { dataflows: project.dataflows, elysiaPlugins: { graphqlAdapter: "yoga" } });
+    const graphQL = files["api/src/graphql.ts"]!;
+    const adapter = files["api/src/graphql-adapter.ts"]!;
+    expect(graphQL).toContain("input CreateReviewCommandInput");
+    expect(graphQL).toContain("userId: ID!");
+    expect(graphQL).toContain("note: String!");
+    expect(graphQL).toContain("runCreateReview(input: CreateReviewCommandInput!, idempotencyKey: String!): Reviews!");
+    expect(graphQL).toContain("runCreateUser(idempotencyKey: String!): Users!");
+    expect(graphQL).not.toContain("input CreateUserCommandInput");
+    expect(graphQL).toContain('createDataflowRoutes(authenticate)');
+    expect(graphQL).toContain('"http://qiy.internal/api/v1/commands/"');
+    expect(graphQL).toContain('extensions: { status: response.status');
+    expect(graphQL).toContain('executeDataflowCommand<{ id?: string; userId?: string; note?: string; status?: string }>');
+    expect(adapter).toContain("runCreateReview:");
+    expect(adapter).toContain("args: any");
+    expect(files["api/src/app.ts"]).toContain('"mutations":["runCreateReview","runDeleteReview","runCreateUser","runTransientUser"]');
+    expect(files["api/src/auth/guard.ts"]).toContain("resource.mutations ?? []");
+    expect(files["api/src/plugins/index.ts"]).toContain("createGraphQLAdapterResolvers(context.repositories, context.authenticate)");
+  });
+
+  test("maps typed dataflow inputs and rejects normalized GraphQL command collisions", () => {
+    const project = parseQiyProject(`qiy v0; application graphql-dataflow {
+      database sqlite {}
+      enum reviewState { value pending; value approved; }
+      entity reviews { field id UUID @id; field state reviewState; field quantity Integer; field amount Decimal(12,2); }
+      dataflow review_order {
+        input { field id UUID @required; field state reviewState @required; field quantity Integer; field approved Boolean; field amount Decimal; }
+        context { review = entity reviews by id input.id @required; }
+        step update { update review { state = input.state; } }
+        result { return review; }
+      }
+    }`);
+    const graphQL = generateServer(project.database, { dataflows: project.dataflows })["api/src/graphql.ts"]!;
+    expect(graphQL).toContain("id: ID!");
+    expect(graphQL).toContain("state: ReviewState!");
+    expect(graphQL).toContain("quantity: Int");
+    expect(graphQL).toContain("approved: Boolean");
+    expect(graphQL).toContain("amount: String");
+
+    const duplicate = structuredClone(project.dataflows!);
+    duplicate.push({ ...structuredClone(duplicate[0]!), name: "reviewOrder" });
+    expect(() => generateServer(project.database, { dataflows: duplicate })).toThrow("duplicate type name ReviewOrderCommandInput");
   });
 
   test("generates adapter analytics provider parity and data scope checks", () => {

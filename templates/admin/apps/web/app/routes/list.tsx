@@ -9,7 +9,7 @@ import { getResource } from "../resources";
 import { t, type QiyLocale } from "../i18n";
 export default function ResourceList() {
   const { resource: name } = useParams(); const resource = getResource(name); const { getLocale } = useTranslation(); const { open: notify } = useNotification(); const locale: QiyLocale = getLocale() === "en-US" ? "en-US" : "zh-CN";
-  const { tableProps, tableQuery } = useTable<Record<string, unknown>>({ resource: name ?? "", pagination: { currentPage: 1, pageSize: 10 }, syncWithLocation: true, queryOptions: { enabled: !!resource } });
+  const { tableProps, tableQuery } = useTable<Record<string, unknown>>({ resource: name ?? "", liveMode: resource?.liveMode ?? "off", pagination: { currentPage: 1, pageSize: 10 }, syncWithLocation: true, queryOptions: { enabled: !!resource } });
   const { mutateAsync: removeMany } = useDeleteMany();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [visibleKeys, setVisibleKeys] = useState<string[]>(resource?.fields.filter((field) => field.visible).map((field) => field.name) ?? []);

@@ -1,5 +1,6 @@
 import type { DatabaseIR, EntityIR, FieldIR, RelationIR } from "./database-ir";
 import { validateDatabaseIR } from "./database-ir";
+import { generatedDocumentation } from "./generated-documentation";
 
 function column(field: FieldIR, relation?: RelationIR): string {
   const name = JSON.stringify(field.columnName ?? field.name);
@@ -22,12 +23,15 @@ function column(field: FieldIR, relation?: RelationIR): string {
 }
 
 function renderEntity(entity: EntityIR, relations: RelationIR[]): string {
-  const fields = entity.fields.map((field) => `  ${JSON.stringify(field.name)}: ${column(field, relations.find((relation) => relation.fromEntity === entity.name && relation.fromField === field.name))},`);
+  const fields = entity.fields.map((field) => {
+    const relation = relations.find((item) => item.fromEntity === entity.name && item.fromField === field.name);
+    return `${generatedDocumentation(relation, "  ")}${generatedDocumentation(field, "  ")}  ${JSON.stringify(field.name)}: ${column(field, relation)},`;
+  });
   const indexes = (entity.indexes ?? []).map((index) => {
     const factory = index.unique ? "uniqueIndex" : "index";
-    return `  ${factory}(${JSON.stringify(index.name)}).on(${index.columns.map((item) => `table[${JSON.stringify(item.fieldName)}]`).join(", ")}),`;
+    return `${generatedDocumentation(index, "  ")}  ${factory}(${JSON.stringify(index.name)}).on(${index.columns.map((item) => `table[${JSON.stringify(item.fieldName)}]`).join(", ")}),`;
   });
-  return `export const ${entity.name} = mysqlTable(${JSON.stringify(entity.tableName)}, {\n${fields.join("\n")}\n}${indexes.length ? `, (table) => [\n${indexes.join("\n")}\n]` : ""});`;
+  return `${generatedDocumentation(entity)}export const ${entity.name} = mysqlTable(${JSON.stringify(entity.tableName)}, {\n${fields.join("\n")}\n}${indexes.length ? `, (table) => [\n${indexes.join("\n")}\n]` : ""});`;
 }
 
 export function generateDrizzleMysql(database: DatabaseIR): string {

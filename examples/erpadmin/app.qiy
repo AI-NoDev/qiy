@@ -53,7 +53,7 @@ application qiy-erp-admin {
     field name Text;
     field unitPrice Money(12, 2);
     field reorderPoint Integer;
-    field datasheet File @nullable @label("产品资料");
+    field datasheet File @nullable @label("产品资料") @upload(both) @maxBytes(10485760) @mime("application/pdf") @maxFiles(1);
     index products_sku_idx btree(sku) @unique;
   }
 

@@ -3,7 +3,7 @@ import { generateApp } from "./commands/generate-app";
 
 const [source, destination] = Bun.argv.slice(2).filter((arg) => !arg.startsWith("-"));
 if (!source || !destination) {
-  console.error("Usage: qiy generate <project.qiy|model.mps|ir.json> <new-output-directory> [--sync]");
+  console.error("Usage: qiy generate <project.qiy> <new-output-directory> [--sync]");
   process.exit(1);
 }
 try {

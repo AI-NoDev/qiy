@@ -1,0 +1,17 @@
+qiy test v0;
+application dataflow-call;
+
+scenario approve-review {
+  given review = entity reviews {
+    id = "00000000-0000-4000-8000-000000000001";
+    status = "pending";
+    note = "Requires policy approval";
+  }
+  when dataflow approveReview {
+    reviewId = review.id;
+    reason = "Approved by operator";
+  }
+  expect status == 200;
+  expect review.status == "approved";
+  expect review.note == review.note;
+}

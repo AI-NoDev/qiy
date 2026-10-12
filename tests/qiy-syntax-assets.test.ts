@@ -25,11 +25,16 @@ test("declares distributable VS Code and JetBrains language plugins", () => {
 test("highlights business commands, translations and hash comments", () => {
   const grammar = JSON.parse(readFileSync(grammarPath, "utf8"));
   const keyword = new RegExp(grammar.repository.keywords.patterns[0].match);
-  for (const token of ["messages", "locale", "dataflow", "step", "action", "integration", "env"]) {
+  for (const token of ["messages", "locale", "dataflow", "step", "action", "integration", "env", "realtime", "events"]) {
     expect(keyword.test(token)).toBe(true);
   }
   expect(grammar.repository.comments.patterns.some((pattern: { match: string }) => new RegExp(pattern.match).test("# model description"))).toBe(true);
   const jetbrains = readFileSync("editors/jetbrains-qiy/src/main/kotlin/dev/qiy/intellij/QiySyntaxHighlighter.kt", "utf8");
   expect(jetbrains).toContain('"messages"');
   expect(jetbrains).toContain("'#'");
+  const testKeyword = new RegExp(grammar.repository.testKeywords.patterns[0].match);
+  for (const token of ["scenario", "given", "when", "expect", "identity", "anonymous", "claims", "role", "errorKey", "exists", "outbox", "count"]) {
+    expect(testKeyword.test(token)).toBe(true);
+    expect(jetbrains).toContain(`"${token}"`);
+  }
 });

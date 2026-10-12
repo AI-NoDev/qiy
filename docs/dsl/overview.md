@@ -5,8 +5,8 @@ Qiy 项目文件以 `qiy v0;` 开头，随后是一个 `application` 块。当�
 ```ts
 qiy v0;
 
-application qiy-erp-admin {
-  database postgresql {}
+application qiy-erp-admin @comment("Operations administration") {
+  database postgresql @comment("Primary operational database") {}
   storage { provider local; }
   auth { provider oidc; user users; subjectField externalSubject; roleField role; }
   workflow orderInventory;
@@ -54,7 +54,8 @@ ui {
 ## 标识符与注释
 
 - 标识符匹配 `[a-zA-Z_][a-zA-Z_0-9-]*`；
-- `//` 和 `#` 都可用于行注释；实体、字段、索引、关系、Dataflow 的 input/context/step 及手写 Action 页支持 `@comment("...")` 与 `@comment(t("key"))`。菜单等其他配置尚未支持通用注释。
+- `//` 和 `#` 都可用于行注释；`application`、`database`、实体、字段、索引、关系、枚举、枚举值、菜单分组、Dashboard 指标、Dataflow 的根/input/context/step 及手写 Action 页支持 `@comment("...")` 与 `@comment(t("key"))`。尚未列出的配置块不能假定支持注释，未知或重复注解会在生成前失败。
+- `application` 注释成为根、Server 和 Web `package.json` 的 `description`；`database` 注释成为生成 Drizzle `schema.ts` 的文件级 JSDoc。实体、字段、索引与外键关系说明进入 PostgreSQL/MySQL/SQLite Drizzle schema 的 JSDoc；实体说明也进入 repository 接口和 service 工厂函数。生成代码使用默认语言并保留 `i18n: key`，前端继续在运行时切换语言。这些是源码和包元数据说明，不会执行数据库 `COMMENT ON` 或修改迁移行为。
 - 字符串使用双引号或单引号。
 - 项目可以通过 [`include` 模块](../guide/modules) 将 `application` 内容拆分到多个相对 `.qiy` 文件。
 
@@ -64,12 +65,20 @@ ui {
 
 ```qiy [app.qiy]
 qiy v0;
-application reviews-admin {
-  database sqlite {}
+application reviews-admin @comment(t("application.reviews")) {
+  database sqlite @comment(t("database.reviews")) {}
   messages {
     default "en-US";
-    locale "en-US" { "review.note" "Explain the decision"; }
-    locale "zh-CN" { "review.note" "请说明审核决定"; }
+    locale "en-US" {
+      "application.reviews" "Review operations console";
+      "database.reviews" "Review workflow records";
+      "review.note" "Explain the decision";
+    }
+    locale "zh-CN" {
+      "application.reviews" "审核运营后台";
+      "database.reviews" "审核流程记录";
+      "review.note" "请说明审核决定";
+    }
   }
   entity reviews @comment("Review requests") {
     field id UUID @id;
@@ -78,9 +87,9 @@ application reviews-admin {
 }
 ```
 
-默认语言必须存在，引用的 key 必须在默认字典中声明；重复语言、重复 key 与危险属性名会在生成前报错。Web 优先使用项目消息，缺失翻译回退到默认语言，字段提示、命令输入描述和新生成的手写 Action 占位页说明随界面语言切换。REST CRUD 与命令的 TypeBox/OpenAPI 描述使用默认语言；GraphQL 实体类型、Create/UpdateInput 及公开字段描述也使用默认语言，密码字段保持排除。
+默认语言必须存在，引用的 key 必须在默认字典中声明；重复语言、重复 key 与危险属性名会在生成前报错。Web 优先使用项目消息，缺失翻译回退到默认语言，字段提示、命令输入描述、Action 的 `label`/`confirm` 和新生成的手写 Action 占位页说明随界面语言切换。REST CRUD 与命令的 TypeBox/OpenAPI 描述使用默认语言；GraphQL 实体类型、Create/UpdateInput 及公开字段描述也使用默认语言，密码字段保持排除。
 
-索引、关系、context 和 step 描述已保存在模型并支持序列化往返，尚未全面生成函数或数据库注释。业务错误本地化及 `include "..." @message` 选择性导入仍待实现；普通 `include` 可以插入完整 `messages` 块。完整描述示例见 [documented-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/documented-inputs.qiy)。
+应用、数据库、索引、关系、context 和 step 描述均保存在模型并支持序列化往返；各对象只生成本章节明确列出的元数据、源码文档或界面说明，不会自动创建数据库注释迁移。业务错误本地化仍待完善；`include "modules/catalog.qiy" @messages;` 已可只导入目标文件唯一的顶层 `messages` 块，`@message` 是兼容别名。其他选择器尚未实现。完整描述示例见 [documented-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/documented-inputs.qiy)。
 
 ### Refine 界面翻译
 
@@ -105,7 +114,7 @@ messages {
 }
 ```
 
-在主文件的 `application` 内通过 `include "modules/messages.qiy";` 引入。`qiy.*` 覆盖生成页面操作文字，`buttons.*`、`notifications.*`、`actions.*`、`table.actions` 等使用 Refine 官方翻译键；`{{resource}}`、`{{seconds}}` 等参数交由 i18next 插值。复数使用 `_one` / `_other` 等 CLDR 分类，并传入 `translate("product.items", { count: 2 })`。
+在主文件的 `application` 内通过 `include "modules/messages.qiy";` 引入完整片段；若文件还包含其他声明，可使用 `include "modules/messages.qiy" @messages;` 仅引入消息字典。`qiy.*` 覆盖生成页面操作文字，`buttons.*`、`notifications.*`、`actions.*`、`table.actions` 等使用 Refine 官方翻译键；`{{resource}}`、`{{seconds}}` 等参数交由 i18next 插值。复数使用 `_one` / `_other` 等 CLDR 分类，并传入 `translate("product.items", { count: 2 })`。
 
 语言选择器包含内置中英文及模型声明的语言。Ant Design 组件按已声明的语言自动加载中英、日、韩、法、德、西班牙、巴西葡萄牙、俄、埃及阿拉伯、印地、意大利及繁体中文语言包；其他标签的组件暂回退英语。阿拉伯语、波斯语、希伯来语和乌尔都语切换为 RTL，并同步页面 `lang` / `dir`。
 
@@ -127,3 +136,4 @@ bun run tools/generate-app.ts <source> <output-dir> [--sync]
 - [enum / menu / dashboard](/dsl/enum-menu-dashboard)：界面配置
 - [dataflow](/dsl/dataflow)：可执行子集、生命周期与后续路线
 - [action](/dsl/actions)：列表/详情操作、命令确认与手写业务页扩展
+- [realtime](/dsl/realtime)：资源订阅、角色 capability 与 Refine LiveProvider

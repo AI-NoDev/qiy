@@ -138,4 +138,8 @@ window.qiyHostAuth = {
 
 Cookie 模式要求 API 与后台同源，非 GET/HEAD/OPTIONS 请求必须存在配置的可读 CSRF Cookie；登录会话 Cookie 本身仍应由宿主设为 HttpOnly。Bearer/portal 模式可配置外部 API。生成的请求 helper 将目标限制在有效 `apiBase` 的 origin 与路径内，并拒绝自动重定向，避免向其他地址发送 token 或 CSRF 值；`VITE_QIY_API_BASE` 同时影响 DataProvider 与认证请求。既有未托管 `auth.ts` 不会被 `--sync` 修补，升级时请手动审阅并移植这些限制。宿主仍需执行服务端权限、CSRF 校验和刷新会话逻辑。
 
+`hostRequest` 抛出的 API 错误保留 `statusCode`，Refine AuthProvider 将错误直接传给可选的 `window.qiyHostAuth.onError(error)`。宿主可以在该钩子处理自己的会话恢复或登录跳转；未提供钩子时，401 跳转 `/auth/login`，不调用宿主 logout，403 和服务器错误不触发登录跳转。Qiy 不自动刷新 token 或重放请求，尤其不能默认重放产生副作用的业务命令。已有 `auth.ts` 与 `data-provider.ts` 属于未托管文件，升级需要手动合并此错误契约。
+
+Bearer/portal 模式的发布验收会由本地宿主签发并验证带 issuer、audience、subject、过期时间和角色的 HS256 JWT。第一次请求使用 viewer token，宿主 API 的管理员白名单返回 403；`onError` 由宿主显式刷新为 admin token，但 Qiy 不自动重放，下一次由调用方发起的请求才成功。这个验收证明传输和职责边界，不代表你的签名算法、JWKS、刷新 Cookie 或管理员目录已经被 Qiy 实现。
+
 `dataflow`、`auth`、`storage`、`elysia`、`scope`、`workflow` 与 `env` 不能用于 integration 模式，因为它们表示 Qiy 自己生成服务端的能力。需要命令/审计时，应把 UI contract 和宿主 API 的实现一起维护在未托管扩展中。

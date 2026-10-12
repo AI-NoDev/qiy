@@ -23,6 +23,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
       should_release: ${{ steps.version.outputs.should_release }}
+      source_ref: ${{ steps.version.outputs.source_ref }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,11 +37,13 @@ jobs:
         run: |
           version="$(bun -e 'console.log((await Bun.file("package.json").json()).version)')"
           tag="v${version}"
+          source_ref="$GITHUB_SHA"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             should_release=false
             echo "Release $tag already exists; skipping this run."
           elif git rev-parse --verify "refs/tags/$tag" >/dev/null 2>&1; then
             should_release=true
+            source_ref="$(git rev-parse "refs/tags/$tag^{commit}")"
             echo "Tag $tag already exists without a release; the existing tag will be published."
           else
             should_release=true
@@ -50,9 +53,10 @@ jobs:
             echo "version=$version"
             echo "tag=$tag"
             echo "should_release=$should_release"
+            echo "source_ref=$source_ref"
           } >> "$GITHUB_OUTPUT"
 
-  build-and-release:
+  build:
     needs: prepare
     if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
@@ -60,9 +64,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.source_ref }}
       - uses: oven-sh/setup-bun@v2
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      - name: Verify source version matches release
+        env:
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+        run: bun -e 'if ((await Bun.file("package.json").json()).version !== process.env.EXPECTED_VERSION) throw new Error("Tag package version differs from release version")'
+      - name: Check source and regression tests
+        run: |
+          bun run check
+          bun test --timeout 30000
+          bun run docs:build
+      - name: Refresh embedded templates
+        run: bun run template:build
       - name: Build standalone executables
         run: bun run build:exe -- --all
       - name: Verify release assets
@@ -70,12 +86,70 @@ jobs:
         run: |
           count="$(find dist -maxdepth 1 -type f -name 'qiy-*' ! -name '*.map' | wc -l)"
           test "$count" -eq 5
-          ls -lh dist/qiy-* | grep -v '\.map$'
+          find dist -maxdepth 1 -type f -name 'qiy-*' ! -name '*.map' -exec ls -lh {} +
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qiy-candidates
+          path: |
+            dist/qiy-*
+            !dist/*.map
+          if-no-files-found: error
+
+  verify:
+    needs: [prepare, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            platform: windows-x64.exe
+          - runner: ubuntu-latest
+            platform: linux-x64
+          - runner: ubuntu-24.04-arm
+            platform: linux-arm64
+          - runner: macos-15-intel
+            platform: darwin-x64
+          - runner: macos-14
+            platform: darwin-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_ref }}
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: qiy-candidates
+          path: dist
+      - name: Make native executable runnable
+        if: runner.os != 'Windows'
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: chmod +x "dist/qiy-$VERSION-$PLATFORM"
+      - name: Verify standalone executable
+        run: bun tools/verify-release-standalone.ts "dist/qiy-${{ needs.prepare.outputs.version }}-${{ matrix.platform }}" "${{ needs.prepare.outputs.version }}"
+      - name: Verify integration executable
+        run: bun tools/verify-release-integration.ts "dist/qiy-${{ needs.prepare.outputs.version }}-${{ matrix.platform }}" "${{ needs.prepare.outputs.version }}"
+
+  publish:
+    needs: [prepare, build, verify]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.source_ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: qiy-candidates
+          path: dist
       - name: Create GitHub release and tag
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
           VERSION: ${{ needs.prepare.outputs.version }}
+          SOURCE_REF: ${{ needs.prepare.outputs.source_ref }}
         shell: bash
         run: |
           if git rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; then
@@ -96,7 +170,7 @@ jobs:
               "dist/qiy-$VERSION-darwin-x64" \
               "dist/qiy-$VERSION-darwin-arm64" \
               --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
+              --target "$SOURCE_REF" \
               --title "Qiy $VERSION" \
               --generate-notes
           fi

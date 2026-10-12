@@ -1,12 +1,8 @@
 #!/usr/bin/env bun
-import { exportMpsIr } from "./commands/export-ir";
-import { exportQiy } from "./commands/export-qiy";
 import { generateApp } from "./commands/generate-app";
-import { generateDrizzle } from "./commands/generate-drizzle";
 import { initApp } from "./commands/init";
 import { installSkill } from "./commands/skill";
 import { formatDoctorReport, runDoctor } from "./commands/doctor";
-import { validateMpsModels } from "./commands/validate-mps";
 import packageMetadata from "../package.json" with { type: "json" };
 
 declare const __QIY_VERSION__: string;
@@ -21,7 +17,7 @@ Commands:
   create -f <source> -n <name> -o <output-dir>
                                   Create a standalone Bun Turborepo workspace
   generate <source> <output-dir>   Generate a Bun workspace from a Qiy model
-    <source>                      .qiy project (supports relative include fragments), .mps model, or Database IR .json
+    <source>                      .qiy project with optional relative include fragments
     --sync                        Update an existing generated workspace
 
   init -f <source> [-n <name>] [--sync]
@@ -30,25 +26,15 @@ Commands:
   doctor [--json]                 Check Bun, CLI template, and current workspace readiness
   skill install [--force]        Install the official skill into .agent/skills/qiy
 
-  validate <model.mps> [...]      Validate MPS models against the Qiy structure
-  export-ir <model.mps>           Print Database IR JSON for an MPS model
-  export-qiy <model.mps> <out>   Export an MPS model as .qiy source
-    --force                       Overwrite an existing output file
-  drizzle <ir.json|model.mps>     Print the Drizzle PostgreSQL schema
-
 Options:
   -h, --help                     Show this help
   -v, --version                  Show the Qiy version
-
-Environment:
-  QIY_ROOT                       Qiy checkout used to resolve languages/qiy/models
 
 Examples:
   qiy generate examples/catalog/app.qiy out/catalog-admin
   qiy create -f examples/catalog/app.qiy -n catalog-admin -o out/catalog-admin
   qiy init -f admin.qiy -n admin
   qiy generate examples/erpadmin/app.qiy out/erpadmin --sync
-  qiy export-qiy languages/qiy.sandbox/models/qiy.erpworkflow.mps out/erpadmin.qiy
 `;
 
 function flag(args: string[], ...names: string[]): boolean {
@@ -107,29 +93,6 @@ async function main(argv: string[]): Promise<void> {
       const report = runDoctor(process.cwd());
       process.stdout.write(flag(rest, "--json") ? `${JSON.stringify(report, null, 2)}\n` : formatDoctorReport(report));
       if (!report.ok) process.exitCode = 1;
-      return;
-    }
-    case "validate": {
-      if (!positional.length) throw new Error("qiy validate requires at least one .mps model.\n\n" + USAGE);
-      await validateMpsModels(positional);
-      return;
-    }
-    case "export-ir": {
-      const [source] = positional;
-      if (!source) throw new Error("qiy export-ir requires a .mps model.\n\n" + USAGE);
-      process.stdout.write(await exportMpsIr(source));
-      return;
-    }
-    case "export-qiy": {
-      const [source, destination] = positional;
-      if (!source || !destination) throw new Error("qiy export-qiy requires <model.mps> and <output.qiy>.\n\n" + USAGE);
-      await exportQiy(source, destination, flag(rest, "--force"));
-      return;
-    }
-    case "drizzle": {
-      const [source] = positional;
-      if (!source) throw new Error("qiy drizzle requires an IR .json or .mps model.\n\n" + USAGE);
-      process.stdout.write(await generateDrizzle(source));
       return;
     }
     case "help":

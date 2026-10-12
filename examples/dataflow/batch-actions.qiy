@@ -1,0 +1,62 @@
+qiy v0;
+
+application batch-actions {
+  database sqlite {}
+
+  auth {
+    provider local;
+    user users;
+    usernameField email;
+    passwordField passwordHash;
+    roleField role;
+  }
+
+  enum userRole {
+    value admin;
+    value operator;
+    value viewer;
+  }
+
+  entity users {
+    field id UUID @id;
+    field email Text @unique;
+    field displayName Text;
+    field passwordHash Text @nullable @listVisible(false) @showVisible(false) @formVisible(false);
+    field role userRole;
+  }
+
+  entity reviews @label("Reviews") @icon(CheckSquareOutlined) {
+    field id UUID @id;
+    field status Text;
+    field note Text;
+  }
+
+  dataflow archiveReview @label("Archive selected") @confirm("Archive all selected reviews?") @comment("Archive reviews in one atomic batch") {
+    input {
+      field reviewId UUID @required;
+      field reason Text @required @comment("Reason recorded for this archive operation");
+    }
+    context {
+      review = entity reviews by id input.reviewId @required;
+    }
+    step validate {
+      require review.status != "locked" @error("Locked reviews cannot be archived");
+    }
+    step archive {
+      update review {
+        status = "archived";
+        note = input.reason;
+      }
+    }
+    audit "review.batchArchived";
+    idempotency required;
+    result { return review; }
+  }
+
+  action archiveSelected {
+    resource reviews;
+    dataflow archiveReview;
+    placement list;
+    batch true;
+  }
+}

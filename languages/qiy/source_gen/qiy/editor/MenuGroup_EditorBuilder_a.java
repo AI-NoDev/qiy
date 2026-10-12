@@ -57,6 +57,8 @@ import org.jetbrains.mps.openapi.language.SConcept;
     editorCell.addEditorCell(createProperty_2());
     editorCell.addEditorCell(createConstant_3());
     editorCell.addEditorCell(createProperty_3());
+    editorCell.addEditorCell(createConstant_4());
+    editorCell.addEditorCell(createProperty_4());
     return editorCell;
   }
   private EditorCell createConstant_0() {
@@ -167,12 +169,40 @@ import org.jetbrains.mps.openapi.language.SConcept;
       getCellFactory().popCellContext();
     }
   }
+  private EditorCell createConstant_4() {
+    EditorCell_Constant editorCell = new EditorCell_Constant(getEditorContext(), myNode, " comment=");
+    editorCell.setCellId("Constant_1f6cdy_i0");
+    editorCell.setDefaultText("");
+    return editorCell;
+  }
+  private EditorCell createProperty_4() {
+    getCellFactory().pushCellContext();
+    try {
+      final SProperty property = PROPS.comment$xgWa;
+      getCellFactory().setPropertyInfo(new SPropertyInfo(myNode, property));
+      EditorCell_Property editorCell = EditorCell_Property.create(getEditorContext(), new SPropertyAccessor(myNode, property, false, false), myNode);
+      editorCell.setDefaultText("<no comment>");
+      editorCell.setCellId("property_comment");
+      editorCell.setSubstituteInfo(new SPropertySubstituteInfo(editorCell, property));
+      setCellContext(editorCell);
+      Iterable<SNode> propertyAttributes = SNodeOperations.ofConcept(new IAttributeDescriptor.AllAttributes().list(myNode), CONCEPTS.PropertyAttribute$Gb);
+      Iterable<SNode> currentPropertyAttributes = Sequence.fromIterable(propertyAttributes).where((it) -> Objects.equals(PropertyAttribute__BehaviorDescriptor.getProperty_id1avfQ4BBzOo.invoke(it), property));
+      if (Sequence.fromIterable(currentPropertyAttributes).isNotEmpty()) {
+        EditorManager manager = EditorManager.getInstanceFromContext(getEditorContext());
+        return manager.createNodeRoleAttributeCell(Sequence.fromIterable(currentPropertyAttributes).first(), AttributeKind.PROPERTY, editorCell);
+      } else
+      return editorCell;
+    } finally {
+      getCellFactory().popCellContext();
+    }
+  }
 
   private static final class PROPS {
     /*package*/ static final SProperty name$MnvL = MetaAdapterFactory.getProperty(0xceab519525ea4f22L, 0x9b92103b95ca8c0cL, 0x110396eaaa4L, 0x110396ec041L, "name");
     /*package*/ static final SProperty label$xgf7 = MetaAdapterFactory.getProperty(0x6432b3acafe1427bL, 0x80cce4ec4b2716c5L, 0x9fdf42f6e480012L, 0x9fdf42f6e480709L, "label");
     /*package*/ static final SProperty icon$xgu8 = MetaAdapterFactory.getProperty(0x6432b3acafe1427bL, 0x80cce4ec4b2716c5L, 0x9fdf42f6e480012L, 0x9fdf42f6e48070aL, "icon");
     /*package*/ static final SProperty parent$xgH9 = MetaAdapterFactory.getProperty(0x6432b3acafe1427bL, 0x80cce4ec4b2716c5L, 0x9fdf42f6e480012L, 0x9fdf42f6e48070bL, "parent");
+    /*package*/ static final SProperty comment$xgWa = MetaAdapterFactory.getProperty(0x6432b3acafe1427bL, 0x80cce4ec4b2716c5L, 0x9fdf42f6e480012L, 0x9fdf42f6e48070cL, "comment");
   }
 
   private static final class CONCEPTS {

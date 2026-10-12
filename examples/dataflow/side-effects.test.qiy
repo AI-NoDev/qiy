@@ -1,0 +1,35 @@
+qiy test v0;
+application dataflow-side-effects;
+scenario delete-and-emit {
+  given review = entity reviews {
+    id = "00000000-0000-4000-8000-000000000001";
+    status = "pending";
+  }
+  when dataflow removeReview { reviewId = review.id; }
+  expect status == 200;
+  expect exists review == false;
+  expect outbox "review.deleted" count == 1;
+}
+scenario denied-without-side-effects {
+  given review = entity reviews {
+    id = "00000000-0000-4000-8000-000000000001";
+    status = "pending";
+  }
+  identity { id = "viewer-a"; role = "viewer"; }
+  when dataflow removeReview { reviewId = review.id; }
+  expect status == 403;
+  expect exists review == true;
+  expect review.status == "pending";
+  expect outbox "review.deleted" count == 0;
+}
+scenario rollback-all-writes {
+  given review = entity reviews {
+    id = "00000000-0000-4000-8000-000000000001";
+    status = "pending";
+  }
+  when dataflow rollbackRemoval { reviewId = review.id; confirmation = "pending"; }
+  expect status == 409;
+  expect exists review == true;
+  expect review.status == "pending";
+  expect outbox "review.deleted" count == 0;
+}

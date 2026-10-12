@@ -1,0 +1,17 @@
+qiy v0;
+application dataflow-identity {
+  database sqlite {}
+  entity reviews {
+    field id UUID @id;
+    field tenantId Text;
+    field status Text;
+  }
+  scope reviews tenantId claim tenant.id;
+  dataflow approveReview {
+    allow roles operator;
+    input { field reviewId UUID @required; }
+    context { review = entity reviews by id input.reviewId @required; }
+    step approve { update review { status = "approved"; } }
+    result { return review; }
+  }
+}

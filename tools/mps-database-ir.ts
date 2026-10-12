@@ -179,7 +179,7 @@ function optionalInteger(node: DecodedNode, property: string): number | undefine
 }
 
 function field(node: DecodedNode): FieldIR {
-  only(node, "Field", ["name", "type", "columnName", "nullable", "primaryKey", "unique", "extension", "dimension", "precision", "scale", "visible", "listVisible", "formVisible", "showVisible", "sortable", "filterable", "label", "icon"]);
+  only(node, "Field", ["name", "type", "columnName", "nullable", "primaryKey", "unique", "extension", "dimension", "precision", "scale", "visible", "listVisible", "formVisible", "showVisible", "sortable", "filterable", "label", "icon", "comment"]);
   return {
     name: required(node, "name"),
     type: required(node, "type") as FieldIR["type"],
@@ -199,11 +199,12 @@ function field(node: DecodedNode): FieldIR {
     ...(node.properties.has("filterable") && { filterable: optionalBoolean(node, "filterable") }),
     ...(node.properties.has("label") && { label: node.properties.get("label") }),
     ...(node.properties.has("icon") && { icon: node.properties.get("icon") }),
+    ...(node.properties.has("comment") && { comment: node.properties.get("comment") }),
   };
 }
 
 function index(node: DecodedNode): IndexIR {
-  only(node, "Index", ["name", "method", "unique", "concurrently"], ["columns"]);
+  only(node, "Index", ["name", "method", "unique", "concurrently", "comment"], ["columns"]);
   return {
     name: required(node, "name"),
     method: required(node, "method") as IndexIR["method"],
@@ -216,11 +217,12 @@ function index(node: DecodedNode): IndexIR {
     }),
     ...(node.properties.has("unique") && { unique: optionalBoolean(node, "unique") }),
     ...(node.properties.has("concurrently") && { concurrently: optionalBoolean(node, "concurrently") }),
+    ...(node.properties.has("comment") && { comment: node.properties.get("comment") }),
   };
 }
 
 function entity(node: DecodedNode): EntityIR {
-  only(node, "Entity", ["name", "tableName", "schema"], ["fields", "indexes"]);
+  only(node, "Entity", ["name", "tableName", "schema", "comment"], ["fields", "indexes"]);
   const schema = node.properties.get("schema");
   if (schema && schema !== "public") throw new Error(`MPS ${node.id}: unsupported Entity.schema ${schema}`);
   return {
@@ -228,11 +230,12 @@ function entity(node: DecodedNode): EntityIR {
     tableName: required(node, "tableName"),
     fields: (node.children.get("fields") ?? []).map(field),
     indexes: (node.children.get("indexes") ?? []).map(index),
+    ...(node.properties.has("comment") && { comment: node.properties.get("comment") }),
   };
 }
 
 function relation(node: DecodedNode): RelationIR {
-  only(node, "Relation", ["name", "fromEntity", "fromField", "toEntity", "toField", "cardinality", "onDelete"]);
+  only(node, "Relation", ["name", "fromEntity", "fromField", "toEntity", "toField", "cardinality", "onDelete", "comment"]);
   const cardinality = required(node, "cardinality");
   if (cardinality !== "one" && cardinality !== "many") {
     throw new Error(`MPS ${node.id}: cardinality must be one or many`);
@@ -249,6 +252,7 @@ function relation(node: DecodedNode): RelationIR {
     toField: required(node, "toField"),
     cardinality,
     ...(onDelete && { onDelete }),
+    ...(node.properties.has("comment") && { comment: node.properties.get("comment") }),
   };
 }
 
@@ -261,8 +265,8 @@ export interface MpsProjectIR {
   storageProvider?: "local" | "s3";
   auth?: { provider: "oidc" | "oauth2" | "sso" | "okta" | "auth0" | "azure-ad-b2c" | "keycloak" | "google" | "kinde"; userEntity: string; subjectField: string; roleField: string };
   scopes?: Array<{ resource: string; field: string; claim: string }>;
-  menuGroups?: Array<{ name: string; label: string; icon?: string; parent?: string; resources: string[] }>;
-  dashboardMetrics?: Array<{ name: string; resource: string; label: string; icon?: string; span: 8 | 12 | 24; type?: "count" | "distribution" | "trend"; groupBy?: string; days?: number }>;
+  menuGroups?: Array<{ name: string; label: string; icon?: string; parent?: string; comment?: string; resources: string[] }>;
+  dashboardMetrics?: Array<{ name: string; resource: string; label: string; icon?: string; comment?: string; span: 8 | 12 | 24; type?: "count" | "distribution" | "trend"; groupBy?: string; days?: number }>;
 }
 
 export function parseMpsProjectModel(modelXml: string, structureXml: string): MpsProjectIR {
@@ -357,17 +361,17 @@ export function parseMpsProjectModel(modelXml: string, structureXml: string): Mp
     return { resource, field, claim };
   });
   const menuGroups = (application.children.get("menuGroups") ?? []).map((node) => {
-    only(node, "MenuGroup", ["name", "label", "icon", "parent"], ["resources"]);
+    only(node, "MenuGroup", ["name", "label", "icon", "parent", "comment"], ["resources"]);
     const name = required(node, "name");
     const label = node.properties.get("label") ?? name;
     const resources = (node.children.get("resources") ?? []).map((resource) => {
       only(resource, "MenuResource", ["resource"]);
       return required(resource, "resource");
     });
-    return { name, label, ...(node.properties.has("icon") && { icon: node.properties.get("icon") }), ...(node.properties.has("parent") && { parent: node.properties.get("parent") }), resources };
+    return { name, label, ...(node.properties.has("icon") && { icon: node.properties.get("icon") }), ...(node.properties.has("parent") && { parent: node.properties.get("parent") }), ...(node.properties.has("comment") && { comment: node.properties.get("comment") }), resources };
   });
   const dashboardMetrics = (application.children.get("dashboardMetrics") ?? []).map((node) => {
-    only(node, "DashboardMetric", ["name", "resource", "label", "icon", "span", "type", "groupBy", "days"]);
+    only(node, "DashboardMetric", ["name", "resource", "label", "icon", "span", "type", "groupBy", "days", "comment"]);
     const name = required(node, "name");
     const resource = required(node, "resource");
     const label = node.properties.get("label") ?? name;
@@ -377,16 +381,16 @@ export function parseMpsProjectModel(modelXml: string, structureXml: string): Mp
     if (type !== "count" && type !== "distribution" && type !== "trend") throw new Error(`MPS ${node.id}: dashboard type must be count, distribution or trend`);
     const days = optionalInteger(node, "days");
     const metricType = type as "count" | "distribution" | "trend";
-    return { name, resource, label, span: span as 8 | 12 | 24, ...(node.properties.has("icon") && { icon: node.properties.get("icon") }), ...(metricType !== "count" && { type: metricType }), ...(node.properties.has("groupBy") && { groupBy: node.properties.get("groupBy") }), ...(days !== undefined && { days }) };
+    return { name, resource, label, span: span as 8 | 12 | 24, ...(node.properties.has("icon") && { icon: node.properties.get("icon") }), ...(node.properties.has("comment") && { comment: node.properties.get("comment") }), ...(metricType !== "count" && { type: metricType }), ...(node.properties.has("groupBy") && { groupBy: node.properties.get("groupBy") }), ...(days !== undefined && { days }) };
   });
   const enums = (application.children.get("enums") ?? []).map((node) => {
-    only(node, "Enum", ["name"], ["values"]);
+    only(node, "Enum", ["name", "comment"], ["values"]);
     const name = required(node, "name");
     const values = (node.children.get("values") ?? []).map((value) => {
-      only(value, "EnumValue", ["name", "label", "color", "icon"]);
-      return { name: required(value, "name"), ...(value.properties.has("label") && { label: value.properties.get("label") }), ...(value.properties.has("color") && { color: value.properties.get("color") }), ...(value.properties.has("icon") && { icon: value.properties.get("icon") }) };
+      only(value, "EnumValue", ["name", "label", "color", "icon", "comment"]);
+      return { name: required(value, "name"), ...(value.properties.has("label") && { label: value.properties.get("label") }), ...(value.properties.has("color") && { color: value.properties.get("color") }), ...(value.properties.has("icon") && { icon: value.properties.get("icon") }), ...(value.properties.has("comment") && { comment: value.properties.get("comment") }) };
     });
-    return { name, values };
+    return { name, ...(node.properties.has("comment") && { comment: node.properties.get("comment") }), values };
   });
   const config = databases[0]!;
   only(config, "DatabaseConfig", ["name", "dialect", "orm"], ["extensions"]);

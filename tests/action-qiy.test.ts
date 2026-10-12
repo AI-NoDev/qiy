@@ -16,7 +16,7 @@ application action-demo {
     step revoke { update connector { status = "revoked"; } }
     result { return connector; }
   }
-  action revokeConnector { resource connectors; dataflow revokeConnector; placement list, show; label "Revoke"; confirm "Continue?"; }
+  action revokeConnector { resource connectors; dataflow revokeConnector; placement list, show; label "Revoke"; when status == "active"; confirm "Continue?"; }
   action reviewConnector { resource connectors; navigate "/connectors/:id/review"; placement list, show; label "Review"; page manual @comment("Implement the review workflow here"); }
 }`;
 
@@ -24,7 +24,7 @@ describe("Qiy action DSL", () => {
   test("parses and round-trips command and manual-page actions", () => {
     const project = parseQiyProject(source);
     expect(project.actions).toEqual([
-      { name: "revokeConnector", resource: "connectors", placements: ["list", "show"], label: "Revoke", target: { kind: "dataflow", dataflow: "revokeConnector", confirm: "Continue?" } },
+      { name: "revokeConnector", resource: "connectors", placements: ["list", "show"], label: "Revoke", condition: { field: "status", operator: "==", value: "active" }, target: { kind: "dataflow", dataflow: "revokeConnector", confirm: "Continue?" } },
       { name: "reviewConnector", resource: "connectors", placements: ["list", "show"], label: "Review", target: { kind: "navigate", path: "/connectors/:id/review", page: "manual", comment: "Implement the review workflow here" } },
     ]);
     expect(parseQiyProject(serializeQiyProject(project)).actions).toEqual(project.actions);
@@ -38,21 +38,72 @@ describe("Qiy action DSL", () => {
     expect(() => parseQiyProject(app('action bad { resource items; navigate "/items/review"; placement list; label "Bad"; page manual @comment("x"); }'))).toThrow("include :id");
     expect(() => parseQiyProject(app('action bad { resource items; navigate "/items/:id/review"; placement list, list; label "Bad"; page manual @comment("x"); }'))).toThrow("duplicate placement");
     expect(() => parseQiyProject(app('action bad { resource items; navigate "/items/:id/review"; placement list; label "Bad"; }'))).toThrow("page manual");
+    expect(() => parseQiyProject(app('action bad { resource items; navigate "/items/:id/review"; placement list; label "Bad"; when missing == "x"; page manual @comment("x"); }'))).toThrow("unknown condition field");
+    expect(() => parseQiyProject(app('action bad { resource items; navigate "/items/:id/review"; placement list; label "Bad"; when id > "x"; page manual @comment("x"); }'))).toThrow("when operator");
+    expect(() => parseQiyProject(app('action bad { resource items; navigate "/items/:id/review"; placement list; label "Bad"; when id == "x"; when id != "y"; page manual @comment("x"); }'))).toThrow("duplicate when");
   });
 
   test("generates Refine actions, safe command transport and manual extension routes", () => {
     const project = parseQiyProject(source);
     const files = generateProject(project.database, project.name, { dataflows: project.dataflows, actions: project.actions });
-    expect(files["apps/web/app/routes/list.tsx"]).toContain('<BusinessActions resource={resource.name} placement="list"');
-    expect(files["apps/web/app/routes/show.tsx"]).toContain('<BusinessActions resource={resource.name} placement="show"');
+    expect(files["apps/web/app/routes/list.tsx"]).toContain('<BusinessActions resource={resource.name} placement="list" record={record}');
+    expect(files["apps/web/app/routes/show.tsx"]).toContain('<BusinessActions resource={resource.name} placement="show" record={result}');
     expect(files["apps/web/app/routes.ts"]).toContain('route("connectors/:id/review", "./routes/actions/reviewConnector.tsx")');
     expect(files["apps/web/app/routes/actions/reviewConnector.tsx"]).toContain("extensions/reviewConnector");
     expect(files["apps/web/app/routes/actions/reviewConnector.tsx"]).toContain('<CanAccess resource="connectors" action="reviewConnector"');
     expect(files["apps/web/app/extensions/reviewConnector.tsx"]).toContain("Implement the review workflow here");
     expect(files["apps/web/app/actions.ts"]).toContain('"idInput": "connectorId"');
+    expect(files["apps/web/app/actions.ts"]).toContain('"operator": "=="');
+    expect(files["apps/web/app/actions.ts"]).toContain("actionMatchesRecord");
     expect(files["apps/web/app/components/business-actions.tsx"]).toContain("useCustomMutation");
+    expect(files["apps/web/app/components/business-actions.tsx"]).toContain("useQueryClient");
+    expect(files["apps/web/app/components/business-actions.tsx"]).toContain("invalidateQueries");
+    expect(files["apps/web/app/components/business-actions.tsx"]).not.toContain("validateFields().then(run)");
+    expect(files["apps/web/app/components/business-actions.tsx"]!.match(/onOk=\{\(\) => form.submit\(\)\}/g)).toHaveLength(2);
+    expect(files["apps/web/app/components/business-actions.tsx"]!.match(/onFinish=\{\(values\) => void run\(values\)\}/g)).toHaveLength(2);
     expect(files["apps/web/app/data-provider.ts"]).toContain('body: JSON.stringify(payload ?? {})');
     expect(files["apps/web/tests/actions.test.ts"]).toContain("rejects undeclared commands");
+  });
+
+  test("generates atomic idempotent batch actions instead of client request loops", () => {
+    const model = `qiy v0; application batch-actions {
+      database sqlite {}
+      entity reviews { field id UUID @id; field status Text; }
+      dataflow archiveReview @label("Archive selected") @confirm("Archive all selected reviews?") {
+        input { field reviewId UUID @required; }
+        context { review = entity reviews by id input.reviewId @required; }
+        step archive { require review.status != "locked" @error("Locked review"); update review { status = "archived"; } }
+        idempotency required;
+        result { return review; }
+      }
+      action archiveSelected { resource reviews; dataflow archiveReview; placement list; batch true; }
+    }`;
+    const project = parseQiyProject(model);
+    expect(project.actions?.[0]).toMatchObject({ name: "archiveSelected", resource: "reviews", placements: ["list"], batch: true, label: "Archive selected" });
+    expect(parseQiyProject(serializeQiyProject(project)).actions).toEqual(project.actions);
+    const files = generateProject(project.database, project.name, project);
+    expect(files["apps/server/src/dataflows/index.ts"]).toContain('.post("/archiveReview/batch"');
+    expect(files["apps/server/src/dataflows/index.ts"]).toContain("Batch item identifiers must be unique");
+    expect(files["apps/server/src/dataflows/index.ts"]).toContain('flow: "archiveReview:batch"');
+    expect(files["apps/server/src/dataflows/index.ts"]).toContain("new BatchDataflowFailure");
+    expect(files["apps/server/src/graphql.ts"]).toContain("runArchiveReviewBatch(items: [ArchiveReviewCommandInput!]!, idempotencyKey: String!): [Reviews!]!");
+    expect(files["apps/server/src/graphql.ts"]).toContain('"archiveReview/batch"');
+    expect(files["apps/server/src/graphql-adapter.ts"]).toContain("runArchiveReviewBatch:");
+    expect(files["apps/server/src/app.ts"]).toContain('"runArchiveReviewBatch"');
+    for (const adapter of ["yoga", "apollo"] as const) {
+      const adapterFiles = generateProject(project.database, project.name, { ...project, elysiaPlugins: { graphqlAdapter: adapter } });
+      expect(adapterFiles["apps/server/src/graphql-adapter.ts"]).toContain("runArchiveReviewBatch:");
+      expect(adapterFiles["apps/server/src/plugins/index.ts"]).toContain("createGraphQLAdapterResolvers(context.repositories, context.authenticate) as any");
+    }
+    expect(files["apps/web/app/actions.ts"]).toContain('"batch": true');
+    expect(files["apps/web/app/actions.ts"]).toContain('"url": "/api/v1/commands/archiveReview/batch"');
+    expect(files["apps/web/app/components/business-actions.tsx"]).toContain("const body = { items }");
+    expect(files["apps/web/app/routes/list.tsx"]).toContain("<BatchBusinessActions");
+    expect(files["apps/web/app/data-provider.ts"]).toContain('/api/v1/commands/archiveReview/batch');
+    expect(() => parseQiyProject(model.replace("idempotency required;", ""))).toThrow("require dataflow archiveReview to declare idempotency required");
+    expect(() => parseQiyProject(model.replace("placement list;", "placement list, show;"))).toThrow("placement list only");
+    expect(() => parseQiyProject(model.replace("batch true;", 'batch true; when status == "pending";'))).toThrow("do not support record when conditions");
+    expect(() => parseQiyProject(model.replace("dataflow archiveReview;", 'navigate "/reviews/:id/archive"; page manual @comment("x");'))).toThrow("batch is only valid for dataflow actions");
   });
 
   test("preserves manual business pages during standalone sync", async () => {
@@ -101,6 +152,22 @@ describe("Qiy action DSL", () => {
     expect(files["apps/web/app/routes/actions/reviewPage.tsx"]).toContain('status="403"');
     expect(files["apps/web/app/routes/actions/reviewPage.tsx"]).toContain('params={{ id }}');
     expect(files["apps/web/app/components/business-actions.tsx"]).toContain('params={{ id: recordId }}');
+    expect(files["apps/web/app/components/business-actions.tsx"]).toContain("actionsFor(resource, placement, record)");
+  });
+
+  test("validates enum action conditions", () => {
+    const model = `qiy v0; application conditional { database sqlite {} enum Status { value active; value disabled; } entity items { field id UUID @id; field status Status; } action disable { resource items; navigate "/items/:id/disable"; placement list; label "Disable"; when status != "disabled"; page manual @comment("Disable item"); } }`;
+    const project = parseQiyProject(model);
+    expect(project.actions?.[0]?.condition).toEqual({ field: "status", operator: "!=", value: "disabled" });
+    expect(parseQiyProject(serializeQiyProject(project)).actions).toEqual(project.actions);
+    expect(() => parseQiyProject(model.replace('"disabled"; page', '"missing"; page'))).toThrow("unknown enum value");
+  });
+
+  test("inherits localized labels and confirmations from dataflows", () => {
+    const project = parseQiyProject(readFileSync(join(import.meta.dir, "../examples/dataflow/documented-inputs.qiy"), "utf8"));
+    expect(project.actions?.find((action) => action.name === "explainReview")).toMatchObject({ label: "Explain review", labelKey: "review.action", target: { confirm: "Apply this explanation?", confirmKey: "review.confirm" } });
+    expect(parseQiyProject(serializeQiyProject(project)).actions).toEqual(project.actions);
+    expect(() => parseQiyProject(source.replace('label "Revoke";', ""))).toThrow("label is required when dataflow");
   });
 
   test("integrated manual pages use host authorization instead of generated roles", () => {

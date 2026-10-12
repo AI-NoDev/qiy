@@ -1,0 +1,30 @@
+qiy v0;
+application dataflow-side-effects {
+  database sqlite {}
+  entity reviews {
+    field id UUID @id;
+    field status Text;
+  }
+  dataflow removeReview {
+    allow roles admin;
+    input { field reviewId UUID @required; }
+    context { review = entity reviews by id input.reviewId @required; }
+    step remove {
+      emit "review.deleted" { reviewId = review.id; }
+      delete review;
+    }
+    result { return review; }
+  }
+  dataflow rollbackRemoval {
+    allow roles admin;
+    input { field reviewId UUID @required; field confirmation Text @required; }
+    context { review = entity reviews by id input.reviewId @required; }
+    step mutate {
+      update review { status = "deleted"; }
+      emit "review.deleted" { reviewId = review.id; }
+      delete review;
+      require input.confirmation == "approved" @error("Review must be approved");
+    }
+    result { return review; }
+  }
+}

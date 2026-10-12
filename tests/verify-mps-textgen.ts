@@ -1,9 +1,27 @@
 import { strict as assert } from "node:assert";
 import { generateProject } from "../tools/generate-project";
 import { parseMpsProjectModel } from "../tools/mps-database-ir";
+import { exportMpsProjectAsQiy } from "../tools/mps-qiy";
 import { parseQiyProject } from "../tools/qiy-project";
 
 const structureSource = await Bun.file("languages/qiy/models/qiy.structure.mps").text();
+
+function withoutDocumentation<T>(value: T): T {
+  const copy = structuredClone(value);
+  const visit = (current: unknown): void => {
+    if (Array.isArray(current)) {
+      current.forEach(visit);
+      return;
+    }
+    if (!current || typeof current !== "object") return;
+    const record = current as Record<string, unknown>;
+    delete record.comment;
+    delete record.commentKey;
+    Object.values(record).forEach(visit);
+  };
+  visit(copy);
+  return copy;
+}
 
 for (const [model, application] of [["catalog", "Catalog"], ["relations", "Relations"], ["erpworkflow", "qiy-erp-workflow"]]) {
   const marker = await Bun.file(`languages/qiy.sandbox/source_gen/qiy/${model}/QiyGenerationMarker.java`).text();
@@ -12,15 +30,17 @@ for (const [model, application] of [["catalog", "Catalog"], ["relations", "Relat
   const modelSource = await Bun.file(`languages/qiy.sandbox/models/qiy.${model}.mps`).text();
   const native = parseQiyProject(nativeSource);
   const bridged = parseMpsProjectModel(modelSource, structureSource);
-  assert.deepStrictEqual(native.database, bridged.database);
+  const nativeStructural = withoutDocumentation(native);
+  const bridgedStructural = withoutDocumentation(bridged);
+  assert.deepStrictEqual(nativeStructural.database, bridgedStructural.database);
   assert.strictEqual(native.apiClient, bridged.apiClient);
   assert.deepStrictEqual(native.elysiaPlugins, bridged.elysiaPlugins);
   assert.strictEqual(native.storageProvider, bridged.storageProvider);
   assert.deepStrictEqual(native.auth, bridged.auth);
   assert.deepStrictEqual(native.scopes, bridged.scopes);
   assert.deepStrictEqual(native.workflows, bridged.workflows);
-  assert.deepStrictEqual(native.menuGroups, bridged.menuGroups);
-  assert.deepStrictEqual(native.dashboardMetrics, bridged.dashboardMetrics);
+  assert.deepStrictEqual(nativeStructural.menuGroups, bridgedStructural.menuGroups);
+  assert.deepStrictEqual(nativeStructural.dashboardMetrics, bridgedStructural.dashboardMetrics);
   if (model === "erpworkflow") {
     assert.deepStrictEqual(native.auth, { provider: "oidc", userEntity: "users", subjectField: "externalSubject", roleField: "role" });
     assert.deepStrictEqual(native.menuGroups?.map(({ name, parent, resources }) => ({ name, parent, resources })), [
@@ -41,9 +61,18 @@ for (const [model, application] of [["catalog", "Catalog"], ["relations", "Relat
     });
   }
   const bridgedName = bridged.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const authoritativeSource = exportMpsProjectAsQiy(modelSource, structureSource);
+  const authoritative = parseQiyProject(authoritativeSource);
+  assert.deepStrictEqual(authoritative, { ...bridged, name: bridgedName }, `${application}: authoritative MPS exporter must preserve the full Qiy model`);
+  if (model === "relations") {
+    assert.match(authoritativeSource, /@comment\("Product lifecycle"\)/);
+    assert.match(authoritativeSource, /@comment\("Available for ordering"\)/);
+    assert.match(authoritativeSource, /@comment\("Catalog master data"\)/);
+    assert.match(authoritativeSource, /@comment\("Current product records"\)/);
+  }
   assert.deepStrictEqual(
-    generateProject(native.database, native.name, native),
-    generateProject(bridged.database, bridgedName, bridged),
+    generateProject(nativeStructural.database, nativeStructural.name, nativeStructural),
+    generateProject(bridgedStructural.database, bridgedName, bridgedStructural),
   );
-  console.log(`MPS generator marker and TextGen ${application} match the external MPS bridge`);
+  console.log(`MPS marker and legacy TextGen ${application} structural subset match the authoritative Bun exporter`);
 }

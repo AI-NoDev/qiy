@@ -3,7 +3,7 @@ import { validateMpsModels } from "./commands/validate-mps";
 
 const sources = Bun.argv.slice(2).filter((arg) => !arg.startsWith("-"));
 if (!sources.length) {
-  console.error("Usage: qiy validate <model.mps> [...models.mps]");
+  console.error("Usage: bun run tools/check-mps.ts <model.mps> [...models.mps]");
   process.exit(1);
 }
 try {

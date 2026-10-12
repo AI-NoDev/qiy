@@ -1,7 +1,7 @@
 import "antd/dist/reset.css";
 import "./styles.css";
 import { Select, Space, Typography } from "antd";
-import { Refine, useTranslation } from "@refinedev/core";
+import { Refine, useTranslation, type I18nProvider } from "@refinedev/core";
 import { RefineKbar, RefineKbarProvider } from "@refinedev/kbar";
 import routerProvider from "@refinedev/react-router";
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
@@ -21,13 +21,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function Root() {
-  __QIY_AUTH_LOCATION__
   const [locale, setLocale] = useState<QiyLocale>("zh-CN");
   const direction = ["ar", "fa", "he", "ur"].includes(locale.split("-")[0]!) ? "rtl" : "ltr";
   useEffect(() => { document.documentElement.lang = locale; document.documentElement.dir = direction; }, [locale, direction]);
-  const notificationProvider = useQiyNotificationProvider();
   const i18nProvider = useMemo(() => createI18nProvider(locale, setLocale), [locale]);
-  return <QiyUiProvider direction={direction} locale={getAntdLocale(locale)}><RefineKbarProvider><Refine
+  return <QiyUiProvider direction={direction} locale={getAntdLocale(locale)}><RefineApplication i18nProvider={i18nProvider} /></QiyUiProvider>;
+}
+
+function RefineApplication({ i18nProvider }: { i18nProvider: I18nProvider }) {
+  __QIY_AUTH_LOCATION__
+  const notificationProvider = useQiyNotificationProvider();
+  return <RefineKbarProvider><Refine
     dataProvider={dataProvider}
     __QIY_AUTH_PROPS__
     routerProvider={routerProvider}
@@ -48,7 +52,7 @@ export default function Root() {
   >__QIY_LAYOUT_START__<QiyThemedLayout
     Title={({ collapsed }: { collapsed?: boolean }) => <QiyThemedTitle collapsed={collapsed ?? false} text="Qiy Admin" />}
     Header={() => <AdminHeader />}
-  ><Outlet /></QiyThemedLayout>__QIY_LAYOUT_END__<RefineKbar /></Refine></RefineKbarProvider></QiyUiProvider>;
+  ><Outlet /></QiyThemedLayout>__QIY_LAYOUT_END__<RefineKbar /></Refine></RefineKbarProvider>;
 }
 
 function AdminHeader() {

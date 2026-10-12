@@ -1,0 +1,74 @@
+qiy test v0;
+application dataflow-identity;
+
+scenario matching-tenant {
+  given review = entity reviews {
+    id = "00000000-0000-4000-8000-000000000001";
+    tenantId = "tenant-a";
+    status = "pending";
+  }
+  identity {
+    id = "operator-a";
+    role = "operator";
+    claims { "tenant.id" = review.tenantId; }
+  }
+  when dataflow approveReview { reviewId = review.id; }
+  expect status == 200;
+  expect review.status == "approved";
+}
+
+scenario anonymous-denied {
+  given review = entity reviews {
+    id = "00000000-0000-4000-8000-000000000001";
+    tenantId = "tenant-a";
+    status = "pending";
+  }
+  identity anonymous;
+  when dataflow approveReview { reviewId = review.id; }
+  expect status == 401;
+  expect review.status == "pending";
+}
+
+scenario viewer-denied {
+  given review = entity reviews {
+    id = "00000000-0000-4000-8000-000000000001";
+    tenantId = "tenant-a";
+    status = "pending";
+  }
+  identity {
+    id = "viewer-a";
+    role = "viewer";
+    claims { "tenant.id" = "tenant-a"; }
+  }
+  when dataflow approveReview { reviewId = review.id; }
+  expect status == 403;
+  expect review.status == "pending";
+}
+
+scenario missing-tenant-denied {
+  given review = entity reviews {
+    id = "00000000-0000-4000-8000-000000000001";
+    tenantId = "tenant-a";
+    status = "pending";
+  }
+  identity { id = "operator-a"; role = "operator"; }
+  when dataflow approveReview { reviewId = review.id; }
+  expect status == 403;
+  expect review.status == "pending";
+}
+
+scenario other-tenant-hidden {
+  given review = entity reviews {
+    id = "00000000-0000-4000-8000-000000000001";
+    tenantId = "tenant-a";
+    status = "pending";
+  }
+  identity {
+    id = "operator-b";
+    role = "operator";
+    claims { "tenant.id" = "tenant-b"; }
+  }
+  when dataflow approveReview { reviewId = review.id; }
+  expect status == 404;
+  expect review.status == "pending";
+}

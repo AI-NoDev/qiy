@@ -162,6 +162,7 @@ export default defineConfig({
             { text: "enum / menu / dashboard", link: "/dsl/enum-menu-dashboard" },
             { text: "dataflow", link: "/dsl/dataflow" },
             { text: "action", link: "/dsl/actions" },
+            { text: "realtime", link: "/dsl/realtime" },
           ],
         },
       ],

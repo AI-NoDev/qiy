@@ -51,7 +51,7 @@ Use this map as orientation, then inspect the actual generated tree because enab
 
 - Add a table or field: edit the `.qiy` model, regenerate/sync, review the database migration, then update application-specific validation and tests.
 - Change menu or field presentation: edit `menu`, `dashboard`, entity/field annotations, then regenerate.
-- Add an explicit business operation: define the server transaction with `dataflow`, then expose it with an `action` using `placement list, show`. Qiy injects the current record id and generates inputs for remaining required command fields.
+- Add an explicit business operation: define the server transaction with `dataflow`, then expose it with an `action` using `placement list, show`. Qiy injects the current record id and generates inputs for remaining required command fields. Add `when status == "pending";` or `when status != "closed";` to show the action only for matching Text/enum records.
 - Add a complex non-CRUD page: define an `action` with `navigate` and `page manual @comment(...)`, then implement the preserved file under `apps/<web-alias>/app/extensions/`. Qiy does not overwrite extension files during `create --sync` or `init --sync`.
 - Connect a real database: set `DATABASE_URL`, generate and review migrations, apply them in the target environment, and test rollback/backup procedures.
 - Connect an existing API or identity system: use an explicit adapter for its routes, response envelope, token/cookie rules, claims and authorization. CORS alone does not adapt API contracts.
@@ -62,7 +62,7 @@ Generated CRUD does not infer domain workflows such as approvals, synchronizatio
 ## Business action example
 
 ```qiy
-dataflow revokeConnector {
+dataflow revokeConnector @label("Revoke") @confirm("Continue?") @comment("Revoke an active connector") {
   input {
     field connectorId UUID @required;
     field reason Text @required @comment("Reason supplied by the operator");
@@ -80,8 +80,7 @@ action revokeConnector {
   resource connectors;
   dataflow revokeConnector;
   placement list, show;
-  label "Revoke";
-  confirm "Continue?";
+  when status == "active";
 }
 
 action reviewConnector {
@@ -93,7 +92,7 @@ action reviewConnector {
 }
 ```
 
-Dataflow actions are fail-closed: the generated DataProvider only posts to declared command URLs. Navigation actions require an absolute safe route containing `:id`. Keep authorization and state changes on the server even when a generated button is hidden by Refine access control.
+Dataflow actions are fail-closed: the generated DataProvider only posts to declared command URLs. A Dataflow can provide default `@label`, `@confirm`, and `@comment` metadata; its Actions inherit label/confirmation unless they explicitly override them. Navigation actions require an absolute safe route containing `:id`. A `when` rule accepts only one current-resource Text/enum field, `==` or `!=`, and a quoted value; missing record fields hide the action. Keep authorization and state changes on the server even when a generated button is hidden by a condition or Refine access control.
 
 ## References
 
