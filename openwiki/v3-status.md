@@ -72,7 +72,9 @@
 
 **断线重连（已完成）**：`subscribeGraphqlWs` 关闭后按 `reconnectDelayMs`→`maxReconnectDelayMs` 指数退避重连，重新 init + subscribe；`onReconnect` 报告 attempt/delay，`stop()` 清理定时器。生成 web 测试覆盖“断开→重连→重新订阅→再次收帧”全链路（web 36 tests 全绿）。
 
-**边界**：页面默认仍用 SSE（SSE 客户端本身尚无自动重连；实时页面走 Ably 时由 SDK 负责重连）；没有旧 `graphql-transport-ws` 协议兼容；真实 Ably 租户验收仍受环境阻塞。
+**SSE 断线重连（已完成）**：`subscribeGraphql`（SSE 客户端）在流结束或请求失败后按同样的指数退避重连，默认开启，`stop()` 中止请求并清理定时器；生成 web 测试覆盖“流结束→重连→再次收帧”（web 37 tests 全绿）。
+
+**边界**：页面默认仍用 SSE；实时页面走 Ably 时由 SDK 负责重连；没有旧 `graphql-transport-ws` 协议兼容；真实 Ably 租户验收仍受环境阻塞。
 
 ## 跨副本导入 worker（2026-10-17，已完成）
 

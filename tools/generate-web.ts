@@ -1750,6 +1750,12 @@ test("unsubscribes through the Ably channel", async () => {
   onData: (data: Record<string, unknown>) => void;
   onError?: (error: Error) => void;
   fetcher?: typeof fetch;
+  /** Reconnect after the stream ends or fails; defaults to true. */
+  reconnect?: boolean;
+  /** Called before each reconnect attempt; backoff doubles up to maxReconnectDelayMs. */
+  onReconnect?: (info: { attempt: number; delayMs: number }) => void;
+  reconnectDelayMs?: number;
+  maxReconnectDelayMs?: number;
 }
 
 /**
@@ -1764,7 +1770,11 @@ export function subscribeGraphql(options: QiySubscriptionOptions): () => void {
   if (options.operationName) params.set("operationName", options.operationName);
   const token = typeof window === "undefined" ? undefined : window.localStorage.getItem("qiy.access_token");
   const fetcher = options.fetcher ?? fetch;
-  void (async () => {
+  let attempt = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  /** Opens one SSE connection and streams it until the server ends or the caller stops. */
+  const connect = async (): Promise<void> => {
+    if (controller.signal.aborted) return;
     try {
       const response = await fetcher("/api/v1/graphql/subscribe?" + params.toString(), { headers: token ? { Authorization: "Bearer " + token } : {}, signal: controller.signal });
       if (!response.ok) {
@@ -1786,6 +1796,7 @@ export function subscribeGraphql(options: QiySubscriptionOptions): () => void {
           buffer = buffer.slice(boundary + 2);
           const dataLine = frame.split("\\n").find((line) => line.startsWith("data: "));
           if (dataLine && !controller.signal.aborted) {
+            attempt = 0;
             const payload = JSON.parse(dataLine.slice(6)) as { data?: Record<string, unknown>; errors?: Array<{ message: string }> };
             if (payload.errors?.length) options.onError?.(new Error(payload.errors[0]!.message));
             else if (payload.data) options.onData(payload.data);
@@ -1793,11 +1804,26 @@ export function subscribeGraphql(options: QiySubscriptionOptions): () => void {
           boundary = buffer.indexOf("\\n\\n");
         }
       }
+      scheduleReconnect();
     } catch (error) {
-      if (!controller.signal.aborted) options.onError?.(error instanceof Error ? error : new Error(String(error)));
+      if (controller.signal.aborted) return;
+      options.onError?.(error instanceof Error ? error : new Error(String(error)));
+      scheduleReconnect();
     }
-  })();
-  return () => controller.abort();
+  };
+  const scheduleReconnect = () => {
+    if (controller.signal.aborted) return;
+    if (options.reconnect === false) return;
+    const delay = Math.min(options.reconnectDelayMs ?? 1000, options.maxReconnectDelayMs ?? 30000) * Math.pow(2, Math.min(attempt, 5));
+    attempt += 1;
+    options.onReconnect?.({ attempt, delayMs: delay });
+    timer = setTimeout(() => { void connect(); }, delay);
+  };
+  void connect();
+  return () => {
+    controller.abort();
+    if (timer) clearTimeout(timer);
+  };
 }
 
 export interface QiyGraphqlWsOptions {
@@ -2048,6 +2074,40 @@ test("graphql-ws client reconnects and resubscribes after a drop", async () => {
   emit(sockets[1]!, "close");
   await Bun.sleep(20);
   expect(sockets).toHaveLength(2);
+});
+
+test("SSE subscription reconnects after the stream ends", async () => {
+  let calls = 0;
+  const received: Array<Record<string, unknown>> = [];
+  const reconnects: number[] = [];
+  const fetcher = async (_url: string, init?: RequestInit) => {
+    calls += 1;
+    // The caller aborts through the signal; a plain resolve is enough for the fake.
+    expect(init?.signal).toBeDefined();
+    if (calls === 1) {
+      return new Response(new ReadableStream({
+        start(controller) {
+          const encoder = new TextEncoder();
+          controller.enqueue(encoder.encode('data: {"data":{"ordersChanged":{"event":"created"}}}\\n\\n'));
+          controller.close();
+        },
+      }), { headers: { "Content-Type": "text/event-stream" } });
+    }
+    return new Response(new ReadableStream({ start(controller) { controller.close(); } }), { headers: { "Content-Type": "text/event-stream" } });
+  };
+  const stop = subscribeGraphql({
+    query: "subscription { ordersChanged { event } }",
+    fetcher: fetcher as unknown as typeof fetch,
+    reconnectDelayMs: 5,
+    onReconnect: (info) => reconnects.push(info.delayMs),
+    onData: (data) => received.push(data),
+  });
+  await Bun.sleep(30);
+  expect(received).toHaveLength(1);
+  expect(received[0]).toEqual({ ordersChanged: { event: "created" } });
+  expect(calls).toBeGreaterThanOrEqual(2);
+  expect(reconnects[0]).toBe(5);
+  stop();
 });
 
 `;
