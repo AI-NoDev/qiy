@@ -9,9 +9,38 @@ export interface Principal {
 
 export type Authenticator = (request: Request) => Promise<Principal | null>;
 export interface ProtectedResource { path: string; query: string; mutations?: string[]; }
+/** Page-level rules: resource -> action -> allowed roles. Absent actions are unrestricted. */
+export type PageRules = Record<string, Record<string, Principal["role"][]>>;
 
 function error(status: number, message: string): Response {
   return Response.json({ error: message }, { status, headers: { "Cache-Control": "no-store" } });
+}
+
+/** Maps a REST request onto the page action its rule guards. Segments exclude /api/v1. */
+function restAction(method: string, segments: string[]): string {
+  const tail = segments[segments.length - 1] ?? "";
+  // Export reads follow list; import writes follow create, including their job endpoints.
+  if (segments.includes("export")) return "list";
+  if (segments.includes("import")) return method === "GET" ? "list" : "create";
+  if (tail === "export") return "list";
+  if (tail === "import") return "create";
+  const hasId = segments.length >= 2;
+  if (method === "GET") return hasId ? "show" : "list";
+  if (method === "POST") return "create";
+  if (method === "PATCH" || method === "PUT") return "edit";
+  if (method === "DELETE") return "delete";
+  return "";
+}
+
+/** Maps a GraphQL root field onto the page action its rule guards. */
+function graphqlAction(field: string, resource: string): string {
+  if (field === resource) return "list";
+  if (field === resource + "ById") return "show";
+  if (field === resource + "Aggregate" || field === resource + "Distribution" || field === resource + "Trend") return "list";
+  if (field.startsWith("create")) return "create";
+  if (field.startsWith("update")) return "edit";
+  if (field.startsWith("delete")) return "delete";
+  return "";
 }
 
 function rootFields(document: DocumentNode, selection: SelectionSetNode, seen = new Set<string>()): FieldNode[] {
@@ -35,12 +64,18 @@ function mayAccess(role: Principal["role"], resource: ProtectedResource, method:
   return role === "operator" || (role === "viewer" && method === "GET");
 }
 
-export function createAuthorizationGuard(authenticate: Authenticator, resources: ProtectedResource[]) {
+export function createAuthorizationGuard(authenticate: Authenticator, resources: ProtectedResource[], pages: PageRules = {}) {
   const byPath = new Map(resources.map((resource) => [resource.path, resource]));
+  const mayUsePage = (role: Principal["role"], resource: string, action: string): boolean => {
+    const rules = pages[resource];
+    if (!rules || !action) return true;
+    const roles = rules[action];
+    return !roles || roles.includes(role);
+  };
   const queryActions = new Map<string, { resource: ProtectedResource; method: string }>();
   for (const resource of resources) {
     const name = resource.query[0]!.toUpperCase() + resource.query.slice(1);
-    for (const field of [resource.query, resource.query + "ById", resource.query + "Distribution", resource.query + "Trend"]) queryActions.set(field, { resource, method: "GET" });
+    for (const field of [resource.query, resource.query + "ById", resource.query + "Distribution", resource.query + "Trend", resource.query + "Aggregate"]) queryActions.set(field, { resource, method: "GET" });
     for (const action of ["create" + name, "update" + name, "delete" + name, "delete" + name + "Many"]) {
       queryActions.set(action, { resource, method: "POST" });
     }
@@ -70,6 +105,7 @@ export function createAuthorizationGuard(authenticate: Authenticator, resources:
           const action = queryActions.get(field.name.value);
           if (!action || (operation.operation === "mutation") !== (action.method === "POST")) return error(403, "GraphQL field is not authorized");
           if (!mayAccess(principal.role, action.resource, action.method)) return error(403, "Permission denied");
+          if (!mayUsePage(principal.role, action.resource.path, graphqlAction(field.name.value, action.resource.query))) return error(403, "Page access denied");
         }
       } catch { return error(400, "Invalid GraphQL request"); }
       return;
@@ -77,5 +113,7 @@ export function createAuthorizationGuard(authenticate: Authenticator, resources:
     const resource = byPath.get(path.split("/")[3] ?? "");
     if (!resource) return;
     if (!mayAccess(principal.role, resource, request.method)) return error(403, "Permission denied");
+    const segments = path.split("/").slice(3).filter(Boolean);
+    if (!mayUsePage(principal.role, resource.path, restAction(request.method, segments))) return error(403, "Page access denied");
   };
 }

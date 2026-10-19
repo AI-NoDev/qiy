@@ -1,8 +1,8 @@
 import { Create, Edit, useForm, useSelect } from "@refinedev/antd";
-import { Alert, Button, Form, Input, InputNumber, Select, Space, Upload } from "antd";
-import type { ResourceDefinition, ResourceEnumValue, ResourceField } from "../resources";
+import { Alert, Button, Form, Input, InputNumber, Select, Space, Tag, Upload } from "antd";
+import { canSeeField, type ResourceDefinition, type ResourceEnumValue, type ResourceField } from "../resources";
 import { qiyIcons } from "../icons";
-import { useTranslation } from "@refinedev/core";
+import { useGetIdentity, useTranslation } from "@refinedev/core";
 import { t, type QiyLocale } from "../i18n";
 
 function RelationSelect({ relation }: { relation: NonNullable<ResourceField["relation"]> }) {
@@ -34,36 +34,50 @@ function FileInput({ field, resource, resourceId }: { field: ResourceField; reso
   const form = Form.useFormInstance();
   const { translate } = useTranslation();
   const mimeTypes = field.mimeTypes ?? ["*/*"]; const maxBytes = field.maxBytes ?? 25 * 1024 * 1024; const uploadMode = field.uploadMode ?? "binary";
-  return <Upload maxCount={field.maxFiles ?? 1} accept={mimeTypes.includes("*/*") ? undefined : mimeTypes.join(",")} showUploadList={false} beforeUpload={(file) => {
-    const accepted = mimeTypes.some((mime) => mime === "*/*" || mime === file.type || (mime.endsWith("/*") && file.type.startsWith(mime.slice(0, -1))));
-    if (!accepted || file.size > maxBytes) return Upload.LIST_IGNORE;
-    return true;
-  }} customRequest={async ({ file, onError, onSuccess }) => {
-    try {
-      const token = typeof window === "undefined" ? undefined : window.localStorage.getItem("qiy.access_token");
-      const key = `uploads/${crypto.randomUUID()}-${String((file as File).name ?? "file").replace(/[^a-zA-Z0-9_.-]/g, "_")}`;
-      const params = new URLSearchParams({ key, fileName: String((file as File).name ?? "file"), resource, field: field.name });
-      if (resourceId) params.set("resourceId", resourceId);
-      const headers: Record<string, string> = {};
-      if (token) headers.Authorization = `Bearer ${token}`;
-      const response = uploadMode === "base64"
-        ? await fetch("/api/v1/files/base64", { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ key, fileName: String((file as File).name ?? "file"), resource, field: field.name, ...(resourceId ? { resourceId } : {}), contentType: (file as File).type || "application/octet-stream", data: await encodeBase64(file as Blob) }) })
-        : await fetch(`/api/v1/files?${params}`, { method: "POST", body: file as Blob, headers });
-      if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
-      form.setFieldValue(field.name, key);
-      onSuccess?.(await response.json());
-    } catch (error) { onError?.(error as Error); }
-  }}><Button>{translate("qiy.upload", {}, "Upload file")}</Button></Upload>;
+  const multiple = field.type === "Files";
+  const maxFiles = multiple ? field.maxFiles ?? 6 : 1;
+  const watched = Form.useWatch(field.name, form) as unknown;
+  const keys: string[] = multiple
+    ? (Array.isArray(watched) ? watched.map(String).filter(Boolean) : [])
+    : (typeof watched === "string" && watched ? [watched] : []);
+  const send = async (file: File): Promise<string> => {
+    const token = typeof window === "undefined" ? undefined : window.localStorage.getItem("qiy.access_token");
+    const key = `uploads/${crypto.randomUUID()}-${String(file.name ?? "file").replace(/[^a-zA-Z0-9_.-]/g, "_")}`;
+    const params = new URLSearchParams({ key, fileName: String(file.name ?? "file"), resource, field: field.name });
+    if (resourceId) params.set("resourceId", resourceId);
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const response = uploadMode === "base64"
+      ? await fetch("/api/v1/files/base64", { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ key, fileName: String(file.name ?? "file"), resource, field: field.name, ...(resourceId ? { resourceId } : {}), contentType: file.type || "application/octet-stream", data: await encodeBase64(file) }) })
+      : await fetch(`/api/v1/files?${params}`, { method: "POST", body: file, headers });
+    if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
+    return key;
+  };
+  const setKeys = (next: string[]) => form.setFieldValue(field.name, multiple ? next : next[0]);
+  return <Space direction="vertical" style={{ width: "100%" }}>
+    <Upload multiple={multiple} maxCount={maxFiles} accept={mimeTypes.includes("*/*") ? undefined : mimeTypes.join(",")} showUploadList={false} beforeUpload={(file) => {
+      const accepted = mimeTypes.some((mime) => mime === "*/*" || mime === file.type || (mime.endsWith("/*") && file.type.startsWith(mime.slice(0, -1))));
+      if (!accepted || file.size > maxBytes || keys.length >= maxFiles) return Upload.LIST_IGNORE;
+      return true;
+    }} customRequest={async ({ file, onError, onSuccess }) => {
+      try {
+        const key = await send(file as File);
+        setKeys(multiple ? [...keys, key] : [key]);
+        onSuccess?.({ key });
+      } catch (error) { onError?.(error as Error); }
+    }}><Button>{translate("qiy.upload", {}, multiple ? "Add files" : "Upload file")}</Button></Upload>
+    {multiple && keys.length > 0 && <Space wrap>{keys.map((key) => <Tag key={key} closable onClose={() => setKeys(keys.filter((item) => item !== key))}>{key.split("/").pop()}</Tag>)}</Space>}
+  </Space>;
 }
 
 export function ResourceForm({ resource, id }: { resource: ResourceDefinition; id?: string }) {
-  const fields = resource.fields.filter((field) => field.formVisible && !field.primaryKey && field.type !== "Vector");
+  const { data: identity } = useGetIdentity<{ role?: string }>(); const fields = resource.fields.filter((field) => field.formVisible && !field.primaryKey && field.type !== "Vector" && canSeeField(field, identity?.role));
   const { getLocale, translate } = useTranslation(); const locale: QiyLocale = getLocale() === "en-US" ? "en-US" : "zh-CN";
   const { formProps, saveButtonProps, query, onFinish } = useForm<Record<string, unknown>>({ resource: resource.name, id, action: id ? "edit" : "create", redirect: "list" });
   const content = <>
     {query?.isError && <Alert type="error" showIcon message={String(query.error)} />}
     <Form {...formProps} layout="vertical" style={{ maxWidth: 720 }} onFinish={(values) => { const record = values as Record<string, unknown>; return onFinish(Object.fromEntries(fields.flatMap((field) => { const value = record[field.name]; return (value === undefined || value === "") && field.nullable ? [] : [[field.name, field.type === "Integer" ? Number(value) : value]]; }))); }}>
-      {fields.map((field) => <Form.Item key={field.name} name={field.name} label={field.label} tooltip={field.commentKey ? translate(field.commentKey, {}, field.comment) : field.comment} rules={[{ required: !field.nullable }]}>{field.type === "File" ? <FileInput field={field} resource={resource.name} resourceId={id} /> : field.relation ? <RelationSelect relation={field.relation} /> : field.enumValues ? <Select options={field.enumValues.map((item) => ({ value: item.name, label: <EnumLabel item={item} /> }))} /> : field.type === "Integer" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>)}
+      {fields.map((field) => <Form.Item key={field.name} name={field.name} label={field.label} tooltip={field.commentKey ? translate(field.commentKey, {}, field.comment) : field.comment} rules={[{ required: !field.nullable }]}>{field.type === "File" || field.type === "Files" ? <FileInput field={field} resource={resource.name} resourceId={id} /> : field.relation ? <RelationSelect relation={field.relation} /> : field.enumValues ? <Select options={field.enumValues.map((item) => ({ value: item.name, label: <EnumLabel item={item} /> }))} /> : field.type === "Integer" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>)}
     </Form>
   </>;
   return id

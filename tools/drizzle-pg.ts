@@ -9,6 +9,7 @@ function column(field: FieldIR, relation?: RelationIR): string {
     case "UUID": declaration = `uuid(${name})`; break;
     case "Text": declaration = `text(${name})`; break;
     case "File": declaration = `text(${name})`; break;
+    case "Files": declaration = `jsonb(${name}).$type<string[]>()`; break;
     case "Integer": declaration = `integer(${name})`; break;
     case "DateTime": declaration = `timestamp(${name}, { withTimezone: true })`; break;
     case "Decimal":
@@ -51,9 +52,52 @@ export function generateDrizzlePostgres(database: DatabaseIR): string {
   const imports = new Set(["pgTable", "index", "uniqueIndex", "jsonb", "timestamp", "uuid", "text", "integer"]);
   for (const entity of database.entities) {
     for (const field of entity.fields) {
-      imports.add(({ UUID: "uuid", Text: "text", Integer: "integer", Decimal: "numeric", Money: "numeric", DateTime: "timestamp", File: "text", Vector: "vector" } as const)[field.type]);
+      imports.add(({ UUID: "uuid", Text: "text", Integer: "integer", Decimal: "numeric", Money: "numeric", DateTime: "timestamp", File: "text", Files: "jsonb", Vector: "vector" } as const)[field.type]);
     }
     for (const index of entity.indexes ?? []) imports.add(index.unique ? "uniqueIndex" : "index");
   }
-  return `import { ${[...imports].sort().join(", ")} } from "drizzle-orm/pg-core";\n\n${database.entities.map((entity) => renderEntity(entity, database.relations ?? [])).join("\n\n")}\n\nexport const auditEvents = pgTable("audit_events", {\n  id: uuid("id").primaryKey(),\n  actorId: uuid("actorId"),\n  action: text("action").notNull(),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  metadata: jsonb("metadata"),\n  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),\n}, (table) => [index("audit_events_resource_idx").on(table.resource, table.resourceId), index("audit_events_created_at_idx").on(table.createdAt)]);\n\nexport const attachments = pgTable("attachments", {\n  id: uuid("id").primaryKey(),\n  storageKey: text("storageKey").notNull().unique(),\n  fileName: text("fileName"),\n  contentType: text("contentType").notNull(),\n  size: integer("size").notNull(),\n  ownerId: uuid("ownerId"),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),\n}, (table) => [index("attachments_resource_idx").on(table.resource, table.resourceId), index("attachments_owner_idx").on(table.ownerId)]);\n`;
+  return `import { ${[...imports].sort().join(", ")} } from "drizzle-orm/pg-core";\n\n${database.entities.map((entity) => renderEntity(entity, database.relations ?? [])).join("\n\n")}\n\nexport const auditEvents = pgTable("audit_events", {\n  id: uuid("id").primaryKey(),\n  actorId: uuid("actorId"),\n  action: text("action").notNull(),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  metadata: jsonb("metadata"),\n  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),\n}, (table) => [index("audit_events_resource_idx").on(table.resource, table.resourceId), index("audit_events_created_at_idx").on(table.createdAt)]);\n\nexport const attachments = pgTable("attachments", {\n  id: uuid("id").primaryKey(),\n  storageKey: text("storageKey").notNull().unique(),\n  fileName: text("fileName"),\n  contentType: text("contentType").notNull(),\n  size: integer("size").notNull(),\n  ownerId: uuid("ownerId"),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),\n}, (table) => [index("attachments_resource_idx").on(table.resource, table.resourceId), index("attachments_owner_idx").on(table.ownerId)]);
+
+export const qiyImportJobs = pgTable("qiy_import_jobs", {
+  id: text("id").primaryKey(),
+  resource: text("resource").notNull(),
+  status: text("status").notNull(),
+  total: integer("total").notNull(),
+  processed: integer("processed").notNull(),
+  failed: integer("failed").notNull(),
+  errors: text("errors"),
+  actorId: text("actorId"),
+  payload: text("payload"),
+  leaseOwner: text("leaseOwner"),
+  leaseUntil: timestamp("leaseUntil", { withTimezone: true }),
+  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("qiy_import_jobs_resource_idx").on(table.resource, table.createdAt)]);
+
+export const qiySavedViews = pgTable("qiy_saved_views", {
+  id: text("id").primaryKey(),
+  resource: text("resource").notNull(),
+  name: text("name").notNull(),
+  ownerId: text("ownerId").notNull(),
+  shared: boolean("shared").notNull(),
+  search: text("search"),
+  filters: text("filters"),
+  sorters: text("sorters"),
+  columns: text("columns"),
+  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("qiy_saved_views_resource_idx").on(table.resource, table.ownerId)]);
+
+export const qiyExportJobs = pgTable("qiy_export_jobs", {
+  id: text("id").primaryKey(),
+  resource: text("resource").notNull(),
+  status: text("status").notNull(),
+  total: integer("total").notNull(),
+  processed: integer("processed").notNull(),
+  payload: text("payload"),
+  errors: text("errors"),
+  actorId: text("actorId"),
+  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("qiy_export_jobs_resource_idx").on(table.resource, table.createdAt)]);\n`;
 }

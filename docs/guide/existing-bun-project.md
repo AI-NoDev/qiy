@@ -86,7 +86,7 @@ apps/ops-console/app/plugins/ovyqo-data-provider.ts
 apps/ops-console/app/hooks/use-connector-status.ts
 ```
 
-当前版本不会自动把 Qiy 的 REST/GraphQL DataProvider 转换为任意现有 API。已有 JWT、刷新 Cookie、请求头、响应 envelope、权限与审计规则，应在上述扩展层显式实现并测试。CORS 仅解决浏览器 Origin 检查，不解决 API 契约差异。
+`mode integration` 现在会用 `integration` 块里的声明生成一份可用的 DataProvider 基线：`response` 描述列表 envelope 与总数位置，`pagination` 描述分页参数约定，`tenant` 描述如何把宿主身份里的租户转发给 API。URL 布局之外的排序、过滤、嵌套资源、批量端点仍属于未托管适配器。已有 JWT、刷新 Cookie、权限与审计规则也应在上述扩展层显式实现并测试。CORS 仅解决浏览器 Origin 检查，不解决 API 契约差异。
 
 ## 仅接入现有 API
 
@@ -100,6 +100,9 @@ application catalog-admin {
   integration {
     apiBase "/api/v2";
     auth cookie { csrfCookie "XSRF-TOKEN"; csrfHeader "X-XSRF-TOKEN"; };
+    response { data "items"; total "meta.count"; error "message"; };
+    pagination offset;
+    tenant { header "X-Tenant-Id"; identity "tenantId"; };
   }
   workspace {
     name catalog;
@@ -119,7 +122,27 @@ application catalog-admin {
 qiy init -f ./models/catalog-admin.qiy
 ```
 
-Integration 默认只生成 list/show 页面，并不创建 `apps/server`、Drizzle schema、迁移、Docker/Compose 或部署文件。`apps/host-admin/app/host/data-provider.ts`、`auth.ts`、`access-control.ts` 是未托管适配器，`qiy init --sync` 不会覆盖它们。请在这些文件中映射宿主的 JWT、刷新 Cookie、API URL、envelope 和权限；不要把 token 或 client secret 写到 `.qiy`。
+Integration 默认只生成 list/show 页面，并不创建 `apps/server`、Drizzle schema、迁移、Docker/Compose 或部署文件。`apps/host-admin/app/host/data-provider.ts`、`auth.ts`、`access-control.ts` 是未托管适配器，`qiy init --sync` 不会覆盖它们。`data-provider.ts` 首次生成时会包含一份可用基线：按 `apiBase` 与实体表名拼 URL，用 `response.data`/`response.total` 解包列表，按 `pagination` 传分页参数，并实现 `getList`/`getOne`/`create`/`update`/`deleteOne`。请在该文件里补宿主特有的排序、过滤、嵌套资源与批量端点；不要把 token 或 client secret 写到 `.qiy`。
+
+### integration 契约设置
+
+| 设置 | 作用 | 默认 |
+| --- | --- | --- |
+| `apiBase` | API 前缀；绝对 http(s) URL 或以 `/` 开头的路径 | 必填 |
+| `auth none\|bearer\|cookie\|portal` | 传输方式；`cookie` 可带 `csrfCookie`/`csrfHeader` | `none` |
+| `response { data "items"; total "meta.count"; error "message"; }` | 响应体里的点号路径；三者都可省略 | `data`、无 total、`error` |
+| `pagination page\|offset\|none` | 列表分页参数：`page`+`pageSize`、`offset`+`limit`，或都不传 | `page` |
+| `tenant { header "X-Tenant-Id"; identity "tenantId"; }` | 每个请求把 `window.qiyHostAuth.getIdentity()[identity]` 写入该请求头；缺失即 fail-closed | 不转发 |
+
+`response` 的路径只接受由普通键组成的点号路径（如 `meta.count`），不接受 JSONPath 表达式。`total` 省略时用当页行数作为总数。列表解包时若声明路径不存在，会退回把整个响应体当作数组；单条记录同理退回当作对象。`tenant` 的 `identity` 取宿主 `getIdentity()` 返回对象里的键，因此无需在 Qiy 模型里保存租户标识；租户值缺失、为空或非字符串时请求不会发出，宿主仍需在服务端校验租户归属。
+
+```ts [apps/host-admin/app/host/auth.ts]
+window.qiyHostAuth = {
+  ...window.qiyHostAuth,
+  getAccessToken: async () => sessionToken,
+  getIdentity: async () => ({ id: userId, tenantId: currentTenant }),
+};
+```
 
 生成的 Refine 已接入宿主 AccessControlProvider。请在宿主桥接对象中提供 `can`，返回明确的 `{ can: true }` 才允许访问；缺失、异常或无效响应均拒绝。导航 action 的按钮和页面会提交同一资源/action 名称及 `params.id`，直接访问业务页也会检查。
 
@@ -142,4 +165,4 @@ Cookie 模式要求 API 与后台同源，非 GET/HEAD/OPTIONS 请求必须存�
 
 Bearer/portal 模式的发布验收会由本地宿主签发并验证带 issuer、audience、subject、过期时间和角色的 HS256 JWT。第一次请求使用 viewer token，宿主 API 的管理员白名单返回 403；`onError` 由宿主显式刷新为 admin token，但 Qiy 不自动重放，下一次由调用方发起的请求才成功。这个验收证明传输和职责边界，不代表你的签名算法、JWKS、刷新 Cookie 或管理员目录已经被 Qiy 实现。
 
-`dataflow`、`auth`、`storage`、`elysia`、`scope`、`workflow` 与 `env` 不能用于 integration 模式，因为它们表示 Qiy 自己生成服务端的能力。需要命令/审计时，应把 UI contract 和宿主 API 的实现一起维护在未托管扩展中。
+`dataflow`、`auth`、`storage`、`elysia`、`scope`、`restrict`、`workflow` 与 `env` 不能用于 integration 模式，因为它们表示 Qiy 自己生成服务端的能力；integration 的租户转发用 `tenant`，记录级权限由宿主 API 决定。需要命令/审计时，应把 UI contract 和宿主 API 的实现一起维护在未托管扩展中。

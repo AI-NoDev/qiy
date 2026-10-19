@@ -9,6 +9,7 @@ function column(field: FieldIR, relation?: RelationIR): string {
     case "UUID":
     case "Text":
     case "File": declaration = `text(${name})`; break;
+    case "Files": declaration = `text(${name}, { mode: "json" }).$type<string[]>()`; break;
     case "Integer": declaration = `integer(${name})`; break;
     case "DateTime": declaration = `integer(${name}, { mode: "timestamp_ms" })`; break;
     case "Decimal":
@@ -39,5 +40,48 @@ export function generateDrizzleSqlite(database: DatabaseIR): string {
   if (database.dialect !== "sqlite") errors.unshift("This Drizzle adapter only supports SQLite");
   if (database.entities.some((entity) => entity.fields.some((field) => field.type === "Vector"))) errors.push("SQLite adapter does not support Vector fields; use PostgreSQL with pgvector");
   if (errors.length) throw new Error(errors.join("\n"));
-  return `import { blob, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";\n\n${database.entities.map((item) => renderEntity(item, database.relations ?? [])).join("\n\n")}\n\nexport const auditEvents = sqliteTable("audit_events", {\n  id: text("id").primaryKey(),\n  actorId: text("actorId"),\n  action: text("action").notNull(),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  metadata: text("metadata"),\n  createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),\n}, (table) => [index("audit_events_resource_idx").on(table.resource, table.resourceId), index("audit_events_created_at_idx").on(table.createdAt)]);\n\nexport const attachments = sqliteTable("attachments", {\n  id: text("id").primaryKey(),\n  storageKey: text("storageKey").notNull().unique(),\n  fileName: text("fileName"),\n  contentType: text("contentType").notNull(),\n  size: integer("size").notNull(),\n  ownerId: text("ownerId"),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),\n}, (table) => [index("attachments_resource_idx").on(table.resource, table.resourceId), index("attachments_owner_idx").on(table.ownerId)]);\n`;
+  return `import { blob, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";\n\n${database.entities.map((item) => renderEntity(item, database.relations ?? [])).join("\n\n")}\n\nexport const auditEvents = sqliteTable("audit_events", {\n  id: text("id").primaryKey(),\n  actorId: text("actorId"),\n  action: text("action").notNull(),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  metadata: text("metadata"),\n  createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),\n}, (table) => [index("audit_events_resource_idx").on(table.resource, table.resourceId), index("audit_events_created_at_idx").on(table.createdAt)]);\n\nexport const attachments = sqliteTable("attachments", {\n  id: text("id").primaryKey(),\n  storageKey: text("storageKey").notNull().unique(),\n  fileName: text("fileName"),\n  contentType: text("contentType").notNull(),\n  size: integer("size").notNull(),\n  ownerId: text("ownerId"),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),\n}, (table) => [index("attachments_resource_idx").on(table.resource, table.resourceId), index("attachments_owner_idx").on(table.ownerId)]);
+
+export const qiyImportJobs = sqliteTable("qiy_import_jobs", {
+  id: text("id").primaryKey(),
+  resource: text("resource").notNull(),
+  status: text("status").notNull(),
+  total: integer("total").notNull(),
+  processed: integer("processed").notNull(),
+  failed: integer("failed").notNull(),
+  errors: text("errors"),
+  actorId: text("actorId"),
+  payload: text("payload"),
+  leaseOwner: text("leaseOwner"),
+  leaseUntil: integer("leaseUntil", { mode: "timestamp_ms" }),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updatedAt", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [index("qiy_import_jobs_resource_idx").on(table.resource, table.createdAt)]);
+
+export const qiySavedViews = sqliteTable("qiy_saved_views", {
+  id: text("id").primaryKey(),
+  resource: text("resource").notNull(),
+  name: text("name").notNull(),
+  ownerId: text("ownerId").notNull(),
+  shared: integer("shared").notNull(),
+  search: text("search"),
+  filters: text("filters"),
+  sorters: text("sorters"),
+  columns: text("columns"),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updatedAt", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [index("qiy_saved_views_resource_idx").on(table.resource, table.ownerId)]);
+
+export const qiyExportJobs = sqliteTable("qiy_export_jobs", {
+  id: text("id").primaryKey(),
+  resource: text("resource").notNull(),
+  status: text("status").notNull(),
+  total: integer("total").notNull(),
+  processed: integer("processed").notNull(),
+  payload: text("payload"),
+  errors: text("errors"),
+  actorId: text("actorId"),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updatedAt", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [index("qiy_export_jobs_resource_idx").on(table.resource, table.createdAt)]);\n`;
 }

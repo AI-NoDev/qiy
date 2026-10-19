@@ -164,13 +164,13 @@ describe("V0 Elysia API generation", () => {
     const routeTests = files["api/tests/products.test.ts"]!;
     const repository = files["api/src/modules/products/products.repository.ts"]!;
     const graphQL = files["api/src/graphql.ts"]!;
-    expect(route).toContain("if (query.sort && !sortableFields.includes(query.sort)) return status(400");
-    expect(route).toContain("if (filterClauses.some((filter) => !filterableFields.includes(filter.field))) return status(400");
+    expect(route).toContain("if (query.sort && !sortableFields.includes(query.sort)) return { status: 400, error: \"Unsupported sort field\" }");
+    expect(route).toContain("if (clauses.some((filter) => !filterableFields.includes(filter.field))) return { status: 400");
     expect(route).toContain("Unsupported filter operator");
     expect(routeTests).toContain("rejects sorting on disabled field title");
     expect(routeTests).toContain("rejects filtering on disabled field title");
     expect(repository).toContain('if (options.sort && !sortColumn) throw new Error("Unsupported sort field")');
-    expect(repository).toContain('if (filters.some(({ field }) => !filterColumns[field])) throw new Error("Unsupported filter field")');
+    expect(repository).toContain('if (filterClauses(filters as FilterExpression[]).some(({ field }) => !filterColumns[field])) throw new Error("Unsupported filter field")');
     expect(repository).not.toContain('"title": products.title');
     expect(graphQL).toContain('const sortableFields = ["id","price","embedding"] as string[]');
     expect(graphQL).toContain('const filterableFields = ["id","price","embedding"] as string[]');
@@ -226,9 +226,147 @@ describe("V0 Elysia API generation", () => {
       expect(files["api/tests/trend.test.ts"]).toContain("status).toBe(403)");
       if (dialect === "mysql") {
         expect(files["api/src/schema.ts"]).toContain("import { bigint, datetime,");
-        expect(files["api/src/schema.ts"]).toContain('datetime("createdAt", { mode: "date" })');
+        expect(files["api/src/schema.ts"]).toContain('datetime("createdAt", { mode: "date", fsp: 3 })');
         expect(files["api/src/db.ts"]).toContain('timezone: "Z"');
       }
     }
+  });
+
+  test("generates the database operations toolchain", () => {
+    const project = parseQiyProject(`qiy v0; application db-ops { database sqlite {} api { client rest; } entity products { field id UUID @id; field title Text; } }`);
+    const files = generateServer(project.database);
+    // Drift detection compares the live catalog with the Drizzle schema.
+    expect(files["api/src/schema-drift.ts"]).toContain("export");
+    expect(files["api/src/db-check.ts"]).toContain("schema-drift");
+    expect(files["api/tests/schema-drift.test.ts"]).toContain("drift");
+    // Rollback and migration guards.
+    expect(files["api/src/db-migrate.ts"]).toContain("qiy db:migrate");
+    expect(files["api/src/db-rollback.ts"]).toContain("qiy db:rollback");
+    // Logical backups round-trip values JSON cannot carry and record a schema fingerprint.
+    expect(files["api/src/backup-codec.ts"]).toContain("export function encodeValue");
+    expect(files["api/src/backup-codec.ts"]).toContain("export function decodeRow");
+    expect(files["api/src/schema-tables.ts"]).toContain("export");
+    expect(files["api/src/db-backup.ts"]).toContain("db:backup");
+    expect(files["api/src/db-backup.ts"]).toContain("schema");
+    expect(files["api/src/db-restore.ts"]).toContain("db:restore");
+    expect(files["api/tests/backup-codec.test.ts"]).toContain("round-trips values that JSON cannot carry faithfully");
+  });
+
+  test("generates the server-side saved views store and routes", () => {
+    const project = parseQiyProject(`qiy v0; application views { database sqlite {} entity items { field id UUID @id; field title Text; } }`);
+    const files = generateServer(project.database, {});
+    const module = files["api/src/saved-views.ts"]!;
+    // Per-user rows with an explicit shared flag, plus ownership rules.
+    expect(module).toContain("export async function listSavedViews");
+    expect(module).toContain("export async function createSavedView");
+    expect(module).toContain("export async function deleteSavedView");
+    expect(module).toContain('eq(qiySavedViews.shared, 1)');
+    expect(module).toContain("if (row.ownerId !== principal.id) return \"forbidden\";");
+    expect(module).toContain("MAX_VIEWS_PER_RESOURCE = 100");
+    expect(module).toContain("createSavedViewsRoutes(authenticate: Authenticator)");
+    expect(files["api/src/app.ts"]).toContain("createSavedViewsRoutes(authenticate)");
+    // The table ships in every dialect schema.
+    for (const dialect of ["sqlite", "postgresql", "mysql"] as const) {
+      const scoped = parseQiyProject(`qiy v0; application views { database ${dialect} {} entity items { field id UUID @id; field title Text; } }`);
+      expect(generateServer(scoped.database, {})["api/src/schema.ts"]).toContain('"qiy_saved_views"');
+    }
+  });
+
+  test("imports CSV through the same policy path as create", () => {
+    const project = parseQiyProject(`qiy v0; application import-contract {
+      database sqlite {}
+      entity products { field id UUID @id; field code Text @unique; field region Text; field salary Integer; }
+      restrict products { allow roles admin, operator; when region claim region; mask salary roles operator mode omit; }
+    }`);
+    const files = generateServer(project.database, { restrictions: project.restrictions });
+    const route = files["api/src/modules/products/products.routes.ts"]!;
+    const repository = files["api/src/modules/products/products.repository.ts"]!;
+    const contract = files["api/src/modules/products/products.contract.ts"]!;
+    expect(route).toContain('.post("/import"');
+    // RFC 4180 parsing, typed coercion and bounded input.
+    expect(route).toContain("const parseCsv = (input: string): string[][] =>");
+    expect(route).toContain("const importValue = (field: string, value: string)");
+    expect(route).toContain("QIY_IMPORT_MAX_ROWS");
+    // Unknown, duplicated and masked columns are refused before any write.
+    expect(route).toContain('errorKey: "import.unknownField"');
+    expect(route).toContain('errorKey: "import.duplicateColumn"');
+    expect(route).toContain('errorKey: "import.maskedField"');
+    expect(route).toContain('errorKey: "import.rowLength"');
+    expect(route).toContain('errorKey: "import.tooLarge"');
+    // A failed row compensates by deleting what the request already created.
+    expect(route).toContain("await repository.deleteMany(created, principal.id, scope, policy).catch(() => undefined)");
+    expect(route).toContain('if (error instanceof QiyPolicyError) return status(403');
+    expect(contract).toContain("recordImportAudit?(input: { rows: number; principalId?: string }): Promise<void>;");
+    expect(repository).toContain('action: "products.imported"');
+    // Background imports use a durable job row and a status endpoint.
+    expect(route).toContain('from "../../import-jobs";');
+    expect(route).toContain("claimImportJob");
+    expect(route).toContain("claimAndProcessImportJob");
+    expect(route).toContain('.post("/import/jobs/:id/run"');
+    expect(route).toContain('payload: JSON.stringify({ header, rows: rows.slice(1), principal:');
+    expect(route).toContain('if (Bun.env.QIY_IMPORT_INLINE !== "off") void claimAndProcessImportJob(jobId);');
+    expect(route).toContain("const claimAndProcessImportJob = async (jobId?: string)");
+    expect(files["api/src/import-jobs.ts"]).toContain("export async function claimImportJob");
+    expect(files["api/src/import-jobs.ts"]).toContain("leaseOwner");
+    expect(route).toContain('.get("/import/jobs"');
+    expect(route).toContain('if (query?.async === "1")');
+    expect(route).toContain('.get("/import/jobs/:id"');
+    expect(route).toContain('.post("/import/jobs/:id/cancel"');
+    expect(route).toContain('await updateImportJob(claimed.id, { status: "cancelled", processed, errors: ["Cancelled"], releaseLease: true })');
+    expect(route).toContain("await releaseStaleImportJobs();");
+    expect(route).toContain('await updateImportJob(claimed.id, { status: "completed", processed, errors: [], releaseLease: true })');
+    expect(route).toContain('await updateImportJob(claimed.id, { status: "failed", processed, failed: jobErrors.length, errors: jobErrors, releaseLease: true })');
+    const jobs = files["api/src/import-jobs.ts"]!;
+    expect(jobs).toContain("export async function createImportJob");
+    expect(jobs).toContain("export async function readImportJob");
+    expect(jobs).toContain("export async function updateImportJob");
+    expect(jobs).toContain("qiyImportJobs");
+    // The job table ships in every dialect schema.
+    for (const dialect of ["sqlite", "postgresql", "mysql"] as const) {
+      const scoped = parseQiyProject(`qiy v0; application import-contract { database ${dialect} {} entity products { field id UUID @id; field code Text; } }`);
+      expect(generateServer(scoped.database, {})["api/src/schema.ts"]).toContain('"qiy_import_jobs"');
+    }
+  });
+
+  test("exports CSV through the same policy path as the list endpoint", () => {
+    const project = parseQiyProject(`qiy v0; application export-contract {
+      database sqlite {}
+      entity products { field id UUID @id; field title Text; field region Text; field salary Integer; }
+      restrict products { allow roles admin, operator; when region claim region; mask salary roles operator mode omit; }
+    }`);
+    const database = project.database;
+    const files = generateServer(database, { restrictions: project.restrictions });
+    const route = files["api/src/modules/products/products.routes.ts"]!;
+    const repository = files["api/src/modules/products/products.repository.ts"]!;
+    const contract = files["api/src/modules/products/products.contract.ts"]!;
+    // One shared query path keeps export aligned with list validation, scope and policy.
+    expect(route).toContain("const runListQuery = async");
+    expect(route).toContain('.get("/export"');
+    expect(route).toContain("const firstPage = await runListQuery({ ...query, page: 1, pageSize: selectedIds.length ? limit : pageSize }, request)");
+    // Rows are streamed in bounded pages instead of materializing the whole result set.
+    expect(route).toContain("const EXPORT_PAGE_SIZE = Math.min(250, exportMaxRows())");
+    expect(route).toContain("new ReadableStream<Uint8Array>");
+    expect(route).toContain("for (let page = 2; page <= totalPages; page++)");
+    expect(route).toContain('errorKey: "export.tooLarge"');
+    expect(route).toContain("Object.hasOwn(row, column)");
+    expect(route).toContain("await repository.recordExportAudit?.(");
+    // Background exports materialize the CSV on a durable job and serve it later.
+    expect(route).toContain('if (query.async === "1")');
+    expect(route).toContain("await createExportJob({ resource:");
+    expect(route).toContain('.get("/export/jobs/:id"');
+    expect(route).toContain('.get("/export/jobs/:id/download"');
+    expect(route).toContain('errorKey: "export.notReady"');
+    expect(files["api/src/export-jobs.ts"]).toContain("export async function createExportJob");
+    expect(files["api/src/export-jobs.ts"]).toContain("export async function readExportJob");
+    for (const dialect of ["sqlite", "postgresql", "mysql"] as const) {
+      const scoped = parseQiyProject(`qiy v0; application export-contract { database ${dialect} {} entity products { field id UUID @id; field title Text; } }`);
+      expect(generateServer(scoped.database, {})["api/src/schema.ts"]).toContain('"qiy_export_jobs"');
+    }
+    expect(route).toContain("QIY_EXPORT_MAX_ROWS");
+    // The audit hook is optional so hand-written repositories keep compiling.
+    expect(contract).toContain("recordExportAudit?(input: { rows: number; filters: number; principalId?: string }): Promise<void>;");
+    expect(repository).toContain('action: "products.exported"');
+    // A write outside the caller's own row policy is a policy refusal, not a 500.
+    expect(repository).toContain('new QiyPolicyError("Write is outside the record policy", 403, "policy.outsideScope")');
   });
 });

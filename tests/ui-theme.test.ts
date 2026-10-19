@@ -39,6 +39,14 @@ describe("Qiy UI themes", () => {
     expect(files["apps/web/app/ui/index.tsx"]).toContain("qiy.ui.color-mode");
     expect(files["apps/web/app/root.tsx"]).toContain("<QiyThemeControls />");
     expect(files["apps/web/app/root.tsx"]).toContain('aria-label="Language"');
+    expect(files["apps/web/app/root.tsx"]).toContain('className="qiy-header"');
+    expect(files["apps/web/app/root.tsx"]).toContain('name: "qiy-overview"');
+    expect(files["apps/web/app/root.tsx"]).toContain('list: "/"');
+    expect(files["apps/web/app/root.tsx"]).toContain('resolveResourceIcon("DashboardOutlined")');
+    expect(files["apps/web/app/routes/home.tsx"]).toContain("token.colorPrimary");
+    expect(files["apps/web/app/routes/home.tsx"]).not.toContain('color: "#1677ff"');
+    expect(files["apps/web/app/styles.css"]).toContain(".qiy-shell { height: 100dvh; overflow: hidden; }");
+    expect(files["apps/web/app/styles.css"]).toContain(".qiy-shell .ant-layout-content");
   });
 
   test("uses Refine Ant Design CRUD shells before custom components", () => {

@@ -97,8 +97,15 @@ describe("ERP Admin project", () => {
     const project = parseQiyProject(source.replace("database postgresql {", "database sqlite {").replace("  workflow orderInventory;", ""));
     const files = generateProject(project.database, project.name, { dashboardMetrics: project.dashboardMetrics, scopes: project.scopes, workflows: project.workflows });
     const serverPackage = JSON.parse(files["apps/server/package.json"]!) as { scripts: Record<string, string> };
-    expect(serverPackage.scripts["db:migrate"]).toBe("bun --env-file=.env.development src/migrate.ts");
-    expect(files["apps/server/src/migrate.ts"]).toContain('from "drizzle-orm/bun-sqlite/migrator"');
-    expect(files["apps/server/src/migrate.ts"]).toContain('migrationsFolder: resolve(import.meta.dir, "../drizzle")');
+    expect(serverPackage.scripts["db:migrate"]).toBe("bun --env-file=.env.development src/db-migrate.ts");
+    expect(files["apps/server/src/db-migrate.ts"]).toContain('from "drizzle-orm/bun-sqlite/migrator"');
+    expect(files["apps/server/src/db-migrate.ts"]).toContain('migrationsFolder = resolve(import.meta.dir, "../drizzle")');
+    expect(files["apps/server/src/db-migrate.ts"]).toContain("compareSchema(expectedTables(), await introspect())");
+    expect(serverPackage.scripts["db:rollback"]).toBe("bun --env-file=.env.production src/db-rollback.ts");
+    expect(files["apps/server/src/db-rollback.ts"]).toContain("drizzle/down/");
+    expect(files["apps/server/src/db-rollback.ts"]).toContain('if (!Bun.argv.includes("--confirm"))');
+    expect(serverPackage.scripts["db:backup"]).toBe("bun --env-file=.env.production src/db-backup.ts");
+    expect(serverPackage.scripts["db:restore"]).toBe("bun --env-file=.env.production src/db-restore.ts");
+    expect(files[".gitignore"]).toContain("apps/server/backups/");
   });
 });

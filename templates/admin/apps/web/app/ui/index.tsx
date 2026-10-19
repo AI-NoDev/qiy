@@ -1,6 +1,6 @@
 import { App, ConfigProvider, Segmented, Select, Space, theme as antdTheme, type ThemeConfig } from "antd";
 import { ThemedLayout, ThemedTitle, useNotificationProvider } from "@refinedev/antd";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ComponentProps } from "react";
 import { qiyUiConfig } from "./theme-config";
 
 export type QiyThemeKey = "blue" | "purple" | "green" | "orange" | "red";
@@ -95,6 +95,8 @@ export function QiyThemeControls() {
   </Space>;
 }
 
-export const QiyThemedLayout = ThemedLayout;
+export function QiyThemedLayout(props: ComponentProps<typeof ThemedLayout>) {
+  return <div className="qiy-shell"><ThemedLayout {...props} /></div>;
+}
 export const QiyThemedTitle = ThemedTitle;
 export const useQiyNotificationProvider = useNotificationProvider;

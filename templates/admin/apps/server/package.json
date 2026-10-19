@@ -11,7 +11,8 @@
     "db:generate": "bun --env-file=.env.development run drizzle-kit generate",
     "db:migrate": "bun --env-file=.env.development run drizzle-kit migrate",
     "db:migrate:production": "bun --env-file=.env.production run drizzle-kit migrate",
-    "attachments:cleanup": "bun src/storage/cleanup.ts"
+    "attachments:cleanup": "bun src/storage/cleanup.ts",
+    "attachments:orphans": "bun src/storage/orphans.ts"
   },
   "dependencies": {
     "@elysia/cors": "1.4.2",

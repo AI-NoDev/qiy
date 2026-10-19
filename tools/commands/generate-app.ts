@@ -47,6 +47,8 @@ export async function generateApp(source: string, destination: string, options: 
     auth: project.auth,
     environment: project.environment,
     scopes: project.scopes,
+    restrictions: project.restrictions,
+    pages: project.pages,
     workflows: project.workflows,
     testSuite,
   });

@@ -1,10 +1,13 @@
-import { type RouteConfig, index, route } from "@react-router/dev/routes";
+import { type RouteConfig, index, layout, route } from "@react-router/dev/routes";
 
 export default [
   route("auth/login", "./routes/login.tsx"),
   index("./routes/home.tsx"),
-  route(":resource", "./routes/list.tsx"),
-  route(":resource/new", "./routes/create.tsx"),
-  route(":resource/:id", "./routes/show.tsx"),
-  route(":resource/:id/edit", "./routes/edit.tsx"),
+__QIY_TREE_ROUTE__
+  // Resource pages are wrapped in one guard per page action so a direct URL can
+  // never render a page the access-control decision denies.
+  layout("./routes/guard-list.tsx", [route(":resource", "./routes/list.tsx")]),
+  layout("./routes/guard-create.tsx", [route(":resource/new", "./routes/create.tsx")]),
+  layout("./routes/guard-show.tsx", [route(":resource/:id", "./routes/show.tsx")]),
+  layout("./routes/guard-edit.tsx", [route(":resource/:id/edit", "./routes/edit.tsx")]),
 ] satisfies RouteConfig;

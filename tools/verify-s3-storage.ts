@@ -20,7 +20,7 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 try {
   const source = join(root, "app.qiy");
-  writeFileSync(source, 'qiy v0; application s3-acceptance { database sqlite {} storage { provider s3; } entity files { field id UUID @id; field title Text; } }');
+  writeFileSync(source, 'qiy v0; application s3-acceptance { database sqlite {} storage { provider s3; } entity documents { field id UUID @id; field attachment File @nullable @upload(binary) @maxBytes(1048576); } }');
   await generateApp(source, join(root, "admin"));
   const adapter = await import(pathToFileURL(join(root, "admin/apps/server/src/storage/index.ts")).href);
   storage = adapter.createS3Storage({ bucket, endpoint, accessKeyId, secretAccessKey, region: Bun.env.QIY_S3_REGION ?? "us-east-1" });
@@ -28,13 +28,16 @@ try {
   await storage.save(key, new Blob(["Qiy generated S3 acceptance"], { type: "text/plain" }));
   assert(await storage.exists(key), "Uploaded object missing");
   assert(await storage.open(key).text() === "Qiy generated S3 acceptance", "Object content mismatch");
+  // Orphan scanning depends on enumerating real bucket contents, not just on get/put.
+  assert((await storage.list()).includes(key), "list() did not return the uploaded object");
   const signedUrl = storage.signedUrl(key);
   assert(signedUrl, "Signed download URL missing");
   const response = await fetch(signedUrl);
   assert(response.ok && await response.text() === "Qiy generated S3 acceptance", "Signed download failed");
   await storage.delete(key);
   assert(!await storage.exists(key), "Deleted object still exists");
-  console.log("Generated S3 adapter: upload, exists, read, signed download and delete passed");
+  assert(!(await storage.list()).includes(key), "list() still returns the deleted object");
+  console.log("Generated S3 adapter: upload, exists, read, list, signed download and delete passed");
   if (Bun.argv.includes("--api")) {
     const workspace = join(root, "admin");
     const serverRoot = join(workspace, "apps/server");

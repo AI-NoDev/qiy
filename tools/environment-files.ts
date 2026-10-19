@@ -43,12 +43,16 @@ function defaults(database: DatabaseIR, options: EnvOptions, mode: Mode): Map<st
   if (options.auth?.provider === "otp") {
     values.set("QIY_OTP_DELIVERY_URL", "");
     values.set("QIY_OTP_DELIVERY_TOKEN", "");
+    values.set("QIY_OTP_DELIVERY_TIMEOUT_MS", "10000");
     values.set("QIY_OTP_DEV_CODE", development ? "246810" : "");
   }
   if (options.auth && isOidcAuth(options.auth.provider)) {
     values.set("QIY_OIDC_ISSUER", example ? "https://identity.example.com/" : "");
     values.set("QIY_OIDC_AUDIENCE", example ? "qiy-admin" : "");
     values.set("QIY_OIDC_JWKS_URL", example ? "https://identity.example.com/.well-known/jwks.json" : "");
+    values.set("QIY_OIDC_JWKS_TIMEOUT_MS", "5000");
+    values.set("QIY_OIDC_JWKS_COOLDOWN_MS", "30000");
+    values.set("QIY_OIDC_JWKS_CACHE_MAX_AGE_MS", "600000");
   }
   if (options.corsOrigins?.length) values.set("QIY_CORS_ORIGINS", options.corsOrigins.join(","));
   if (options.elysiaPlugins?.jwt) values.set(options.elysiaPlugins.jwt.secretEnv, development ? generatedSecret : "");

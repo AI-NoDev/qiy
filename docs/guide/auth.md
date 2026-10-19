@@ -59,6 +59,32 @@ VITE_QIY_LOGOUT_URL=https://identity.example.com/logout
 
 服务端仍使用 `QIY_OIDC_ISSUER`、`QIY_OIDC_AUDIENCE`、`QIY_OIDC_JWKS_URL` 独立验证 access token。Azure AD B2C 的 tenant/policy、Keycloak realm、Okta authorization server、Auth0 audience 等必须使用真实租户值配置。
 
+远程 JWKS 的三个时间窗口可按 IdP 调整，非法值会在启动时 fail-closed：
+
+```dotenv
+QIY_OIDC_JWKS_TIMEOUT_MS=5000
+QIY_OIDC_JWKS_COOLDOWN_MS=30000
+QIY_OIDC_JWKS_CACHE_MAX_AGE_MS=600000
+```
+
+- `QIY_OIDC_JWKS_TIMEOUT_MS`：单次 JWKS 请求超时。IdP 无响应时验证快速失败并返回 401，而不是挂住登录链路。
+- `QIY_OIDC_JWKS_COOLDOWN_MS`：已成功获取密钥后，遇到未知 `kid` 需要等待多久才允许再次获取。设为 0 表示新密钥可立即生效；默认 30 秒可减少 IdP 抖动。
+- `QIY_OIDC_JWKS_CACHE_MAX_AGE_MS`：缓存密钥的有效期，**同时是密钥退役（撤销）的最坏生效延迟**。已缓存的密钥即使已从 JWKS 移除，在缓存过期前仍会通过验签——这是本实现的已知语义，因此该值决定"轮换宽限期"与"撤销延迟"的取舍。
+
+轮换操作建议：IdP 先发布新密钥（新旧并存）并保持至少一个 `CACHE_MAX_AGE`，再开始用新密钥签发，最后在宽限期结束后移除旧密钥。这样新 `kid` 会触发重新获取，而旧密钥仍在缓存有效期内可用，不会中断登录。
+
+## 会话有效期与静默续期
+
+登录回调会把 `expires_in` 换算成 `qiy.expires_at` 存入 `localStorage`。当 IdP 未返回 `expires_in` 时视为"有效期未知"，行为与之前一致（不会因本地判断而提前登出）。
+
+`qiyAuthProvider.check` 用剩余有效期（提前 60 秒）判断会话是否仍可用；过期即视为未认证并跳转 `/auth/login`，而不是继续把已失效的 token 当成已登录。`/auth/login` 在这个情况下会先尝试**静默续期**：以 `prompt=none` 重新发起 Authorization Code + PKCE 流程，依赖 IdP 仍有效的会话 Cookie 直接换回新 token。
+
+- 每个重定向周期只尝试一次（`sessionStorage` 标记），避免 IdP 拒绝时形成无限跳转；失败后显示常规登录按钮。
+- 回调页把 `login_required`、`interaction_required`、`consent_required`、`account_selection_required` 识别为"需要交互"，直接转到登录页而不是报错。
+- 401 时清除本地会话（access/id token 与有效期）后再跳转登录页。
+
+Qiy **不会**把 refresh token 存进浏览器存储，也没有实现基于 refresh cookie 的续期：`localStorage` 中的长效 refresh token 会放大 XSS 影响，而 refresh cookie 需要由后端作为 OIDC 客户端（BFF）持有。当前方案只依赖 IdP 会话，因此 IdP 侧必须保留会话 Cookie 并允许 `prompt=none`；部署在 `iframe` 或第三方 Cookie 被阻断的场景需要改用 BFF 方案。
+
 ## OTP
 
 ```qiy
@@ -71,15 +97,41 @@ OTP 生成 `/api/v1/auth/otp/request` 和 `/api/v1/auth/otp/verify`。challenge 
 QIY_AUTH_SECRET=<至少 32 字符随机值>
 QIY_OTP_DELIVERY_URL=https://notification.example.com/otp
 QIY_OTP_DELIVERY_TOKEN=<发送适配器凭据>
+QIY_OTP_DELIVERY_TIMEOUT_MS=10000
 ```
 
-开发环境可设置 `QIY_DEV_MODE=1` 和 `QIY_OTP_DEV_CODE`；生产环境不得启用固定验证码。发送适配器负责邮件、短信、频率限制和供应商错误处理，Qiy 不绑定特定短信厂商。
+Qiy 会向 `QIY_OTP_DELIVERY_URL` POST `{ recipient, code, expiresIn: 300 }`，并在配置了 `QIY_OTP_DELIVERY_TOKEN` 时带上 `Authorization: Bearer`。适配器必须返回 2xx，否则本次登录按失败处理。
+
+发送失败时请求返回 **502** 与稳定 `errorKey: "auth.otpDeliveryFailed"`，**不会**签发 challenge，因此不会出现“客户端拿到 challenge 但用户没收到验证码”的状态；服务端只记录适配器错误，不记录验证码。`QIY_OTP_DELIVERY_TIMEOUT_MS`（默认 10000，允许 100–60000）通过 `AbortSignal.timeout` 生效，避免供应商无响应时挂住登录请求。地址必须是 `https:`；开发模式（`QIY_DEV_MODE=1`）下响应会附带适配器错误详情便于排查，生产环境只返回通用文案。
+
+未知登录标识不会触达发送适配器，但仍返回结构相同的 200 + challenge，`verify` 返回 401，以免暴露账号是否存在。
+
+开发环境可设置 `QIY_DEV_MODE=1` 和 `QIY_OTP_DEV_CODE`；生产环境不得启用固定验证码。发送适配器负责邮件、短信投递与供应商侧错误处理，Qiy 不绑定特定短信厂商。
+
+当前边界：Qiy 未实现按标识或来源 IP 的频率限制，也未把 challenge 做成一次性使用——一次成功验证后，同一 challenge 在 5 分钟有效期内仍可再次换取 access token。面向公网的生产部署必须在发送适配器或前置网关上补充限流，并按需自行持久化一次性消费记录。
 
 ## 生成结果
 
 - server：本地 Argon2id 密码验证、OTP challenge/verify，或 OIDC/OAuth2/SSO 的 JWKS、issuer、audience 校验与角色守卫；
 - web：Refine `AuthProvider`、`AccessControlProvider`、`Authenticated` 与登录页；
 - 路由：本地 `AuthPage`、OTP 两阶段登录页，以及外部身份的 PKCE 登录与 callback 页面。
+
+## 页面级权限
+
+每个资源页面都包在按页面动作判定的守卫里，直接输入 URL 也不能渲染未授权页面：
+
+| 路由 | 判定动作 |
+| --- | --- |
+| `/:resource` | `list` |
+| `/:resource/new` | `create` |
+| `/:resource/:id` | `show` |
+| `/:resource/:id/edit` | `edit` |
+
+守卫由 `app/components/resource-page-guard.tsx` 提供，通过 Refine 的 `CanAccess` 调用 `AccessControlProvider`；拒绝时渲染 403 `Result`，不会渲染页面内容，也不会向后端发起该页面的请求。因此菜单/按钮隐藏与页面直达使用同一份判定，不存在"按钮藏了但 URL 能开"的缺口。
+
+判定来源随模式不同：生成认证时是角色（admin 全通、`operator` 可增改、`viewer` 只读、用户管理仅 admin），并与 `restrict <resource> { allow roles ... }` 的角色列表合并；`mode integration` 时委托宿主 `window.qiyHostAuth.can({ resource, action, params })`，宿主未实现或抛错一律拒绝。未声明认证的应用不生成守卫。
+
+手动业务页（`action ... page manual`）继续使用 `CanAccess` 包裹，动作名即 `action` 名称，服务端仍是最终授权方：页面守卫只决定界面是否渲染，数据范围与写入权限由 API 的 `restrict`/`scope`、Dataflow 角色或宿主后端执行。
 
 审计、通知、权限、认证和数据访问的生成约定见 [Refine providers](./refine-providers)。
 
@@ -97,6 +149,6 @@ bun tools/verify-oidc-docker.ts --isolated
 
 :::warning 当前限制
 
-生成器与本地模拟已覆盖这些 provider，但真实 Okta/Auth0/Azure/Keycloak/Google/Kinde 租户、JWKS 轮换、claim/audience、退出登录和第三方 Cookie 策略仍需逐个环境验收。OTP 发送适配器也需真实邮件/短信供应商验收。
+生成器与本地模拟已覆盖这些 provider，但真实 Okta/Auth0/Azure/Keycloak/Google/Kinde 租户、JWKS 轮换、claim/audience、退出登录和第三方 Cookie 策略仍需逐个环境验收。OTP 发送适配器已用真实 HTTPS 服务验收投递载荷、凭据、超时、失败 fail-closed 与开发模式边界（见 [V3 状态](https://github.com/AI-NoDev/qiy/blob/main/openwiki/v3-status.md)），但真实短信/邮件供应商、供应商侧限流与一次性消费仍需在目标环境验收。
 
 :::

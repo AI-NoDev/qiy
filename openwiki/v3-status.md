@@ -1,5 +1,811 @@
 # V3 实施状态与验收规划
 
+## 剩余功能目标计划（2026-10-17 排期）
+
+按"能否在本地环境完成真实验收"排序，Docker/真实 IdP/runner 依赖项统一后置：
+
+| # | 目标 | 依赖 | 验收方式 | 预计规模 |
+| --- | --- | --- | --- | --- |
+| 1 | **导入取消接口 + 过期任务恢复** ✅ 已完成（见下一节） | 无（复用 `qiy_import_jobs.status`） | `verify-import-async`：5 pass / 30 断言 | 小 |
+| 2 | **嵌套括号 / NOT / 跨字段策略** ✅ 已完成（见下节） | 无（DSL + policy 模块） | `verify-policy-expression`：3 pass / 22 断言 | 中 |
+| 3 | **tree scope 与 restrict 组合（子树 OR 本人）** | 需把 scope 谓词下沉到 policy 模块（`resolvePolicy(..., scopeCondition)` + 仓储导出 `scopeConditionFor`），涉及 list/one/create/update/delete/export/aggregate 全部读取路径 | SQLite：子树行 + 本人行并集；缺 claim fail-closed | 中（有授权回归风险，需整轮专项） |
+| 4 | **页面内字段级布局权限** ✅ 已完成（见下节） | 无（`pages` 扩展 + access-control） | `verify-page-rules` Web 阶段：23 pass / 0 fail | 中 |
+| 5 | **服务端共享视图** ✅ 已完成（见下节） | 新表 `qiy_saved_views`（三方言） | `verify-saved-views`：3 pass / 21 断言 | 中 |
+| 6 | **组织树管理界面** ✅ 已完成（见下节） | 无新表（复用 `scope ... tree`） | `verify-org-scope` Web 阶段：26 pass / 0 fail | 中 |
+| 7 | **后台导出任务** ✅ 已完成（见下节） | 复用 #1 的任务表骨架 | `verify-export-async`：2 pass / 19 断言 | 中 |
+| 8 | **跨副本导入 worker** ✅ 已完成（见下节；导出 worker 未做） | `leaseOwner/leaseUntil` + payload 列 | `verify-import-worker`：3 pass / 20 断言 | 大 |
+| 9 | **`graphql-ws` WebSocket 传输** | 依赖 `graphql-ws` 客户端与服务端协议 | 客户端连接 + 重订阅 + 断线重连（无真实 Ably） | 大 |
+| 10 | **其他 UI 库（P2）** | MUI/Chakra 等第二套生成模板 | 每个库独立生成 + 构建 + 关键页面截图 | 很大 |
+| — | **真实 Ably 租户 + 浏览器重连** | 外部 Ably 账号 | 需要真实 key 与浏览器；当前仅有本地 fake 传输验收 | 阻塞（外部） |
+| — | **Docker 依赖验收** | Docker Desktop Linux 引擎 | `Files` MySQL/PG、MySQL outbox、MySQL/PG 上全部策略/任务验收 | 阻塞（环境） |
+
+执行原则：每项都必须带**真实验收脚本**与 `v3-status` 证据目录；不把"生成源码契约"当作运行时验收。本轮先执行 #1。
+
+## 跨副本导入 worker（2026-10-17，已完成）
+
+计划 #8 的导入部分：此前异步导入是**请求内 IIFE**，另一副本无法接管，进程崩溃后任务只剩状态。现在：
+
+- 任务行持久化 **payload**（表头 + 数据行 + principal 快照 + scope），并新增 `leaseOwner` / `leaseUntil` 列（三方言；MySQL payload 用 MEDIUMTEXT）。
+- `claimImportJob(resource, workerId, leaseUntil, jobId?)` 用**条件更新**抢占（只有 `status = queued` 才会改成 running），抢不到的副本拿到 `undefined`。
+- 默认 `QIY_IMPORT_INLINE` 非 off：创建任务后当前副本抢占并就地执行；`QIY_IMPORT_INLINE=off` 时任务留在队列，由外部 worker 或另一副本 drain。
+- 新增 worker 端点（admin）：`GET /:resources/import/jobs` 列出最近任务，`POST /:resources/import/jobs/:id/run` 抢占并执行；冲突返回 `409 import.claimed`，已结束 `409 import.notQueued`，未知/跨资源 404，非 admin 403。
+- 完成后释放租约（`releaseLease`），失败仍补偿删除本次创建的行。
+
+**真实验收** — 新增 `tools/verify-import-worker.ts`（SQLite，**两个独立 createApp 实例共享同一数据库**模拟两副本），**3 pass / 20 断言**：
+
+| 场景 | 结果 |
+| --- | --- |
+| 副本 A 入队 → 任务保持 queued（payload 持久化）→ 副本 B 列出并 run → completed、processed=2、行已写入 | 通过 |
+| 同一任务再次 run → 409；operator 访问 worker 端点 → 403；未知任务 run → 404 | 通过 |
+| 两副本**并发** run 同一任务 → 恰好一个 202、一个 409 `import.claimed`，只导入一次 | 通过 |
+| 坏行 payload → failed、errors 含 `Row 3`、已创建行被补偿删除 | 通过 |
+
+证据 `%TEMP%/qiy-import-worker-RZI4Qz`；重构后 #1/#1b 的 `verify-import-async` 复跑仍 **5 pass**（取消、过期恢复、补偿均未回退）。
+
+**边界**：**导出任务**还没有 worker（导出仍由请求内后台构建，见上一节）；worker 只能通过 HTTP 端点被驱动，没有进程内定时轮询；`queued` 任务的租约过期后需要再次 `run`（没有自动重新入队）；租约列暂未用于导出任务。
+
+## 后台导出任务（2026-10-17，已完成）
+
+计划 #7：导出已有"仅选中行 / 列选择 / 流式分批"，但没有后台任务。本轮补齐：
+
+- 新表 `qiy_export_jobs`（status/total/processed/payload/errors/actorId + 时间戳，三方言；MySQL 的 payload 用 MEDIUMTEXT）。
+- `GET /:resources/export?async=1` → `202 { jobId, total }`：后台按 250 行/页继续读取，用与同步导出相同的 projection（行谓词、脱敏、列选择）构建 CSV，完成后把整段 CSV 存到任务行并写 `orders.exported` 审计。
+- `GET /:resources/export/jobs/:id` 查询进度；`GET .../jobs/:id/download` 在完成后一次性返回 CSV（未完成 409 `export.notReady`；未知/跨资源 404；未认证 401）。行数上限 `QIY_EXPORT_MAX_ROWS` 在建任务前校验，超限仍 400 `export.tooLarge`。
+- 导出任务端点沿用页面规则：export 路径统一按 `list` 判定（顺带把 import 的 GET 任务端点从 `show` 改成 `list`，与"读导出/导入状态"一致）。
+
+**真实验收** — 新增 `tools/verify-export-async.ts`（SQLite + 真实 HTTP），**2 pass / 19 断言**：3 行数据中 operator(eu) 的异步导出 → 202 total=2 → 轮询 completed → 下载得到仅 eu 的 2 行、`salary` 整列缺席；任务行持久化；匿名 401、`QIY_EXPORT_MAX_ROWS=1` 时 400 `export.tooLarge`、未知/下载未知均 404。证据 `%TEMP%/qiy-export-async-TItBvp`。
+
+**边界**：没有导出任务取消/列表接口，也没有过期任务清理（导入有 `releaseStaleImportJobs`，导出暂未对齐）；CSV 存在任务行里，受数据库单行大小限制（MySQL MEDIUMTEXT 16MB）；Web 端仍走同步流式导出，后台导出目前是 API 能力。
+
+## 组织树管理界面（2026-10-17，已完成）
+
+计划 #6：`scope ... tree <entity> <parentField>` 之前只有数据范围语义，没有可视化。现在声明了 tree scope 的应用会生成组织树页面：
+
+- `web/app/tree.ts`：`treeParents` 配置 + 纯函数 `buildTree(records, parentField, labelField)`——缺失父节点、自引用与环都进入 `orphans`（不会无限递归），空数据/无标签有 fallback。
+- `web/app/components/tree-view.tsx`：antd `Tree` 展示层级，点击节点进入该实体详情；孤儿节点用 warning 提示条说明数量。
+- `web/app/routes/tree.tsx` + `/:resource/tree` 路由（静态段优先于 `:id`），列表页工具栏出现 **Tree view** 按钮（只读集成模式同样保留）。
+- 树实体本身仍是普通资源，增删改继续走生成的 CRUD 页面；树页面只读可视化。
+
+**验收** — `tools/verify-org-scope.ts` 增加 Web 阶段：**26 pass / 0 fail**（含 `web/tests/tree.test.ts` 的层级构建、孤儿/自引用/环、空数据三组断言），并完成生成包的 typecheck 与测试。证据 `%TEMP%/qiy-org-scope-ftZM2j`。根仓新增生成契约测试（有 tree scope 时生成 tree 模块/页面/路由，无 scope 时不生成），总计 **221 项 / 2451 断言 / 0 失败**。
+
+**边界**：树页面是只读视图（没有拖拽移动节点、没有"新增子节点"快捷入口）；`buildTree` 一次性构建，超大组织树（>5000 节点）未做虚拟滚动；未按父节点分页拉取，依赖列表接口返回当前页数据。
+
+## 服务端共享视图（2026-10-17，已完成）
+
+计划 #5：浏览器本地视图之外，新增**服务端保存视图**，用于跨设备同步与团队共享：
+
+- 表：`qiy_saved_views`（`id/resource/name/ownerId/shared/search/filters/sorters/columns/createdAt/updatedAt`，三方言 schema 均生成，drizzle-kit 自动迁移）。
+- 接口（应用级 `/api/v1/saved-views`，不在资源模块下，但 guard 仍要求认证）：
+  - `GET ?resource=` → 自己的 + `shared` 的视图，按更新时间倒序；
+  - `POST` → 201，`name` 去空格必填，filters ≤50 / sorters ≤10 / columns ≤100；
+  - `DELETE /:id` → 204；仅创建者可删（他人 403 `views.forbidden`），缺失 404；
+  - 校验：未知资源 400 `views.unknownResource`，每人每资源上限 100（400 `views.limit`），未认证 401。
+- Web：新增 `web/app/views-api.ts`（`fetchServerViews` / `publishServerView` / `deleteServerView`）；列表页打开时拉取并合并进 `Saved views` 下拉，共享视图显示为 `名称 (shared)` 且可直接应用；本地视图保持即时保存。
+
+**真实验收** — 新增 `tools/verify-saved-views.ts`（SQLite + 真实 HTTP），**3 pass / 21 断言**：私有视图只有本人可见、共享视图对他人可见、按资源隔离、行持久化；非创建者删除 403、缺失 404、本人删除 204；未认证 401、未知资源 400、空名称 400；每人 100 个视图后第 101 个 → 400 `views.limit`。证据 `%TEMP%/qiy-saved-views-HHs3Nz`；Web 阶段（page-rules 验收）**23 pass / 0 fail** 并覆盖新客户端的 typecheck/build。
+
+**边界**：UI 目前只"读取并应用"共享视图，**发布**共享视图通过 API（`publishServerView` 已生成但未接按钮）；没有视图更新（PATCH）与权限细分（例如按角色共享）；视图内容不做服务端语义校验（只限制结构与大小）。
+
+## 页面内字段级布局权限（2026-10-17，已完成）
+
+计划 #4：`pages` 块新增字段级布局规则，补齐"页面级字段/区块权限"：
+
+- DSL：`field internalNote roles admin;` —— 该字段只在列表列、详情页、表单中对立出的角色渲染；未声明规则的字段对所有角色可见。
+- 生成：`resources.ts` 的 `ResourceField` 增加 `roles` 与 `canSeeField(field, role)`；list / show / form 三处按当前身份角色过滤（`useGetIdentity`）。
+- 定位：这是**界面层**规则，服务端数据保护仍以 `restrict` 的 `mask` 为准（文档已写明二者关系）。
+- 只读集成模式同样保留该过滤（不引入写操作）。
+
+**验收** — `tools/verify-page-rules.ts` 的模型加入 `field internalNote roles admin;`，Web 阶段生成 `web/tests/field-rules.test.ts` 并跑到 **23 pass / 0 fail**：逐条断言"规则内角色可见、规则外角色不可见、匿名不可见"，以及"没有规则的字段对所有角色可见"；服务端 2 pass 不变。证据 `%TEMP%/qiy-page-rules-paNywy`。
+
+**边界**：只按角色（无 claim 条件）；不区分 list/show/form 三处（同一规则统一生效）；没有区块（section）级规则；字段规则不参与服务端授权。
+
+## 策略布尔表达式：AND/OR/NOT 与跨字段比较（2026-10-17，已完成）
+
+计划 #2：`restrict` 的 `when` 从"平铺谓词 + 一层析取组"扩展为**递归布尔表达式**，优先级 `not` > `and` > `or`，支持括号嵌套与"字段 vs 字段"比较：
+
+- DSL：`when amount > field cost;`、`when not status in "closed";`、`when ( ownerId claim user.id or ( status in "draft" and amount > field cost ) );`。
+- 校验：跨字段两边必须同类可比（文本/数值/时间），不能是主键，UUID 只允许 `==`/`!=`；`<`/`<=`/`>`/`>=` 只能用于跨字段，字面量仍用 `==`/`!=`/`in`/`notIn`。解析期即失败。
+- 语义：缺 claim 只丢该分支；**`not` 作用于不可用分支时不会变成放行全部**（整体无法求值 → 403 `policy.missingClaim`）。
+- 生成：注释化的递归 `buildExpression` 用 `and/or/not` + `eq/ne/lt/lte/gt/gte` 拼 SQL，REST / GraphQL / 导出 / 写入可见性共用。
+- 向后兼容：普通谓词仍写入 `rows`、平铺 OR 仍写入 `groups`，只有真正的嵌套/取反/跨字段才落到 `expressions`；旧模型的生成结果不变。
+
+**真实验收** — 新增 `tools/verify-policy-expression.ts`（SQLite + 真实 HTTP + GraphQL），**3 pass / 22 断言**：5 行数据中 `(amount > cost)` 掉 `loss`、`not (status in "closed")` 掉 `closed`、租户 claim 掉 `foreign`、嵌套 `(owner claim OR status in "draft")` 让另一个 owner 仍能看到 draft 行；缺 `user.id` 只丢分支、缺 `tenant` → 403 `policy.missingClaim`；GraphQL 返回同一集合。证据 `%TEMP%/qiy-policy-expression-5TBRdY`。
+
+根仓新增表达式结构/序列化/优先级/负例断言（含跨字段类型不匹配、字面量比较误用），总计 **219 项 / 2424 断言 / 0 失败**。
+
+**边界**：没有子查询、函数或跨资源引用；跨字段比较不做 NULL 语义特判（SQL 三值逻辑，NULL 行不匹配）；表达式不能引用 mask 或命令策略。
+
+## 导入取消接口与过期任务恢复（2026-10-17，已完成）
+
+后台导入（上一节）只能在开始时观察、无法停止；进程崩溃会留下永久 `running` 的任务。本轮补齐：
+
+- `POST /:resources/import/jobs/:id/cancel`：把 `queued`/`running` 任务置为 **`cancelling`**（202），后台循环每 10 行检查一次，看到 `cancelling` 就停止写入并**补偿删除**本次已创建的行，最后置为 `cancelled` 并记录 `processed`。因此观察到 `cancelled` 即表示清理完成（早期实现直接在取消接口置终态，测试会读到未清理的中间态——已通过引入 `cancelling` 修正）。已结束任务 409 `import.notRunning`，未知/跨资源 404，未认证 401；权限走 `create` 页面规则。
+- 过期恢复：`GET .../jobs/:id` 与取消接口先执行 `releaseStaleImportJobs()`，把 `updatedAt` 超过 `QIY_IMPORT_JOB_STALE_MS`（默认 5 分钟）的 `queued`/`running` 任务标为 `failed`（`Stale import job timed out`）。
+- 发布节奏：`QIY_IMPORT_JOB_DELAY_MS`（0–1000ms）用于演示/测试取消窗口。
+
+**真实验收** — `tools/verify-import-async.ts` 扩到 **5 pass / 30 断言**：取消用例（80 行、15ms/行 → 取消返回 202 → 轮询到 `cancelled`、`processed < 80`、**已写入行全部被补偿删除**、重复取消 409 `import.notRunning`）；过期用例（直接插入 15 分钟前的 `running` 任务 → 状态查询后为 `failed` + `Stale import job timed out`）。证据 `%TEMP%/qiy-import-async-aelfiY`；`typecheck` 通过。
+
+**剩余**：#8 的跨副本 worker 仍需 `leaseOwner/leaseUntil` 与多进程验收；本轮只保证单进程运行 + 崩溃后状态自愈。
+
+## 后台导入（任务表 + 进度轮询，2026-10-17）
+
+用户 P1 里"导入是同步逐行写入，没有后台任务/进度流"：现在 `POST /:resources/import?async=1` 立即返回 `202 { jobId, total }`，逐行写入在后台完成。
+
+- **任务持久化**：生成的 `qiy_import_jobs` 表（三方言 schema 都包含，drizzle-kit 自动生成迁移）：`id/resource/status/total/processed/failed/errors/actorId/createdAt/updatedAt`。
+- **状态端点**：`GET /:resources/import/jobs/:id`；未认证 401，未知/跨资源 404。每 25 行更新一次 `processed`，失败把行号错误写进 `errors` 并把状态置 `failed`。
+- **语义不变**：表头/脱敏列/行数校验仍在任务创建前完成；行写入失败仍**补偿删除**本次已创建的行；成功写 `<resource>.imported` 审计。同步接口（不带 `async=1`）保持 `201 { imported }`。
+- **权限**：异步导入同样受 `pages` 的 `create` 规则与服务端 guard 约束。
+- **Web**：列表 Import 按钮改为 `startImport()` + `waitForImport()`（500ms 轮询、120s 超时、逐条 `progress` 通知），完成后刷新表格；只读集成模式仍不生成该按钮。
+
+**真实验收** — 新增 `tools/verify-import-async.ts`（SQLite，真实 HTTP），**3 pass / 18 断言**：
+
+| 场景 | 结果 |
+| --- | --- |
+| 3 行异步导入：`202 { total: 3 }`；轮询到 `completed`（processed=3、failed=0、errors=[]）；任务行持久化（DB 可查、actorId 正确）；列表出现 3 行 | 通过 |
+| 坏行（`qty=not-a-number`）：任务 `failed`、`errors[0]` 含 `Row 3`，**已创建的行被补偿删除**（列表仍为 3 行） | 通过 |
+| 同步接口仍返回 `201 { imported: 1 }`；operator 走 `create` 页面规则 → 403；匿名 → 401；未知 jobId → 404 | 通过 |
+
+证据 `%TEMP%/qiy-import-async-royyNg`；`typecheck` 通过。Web 侧 `startImport/waitForImport` 经 `tools/verify-import-policy.ts` 的 `typecheck`/`build`/`bun test`（**21 pass / 0 fail**）验证。根仓在导入契约测试中新增 async 契约与三方言任务表断言，总计 **218 项 / 2411 断言 / 0 失败**。
+
+**边界**：任务只在应用进程内执行（没有跨副本 worker/队列，进程重启时 `running` 任务不会自动续跑）；进度按 25 行粒度；`errors` 只保留首个失败行；没有取消接口与任务列表页；同步接口仍保留（旧客户端兼容）。
+
+## 导出列选择（2026-10-17）
+
+用户 P1 里"导出没有列选择"：现在 `GET /:resources/export?columns=title,region` 只导出指定列。
+
+- 校验：最多 100 列，未知列 400 `export.invalidColumn`；列顺序仍按实体声明顺序。
+- 与脱敏取交集：请求只包含被 `omit` 脱敏的列 → 400 `export.noColumns`（不会静默退化成导出行 id）。
+- Web：列表按**当前可见列**导出（复用列显隐下拉），因此"隐藏的列不会被导出"。
+- 与"仅选中行""流式分批"叠加：三条参数互不冲突，服务端仍是唯一裁剪方。
+
+**真实验收** — `tools/verify-export-policy.ts` 新增第 4 用例：`?columns=title,region` → 表头恰为 `title,region`；`?columns=title,missing` → 400 `export.invalidColumn`；operator `?columns=salary`（整列脱敏）→ 400 `export.noColumns`。服务端 **4 pass / 46 断言** + Web `typecheck`/`build` + Web **21 pass / 0 fail**，证据 `%TEMP%/qiy-export-policy-RXWcD7`。根仓断言同步导出 URL 带上可见列，**218 项 / 2398 断言 / 0 失败**。
+
+**边界**：列顺序不能自定义（只能是实体声明顺序的子集）；没有"导出模板/命名列组合"；`columns` 只作用于 CSV 导出，不作用于导出审计的字段。
+
+## 页面级规则（pages，2026-10-17）
+
+用户 P1 里"权限只有角色 + 字段范围…缺页面级规则"：此前只能声明"谁能用这个资源"（`restrict.roles`）与路由级守卫，无法表达"谁能打开哪个页面"。本轮加入 `pages`：
+
+- DSL：`pages orders { list roles admin, operator; show roles admin, operator, viewer; create roles admin; edit roles admin; delete roles admin; }`，动作固定为 list/show/create/edit/delete，未声明的动作不受页面规则限制。
+- **服务端强制**：生成式 guard 同时覆盖 REST 与 GraphQL——REST 由方法+路径推导动作（`/export`→list、`/import`→create），GraphQL 由根字段名推导；命中禁止规则返回 403 `Page access denied`。
+- **界面一致**：生成的 Refine access-control provider 先按同一张规则表判断，禁止的按钮/菜单与真实 403 对齐；生成的 `auth.test.ts` 期望值也改为按页面规则推导，不再与实现脱节。
+- 与 `restrict` 叠加：角色必须同时通过 `restrict.roles` 与该页面的规则。
+
+**真实验收** — 新增 `tools/verify-page-rules.ts`（SQLite，真实 HTTP + GraphQL），**2 pass / 21 断言**：
+
+| 场景 | 结果 |
+| --- | --- |
+| viewer：list 403、detail 200、create/edit/delete 403 | 通过 |
+| operator：list/detail 200、create/edit 403、`POST /import` 403（create 页）、`GET /export` 200（list 页） | 通过 |
+| admin：全部页面可用（PATCH/DELETE 200） | 通过 |
+| GraphQL：viewer `orders` 403（含 `Page access denied`）、`ordersById` 200；operator `orders` 200、`createOrders` 403；admin create 200 | 通过 |
+
+证据 `%TEMP%/qiy-page-rules-MILHHY`；生成包 `typecheck` 通过，Web `typecheck` + `bun test` **21 pass / 0 fail**（access-control 期望值按页面规则推导）。根仓新增解析/回写/负例与 guard 表断言，总计 **218 项 / 2398 断言 / 0 失败**。改守卫后复跑 export / policy-or / org-scope 三条验收，全部 exit 0。
+
+**边界**：页面规则只按角色（没有 claim 条件、没有字段级布局/区块权限）；只覆盖资源页与 export/import，不覆盖自定义路由；动作推导基于路径约定，自定义 mutation 按 create 处理。
+
+## 导出流式分批（2026-10-17）
+
+用户 P1 里"导出是同步全量查询，未流式分批"：此前导出先跑一次 `pageSize = 上限` 的查询，把所有行投影成数组再拼成一个巨大字符串。现在：
+
+- `GET /:resources/export` 按 **250 行/页**循环读取并写入 `ReadableStream<Uint8Array>`，内存不再随结果集增长；响应没有 `Content-Length`（分块传输）。
+- 列集合与表头在**第一页**确定（脱敏 `omit` 的列整列不导出），后续页沿用同一列集合；行谓词、排序、过滤与脱敏**每页重新应用**，不会因为跨页而放松。
+- `QIY_EXPORT_MAX_ROWS` 仍是整表导出的硬上限（超限 400 `export.tooLarge`，不截断）；`ids` 选中导出仍跳过该上限但最多 500 个 id。
+- 审计（`recordExportAudit`）在流结束时写入，记录实际导出行数。
+
+**真实验收** — `tools/verify-export-policy.ts` 新增第 3 个用例（SQLite，真实 HTTP）：
+
+| 场景 | 结果 |
+| --- | --- |
+| 同租户内再写 310 行（跨 2 个导出页）：`text/csv`、**无 content-length**、行数 > 300 | 通过 |
+| 跨页后 `stream-0` 与 `stream-309` 都在流里（确实翻页） | 通过 |
+| operator 的 `salary` 列整列缺席；原始 CSV 单元格里不出现 `,us,`（行谓词每页生效） | 通过 |
+| `?ids=...` 选中导出在流式路径下仍只返回表头 | 通过 |
+
+证据 `%TEMP%/qiy-export-policy-ek2Gj7`：服务端 **3 pass / 40 断言** + Web `typecheck`/`build` + Web **21 pass / 0 fail**。根仓在 `tests/generate-server.test.ts` 增加流式契约断言（`EXPORT_PAGE_SIZE`、`ReadableStream`、分页循环），总计 **217 项 / 2387 断言 / 0 失败**。
+
+**边界**：仍未做后台任务化的"大导出任务 + 进度轮询"，导出长度上限与请求超时仍由同步请求承担；列选择只支持"实体声明顺序的子集"（见本页首节）；`ids` 仍最多 500。
+
+## 可组合策略：析取组（OR，2026-10-17）
+
+用户 P1 里"权限只有角色 + 字段范围、缺可组合策略"这一条：`restrict` 的行条件此前只能 AND 组合，表达不了"我的租户 **或** 我自己的记录"。本轮加上**析取组**：
+
+- DSL：`when ( tenantId claim tenant or status in "draft" );` — 组内 OR，组与其它 `when` 之间仍是 AND。
+- 语义：组内某个 claim 缺失时**只丢弃该分支**；组内所有分支都不可用时请求返回 403 `policy.missingClaim`（fail-closed，不退化成空谓词）。组至少两个条件，不能与块内其它行条件重复字段。
+- 生成：`resolvePolicy` 用 `or(...)` 拼装，REST / GraphQL / 导出 / 写入可见性检查共用同一 predicate；`policyColumns` 自动覆盖组内字段。
+
+**顺带修掉的真实缺陷**：受限资源模块的"禁止写脱敏字段"守卫是 Elysia 的**全局** `onRequest`，此前任何请求（包括 GraphQL、其它资源）都会被它按本资源的策略鉴权——当调用者角色不被某个受限资源允许时，`/graphql` 会被误判 403。现在守卫只在 `path.startsWith("/api/v1/<resource>")` 时生效，并在生成期测试中断言这一行存在。
+
+**真实验收** — 新增 `tools/verify-policy-or.ts`（SQLite，真实 HTTP + GraphQL），**3 pass / 20 断言**：
+
+| 场景 | 结果 |
+| --- | --- |
+| `tenantId claim tenant` AND `( ownerId claim user.id OR amount in "0" )`：eu+u1 看到 `eu-mine`/`eu-free`，看不到 `eu-other`（同租户但既非本人也非 0）与 `us-mine` | 通过 |
+| 同租户不同 owner（u3）只看到 amount=0 那一行；us+u1 只看到 `us-mine` | 通过 |
+| 缺 `user.id` → **只丢分支**，仍按 tenant 过滤；缺 `tenant` → 403 `policy.missingClaim` | 通过 |
+| 组内两个 claim 都缺失 → 403（不返回全量） | 通过 |
+| GraphQL `orders` 返回与 REST 相同的 2 行 | 通过 |
+
+证据 `%TEMP%/qiy-policy-or-Im0IKh`；生成包 `typecheck` 通过、Web `typecheck` 通过。根仓新增解析/回写/负例与守卫作用域断言，总计 **217 项 / 2387 断言 / 0 失败**。修复守卫后复跑 export/import/org-scope/realtime 四条验收，全部 exit 0。
+
+**边界**：组内仍只能是单字段谓词（无嵌套括号、无 NOT、无跨字段比较）；组只作用于行谓词，不作用于 mask 或命令策略；组织树与析取组暂不能组合成"子树 OR 本人"（tree scope 与 restrict 仍互斥）。
+
+## 组织层级数据范围（tree scope，2026-10-17）
+
+用户 P1 里"权限只有单字段 scope、没有组织层级"此前一直成立：`scope` 只能"字段 = claim"。本轮加上**层级范围**：
+
+- DSL：`scope orders orgId claim org tree organizations parentId;`——把 claim 从一个节点扩展成**该节点的整棵子树**。
+- 校验：树实体存在、父字段存在、`orders.orgId` 与 `organizations.id`/`parentId` 类型一致，否则生成期失败。
+- SQL：行谓词改成 `WITH RECURSIVE`（三方言通用，MySQL 用 `CAST(... AS CHAR)`，SQLite/PG 用 `TEXT`），**下推到所有读取路径**（list / byId / deleteMany / aggregate / distribution / trend），REST 与 GraphQL 共用同一 predicate；深度上限 64 防止脏数据成环。
+- fail-closed：claim 缺失仍是 403；claim 指向不存在的节点 → 子树为空（返回空结果，不回退全量）。
+- 写入语义：写入强制落在调用者自己的节点（`scope` 字段写 claim 值），不会自动写下级节点——已在文档中写明。
+
+**真实验收** — 新增 `tools/verify-org-scope.ts`（SQLite 真实 HTTP + GraphQL，org 树 root → a → a1、root → b）：
+
+| 场景 | 结果 |
+| --- | --- |
+| root 看到 4 行；a 端只看到 a+a1；a1 只看到 a1；b 只看到 b；**未知 claim 看不到任何行** | 通过 |
+| detail：subtree 外的 id → 404；subtree 内 → 200 | 通过 |
+| aggregate sum：a=110、a1=100、root=1111（与行范围一致） | 通过 |
+| GraphQL `orders` 与 `ordersAggregate` 返回同一子树结果（total=2、sum=110） | 通过 |
+| 缺 claim → REST/GraphQL 403；写入越界 orgId 被强制改写为调用者节点 | 通过 |
+
+证据 `%TEMP%/qiy-org-scope-EEy3w5`（服务端 **2 pass / 18 断言** + typecheck 通过；复跑证据 `qiy-org-scope-ibVUF5`）。根仓新增方言级断言（三方言都生成 CTE、普通 scope 不生成 CTE、未知树/父字段/类型不匹配 fail-closed），总计 **216 项 / 2371 断言 / 0 失败**。
+
+**边界**：只有一个 tree 字段，没有任意表达式/多树/闭包表；写入不支持"替下级节点写"；没有组织树的管理界面（树实体就是普通资源）；子树查询不受行策略约束（结构元数据）。
+
+## 订阅权限表达式：claim 分段 channel（2026-10-17）
+
+realtime 清单里最后一项"订阅权限表达式"：此前订阅授权只有**角色**粒度（channel capability），无法表达"只订阅我租户的数据"。行谓词又不能在共享 channel 上按订阅者裁剪，所以本轮采用**按 claim 分段的 channel**：
+
+- DSL：`resource orders { events ...; roles ...; when tenantId claim tenant; }`；字段必须是该实体的**非空 Text/Integer**，且不能与 `restrict` 行谓词同时声明（分段隔离已覆盖行级范围）——两类错误都在生成期 fail-closed。
+- 入队：Outbox 行 `channel` 直接写成 `qiy:orders:<record.tenantId>`，因此 Ably 投递与多副本 Outbox 尾随都只发到该段。
+- 授权：`realtimeCapabilities(principal)` 只为该 principal 的 claim 值签发 `qiy:orders:<value>`；**claim 缺失则一条都不签发**（token 端点 403）。
+- GraphQL Subscription：订阅根不再假设基础 channel，而是从 capability 里解析"实际授予的 channel"，非本段事件不会进入流。
+- Web：LiveProvider 从 token 的 `capability` 解析实际授予的 channel（`grantedChannel()`）后再订阅；解析是异步的，因此 `subscribe` 返回可取消句柄、取消时取消 reader。
+- 脱敏与分段正交：mask 字段仍在入队时裁掉。
+
+**真实验收** — 新增 `tools/verify-realtime-claim.ts`（SQLite + 真实 HTTP + GraphQL SSE），**4 pass / 21 断言**：
+
+| 场景 | 结果 |
+| --- | --- |
+| operator(tenant=eu) 的兼容集只有 `qiy:orders:eu`；缺 claim 或 viewer → 空兼容集 | 通过 |
+| 写入 eu 行 → Outbox channel = `qiy:orders:eu`；`publishRealtime` 缺少分段值时**不投递** | 通过 |
+| operator(eu) 订阅：收到 eu 事件（`salary` 为 null，负载中无该键），**收不到 us 段事件**；两段各自投递 | 通过 |
+| 缺 claim → 403；viewer → 403 | 通过 |
+
+证据目录 `%TEMP%/qiy-realtime-claim-LQSaAF`：服务端 4 pass + Web `typecheck` + Web `bun test` **28 pass / 0 fail**（含 2 项 grant/channel 解析用例）。根仓新增 claim 通道解析/序列化/负例断言，**215 项 / 2338 断言 / 0 失败**。
+
+**过程记录（重要）**：本轮用 PowerShell `Set-Content` 重写 `tools/generate-web.ts`，把该文件里 21 处非 ASCII 文本写坏（GBK 编码回写，部分字符被替换成 `?`，并吞掉相邻的 `<` 或 `"`）。已逐处从 `git show HEAD` 与上下文恢复（i18n 词条、登录页文案、`—` 占位符、JSX 闭合尖括号），并用脚本确认**全仓 0 处残留 mojibake**、生成产物重新通过 typecheck。后续修改含中文的文件一律改用 `edit`/`write` 工具或 `Bun.write`，不再用 PowerShell 回写。
+
+**边界**：分段 channel 只支持单字段 claim（不是任意表达式/组织树）；claim 值变化后旧分段的历史事件不会迁移；没有订阅级 filter 参数（如"只看 status=open"）；`graphql-ws` WebSocket 传输仍未实现。
+
+## Dashboard 聚合指标（2026-10-17）
+
+用户 P1 清单里"dashboard 只有基础指标"一直没动：dashboard 只支持 `count`、`distribution`（枚举分组）、`trend`（按天）。本轮补上**数值聚合**：
+
+- DSL：`metric <name> <resource> @type(aggregate) @field(<numeric>) @agg(sum|avg|min|max);`（`@field`/`@agg` 只允许出现在 aggregate 指标上，解析期与生成期都校验；非数值字段、缺字段、非法 `@agg` 直接报错）。
+- 服务端：repository 新增 `aggregate(field, operator, scope, policy)`，在 **SQL** 里用 `sum/avg/min/max` 聚合并下推 `restrict` 行谓词；REST `GET /:resources/aggregate?field=&op=`；GraphQL `<resource>Aggregate(field: String!, op: String!): Float`；鉴权 guard 的 GraphQL 字段白名单同步加入 `<resource>Aggregate`（否则会被判"field is not authorized"）。
+- **不泄漏**：对当前调用者**脱敏的字段**禁止聚合（403 `policy.maskedField`），避免用 sum 反推出被隐藏的价格。
+- Web：`AggregateSummary` 卡片（`Statistic`，Decimal/Money 显示两位小数，无数据显示 `No data`）。
+- 兼容：`aggregate?` 在接口里是**可选**方法，所以生成的测试替身与手写仓储不会被破坏。
+
+**真实验收** — 新增 `tools/verify-dashboard-metrics.ts`（SQLite + 真实 HTTP + `restrict` 行谓词/脱敏），**3 pass / 24 断言**：
+
+| 场景 | 结果 |
+| --- | --- |
+| eu 的 2 行（10/30）与 us 的 1 行（100）：admin(eu) `sum=40`、`avg=20`、`min=10`、`max=30`；admin(us) `sum=100`（**行谓词生效**） | 通过 |
+| GraphQL `ordersAggregate(field:"amount", op:"sum")` = 40（与 REST 一致） | 通过 |
+| operator 聚合被脱敏的 `price` → 403 `policy.maskedField`；admin 聚合同一字段 → 200；文本字段/未知字段/非法 op → 400；匿名 → 401 | 通过 |
+| 生成的 `dashboardMetrics` 元组为 `[aggregate/sum, aggregate/avg, aggregate/max, count]` | 通过 |
+
+证据目录 `%TEMP%/qiy-dashboard-metrics-osgSIg`；生成包 `typecheck` 通过，Web `typecheck` + `bun test` **21 pass / 0 fail**。根仓新增 `tests/dashboard-metrics.test.ts`（2 项），总计 **214 项 / 2330 断言 / 0 失败**。
+
+**边界**：没有 `count(distinct)`、百分位、时间窗口聚合（如"近 7 天 sum"）、多字段/分组聚合或比率指标；聚合值统一按 `Number` 返回（超大整数在 JS 侧有精度上限）；Web 卡片只展示单值，没有迷你趋势图。
+
+## 导出"仅选中行"（2026-10-17）
+
+此前导出只能整表/按过滤导出，Web 勾选行后仍然导出全部——用户清单里"仅选中行"一直是空缺。现在：
+
+- `GET /:resources/export?ids=<id1>,<id2>`：只导出指定行，上限 **500**（超量 400 `export.tooManyIds`），id 逐个用 `^[A-Za-z0-9_-]{1,64}$` 校验（非法 400 `export.invalidId`）。
+- 选中导出**跳过行数上限**（`QIY_EXPORT_MAX_ROWS` 只约束整表导出），因此从大表里导出几行不会被拦。
+- **策略不放松**：仍然走同一条 `runListQuery` + `redactRecord`，所以行谓词外的 id 会被丢弃（不泄漏），脱敏列照旧整列消失。
+- Web：`exportUrl(resource, { filters, sorters, ids })`，列表在有勾选时按钮文案变为 `Export selected (n)`；只读集成模式不传 ids（该模式没有行选择）。
+
+**验收**：`tools/verify-export-policy.ts` 新增断言——按 id 导出只得到 1 行且内容正确、**跨租户 id 被丢弃**（只剩表头）、`ids=../etc` 400、501 个 id 400；服务端 **2 pass / 33 断言** + Web `typecheck`/`build` + Web **21 pass / 0 fail**，证据 `%TEMP%/qiy-export-policy-9hyorj`。根仓 **212 项 / 2314 断言 / 0 失败**，集成/只读路径与过滤器测试同时复跑通过。
+
+**边界**：导入仍按整个 CSV 文件处理，没有"只导入选中行"；导出依旧是同步全量/选中优先的内存构建（未流式分批）；`ids` 上限 500，适合页面勾选而非大规模 ID 集。
+
+## 列表保存视图（saved views，2026-10-17）
+
+用户 P1 清单"列表缺少嵌套 AND/OR、保存视图、导入导出"里的最后一项（前两项已分别实现/确认）。列表页此前只有临时筛选与列显隐，刷新即丢失；现在支持**按资源、按浏览器持久化**的保存视图：
+
+- 新增生成文件 `web/app/views.ts`：`listSavedViews` / `saveView` / `deleteSavedView`，视图形状为 `{ id, name, createdAt, search?, filters?, sorters?, columns? }`。
+- 存储与容错：`localStorage` 键 `qiy.views.<resource>`；**同名视图覆盖**而不是重复；名称 trim + 60 字符上限；空名称忽略；最多保留 50 个视图；**损坏的 JSON / 非法条目读作空**（不会让页面崩溃）；SSR 无 `localStorage` 时返回空数组；写入失败（配额/隐私模式）被吞掉。
+- 列表页头部新增 `Saved views` 下拉 + `Save view`（`Popover` + 输入框）+ 选中视图后的 `Delete view`；应用视图会还原搜索、`filters`、`sorters` 与可见列。只读的宿主集成模式**保留**保存视图（纯前端偏好，不涉及写操作）。
+- 生成测试 3 项：保存/同名更新/按资源隔离、空名称与按 id 删除、损坏存储与无 window 容错。
+
+**验收**：`tools/verify-import-policy.ts` 的 Web 阶段（真实生成的 admin）**21 pass / 0 fail**（含 3 项视图测试），`typecheck`/`build` 通过，证据 `%TEMP%/qiy-import-policy-fTvszg`；服务端 5 pass / 34 断言不变。根仓 **212 项 / 2314 断言 / 0 失败**（`tests/advanced-filters.test.ts` 增加视图契约断言）。
+
+**边界**：视图只存在浏览器（换设备/换浏览器不同步），没有服务端共享视图、默认视图或团队级视图；不包含分页大小与列宽；`Save view` 使用 `Popover` 输入而非独立表单页。
+
+## GraphQL Subscription（2026-10-17，续做）
+
+这是用户 realtime 清单里最后一个"未实现"的传输。此前 `generate-web.ts` 直接**报错拒绝** `realtime` + `client graphql`（"GraphQL realtime subscriptions are not implemented yet"），本轮把它真正做出来：
+
+- **Schema**：仅当同时启用 realtime 且客户端是 GraphQL 时生成 `type <Model>Event { event: String! record: <Model>! }` 与 `type Subscription { <entity>Changed: <Model>Event! }`。
+- **传输**：`GET /api/v1/graphql/subscribe?query=...`（Server-Sent Events），用 graphql-js 的 `subscribe()` 执行订阅文档，每个结果一帧 `data: {...}`；客户端 abort 时关闭迭代器。
+- **事件源**：新增 `api/src/realtime-bus.ts`（进程内总线 + `realtimeEventIterator()`）；`dispatchRealtimeOutbox` 在 `delivered` 之后把**已投递、已脱敏**的负载发布到总线。因此订阅负载与 Outbox 一致：被 mask 的字段在服务端负载里没有键，GraphQL 只能对显式请求的字段返回 `null`。
+- **授权**：复用 `realtimeCapabilities(principal)`（与 Ably token 同一套计算）；匿名 401，角色不具备该 channel 的 subscribe → 403；未知字段/非订阅文档/语法错误 → 400。
+- **实现细节**：订阅根是**惰性 getter**（普通查询不触发）；graphql-js 会用每个事件重新执行根选择集，所以事件必须包成 `{ ordersChanged: {...} }`；`subscribe()` 抛错要 try/catch 成 400（否则 500）。
+- **生成器契约变更**：删除"GraphQL + realtime 直接报错"的旧守卫（对应根仓测试改为断言订阅 schema/路由/总线都被生成）。
+
+**真实验收** — 新增 `tools/verify-graphql-subscription.ts`（GraphQL 客户端 + realtime + `restrict` mask，SQLite 真实 HTTP），**3 pass / 19 断言**：
+
+| 场景 | 结果 |
+| --- | --- |
+| 订阅 `subscription { ordersChanged { event record { id title salary } } }` → 真实写入 + 真实 dispatch → 收到 `event:"created"`、`record.id/title` 正确、`salary` 为 `null`，且**Outbox 负载里没有 `salary` 键** | 通过 |
+| viewer 订阅（不在 roles 内）→ 403 `not permitted`；匿名 → 401；未知字段 → 400；用查询打到订阅端点 → 400；语法错误 → 400 | 通过 |
+| 生成 schema 含 `type Subscription`、`ordersChanged: OrdersEvent!`、`type OrdersEvent` | 通过 |
+
+证据目录 `%TEMP%/qiy-graphql-subscription-DP4pI8`。回归确认：`verify-realtime-policy.ts` 仍 exit 0（服务端 2 pass + Web typecheck/build + 21 pass），根仓 **212 项 / 2298 断言 / 0 失败**。
+
+**边界**：总线是单实例进程内的——多副本部署时订阅者只收到本实例投递的事件（跨实例仍走 Ably 客户端）；没有 `graphql-ws` WebSocket 传输、订阅级 filter 参数、基于 claim/租户的订阅表达式。
+
+### 客户端收尾（同一轮）
+
+生成 `web/app/subscriptions.ts`（仅 GraphQL + realtime 时生成）：
+
+- `subscribeGraphql({ query, variables, operationName, onData, onError })` 返回取消函数；带 Bearer token 请求 SSE 端点，按 `\n\n` 分帧（**能处理跨 chunk 拆分的帧**），`errors` 与 HTTP 4xx 的 `error` 都走 `onError`。
+- `stop()` 会 abort 请求、取消 reader，并保证**不再回调**（即使底层传输忽略 abort signal 也一样，因为循环与派发都检查 `signal.aborted`）。
+- 生成测试 3 项：跨 chunk 分帧、错误映射（GraphQL `errors` + HTTP 401）、abort 后不再回调。
+
+至此 GraphQL Subscription 形成服务端 + 客户端闭环。证据目录更新为 `%TEMP%/qiy-graphql-subscription-1jMUD2`：服务端 4 pass（含跨副本用例）+ Web `typecheck`/`build` + Web **24 pass / 0 fail**（含 live provider 3 项与订阅客户端 3 项）。根仓 **212 项 / 2305 断言 / 0 失败**。
+
+### 多副本订阅（同一轮）
+
+原先订阅事件源只有进程内总线，因此**多副本时订阅者只收到本实例投递的事件**。现在 `realtimeChannelIterator()` 双源：
+
+- **总线**：本实例刚 `delivered` 的事件立即推送（低延迟）。
+- **Outbox 尾随**：按 `QIY_REALTIME_SUBSCRIBE_POLL_MS`（默认 1000ms，最小 100ms）以 `(createdAt, id)` keyset 增量读取 `deliveredAt` 已写入的行，因此**任意实例投递的事件都能送达**；按 Outbox 行 id 去重，`seen` 集合超 5000 时清空。读取失败不会终止订阅。
+
+验收新增用例：订阅建立后，**直接插入一条已 `delivered` 的 Outbox 行**（模拟另一个副本投递，不经过本实例总线），订阅者在轮询间隔内收到 `event:"updated"` 与正确记录。证据同上目录（服务端 4 pass / 21 断言）。
+
+代价已记录：尾随读取会给数据库带来与订阅数成正比的轮询压力，大规模订阅建议改用专用消息中间件；`graphql-ws` WebSocket 传输仍未实现。
+
+## 多平台发布物与记录级订阅（2026-10-17，续做）
+
+### 多平台产物
+
+`bun run build:exe -- --all` 由当前源码交叉编译出 5 个单文件产物，并逐个校验**格式、架构与版本**（不执行）：
+
+| 产物 | 校验 | 结果 |
+| --- | --- | --- |
+| `qiy-0.1.5-linux-x64` | ELF 魔数、`e_machine=0x3e`(x86-64)、含 `0.1.5` | 98 MB，通过 |
+| `qiy-0.1.5-linux-arm64` | ELF、`e_machine=0xb7`(AArch64)、含 `0.1.5` | 98 MB，通过 |
+| `qiy-0.1.5-darwin-x64` | Mach-O、`cputype=0x1000007`、含 `0.1.5` | 66 MB，通过 |
+| `qiy-0.1.5-darwin-arm64` | Mach-O、`cputype=0x100000c`、含 `0.1.5` | 61 MB，通过 |
+| `qiy-0.1.5-windows-x64.exe` | 上一节已**执行**通过（standalone + integration） | 113 MB，通过 |
+
+**执行**的边界：Linux 产物无法在本机运行——本机唯一 WSL 发行版是 `docker-desktop`（根盘 135 MB 且已 100% 占满、无 `curl`、Docker 引擎又不可用），无法承载 bun 或运行生成项目；macOS 无 runner。因此 **Linux/macOS 仅到"构建产物 + 架构/版本校验"这一步，没有执行证据**。
+
+### 记录级（页面级）订阅
+
+生成的 LiveProvider 之前对同一资源的所有事件一律回调。现在：
+
+- `subscribe({ params: { id } })`（详情页）与 `params: { ids: [...] }`（批量页）会裁剪事件：仅当 payload 的 `id` 或 `data.id` 命中才回调；列表页不带这些参数，行为不变。
+- `createQiyLiveProvider(fetcher, injected?)` 支持注入 Ably 客户端，生成测试据此断言裁剪（命中/未命中、嵌套 `data.id`、无 id 事件、unsubscribe 代理、SSR 返回 `undefined`）。
+- 顺带修正生成的角色策略测试：优先选取**非用户实体**作为断言对象，并在只有用户实体时按"用户管理仅 admin"建模（此前在 mask-only 模型上会把 `users` 当普通资源而误判）。
+
+**验收** — `tools/verify-realtime-policy.ts` 扩展为含 Web 检查：服务端 2 pass（脱敏负载、行谓词拒绝）+ Web `typecheck`/`build` + Web `bun test` **21 pass / 0 fail**（含 3 项 live-provider 裁剪用例），证据目录 `%TEMP%/qiy-realtime-policy-st4glp`。根仓测试新增 live provider 契约断言，最终 **212 项 / 2296 断言 / 0 失败**。
+
+仍未完成：订阅权限表达式（channel 级 capability 之外的表达式）、真实 Ably 租户与浏览器断线重连；GraphQL Subscription 已在上文实现。
+
+## Windows 发布物验收（2026-10-17，补跑）
+
+此前多轮都只能声明"窗口机只能重跑 Windows 候选"，本会话末尾补跑了这条 P0 邻接链路，并**首次定位到一个长期误判**：
+
+- 现象：`dist/qiy-0.1.5-windows-x64.exe create ...` 报 `EPERM: operation not permitted, mkdir '<%TEMP%>\...\admin'`，而同一份源码用 `bun run tools/cli.ts` 生成正常。
+- 排查：用一个只有 `mkdirSync` 的 `bun build --compile` 探针复现——写 `%TEMP%` 失败、写**工作目录**成功。结论是 **DSH 沙箱只允许编译产物写工作目录**，`bun` 解释器本身被豁免。之前把它当成打包缺陷是错的。
+- 处理：把 `TEMP`/`TMP` 指向工作区内的临时目录后重跑，两条发布验收全部通过。
+
+| 验收 | 覆盖 | 结果 |
+| --- | --- | --- |
+| `bun run build:exe` | 由当前源码 + 模板/Skill 快照编译 `qiy-0.1.5-windows-x64.exe`（113.3 MB） | 通过 |
+| `tools/verify-release-standalone.ts` | 二进制 `--version`、匿名 Realtime 拒绝、由二进制生成 4 个应用（dataflow / batch / realtime）、每个应用的 clean install + typecheck + test + build、生成运行时（健康检查、SPA、静态资源、资源 API、OpenAPI、API 隔离与生产 fail-closed） | **exit 0** |
+| `tools/verify-release-integration.ts` | 二进制 `skill install`（离线）、`init -f admin.qiy`、`init -f bearer.qiy`、`init --sync`、宿主鉴权验收用例、集成控制台 typecheck/test/build | **exit 0** |
+
+这意味着：**Windows x64 单文件二进制的打包与两类生成路径（standalone 与 integration）在本轮源码状态下是可用的**。仍未验证：Linux/macOS 二进制（无 runner）、签名与安装包、真实 Docker/K8s 部署。
+
+## 受权限约束的 CSV 导入（2026-10-17，最后一轮）
+
+用户 P1 清单的"导入/导出"此前只有导出。导入是**第二条写入路径**，如果不接策略就又是一条绕过 `restrict` 的通道，因此本轮按与创建同源的语义实现 `POST /api/v1/:resources/import`：
+
+- **表头 fail-closed**：未知列 → `import.unknownField`；重复列 → `import.duplicateColumn`；对当前调用者脱敏的字段 → `import.maskedField`（不静默丢弃）；`Vector`/`Files` 列不支持导入。
+- **逐行写入 + 补偿回滚**：任一行失败（唯一冲突、类型错误、越权）立即删除本次请求已创建的行再返回 4xx，并指出行号；成功返回 `201 { imported: n }` 并写 `<resource>.imported` 审计。
+- **策略同源**：每行走 `repository.create`，因此 `restrict` 行谓词与写入可见性校验（403 `policy.outsideScope`）原样生效；脱敏字段既不能导入也不能被静默跳过。
+- 规模与格式：`QIY_IMPORT_MAX_ROWS` 默认 1000（超限 400 `import.tooLarge`），空文件 400 `import.empty`，RFC 4180 解析（引号内逗号/换行、`""` 转义、CRLF）。
+- 实现细节：直接读取 `request.text()`，不声明 body schema（Elysia 不解析 `text/csv`，声明 `t.String()` 会 500）；`QiyPolicyError` 分支只对受 `restrict` 约束的资源生成，避免非受限项目引用未导入的符号。
+
+**真实验收** — 新增 `tools/verify-import-policy.ts`（SQLite + 真实 HTTP），**5 pass / 34 断言**：
+
+| 场景 | 结果 |
+| --- | --- |
+| 导入 2 行：`"with, comma"`、引号内换行、整数强制转换、两条 `orders.imported` 审计 | 通过 |
+| 未知列 / 重复列 / operator 导入 `salary` → 400 且**一行未写** | 通过 |
+| 唯一冲突 → 400 `import.invalidRow` 且提示 `Row 3`，**计数不变**；非法整数 → 400；列数不齐 → `import.rowLength` | 通过 |
+| 导出行落在自身行谓词之外 → **403 `policy.outsideScope`**；空文件 400；`QIY_IMPORT_MAX_ROWS=1` → `import.tooLarge` | 通过 |
+| 匿名 → 401 | 通过 |
+
+证据目录 `%TEMP%/qiy-import-policy-h6Xxgw`；生成包 `typecheck` 通过，生成 Web 端 `typecheck`/`build` 通过、`bun test` **18 pass / 0 fail**（含新增的 `uploadImport` 传输用例）。根仓测试新增导入契约断言（RFC 4180 解析器、四类 errorKey、补偿删除、`recordImportAudit`）。
+
+**导入的 Web 入口也在本轮补上**：列表页新增 **Import CSV** 按钮（`uploadImport()`），选文件后按 `text/csv` 上传，成功提示导入行数并刷新表格，失败展示服务端返回的行级错误；只读的宿主集成模式通过生成期插值**不生成**该按钮（`tests/host-adapter.test.ts` 等 14 项集成/动作用例通过）。
+
+导入合入后重新跑了导出验收以确认两个端点共存：`bun tools/verify-export-policy.ts` 退出 0（服务端 2 pass/26 断言 + Web typecheck/build + Web 17 pass/0 fail，证据目录 `%TEMP%/qiy-export-policy-3wFKco`）。最终根仓门禁：**212 项测试 / 2293 断言 / 0 失败**，`bun run check`、文档站构建、模板与 Skill 快照幂等、`git diff --check` 全部通过。
+
+### 45 轮收口：仍然未完成的部分
+
+本轮是既定轮次的最后一轮，以下项**没有**完成，不应被视为已交付：
+
+- **发布验证（P0）**：Windows x64 单文件二进制已补跑通过（standalone + integration 两条链路）；Linux/macOS 产物已交叉编译并校验格式/架构/版本，但**没有执行证据**（唯一 WSL 发行版 `docker-desktop` 根盘 135 MB 且已满、无 curl；macOS 无 runner）。真实 Docker/K8s 部署、代码签名与安装包、真实 S3 bucket 之外的 AWS 语义（IAM policy/KMS/版本化/分片残留）、JetBrains 插件重打包均未做。
+- **真实 IdP 租户（P0）**：Okta/Auth0/Azure AD B2C/Keycloak/Google/Kinde 的真实租户与浏览器端 PKCE/导航回归未做（现有验收使用自建本地 IdP fixture）。
+- **Docker 依赖的三项 MySQL 验收在本会话末尾连续多轮不可用**（Docker Desktop Linux 引擎无法连接）：`Files` 的 MySQL/PostgreSQL 字段验收、MySQL realtime outbox 的最终 exit 0 重跑、MySQL/PG 上的导出/导入验收。相关代码路径已按方言生成并通过 SQLite 验收，但**缺真实 MySQL/PG 证据**。
+- **实时剩余**：真实 Ably 租户与浏览器断线重连、`graphql-ws` WebSocket 传输、大规模订阅的专用消息中间件、订阅级 filter（如按 status 过滤）。已实现：记录级/页面级订阅（客户端裁剪）、GraphQL Subscription（SSE，服务端 + 客户端）、多副本订阅（总线 + Outbox 尾随）、**claim 分段 channel（订阅权限表达式）**、投递 store 的租约/退避/死信验收。
+- **组织层级 / 多租户**：`scope ... tree <entity> <parentField>` 已支持单棵树向下递归的数据范围（见本页首节），`realtime` 也有 claim 分段 channel；`pages` 已提供按页面动作的角色规则；但**没有**任意表达式/多树/闭包表、没有"替下级节点写入"、没有组织树管理界面、没有页面内的字段级布局/区块权限，跨资源策略统一仍未完成。
+- **导入/导出的规模与交互**：导入已有**后台任务 + 进度轮询**（见本页首节），但仍没有跨副本 worker、取消接口与任务列表页；导出已支持"仅选中行"、**流式分批**（250 行/页）与**列选择**，但仍受请求超时约束，没有"后台导出任务 + 进度轮询"。两个导入入口（同步/异步）共享同一校验与补偿逻辑。
+- **列表视图**：保存视图已实现（浏览器本地、按资源隔离，见本页首节），但没有服务端共享视图、默认视图、分页大小与列宽持久化。
+- **其他 UI 库（P2）**：仅 Ant Design。
+
+## 导出闭环到 Web，并修正生成的角色策略测试（2026-10-17）
+
+上一轮只做了服务端 `GET /:resources/export`，列表页还没有入口。本轮补上 UI 并把验收扩展到前端：
+
+- 新增生成文件 `web/app/export.ts`：`encodeExportFilters()` 把 Refine 的 `filters`（含 `and`/`or` 嵌套组）编码成服务端接受的子句；`exportUrl()` 拼出导出地址（只取第一个 sorter、只在 `desc` 时带 `order`）；`downloadExport()` 带 Bearer token 取回 CSV、按 `Content-Disposition` 命名并触发下载，**服务端 4xx 直接抛错**而不是下载残缺文件。空组（只含 `__search`/`q`）会被丢弃，不会发出空条件。
+- 列表页头部新增 **Export CSV** 按钮（`DownloadOutlined`，含 loading 与错误通知），把 `useTable` 的 `filters`/`sorters` 直接喂给导出地址，因此**导出范围与表格当前视图一致**。
+- 生成的 Web 测试新增 `web/tests/export.test.ts`（3 项）：过滤编码（含嵌套/数组/空组）、URL 拼接、以及服务端拒绝时抛错。
+
+同时修掉一个**既有生成缺陷**：`web/tests/auth.test.ts` 把资源名写死成演示模型的 `orders`/`users` 与固定角色期望，凡是模型不同或对资源声明了 `restrict { allow roles ... }` 的项目，`bun test` 必然失败（本次即以 `viewer` 仍被期望可列出受限资源而暴露）。现在期望值由模型自身推导：资源取模型里第一个带 allow-list 的资源（没有则取第一个实体），每角色每动作的期望按"默认角色矩阵 ∩ allow-list"计算，匿名一律拒绝。这同时顺带覆盖了 `restrict` allow-list 在 **Web 访问控制**中的实际效果。
+
+**真实验收** — 扩展 `tools/verify-export-policy.ts`：在原有服务端导出断言之外，新增生成 Web 端的 `typecheck`、`build` 与 `bun test`。
+
+| 阶段 | 结果 |
+| --- | --- |
+| 服务端（SQLite + 真实 HTTP） | 2 pass / 26 断言：行谓词、`omit` 整列消失、`redact` 掩码值、RFC 4180、过滤/排序校验、审计、401、超限 400、越权写 403 |
+| Web `typecheck` / `build` | 通过（exit 0） |
+| Web `bun test` | **17 pass / 0 fail**，含 3 项导出助手测试与修正后的角色策略测试 |
+
+证据目录 `%TEMP%/qiy-export-policy-eF6a4L`。根仓测试 211 项/2280 断言/0 失败（`tests/advanced-filters.test.ts` 增加导出 UI/助手契约断言）。
+
+集成（read-only host）模式同时保留导出按钮，并把图标导入裁剪规则同步更新，`tests/host-adapter.test.ts` 等 8 项集成用例恢复通过。
+
+本轮边界，不计入已完成：**仍未做导入**；导出仍是同步全量查询（未流式分批）；生成 Web 端的导出按钮不提供列选择与"仅导出选中行"；未在 MySQL/PostgreSQL 实跑导出（Docker 引擎仍不可用）。V3 保持未完成。
+
+## 受权限约束的 CSV 导出（2026-10-17）
+
+用户 P1 清单里"列表缺少导入/导出"一直没做，而列表接口的 `pageSize` 上限是 100，客户端导出（Refine `useExport` 拉全量）实际会被截断，且**没有任何服务端导出路径会应用 `restrict`**——一旦补上导出而不接策略，就是一条新的数据外带通道。本轮把导出做成"与列表同源"的读取路径：
+
+- 抽出共享 `runListQuery(query, request)`：列表与导出**共用**同一套过滤校验、数据 scope 解析与 `resolvePolicy` 结果，避免两条路径漂移。
+- 新增 `GET /api/v1/:resources/export`：`restrict` 行谓词照常下推；`mode omit` 的脱敏字段**整列消失**（表头也不出现），`null`/`redact` 保留列输出掩码值；每行经 `redactRecord` 后再写 CSV，按 RFC 4180 转义（逗号/引号/换行），返回 `text/csv` + `Content-Disposition` 附件头。
+- 规模 fail-closed：默认上限 1000 行（`QIY_EXPORT_MAX_ROWS`，1–100000），`total` 超限返回 **400 `export.tooLarge`**，**不静默截断**。
+- 审计：新增可选接口方法 `recordExportAudit?`（可选，保证手写/测试替身仓储仍可编译），真实仓储写入 `<resource>.exported`（行数、过滤条数、操作者）。
+- 顺带修正状态码：写入落到调用者**自身行谓词之外**时，原先抛普通 Error 变成 500；现在抛 `QiyPolicyError(..., 403, "policy.outsideScope")`，与其它策略拒绝一致。
+
+**真实验收** — 新增 `tools/verify-export-policy.ts`（SQLite + 真实 HTTP，无需容器，`restrict orders { allow ...; when region claim region; mask salary roles operator mode omit; mask note roles operator mode redact replacement "***"; }`）：
+
+| 断言 | 结果 |
+| --- | --- |
+| operator（claim `region=eu`）导出：仅 2 条 eu 行、表头 `id,title,region,note`（**无 salary 列**）、`note` 输出 `***`、含 `"a, with comma"` 的 RFC 4180 引号、不含 `us` 行与原始 note | 通过 |
+| admin（同 claim）导出：表头 `id,title,region,salary,note`，仍是自身可见的 2 行 | 通过 |
+| 过滤收窄（`title eq b`）→ 1 行；未知过滤字段 → 400；按非过滤字段排序 → 200 | 通过 |
+| 审计出现 `orders.exported` | 通过 |
+| 匿名 → 401；`QIY_EXPORT_MAX_ROWS=1` → 400 且 `errorKey: "export.tooLarge"`；列表接口不受影响 | 通过 |
+| 写入自身行谓词之外 → **403 `policy.outsideScope`** | 通过 |
+
+`2 pass / 26 断言`，生成包 `typecheck` 通过，证据目录 `%TEMP%/qiy-export-policy-NoZGtg`。
+
+过程说明：为修复一个被写坏的测试文件，我对 `tests/generate-server.test.ts` 执行了 `git checkout`，该仓库尚未提交本会话的工作，因此恢复了较早版本，丢失了此前几轮添加在该文件里的 drift/migration/backup 契约断言。已重新补写这些契约测试（`generates the database operations toolchain` + 导出契约），当前根仓 211 项/2273 断言/0 失败。
+
+本轮边界，不计入已完成：**只做了导出，没有导入**（CSV 导入需要逐行校验、部分失败语义与策略写入检查，属独立设计）；web 列表页还没有导出按钮（接口已可用）；导出为同步全量查询，未做流式/游标分批；未在 MySQL/PostgreSQL 上实跑导出（Docker 引擎仍不可用）。V3 保持未完成。
+
+## Realtime 上的权限数据范围（2026-10-17）
+
+在核对"权限数据范围是否在所有传输面都生效"时发现一个真实绕过：**Realtime 事件负载完全绕过了 `restrict`**。`realtimeWrite` 直接把 `JSON.stringify(record)` 写进 Outbox，于是
+
+- 对**可订阅角色**生效的 `mask` 字段（如 `mask salary roles operator`，而 `realtime` 的订阅角色正是 operator）会以明文出现在 `created`/`updated`/`deleted` 事件里；
+- `restrict` 的**行谓词**（如 `when tenantId claim tenant`）在共享 channel 上完全不生效，订阅者会收到自己无权读取的行的完整记录。
+
+也就是说 REST/GraphQL 受策略保护，但同一个记录会从实时通道整条推出去——属于本人前几轮建立的"策略覆盖所有数据面"承诺的漏洞。本轮按仓库 fail-closed 纪律修复：
+
+- **行谓词 → 生成期拒绝**：`realtime` 资源存在 `restrict` 行谓词时直接报错 `restrict row predicates cannot be enforced on a shared channel; remove the realtime events or the row predicates`。共享 channel 无法按订阅者裁剪，宁可拒绝也不泄漏。
+- **字段脱敏 → 入队时裁剪**：`maskedRealtimeFields()` 计算"对任一可订阅角色生效的 mask 字段"（无 `roles` 的全局 mask 与带 `claim present/absent` 的 mask 都算），生成 `qiyRealtimePayload()` 在写事务内剥离这些键；`created`/`updated`/`deleted` 与批量删除（`deleteMany`）全部走同一路径。只对**不能订阅**的角色生效的 mask 不误伤负载。
+
+**真实验收** — 新增 `tools/verify-realtime-policy.ts`（SQLite，无需容器）：
+
+| 断言 | 结果 |
+| --- | --- |
+| 行谓词 + realtime → 生成期拒绝，消息含 `restrict row predicates cannot be enforced on a shared channel` | 通过 |
+| `salary` 对可订阅角色 operator mask → `created`/`updated`/`deleted` 负载均**不含** `salary`，但含 `id`/`title` | 通过 |
+| `secret` 只对不可订阅的 admin mask → 负载**保留** `secret`（不误伤） | 通过 |
+| 批量删除两条记录 → 两条 `deleted` 负载都不含 `salary` | 通过 |
+
+`2 pass / 12 断言`，生成包 `typecheck` 通过，证据目录 `%TEMP%/qiy-realtime-policy-amzwpj`；同一工作区的**完整生成套件** 43 pass / 0 fail。
+
+顺带修掉一个既有缺陷：**本地认证 + GraphQL 的生成测试必然失败**。`renderGraphQLTest` 用 `entity.fields.slice(0, 3)` 生成选择集，用户实体的前三个字段正好包含被隐藏的 `passwordHash`，而该列不在生成的 GraphQL schema 里，查询直接报错、`data` 为 null（修复前该工作区基线为 42 pass / 2 fail）。现已按隐藏字段过滤选择集与输入，基线变为 43 pass / 0 fail。
+
+根仓测试 212 项/2379 断言/0 失败（`tests/realtime-qiy.test.ts` 新增"脱敏字段不进入负载 + 行谓词拒绝"，`tests/auth-providers.test.ts` 新增"GraphQL 测试不引用隐藏列"）。
+
+本轮边界，不计入已完成：实时通道仍是**按角色**授权，没有记录级/页面级订阅（需要 per-record channel 或客户端过滤，属独立设计）；行级隔离只能靠"禁止开启 Realtime"表达；`mask` 的裁剪是**并集保守策略**（只要某个可订阅角色被脱敏就整体剥离），因此未被脱敏的订阅角色也看不到该字段；真实 Ably tenant、浏览器重连与多副本仍未验收；`Files` 的 MySQL/PostgreSQL 验收与 MySQL outbox 重跑仍因本机 Docker 引擎不可用而挂起。V3 保持未完成。
+
+## 多文件字段 `Files`（2026-10-17）
+
+用户列出的上传缺口第一项是"缺多文件"。此前仓库明确把单字段多文件挡在门外（`@maxFiles` 只允许 1，并写着"多文件需要后续独立的 Files 字段类型"）——**这是刻意的设计取舍，而不是遗漏**：把 `File` 的 `maxFiles` 调大只会产生"字符串列里塞多个 key"的假多文件。本轮按当初的设计落地独立的 `Files` 类型：
+
+- **IR / parser**：新增 `FieldType "Files"`；`@upload`/`@maxBytes`/`@mime` 对 `File` 与 `Files` 都适用（`@maxBytes` 语义为**每个文件**上限）；`File` 的 `@maxFiles` 仍只能 1（错误信息改为"declare the field as Files for multiple files"），`Files` 允许 1–20、默认 6。`Files` 不能作主键/唯一字段，解析后默认 `sortable=false`/`filterable=false`（JSON 数组没有有意义的排序过滤语义）。
+- **数据库**：按方言使用原生 JSON 列——SQLite `text(name, { mode: "json" }).$type<string[]>()`、PostgreSQL `jsonb(...)`、MySQL `json(...)`，Drizzle 负责数组的编解码，读回来是**真数组**而非字符串。
+- **API**：REST schema 生成 `t.Array(t.String({ minLength: 1, maxLength: 240 }), { minItems: 1, maxItems: <maxFiles> })`，超长/空数组/非字符串/非数组一律 422；GraphQL 暴露 `[String!]`（输入与输出）。
+- **上传策略**：`__QIY_UPLOAD_POLICIES__` 不再硬编码 `maxFiles: 1`，`Files` 字段带真实上限；`UploadPolicy` 类型由 `maxFiles: 1` 改为 `number`。
+- **Web**：表单支持多选上传（逐个 POST，收集 key，`Tag` 可移除）、`Files` 字段在列表与详情渲染为多个下载链接；`resources.ts` 的类型联合与元数据带上 `Files`/`maxFiles`。
+- **文档**：`docs/dsl/entity.md` 更新属性表并新增"单文件与多文件"小节；`docs/guide/storage.md` 新增"多文件字段"，写明一个文件一个请求、`maxItems` 强制、无批量原子上传（残留可由 `attachments:orphans` 清理）。
+
+**真实验收** — 新增 `tools/verify-multi-file.ts`。Qiy 生成的应用只能是 REST 或 GraphQL 之一（`api { client ... }` 单值），因此该工具生成**两个工作区**：
+
+| 工作区 | 覆盖 | 结果 |
+| --- | --- | --- |
+| REST + SQLite + local 存储 | 真实 HTTP 上传两个 PDF → 写回 `attachments` 数组 → 断言 API 返回、DB 列是真数组、单条 GET、两个 key 仍可下载、PATCH 整体替换；`maxFiles` 越界/空数组/字符串/数字数组全部 422；`storage.save("../etc/passwd")` 被 key 校验拒绝 | `2 pass / 17 断言` |
+| GraphQL + SQLite | `createDocuments(input: { attachments: ["uploads/g.pdf","uploads/h.pdf"] })` 返回 `[String!]`、DB 落库为数组、`documents { items { attachments } }` 读回同值 | `1 pass / 7 断言` |
+
+两个工作区均通过 `typecheck`；证据目录 `%TEMP%/qiy-multifile-EVbogN`。另在 REST 工作区执行了**生成的 Web 端** `typecheck`、`build`（exit 0）与 `bun test`（14 pass/0 fail），确认多选上传、`Tag` 移除与多链接渲染可编译可构建。根仓测试 211 项/2371 断言/0 失败（`tests/file-upload-policy.test.ts` 新增 `Files` 契约与负例）。
+
+本轮边界，不计入已完成：**没有批量原子上传**（中途失败会留下已上传对象，靠孤儿扫描清理）；没有 GraphQL multipart upload、直传（presigned PUT）与分片/断点续传——`Files` 的 GraphQL 契约只是 key 列表；`Files` 不参与过滤/排序；未在 MySQL/PostgreSQL 上实跑 `Files`（JSON 列由方言适配器生成，但本轮未做真实数据库验收，Docker Desktop 引擎仍不可用）。V3 保持未完成。
+
+## Realtime 投递存储的真实数据库验收（2026-10-17）
+
+生成的 Realtime Server 测试**全部注入内存假 store**，因此真实 `databaseOutboxStore`（租约列、`FOR UPDATE SKIP LOCKED` 领取、退避、死信、重放、delivered 清理）从未被真实数据库验证过——这正是用户列出的"真实重连验收"缺口。本轮新增 `tools/verify-realtime-outbox.ts`：生成带 Realtime 的应用、迁移到真实数据库，再用假 Ably client 驱动**真实 store**：
+
+| 场景 | 断言 |
+| --- | --- |
+| 单次投递 | `delivered=1`、写入 `deliveredAt`、租约与 owner 清空、metrics 的 pending 归零；再次 dispatch 为 0 |
+| **崩溃后重连** | worker 领取后"死亡"、租约过期 → 另一 worker 重新领取并投递；**有效租约不被抢占**（`leaseOwner` 保持、metrics.leased=1） |
+| 退避 | provider 抛错 → `failed=1`、attempts=1、`availableAt` 推到未来、租约释放；退避期内再次 dispatch 为 0；到期后成功投递 |
+| 死信与重放 | 达到 `QIY_REALTIME_MAX_ATTEMPTS` 后 `deadLettered=1`、`deadLetters` 可列出、不再自动重试；`replay` 重置 attempts/清空死信并写入 `realtime.outbox.replayed` 审计，随后可投递 |
+| 历史清理 | `cleanupRealtimeOutbox` 只删除早于保留窗口的 delivered 行、保留近期行、写入 `realtime.outbox.cleaned` 审计；非法保留天数 fail-closed |
+| **并发领取**（PG/MySQL） | 两个 worker 并发只投递一次（`delivered` 合计 1、publish 一次） |
+
+实跑结果：SQLite `5 pass / 41 断言`、exit 0（证据目录 `%TEMP%/qiy-realtime-outbox-sqlite-B3myzb`）；PostgreSQL 16 `6 pass / 44 断言`、exit 0（`%TEMP%/qiy-realtime-outbox-postgresql-TCaTke`）。MySQL 的最终 exit 0 重跑被**本机 Docker Desktop 引擎停止**阻断（`docker ps` 已无法连接 named pipe，多轮轮询未恢复），因此本轮不宣称 MySQL 通过。
+
+**本轮发现并修复了三个真实缺陷**：
+
+1. **Realtime 能力数组为空时生成的 Server 无法编译**：两个能力数组用 `JSON.stringify(...)` + `as const` 生成，模型没有 Dataflow `emit` 时得到 `[] as const` → `readonly never[]`，`subscription.roles`/`.event` 报 TS2339，**任何"有 Realtime、无 emit"的应用都无法通过 `tsc`**。现改为显式元素类型 `readonly QiyRealtimeSubscription[]`，并在根仓新增"空能力列表仍带类型"的回归测试。
+2. **MySQL `datetime` 丢毫秒导致刚入队事件被跳过**：生成的 MySQL 时间列为 `datetime`（无小数秒），MySQL 对小数秒**四舍五入**，`availableAt = now` 的行会被推到未来，worker 当轮领取不到。已在实体 DateTime、Realtime Outbox、Dataflow Outbox 三处统一改为 `datetime(..., { fsp: 3 })`，与 SQLite `timestamp_ms`、PostgreSQL 微秒、JS `Date` 对齐。这是**生成 schema 变更**，已有 MySQL 项目需重新生成并执行 migration。修复后 MySQL 侧 6 项断言全部通过（44 断言），仅因下述收尾缺陷使整轮 exit 1。
+3. **验收用例收尾用错关闭方法**：`afterAll` 对所有方言都调用 `client.close()`，而 MySQL 客户端是连接池、只有 `end()`，导致断言全绿却整轮失败。已改为按可用方法关闭；SQLite 复跑确认修复正确（5 pass/41 断言/exit 0）。
+
+根仓 209 项测试/2357 断言/0 失败（`tests/realtime-qiy.test.ts` 新增空能力类型回归，`tests/database-ir.test.ts` 与 `tests/generate-server.test.ts` 更新 MySQL 精度断言），`bun run check`、文档站构建、模板与 Skill 快照幂等、`git diff --check` 通过；`docs/dsl/realtime.md` 新增"投递存储的真实数据库验收"与 MySQL 精度说明。
+
+本轮边界，不计入已完成：**MySQL 的最终 exit 0 重跑待 Docker 引擎恢复后执行**（断言级别已通过）；SQLite 定位单进程、不验证并发领取；真实 Ably tenant、浏览器断线重连、多副本部署、GraphQL Subscription、页面自定义 channel 与订阅权限表达式仍未验收。V3 保持未完成。
+
+## S3 真实 bucket 验收与自举环境（2026-10-17）
+
+上一轮把 S3 的 `list()` 分页实现与孤儿扫描标为"未对真实 bucket 验收"。本轮补齐，并把环境准备也做成可复现的：
+
+- `tools/verify-s3-storage.ts`：适配器验收新增 **`list()` 断言**（上传后必须枚举到该对象、删除后必须不再枚举到），并保留既有的上传/exists/读取/签名下载/删除。
+- `tools/s3-api-acceptance.ts`：在真实 bucket + database 元数据下新增孤儿扫描断言——API 上传两个对象后 `list()` 同时包含两者；删除其中一个的附件记录制造孤儿；预演 `orphans` 含该 key 且对象仍在、`missingObjects` 为 0；`--apply` 后该对象消失而**被引用对象保留**；反向插入指向不存在对象的记录后 `missingObjects: 1` 且该 key **不**进 `orphans`。
+- `tools/verify-s3-acceptance.ts`（新增）：从本机已有的 `minio/minio` 镜像启动本地 MinIO，**在数据卷里预建 bucket 目录**（MinIO 会把已存在的目录当作 bucket，因此不需要 `mc` 或管理员凭据），轮询就绪后依次运行上面两条验收，最后删除容器与临时目录；已设置 `QIY_S3_ENDPOINT` 时改为复用现有 bucket，`QIY_S3_KEEP=1` 保留目录复核。
+
+实跑结果：`bun tools/verify-s3-acceptance.ts` 退出 0，适配器段两次输出 `upload, exists, read, list, signed download and delete passed`，`--api` 段在真实 MinIO bucket 上 `1 pass, 0 fail`，容器与临时目录已清理。
+
+**本轮修掉了两个既有的陈旧验收缺陷**（都属于"测试与当前实现/依赖版本已经脱节"）：
+
+1. `s3-api-acceptance` 的请求只带 `?key=`，而上传路由要求 `resource` 与 `field` 查询参数，Elysia 会先以 **422** 拒绝，**根本走不到授权判断**——该断言 `403` 在当前固定的 Elysia 1.4.30 下不可能成立。已补齐必填查询参数，使断言真正检验角色拒绝。
+2. 该验收使用的模型 `entity files { id; title }` **没有 `File` 字段**，因此 `uploadPolicies` 为空，owner 上传只会得到 400"Unknown file field"，后续断言无法成立。已把模型改为带 `File` 字段的 `documents`。
+
+根仓 208 项测试/2350 断言/0 失败，`bun run check`、文档站构建、模板与 Skill 快照幂等通过；`docs/guide/storage.md` 补充 `list()`、真实 bucket 孤儿验收与自举命令。
+
+本轮边界，不计入已完成：MinIO 是 S3 兼容实现，**不等于 AWS S3**（IAM 策略、bucket policy、KMS、版本化、跨区域复制与 multipart 残留分片均未覆盖）；`list()` 的 20×1000 分页上限未在超过 1000 个对象的 bucket 上压测；**多文件上传、GraphQL multipart、分片/断点续传仍未实现**；真实 IdP 租户、浏览器端回归与多平台发布资产仍未验收。V3 保持未完成。
+
+## 附件孤儿对象扫描（2026-10-17）
+
+用户列出的上传缺口里，"孤儿清理"此前只有**一个方向**：`attachments:cleanup` 删除"有元数据但没有对象"的记录，而**存储里有对象、数据库里没有记录**的孤儿从未被扫描——元数据写入失败、绕过 API 手工删记录、迁移或恢复遗留都会产生这类对象，既占存储费用也可能成为无人管理的可读数据。模板里也明确写着"Object-store orphan scanning is not automatic"。
+
+本轮补齐反方向扫描：
+
+- `StorageProvider` 接口新增 `list()`：`local` 递归遍历存储目录并以 `/` 归一化 key；`s3` 走 `ListObjectsV2` 并**分页上限 20×1000 个 key**，避免误配置 bucket 导致无界扫描。
+- 新增 `scanOrphanAttachmentObjects({ dryRun, limit })`（与既有 `cleanupMissingAttachmentObjects` 并列导出）：读取全部附件元数据 key 与全部对象 key，返回 `{ objects, metadata, orphans, missingObjects, removed, dryRun, truncated }`。`orphans` 是无可记录对象，`missingObjects` 反向统计但仍由 `attachments:cleanup` 负责，两条命令各管一个方向，不互相掩盖。
+- 新增 CLI `api/src/storage/orphans.ts` 与脚本 `attachments:orphans`：**默认只预演**，只有 `--apply` 才删除，且只删除 `orphans` 名单；`--limit`/`QIY_ATTACHMENT_ORPHAN_LIMIT`（默认 1000，上限 10000）限制单次处理量，超出时打印 `truncated` 提示再次运行；缺少 database 元数据配置时 fail-closed 退出 1。
+- 文档明确：删除对象不可撤销，S3 上还会产生删除费用；已签发的签名 URL 在有效期内不因删除记录而失效。
+
+验收由 `tools/verify-orphan-cleanup.ts` 完成：生成带 `File` 字段的应用，**真实 HTTP 上传两个对象**，删掉其中一个的附件记录制造孤儿，然后断言：预演报告 `orphans: ["stranded/two.pdf"]` 且 `removed: 0`、对象仍在磁盘上；`--apply` 后 `removed: 1`、该对象消失而**仍被引用的对象保留**；再次扫描 `orphans: []`；插入一条指向不存在对象的元数据后 `missingObjects: 1` 且 `orphans: []`，随后 `cleanupMissingAttachmentObjects({dryRun:false})` 删除该记录。生成包 `typecheck` 与 CLI 预演（输出 `"orphans":[]`）一并通过。证据目录 `%TEMP%/qiy-orphans-b4NPfL`（保留供复核）。
+
+根仓 207 项测试/2335+ 断言/0 失败（`tests/file-upload-policy.test.ts` 新增孤儿扫描契约断言：两个 provider 的 `list()`、默认预演、双向统计与 `attachments:orphans` 脚本），`bun run check`、文档站构建、模板与 Skill 快照幂等通过；`docs/guide/storage.md` 新增"孤儿对象扫描"。
+
+本轮边界，不计入已完成：验收只用 `local` provider，**S3 的 `list()` 分页实现未对真实 bucket 验收**（需配合 `verify-s3-storage.ts` 的 bucket）；孤儿扫描不处理版本化 bucket 的历史版本与 multipart 残留分片；`attachments:cleanup` 的定时任务仍只覆盖单向；**多文件上传、GraphQL multipart、分片/断点续传仍未实现**（`@maxFiles` 仍限定为 1，多文件需要独立的 `Files` 字段类型，属刻意的设计取舍）。V3 保持未完成。
+
+## 逻辑备份、受保护恢复与保留期（2026-10-17）
+
+P0"数据库运维"的最后一块：此前生成的包**没有任何备份/恢复能力**，也没有保留期策略。本轮新增不依赖外部客户端的逻辑备份（`api/src/backup-codec.ts` + `api/src/schema-tables.ts` + `api/src/db-backup.ts` + `api/src/db-restore.ts` + `api/tests/backup-codec.test.ts`）：
+
+- **`db:backup`**：按外键依赖顺序导出每张表到单个 JSON 文件（默认 `backups/qiy-<时间戳>.json`，`--out-dir`/`--out` 可覆盖），打印逐表行数与总量；随后按 `QIY_BACKUP_RETENTION`（默认 7，`0` 表示不清理，**非法值 fail-closed**）保留最新若干份并删除其余，报告删除数量。
+- **`db:restore`**：必须同时给出 `--file` 与 `--confirm`；备份的 `dialect` 与当前项目不符、或备份的表集合与 `src/schema.ts` 不符（缺表/多表）都拒绝执行；恢复在单事务内先按依赖**倒序清空**、再按依赖**正序插入**，失败整体回滚，因此是替换而非追加。
+- **无损编解码**：`Date`、二进制列、bigint 打 `$qiy` 标记往返；`api/tests/backup-codec.test.ts` 用纯函数覆盖（不依赖数据库）。
+- `backups/` 已加入生成包 `.gitignore`（备份含生产数据）。
+
+验收由 `tools/verify-backup-restore.ts` 完成，覆盖真实 SQLite、PostgreSQL 16 与 MySQL 8.4（PG/MySQL 用随机隔离库并在 `finally` 删除）：
+
+| 步骤 | 期望 |
+| --- | --- |
+| 迁移 + 生成包 `typecheck` + codec 单测 | 全部通过 |
+| 写入 owners/orders 各 1 行（含 Decimal 与 DateTime）后 `db:backup` | 报告文件路径与逐表行数 |
+| 清空数据后 `db:restore` | 两行回来，`email`/`reference` 一致，Decimal 数值一致，DateTime **仍是 Date 且毫秒一致** |
+| 改字段值后再恢复 | 变回备份值（替换而非追加） |
+| `db:restore` 缺 `--confirm` / 缺 `--file` | 分别退出 1 并给出明确提示 |
+| 连续备份 + `QIY_BACKUP_RETENTION=2` | 目录中只剩 2 份；`--retention -1` 退出 1 |
+
+三方言全部通过。证据目录：SQLite `%TEMP%/qiy-backup-sqlite-jxASsO`、PostgreSQL `%TEMP%/qiy-backup-postgresql-l51FZ7`、MySQL `%TEMP%/qiy-backup-mysql-9SuIo3`（保留供复核）。
+
+**真实环境验收抓到一个只有真实外键约束才会暴露的缺陷**：写序最初按**表名字符串**匹配外键目标（读 `foreignTable._.name`），在 PostgreSQL/MySQL 上匹配不到，于是 `orders` 先于 `owners` 写入，恢复时报 `violates foreign key constraint`。SQLite 因为 `PRAGMA foreign_keys` 默认关闭而**掩盖**了这个问题——只跑 SQLite 会误判为通过。修复为按**表对象身份**（`key.reference().foreignTable` 与枚举到的表对象 `===` 比较）构建依赖图，并在根仓测试中断言该身份比较与环形外键的 fail-closed 报错。
+
+根仓 206 项测试/2277+ 断言/0 失败（`tests/generate-server.test.ts` 新增三方言备份/恢复契约断言，`tests/erp-project.test.ts` 断言 `db:backup`/`db:restore` 脚本与 `.gitignore`），`bun run check`、文档站构建、模板与 Skill 快照幂等通过；`docs/guide/deployment.md` 新增"逻辑备份与恢复"（含适用边界）。
+
+本轮边界，不计入已完成：这是**逻辑**备份，按行导出、逐行插入，适合中小数据量与迁移前还原点，**不适合作大库或灾备**，也不含 DDL（结构由迁移管理）；未实现增量/差异备份、加密、远端对象存储上传与恢复演练自动化；**没有审计数据归档/清理策略**（"retention/archival" 只做了备份文件保留期）；环形外键图明确不支持。V3 保持未完成。
+
+## 迁移并发保护、迁移后校验与受审查回滚（2026-10-17）
+
+上一轮的 `db:check` 让漂移可见，但**迁移本身**仍不安全、也不可回退：`db:migrate` 直接调用 Drizzle CLI（SQLite 用单独脚本），既没有多副本并发保护，也不校验"迁移跑完"是否等于"结构与代码一致"；而回滚完全没有机制。
+
+本轮把 `db:migrate` / `db:migrate:production` 改为生成的 `src/db-migrate.ts`（三方言统一），并新增 `src/db-rollback.ts`：
+
+- **并发保护**：PostgreSQL 用专用单连接会话（`new SQL(url, { max: 1 })`）持有 `pg_advisory_lock(4815162342)`；MySQL 用专用池连接执行 `GET_LOCK('qiy_migrate', 60)`（取不到锁即失败）；SQLite 是单写者文件库，无跨进程锁，脚本打印"只让一个进程执行迁移"的提示。
+- **迁移后校验**：迁移完成后立刻用与 `db:check` 相同的 `compareSchema(expectedTables(), await introspect())` 校验实际结构；不一致时退出码 1 并打印 `drift: ...`，覆盖"SQL 被手工改过/只应用了一部分/数据库比代码新"等情况。
+- **受审查回滚**：`db:rollback` 不加 `--confirm` 直接拒绝；最新已应用迁移缺少 `drizzle/down/<tag>.sql` 时拒绝并打印**需要创建的完整路径**；逆向 SQL 在单事务内执行并删除该迁移记录行，任一步失败整体回滚。Qiy 不猜测逆向 SQL（数据破坏性变更无法安全自动推导），只提供机制与安全约束。
+
+验收由 `tools/verify-migration-ops.ts` 完成，覆盖真实 SQLite、PostgreSQL 16 与 MySQL 8.4（PG/MySQL 用随机隔离库并在 `finally` 删除）：
+
+| 步骤 | 期望 |
+| --- | --- |
+| 两个并发的 `db:migrate`（PG/MySQL） | 都退出 0，都打印 `database matches src/schema.ts`，都取得锁，迁移记录**恰好 1 行** |
+| 单独一次 `db:migrate`（SQLite） | 退出 0 并打印无跨进程锁的提示 |
+| 无 `--confirm` 的 `db:rollback` | 退出 1 并要求确认 |
+| 有 `--confirm` 但缺少逆向 SQL | 退出 1 并打印 `drizzle/down/<tag>.sql` 的完整路径 |
+| 写好逆向 SQL 后回滚 | 退出 0，报告已回滚的 tag，迁移记录归 0，`orders` 表被删除 |
+
+三方言全部通过，且生成包的 server `typecheck` 与 `bun install` 在各自验收中通过。证据目录：SQLite `%TEMP%/qiy-migration-ops-sqlite-oLtHtu`、PostgreSQL `%TEMP%/qiy-migration-ops-postgresql-O9KoLm`、MySQL `%TEMP%/qiy-migration-ops-mysql-EeKmHc`（保留供复核）。
+
+**真实环境验收抓到两个只有实跑才会暴露的缺陷**：
+
+1. **MySQL 生成代码无法通过 typecheck**：`src/db-migrate.ts` 只有 SQLite 分支导入 `client`，MySQL 分支却要用它取专用连接与关闭连接池，`tsc` 报 TS2304。已改为 PG 之外都导入 `client`。
+2. **SQLite 回滚删不掉迁移记录**：Drizzle 的 SQLite migrator 建表语句是 `id SERIAL PRIMARY KEY`，而 SQLite 不把 `SERIAL` 当 rowid 别名，插入行的 `id` 为 `NULL`，因此 `where id = (select max(id) ...)` 永远匹配不到。已改为按 `rowid` 删除。该缺陷只能在真实 SQLite 上跑回滚才会暴露。
+
+根仓 205 项测试/2242+ 断言/0 失败（`tests/generate-server.test.ts` 新增三方言迁移/回滚契约断言，`tests/erp-project.test.ts` 改为断言新的单一路径 `src/db-migrate.ts` 且旧 `src/migrate.ts` 不再生成），`bun run check`、文档站构建、模板与 Skill 快照幂等通过；`docs/guide/deployment.md` 新增"迁移、并发与回滚"。
+
+本轮边界，不计入已完成：**没有自动生成逆向 SQL**（需人工编写并审查，这是刻意的安全取舍）；**没有备份/恢复与保留期/归档**；`db:check` 仍只比结构（不比默认值、索引、外键、字符集）；SQLite 无跨进程迁移锁；未在真实多副本 K8s 上验证滚动升级期间的迁移时序。V3 保持未完成。
+
+## 数据库漂移检查 db:check（2026-10-17）
+
+P0 的"数据库运维"此前完全没有落地：生成包只有 `db:generate`/`db:migrate`，**没有任何手段判断线上数据库是否与当前代码的 `src/schema.ts` 一致**，也没有可见的"迁移是否落后"。本轮新增生成包 `db:check`（`api/src/db-check.ts` + `api/src/schema-drift.ts` + `api/tests/schema-drift.test.ts`）：
+
+- 用 Drizzle 的 `isTable` + `getTableConfig` 从 `src/schema.ts` 推导期望结构（表、列、可空性、主键、类型类别），因此期望值随模型自动更新，不需要手工维护第二份 schema 描述。
+- 三方言分别内省：PostgreSQL 走 `information_schema.columns` + `table_constraints/key_column_usage`，MySQL 走 `information_schema.columns`，SQLite 走 `sqlite_master` + `pragma table_info`。
+- 对比规则：缺失表/缺失列/可空性/主键不一致为**错误**；多余列与多余表为**警告**；类型只在双方都能确定映射时比较，无法确定的列进 `unverified` 而**不误报**；已知存储等价（SQLite 类型亲和性把 boolean/bigint/timestamp/date/time 归入 integer、json 归入 text、vector 归入 binary；MySQL `tinyint(1)` 与整数互认）被显式容忍。
+- 迁移账本：`journal` 取 `drizzle/meta/_journal.json` 条目数，`applied` 取数据库迁移记录表行数（**表不存在按 0 计**，而不是"未知"，这样未迁移的库会明确报 pending）；`applied < journal` 报错，`applied > journal` 只警告。
+- 退出码 0/1，逐条打印 `drift: <表>.<列>: ...`，只读结构、不改数据。已加入 server `package.json` 的 `db:check`。
+
+验收由 `tools/verify-db-check.ts` 完成，覆盖真实 SQLite、PostgreSQL 16 与 MySQL 8.4（PostgreSQL/MySQL 使用随机隔离数据库并在 `finally` 删除）：
+
+| 步骤 | 期望 |
+| --- | --- |
+| 迁移后的库 | `db:check` 退出 0，`0 error(s), 0 warning(s)` |
+| `rename column reference to reference_old` | 退出 1，且同时报 `drift: orders.reference: missing column` 与多余的列警告 |
+| 改回列名 | 再次退出 0 |
+| 指向未迁移的空库 | 退出 1，报 3 张缺失表 + `pending migrations: 1 of 1 not applied` |
+
+三方言均通过，且生成包的 `tests/schema-drift.test.ts`（3 场景）、server `typecheck` 与 `bun install` 在各自验收中通过。证据目录：SQLite `%TEMP%/qiy-db-check-sqlite-Z3grSz`、PostgreSQL `%TEMP%/qiy-db-check-postgresql-5C3XXR`、MySQL `%TEMP%/qiy-db-check-mysql-Bwl4Vk`（保留供复核）。
+
+**真实环境验收抓到一个只有 MySQL 才会暴露的缺陷**：MySQL 8 的 `information_schema` **列名以大写返回**（`TABLE_NAME`/`COLUMN_NAME`/…），生成的内省代码按小写读取，导致所有列名读到 `undefined`、把整库误报为"缺表"。修复方式是在 SQL 里显式别名成小写（`table_name as tbl` 等），并在根仓 `tests/generate-server.test.ts` 增加断言锁住该别名。同一轮还修掉了"未迁移库把 applied 记为 unknown 而不报 pending"的行为。PG/SQLite 分支在首次运行时即通过，证明问题确实只在 MySQL 大小写差异上。
+
+根仓 204 项测试/2190+ 断言/0 失败（`tests/generate-server.test.ts` 13 项/200 断言，新增三方言 drift 契约断言），`bun run check`、文档站构建、模板与 Skill 快照幂等通过；`docs/guide/deployment.md` 新增"数据库漂移检查"。
+
+本轮边界，不计入已完成：`db:check` 只做**结构**对比，不比默认值、索引/唯一约束、外键、字符集与排序规则，也不检查数据内容；**没有实现迁移回滚**（Drizzle 不提供 down migration，Qiy 也未生成逆迁移），也**没有备份/恢复与保留期/归档**；未接真实 K8s/发布流水线。V3 保持未完成。
+
+## 页面级权限：路由守卫（2026-10-17）
+
+权限数据范围此前只覆盖到"记录级 + 字段脱敏 + 角色"，**页面级**一直缺一个执行点：生成的资源页面（list/create/edit/show）只有按钮和菜单受 `AccessControlProvider` 约束，直接输入 `/:resource/new` 或 `/:resource/:id/edit` 仍会渲染表单页——典型的"按钮藏了但 URL 能开"。
+
+本轮把每个资源页面包进按页面动作判定的路由守卫：`routes.ts` 改为 `layout("./routes/guard-{list,create,show,edit}.tsx", [route(...)])`，四个薄布局模块统一调用 `app/components/resource-page-guard.tsx` 中的 `ResourcePageGuard`，用 Refine `CanAccess` 对 `list`/`create`/`show`/`edit` 判定，拒绝时渲染 403 `Result` 并**不渲染页面、不发起该页数据请求**；资源参数无法解析时退回 `<Outlet />`，避免把用户困在 403。菜单、按钮与页面直达因此共用同一份判定。判定来源：生成认证时是角色策略（并与 `restrict <resource> { allow roles ... }` 合并），`mode integration` 时委托宿主 `window.qiyHostAuth.can`，未声明认证的应用不生成守卫；`mode integration` 的只读裁剪同时移除 create/edit 两条守卫与模块。
+
+验收由 `tools/verify-page-permission.ts` 完成：生成带本地认证与 `restrict orders {...}` 的 admin，`bun install` 后运行**生成包 Web 全量测试**、真实 Web `typecheck`（React Router typegen + `tsc --noEmit`）与生产 SPA `build`，全部退出 0（生成包 Web 测试 14 场景/61 断言；生产构建 4646 模块）。证据目录 `%TEMP%/qiy-page-permission-gHE5Nr`（保留供复核）。
+
+**该验收（连同生成包全量测试）抓到两个真实的生成器缺陷**，都属于"生成器自己产出的测试已经过时/错误"，此前只跑单文件测试才一直没暴露：
+
+1. `web/tests/data-provider.test.ts` 仍断言**旧的过滤器编码** `{"status":"approved"}`，而高级过滤器特性早已改为结构化数组 `[{field,operator,value}]` —— 任何生成项目的 Web 测试套件在整包运行时都会失败。已更新为结构化断言。
+2. 本轮新增的页面动作测试在登录态被上一个用例 `logout` 清空后直接断言 `can === true`，导致误报；已先写入 token 再断言，并保留"未登录时全部拒绝"的断言。
+
+根仓 203 项测试/2176+ 断言/0 失败（`tests/auth-providers.test.ts` 12 项/323 断言，新增页面守卫断言），`bun run check`、文档站构建、模板与 Skill 快照幂等通过；`docs/guide/auth.md` 新增"页面级权限"。
+
+本轮边界，不计入已完成：守卫只决定**界面**是否渲染，服务端仍是最终授权方（数据范围与写入由 `restrict`/`scope`、Dataflow 角色或宿主后端执行）；未做浏览器端真实导航回归（本轮是生成包测试 + typecheck + build），也未实现页面级"字段级布局/区块"权限或组织层级。V3 保持未完成。
+
+## OIDC 浏览器会话有效期与静默续期（2026-10-17）
+
+此前生成的 OIDC Web 客户端完全不处理 token 生命周期：登录回调忽略 `expires_in`，`qiyAuthProvider.check` 只判断 `localStorage` 里有没有 token，因此 access token 一过期，界面仍显示为已登录，直到第一个 API 调用返回 401 才被登出重定向——**每次 token 过期都等于强制重新登录**，且期间页面是坏的。
+
+本轮补齐会话生命周期：
+
+- 回调把 `expires_in` 换算为 `qiy.expires_at` 持久化；IdP 未返回该字段时视为"有效期未知"，行为与旧版本一致（不误判过期）。
+- 新增 `oidcSession()`（读取 token/到期时间，支持注入时钟与 skew）、`clearOidcSession()`、`beginOidcSilentRenew()`、`consumeSilentAttempt()`、`isSilentRenewFailure()`。
+- `check()` 在剩余有效期不足 60 秒时判定为未认证并跳转 `/auth/login`；该页先尝试 **`prompt=none` 静默续期**（Authorization Code + PKCE，依赖 IdP 会话 Cookie），并用 `sessionStorage` 标记保证**每个重定向周期只尝试一次**，失败才显示常规登录按钮。
+- 回调页把 `login_required`/`interaction_required`/`consent_required`/`account_selection_required` 识别为"需要交互"，转到登录页而不是抛错；401 时先清除本地会话再跳转。
+
+验收由 `tools/verify-oidc-session.ts` 完成：生成 OIDC admin 后 `bun install`，运行生成包 Web 测试、真实 Web `typecheck`（React Router typegen + `tsc --noEmit`）与生产 SPA `build`，全部退出 0。生成包 Web 测试 6 场景/31 断言覆盖：PKCE 请求不带 client secret 且 `prompt` 只在静默续期时出现、state 不匹配 fail-closed、`expires_in` 换算与 60 秒 skew 判定、无 `expires_in` 时视为可用、无 token 时视为过期、`clearOidcSession` 清理、以及 `prompt=none` 续期 URL + 每周期只尝试一次 + 拒绝原因识别。证据目录 `%TEMP%/qiy-oidc-session-eJNbGz`（保留供复核）。
+
+**该验收抓到两个真实生成缺陷**（都不是靠单元测试发现的，而是靠真实 typecheck）：
+
+1. 生成的 `auth-callback.tsx` 中我把 `//` 行注释写在语句中间，导致该行后续代码（含闭合花括号）被注释掉，`tsc` 报 `TS1005`；已改为块注释。
+2. 生成的 `oidc-client.test.ts` 里零参数 `async () => Response.json(...)` 强转 `typeof fetch` 触发 `TS2352`；已补上匹配的参数签名。
+
+根仓 203 项测试/2033+ 断言/0 失败（`tests/auth-providers.test.ts` 11 项/309 断言，新增会话生命周期与"不得出现 refresh_token"断言），`bun run check`、文档站构建、模板与 Skill 快照幂等通过；`docs/guide/auth.md` 新增"会话有效期与静默续期"。
+
+本轮边界，不计入已完成：**未实现 refresh token 或 refresh cookie 续期**——不在浏览器存储中长期保存 refresh token（放大 XSS 影响），也没有 BFF 持有 refresh cookie；因此静默续期依赖 IdP 会话 Cookie 且要求 `prompt=none` 被允许，第三方 Cookie 被阻断或需要 iframe 的场景尚未覆盖。未接真实 Okta/Auth0/Azure AD B2C/Keycloak/Google/Kinde 租户，也未做浏览器端真实交互回归（本轮是生成包 Web 测试 + typecheck + build，不是浏览器验收）。V3 保持未完成。
+
+## OIDC 远程 JWKS 轮换与撤销边界（2026-10-17）
+
+生成的 OIDC 验签使用 `jose` 的 `createRemoteJWKSet`，但此前用默认参数创建：对外请求超时固定 5 秒、未知 `kid` 的冷却固定 30 秒、**密钥缓存固定 10 分钟**，三项都不可按 IdP 调整。本轮把这三个窗口变为可配置并在启动时 fail-closed 校验（`QIY_OIDC_JWKS_TIMEOUT_MS` 默认 5000/最小 1、`QIY_OIDC_JWKS_COOLDOWN_MS` 默认 30000/最小 0、`QIY_OIDC_JWKS_CACHE_MAX_AGE_MS` 默认 600000/最小 1；非整数或越界直接拒绝启动），三方言 env 文件同步新增这三项。
+
+验收由 `tools/verify-oidc-rotation.ts` 完成：生成 OIDC admin，用 `alpine:3` 与 openssl 现场签发 `localhost` 证书，在 `NODE_EXTRA_CA_CERTS` 下让**同一个 authenticator 实例**持续服务一个真实 HTTPS IdP，由 IdP 按需发布不同密钥集合（5 场景/26 断言，随后 server `tsc --noEmit` 通过）：
+
+- **新密钥无需重启即可生效**：IdP 只发布 `key-1` 时 `key-1` 令牌 200、未发布的 `key-2` 令牌 401；随后进入宽限期发布 `key-1`+`key-2`，`key-2` 令牌触发重新获取并 200（进程未重启）。
+- **缓存不会逐请求重取**：连续 5 次有效请求后 JWKS 获取次数不变。
+- **撤销延迟上界 = 缓存有效期**：IdP 退役 `key-1` 后，缓存未过期时 `key-1` 令牌仍返回 200；缓存过期（本次 1200ms）后下一次验证重新获取，`key-1` 变为 401 而 `key-2` 仍 200。这确认了"已缓存密钥在缓存过期前仍验签通过"是实现的既有语义，也说明该配置值同时决定轮换宽限期与撤销延迟的取舍——原先该值硬编码为 10 分钟且无法调整。
+- **算法与来源约束**：`alg: none` 空签名、RS256→HS256 混淆（用公开 JWK 材料作 HMAC 密钥）、外部私钥签发的同 `kid` 令牌、错误 issuer、错误 audience 全部 401。
+- **JWKS 请求有界**：IdP 挂起 JWKS 时按配置的 400ms 超时中止，请求在 3 秒内以 401 结束，不会挂住登录链路。
+
+证据目录 `%TEMP%/qiy-oidc-rotation-QKSAlB`（保留供复核）。原有的 `qiy-oidc` 容器夹具已不可复现——它启动时引用的 `tools/docker-oidc-fixture.ts` 在仓库中已不存在，因此本轮验收改为自建可复现的本地 HTTPS IdP，不依赖该容器；`tools/verify-oidc-docker.ts` 的 docker 路径本轮未重跑。
+
+根仓 203 项测试/1988 断言/0 失败（`tests/auth-providers.test.ts` 11 项/174 断言，新增 JWKS 三项配置与 env 断言），`bun run check`、文档站构建、模板与 Skill 快照幂等通过；`docs/guide/auth.md`（含轮换操作建议）与 `docs/dsl/application.md` 已同步。
+
+本轮边界，不计入已完成：仅验证了验签侧行为，未接真实 Okta/Auth0/Azure AD B2C/Keycloak/Google/Kinde 租户或浏览器 PKCE 回归；**refresh cookie / 会话续期仍未实现**（access token 过期后需重新登录）；`tools/verify-oidc-docker.ts` 的 docker 夹具路径与五平台发布资产业未重新执行。V3 保持未完成。
+
+## OTP 发送适配器验收与边界（2026-10-17）
+
+OTP 的 `deliver()` 是认证链路里唯一通向外部供应商的边界，此前**没有任何测试覆盖**：既有生成包测试通过参数注入了自定义 sender，因此 HTTPS 校验、凭据、载荷形状、超时与供应商失败后的行为都未被验证。本轮补齐并加固了该边界：
+
+- 投递改为带 `AbortSignal.timeout`（`QIY_OTP_DELIVERY_TIMEOUT_MS`，默认 10000，允许 100–60000，非法值 fail-closed），供应商无响应不再挂住登录请求。
+- 投递失败返回 **502** 与稳定 `errorKey: "auth.otpDeliveryFailed"`，并且**不再签发 challenge**——修复了原先“供应商拒绝但客户端已拿到 challenge”的不一致状态；验证码不写入日志或响应体，服务端只记录适配器错误。
+- 非 HTTPS 地址、缺失 `QIY_OTP_DELIVERY_URL`（非显式开发模式）、非法超时值统一按投递失败处理。
+- 未知登录标识仍返回结构相同的 200 + challenge 且不触达供应商，`verify` 为 401，保持账号枚举一致性。
+
+验收由 `tools/verify-otp-delivery.ts` 完成：生成 OTP admin、用 `alpine:3` 与 openssl 现场签发 `localhost` 证书，然后在设置了 `NODE_EXTRA_CA_CERTS` 的测试进程中对着**真实 HTTPS 投递服务**跑生产路由（4 场景/37 断言）：验证码为 6 位数字、载荷 `recipient/code/expiresIn=300` 与 `Authorization: Bearer` 凭据正确、生产响应体不含验证码、正确验证码换发 access token、错误码与篡改 challenge 为 401；供应商 500 与 5 秒挂起（配置 300ms 超时）都在 4 秒内返回 502 且无 challenge；`http://` 地址、非法超时、缺失地址均 502；开发模式只在显式 `QIY_OTP_DEV_CODE` 下跳过供应商并回显 devCode。随后该生成包通过 server `tsc --noEmit`。证据目录 `%TEMP%/qiy-otp-delivery-ptuKOd`（保留供复核）。
+
+该验收同时暴露并修复了一个**生成器缺陷**：local 与 OTP 认证生成器硬编码 `row.displayName ?? row.email ?? row.id`，当用户实体没有 `displayName`/`email` 字段时生成的 server 无法通过 `tsc`。现在改为按实体实际声明的字段构造显示名表达式，`tests/auth-providers.test.ts` 增加了对应回归断言。
+
+根仓 203 项测试/1978 断言/0 失败（`tests/auth-providers.test.ts` 11 项/129 断言），`bun run check`、文档站构建、模板与 Skill 快照幂等通过；`docs/guide/auth.md` 与 `docs/dsl/application.md` 已同步。
+
+本轮边界，不计入已完成：**未实现按登录标识或来源 IP 的频率限制**，**challenge 也不是一次性使用**——一次成功验证后，同一 challenge 在 5 分钟有效期内仍可重复换取 access token。公网部署必须在发送适配器或前置网关上补充限流，并按需自行持久化消费记录（文案已写入用户文档）。真实短信/邮件供应商、供应商侧限流与回执、以及 OIDC 侧的 JWKS 轮换/refresh cookie 仍未验收。V3 保持未完成。
+
+## 外部宿主 API 契约（2026-10-17）
+
+`mode integration` 的 `integration` 块原先只能声明 `apiBase` 与认证传输，生成的 `app/host/data-provider.ts` 里 `getList`/`getOne`/`create`/`update`/`deleteOne` 全是抛错的占位实现，宿主必须从零手写整个 DataProvider；租户模型也无法声明。本轮补齐了这部分契约，使常规宿主 API 无需手写适配器即可接入：
+
+- `response { data "items"; total "meta.count"; error "message"; };` 声明响应 envelope 的点号路径。三者均可省略，默认 `data` 与 `error`、无 total。路径只接受普通键组成的点号路径，拒绝 JSONPath 之类的表达式；`response { }` 空块、重复键、未知键都在生成前拒绝。
+- `pagination page|offset|none;` 声明列表分页约定：`page`+`pageSize`、`offset`+`limit`，或完全不传。`page` 为默认值，未知样式在生成前拒绝。
+- `tenant { header "X-Tenant-Id"; identity "tenantId"; };` 声明租户转发：每个请求从 `window.qiyHostAuth.getIdentity()[identity]` 取值写入该请求头。缺少其中一项、请求头名不是简单 HTTP header、identity 键含非法字符、重复声明都在生成前拒绝。
+- 生成的 DataProvider 现在是可用基线：按 `apiBase` 与实体表名拼 URL，按 `response` 解包列表与总数（total 省略时用当页行数），按 `pagination` 传参，实现完整 CRUD。排序、过滤、嵌套资源、批量端点以及不同的 URL 布局仍留在未托管 `app/host/` 适配器里，`--sync` 不会覆盖宿主改动。租户值缺失、为空或非字符串时请求不会发出（fail-closed），宿主仍需在服务端校验租户归属。
+
+源码级验收由 `tools/verify-host-adapter.ts` 完成：向真实宿主工程挂载 integration admin，`bun install` 后运行一个对着**真实 Bun HTTP 服务**的适配器测试（自定义 `items`/`meta.count` envelope、`offset`/`limit` 分页、必需租户请求头、Bearer）、宿主 403 的 `statusCode` 与 `message` 透传、以及 `apiBase` 外与路径穿越请求的拒绝；随后通过 Web 包的 `typecheck`（React Router typegen + `tsc --noEmit`，即真实 Refine 类型）与生产 `build`。证据目录 `qiy-host-adapter-bJjxKR`。根仓新增 `tests/host-adapter.test.ts` 覆盖解析/序列化往返、11 项负例、生成源码契约与生成适配器在 stub fetch 下的运行时行为（共 3 场景/49 断言）。
+
+根仓 203 项测试/1978 断言/0 失败，`bun run check`、文档站构建、`bun run template:build` 幂等通过；`docs/guide/existing-bun-project.md`、官方 Skill 与内嵌 Skill 快照已同步（JetBrains 插件未重新打包）。
+
+本轮边界，不计入已完成：Qiy 仍不实现宿主 JWT 签发/验证、刷新 Cookie、JWKS 或权限目录，这些继续由宿主提供；integration 仍只生成 list/show 页面与未托管扩展点；未做真实第三方宿主 API（Okta/Auth0/Keycloak 之外的私有网关）联调，也没有多租户切换或跨租户越权的真实服务端验收。V3 保持未完成。
+
+## 记录级条件与字段脱敏策略（2026-10-17）
+
+`.qiy` 新增 `restrict <resource> { ... }`，与既有单字段 `scope` 叠加而非替代。块内可声明 `allow roles`、`when <field> claim <claim>`、`when <field> ==|!=|in|notIn "..."` 与 `mask <field> [roles ...] [claim present|absent <claim>] mode omit|null|redact [replacement "..."]`。解析器、IR 与序列化往返一致；未知资源、重复块、主键或可空字段上的 claim 条件、Vector 掩码、未支持字段类型、`replace` 缺少 replacement、重复掩码、未声明角色以及 integration 模式配置都在生成前拒绝。
+
+行条件按 AND 组合并下推到 SQL `where`，不在客户端过滤：claim 条件缺失信息时请求 403（fail-closed，不静默返回空列表），字面量不匹配只是该行不可见。字段掩码在响应投影上执行，`omit` 删除键、`null` 返回 null、`redact` 返回固定替换值，按角色和 claim 状态生效。策略只从已认证 principal 推导，从不读取请求体。REST 与 GraphQL 共用同一 `resolvePolicy` 实现，GraphQL 不是旁路；被掩码字段的写入在 REST `onRequest` 与 GraphQL mutation 中都被拒绝（400 `policy.maskedField`），写入成功后还会在同一事务内用同一策略再查一次可见性，避免通过构造写入绕过记录条件。Dataflow 与 `orderInventory` 暂时无法应用同一行策略，一旦其上下文或 create 目标命中受 `restrict` 保护的资源，生成期直接拒绝，避免命令接口绕过记录范围。
+
+三方言实库验收由 `tools/verify-resource-policy.ts` 完成：以 `examples/resource-policy/app.qiy` 生成工作区，干净安装，`db:generate` + `db:migrate` 到独立数据库，Server `tsc --noEmit`，再运行策略探针（角色拒绝、缺失 claim 403、行条件过滤、跨租户列表为 0、他人记录读写返回 undefined、`redact`/`omit` 掩码生效、越权写入被回滚）。真实 SQLite、PostgreSQL 16 与 MySQL 8.4 各通过 1 场景/13 断言；PostgreSQL/MySQL 使用随机隔离数据库并在 `finally` 删除，不触碰既有业务库。证据目录分别为 `qiy-resource-policy-sqlite-QBDx1w`、`qiy-resource-policy-postgresql-FIJcq0`、`qiy-resource-policy-mysql-aFM0sT`。
+
+根仓 200 项测试/1929 断言/0 失败，`bun run check`、文档站构建与 `tests/qiy-syntax-assets.test.ts` 通过；`docs/dsl/application.md`、`docs/dsl/overview.md`、官方 Skill 与内嵌 Skill 快照、TextMate/VS Code 与 JetBrains keyword 表已同步（JetBrains 插件未重新打包）。
+
+本轮边界，不计入已完成：没有 OR 条件树、组织层级、页面级规则或通用策略表达式；掩码只约束 API 响应与写入，界面仍依赖服务端结果，不单独存储真实值；GraphQL 策略覆盖到生成源码契约与共享 `resolvePolicy`，尚未用 GraphQL 请求做运行时探针；`restrict` 与真实 IdP/租户 claim 签发、多副本一致性和审计联动仍未验收。V3 保持未完成。
+
 ## 真实浏览器 Action 验收（2026-10-12）
 
 后续修复：详情页业务 Action 成功后现在同时使包含 `audit` 的 Refine Query 失效，避免审计历史停留在 Action 执行前的缓存；列表批量 Action 也使用同一策略。`tests/action-qiy.test.ts` 与 `tests/refine-providers.test.ts` 已覆盖生成代码包含该刷新契约，专项 15 项/101 断言和 `bun run check` 通过。详情 Action 的独立浏览器执行已验证成功，审计记录刷新一致性修复后仍需在下一次完整浏览器回归中重新观察。
@@ -389,8 +1195,8 @@ Dataflow 输入写入（2026-10-11）：新增 `update connector { revokedReason
 下面项目用于回应“可生成 CRUD，但无法安全接入已有 Bun 单体、已有 API、既有 JWT/Cookie/SSO 与真实 ERP 流程”的边界。部分 P0/P1 已落地；每项均需按实际生成与验收范围理解，不能把 parser 或前端 build 误报为生产可用。
 
 1. **P0：生成器可信度与可复现性。** 已修复发布可执行文件的构建时版本注入，并新增 `qiy doctor`。manifest 已记录 schemaVersion/qiyVersion/projectName/mode，保留旧格式读取；release-smoke 工作流已加入发布资产版本与 create/install/typecheck/test/build 检查，以及 init/sync、离线 Skill、宿主文件保护与 Cookie/CSRF 运行测试。本地重新打包的 Windows exe 已通过 integration 黑盒验收，尚未执行远端已发布 Linux 资产工作流。不能以 Web build 成功替代全栈成功。
-2. **P0：既有系统集成模式（已实现 MVP）。** `mode integration` + `integration { apiBase; auth; }` 仅允许 `qiy init` 在既有 Bun workspace 生成 Web package。它默认只读（list/show），不生成 server、Drizzle、迁移、Docker 或第二套 auth。`app/host/{data-provider,auth,access-control}.ts` 不登记为 Qiy owned file，`--sync` 保留本地映射。真实 API contract、JWT/Cookie、refresh、CORS、权限与领域逻辑仍需宿主实现并测试。
-3. **P1：治理与认证传输。** 增加 resource/menu/action/field permission、确认/审计/幂等 action、Bearer 与 same-origin HttpOnly Cookie + CSRF + 外部门户三类认证传输 profile。Qiy 不自动猜测已有 API 的路径、响应 envelope、refresh cookie 或领域权限；这些必须在 host adapter 中显式映射并测试。
+2. **P0：既有系统集成模式（已实现 MVP + 声明式宿主契约）。** `mode integration` + `integration { apiBase; auth; response; pagination; tenant; }` 仅允许 `qiy init` 在既有 Bun workspace 生成 Web package。它默认只读（list/show），不生成 server、Drizzle、迁移、Docker 或第二套 auth。`app/host/{data-provider,auth,access-control}.ts` 不登记为 Qiy owned file，`--sync` 保留本地映射。响应 envelope、总数位置、分页约定与租户请求头已可由模型声明并生成可用的 CRUD 基线（见本页最新验收说明）；排序/过滤/嵌套资源/批量端点、JWT 与 refresh cookie 的签发验证、CORS、权限目录与领域逻辑仍需宿主实现并测试。
+3. **P1：治理与认证传输。** 增加 resource/menu/action/field permission、确认/审计/幂等 action、Bearer 与 same-origin HttpOnly Cookie + CSRF + 外部门户三类认证传输 profile。Qiy 已能按声明生成宿主 API 的响应 envelope、分页参数与租户请求头基线；refresh cookie、签名/JWKS 校验与领域权限仍必须在 host adapter 中显式映射并测试。
 4. **P1：Dataflow 业务命令 DSL（已实现受限子集）。** `.qiy` 支持 input/context/step/result、Text/enum require/update、Integer input 写入与业务比较、受控 create/delete、事务性 outbox `emit`、同步受控 `call`、可选 `audit "event";` 与 `idempotency required;`。standalone 同时生成 REST 与 GraphQL command；native/Yoga/Apollo 的 GraphQL resolver 委托同一 REST Dataflow 路由，不复制事务逻辑。命令按 `allow roles` 检查角色，并在回放前重新检查角色和 scope。SQLite、PostgreSQL/MySQL 的事务与故障注入范围见本页最新验收说明。流程 `@label/@confirm/@comment`、Action 继承、OpenAPI/GraphQL 描述、显式 action 幂等键、input comment 和 GraphQL status/errorKey 已完成。`call` 只允许生成的本地同步验证 adapter，不允许网络或不可逆副作用。未实现 allow permission、自定义角色、GraphQL subscription 或幂等回执清理；MPS Concept/TextGen 未对齐。
 5. **P1：业务 Action DSL（已实现 MVP）。** `action` 可显式绑定资源与 Dataflow 命令，生成 Refine 列表 actions 列和详情操作区；当前记录主键自动注入 Dataflow input，其他必填参数生成 Ant Design 弹窗，label/confirm 可使用 `t("key")`、继承 Dataflow 默认值或显式覆盖。`when` 已支持当前资源 Text/枚举字段的 `==`/`!=` 条件显示并对缺失字段 fail-closed。`navigate` + `page manual @comment(...)` 生成 React Router 路由、说明占位页和 `apps/web/app/extensions/` 手写扩展文件；create/init 的 sync 均不覆盖扩展。客户端只允许调用生成白名单中的命令，任意 command URL fail-closed；认证应用的 command action 已继承 Dataflow 角色白名单，导航 action 支持显式角色与直接访问页面的守卫。`batch true` 已实现列表选中项的一次请求、单事务、整批幂等、失败项定位及 native/Yoga/Apollo GraphQL batch mutation；尚未实现异步 job、部分成功、分片执行或更复杂输入组件。生成 Web Action 当前仍以受保护 REST command URL 为稳定调用边界，GraphQL mutation 主要供 GraphQL 客户端和服务端集成使用。
 6. **P2：i18n、注释与查询扩展（部分）。** `#` 行注释、BCP 47 多语言 `messages` 及 `include "..." @message(s)` 选择性消息导入已实现；application/database、实体/字段/索引/关系、枚举/枚举值、菜单分组、Dashboard 指标、Dataflow 根/input/context/step 与 manual Action 页支持 `@comment("...")` 和 `@comment(t("key"))`。应用/数据库说明进入生成包元数据与 schema 文件文档；实体/字段描述进入 GraphQL 类型及 CRUD 输入，字段与 Dataflow input 描述进入 REST TypeBox/OpenAPI 和 Refine 表单；流程根说明进入 OpenAPI endpoint、GraphQL command 和源码文档。REST Dataflow `@error(t("key"))` 与 Refine 翻译传输已实现。所有配置对象通用注释、其他业务错误全面翻译、通用 selector（例如 `@menu.operations`）及可移植读取查询 DSL 尚未实现。
@@ -519,13 +1325,14 @@ Relations 变体还在隔离 SQLite 文件完成真实迁移，并经 `PRAGMA fo
 | Bun + Elysia REST、GraphQL、OpenAPI 与 CORS | `/api/v1/*`、`/graphql`、`/api/v1/openapi/json`；OpenAPI 使用官方 `@elysia/openapi`，CORS 使用官方 `@elysia/cors` 且仅在 `.qiy`/环境显式提供来源白名单时启用；生成的 repository/service/routes 与 GraphQL resolver 共用 service；REST 与 GraphQL 分页均限制 page/pageSize 整数范围及每页最多 100 条 |
 | Refine + Ant Design + React Router SPA | 默认资源菜单及 `.qiy` 自定义多级分组/图标、`dashboard` 计数、枚举分布与按 UTC 日趋势卡（Refine `useList`/`useCustom`，REST/GraphQL）、列表/详情/新建/编辑、枚举配色/图标 Tag 和 Select、关系 Select、详情页反向关系明细表（按外键过滤并复用带 scope 的列表 API）、隐藏字段、搜索/排序/多枚举过滤、权限化新建/编辑/删除/批量删除、可选每页 10/20/50/100 条、中英文切换；前端趋势测试覆盖两种 DataProvider |
 | 可选前端传输 | `.qiy` 的 `api { client rest; }` 或 `api { client graphql; }`；服务端同时开放两种传输 |
+| 既有宿主 API 接入（integration） | `mode integration` + `integration { apiBase; auth; response; pagination; tenant; }`：声明响应 envelope 点号路径、分页约定与租户请求头，生成可用的 `getList/getOne/create/update/deleteOne` 基线；认证传输支持 `none/bearer/cookie/portal`（cookie 带 CSRF）；`app/host/` 为未托管适配器，`--sync` 保留宿主改动。`tools/verify-host-adapter.ts` 在真实宿主工程内安装、对着真实 Bun HTTP 服务跑适配器测试、通过 React Router typegen + `tsc` 与生产 SPA build，证据目录 `qiy-host-adapter-bJjxKR`；根仓 `tests/host-adapter.test.ts` 覆盖解析往返、11 项负例与 stub fetch 运行时行为。JWT 签发/验签、refresh cookie、JWKS、权限目录与领域逻辑仍由宿主负责 |
 | MPS 可选工作台与 Bun exporter | Catalog、Relations、ERP workflow 路径：MPS Make → Bun exporter → canonical `.qiy` → Bun workspace 已实跑。`tests/verify-mps-textgen.ts` 仅把 legacy TextGen 当既有结构子集 smoke；完整注释和后续语义以 exporter 输出重新解析结果为准。MPS 不再维护第二套 Refine/Elysia/Drizzle 业务生成器。仍非完整 ERP；真实 IdP、完整授权配置及更多 MPS 投影结构尚未完成。 |
 | 数据库方言切片 | PostgreSQL/Bun SQL、SQLite/Bun SQLite、MySQL/MySQL2 的 schema、连接、repository 查询和 Drizzle migration 生成；SQLite 迁移走 `drizzle-orm/bun-sqlite/migrator`，不要求 Drizzle Kit 的 `better-sqlite3`/libsql 连接器，已对真实 SQLite 文件跑通；pgvector 非 PostgreSQL 会在生成前拒绝。ERP 示例的多仓订单状态机目前仅在 PostgreSQL 目标下生成，SQLite 变体不包含该业务工作流/预占表，须显式视为能力差异，不能仅凭 CRUD 测试宣称跨方言业务等价 |
 | 关系删除策略 | `relation ... one @onDelete(restrict|cascade|setNull)` 三方言生成及可空校验；ERP 订单明细级联、库存产品限制删除，Drizzle 已生成 FK 变更迁移；多对多目前要求显式中间实体 |
 | OIDC 与 Refine 权限切片 | `.qiy` 的 `auth` 配置；OIDC issuer/audience/JWKS 校验、外部 subject 映射、服务端角色守卫、Refine `AuthProvider` / `AccessControlProvider`，`CanAccess` 路由与操作控件、拒绝原因及隐藏未授权按钮；匿名请求与 viewer 写操作测试 |
 | ERP 业务事务切片 | `.qiy` 显式声明 `workflow orderInventory;` 后才生成 `src/workflows/order.ts` 与 `allocation.ts`：提交时跨仓拆分预占、`order_reservations` 跟踪明细、取消按原库存行释放、审批后出库扣减、审计同事务；`order_idempotency` 持久化请求回执，分仓算法和生成包 API 单测通过。`tools/verify-postgres-erp.ts` 已在隔离 PostgreSQL 实库验证迁移、8 个同键并发提交、审批角色、出库扣减和审计；真实 IdP、跨副本故障恢复、全部取消/回滚边界仍未完成 |
 | 三方言 CRUD 审计切片 | REST/GraphQL 写操作透传操作者 ID；PostgreSQL、SQLite、MySQL create/update/delete/batch delete 与 `audit_events` 在同一事务写入，记录资源、记录 ID、动作和更新字段；SQLite 内存数据库已验证审计失败导致新增回滚，PostgreSQL/MySQL 真实数据库回滚尚未验收 |
-| 细粒度数据范围 | `.qiy` 支持 `scope <resource> <field> claim <claim>;`；REST、GraphQL 按资源解析 claim，列表/分布/详情/新增/更新/删除/批量删除均传递 scope，缺少 claim fail-closed；ERP 订单四条工作流也在事务读写中加入 scope，缺失 claim 返回 403；PostgreSQL、SQLite、MySQL repository 均生成 scope 条件；`examples/scoped-sqlite/` 已用真实 Bun SQLite 验证租户隔离和写入绑定。ERP PostgreSQL 实库已验证 customer scope 的正常路径，跨租户/缺失 claim 的完整 workflow 组合仍未完成 |
+| 细粒度数据范围 | `.qiy` 支持 `scope <resource> <field> claim <claim>;` 与 `restrict <resource> { ... }`。`scope` 保持单字段租户范围（REST/GraphQL 按资源解析 claim，列表/分布/详情/增删改/批量删除均传递，缺少 claim fail-closed；ERP 四条工作流事务读写同样受约束）。`restrict` 增加可组合记录条件（claim 或字面量 `==`/`!=`/`in`/`notIn`，按 AND 组合并下推到 SQL）与字段脱敏（`omit`/`null`/`redact`，按角色与 claim 状态生效）；REST 与 GraphQL 共用同一策略实现，掩码字段禁止写入，写入后再校验可见性以免绕过记录条件；Dataflow 与 `orderInventory` 尚不能应用同一行策略，命中受保护资源时在生成期拒绝。三方言 repository 均生成 scope/policy 条件；`examples/resource-policy/app.qiy` 已在真实 SQLite、PostgreSQL 16 与 MySQL 8.4 隔离数据库通过生成、安装、迁移、typecheck 与策略探针 |
 | 文件存储与 Attachment 元数据 | `.qiy` 的 `storage { provider local; }` 或 `s3`；`File` 支持 binary/base64/both、MIME 白名单、1–100 MiB 上限和单文件约束；生成 Refine 预检及 fail-closed 服务端策略、local 与 Bun S3-compatible Provider、路径校验、受保护上传/下载/删除、Attachment 元数据、owner 访问控制、重复 key 防护和 `attachments:cleanup`。ERP 干净生成包的 server 48 项测试实际覆盖未知字段、MIME/模式、大小、base64、重复 key、下载与删除；GraphQL multipart 和多文件类型尚未实现 |
 | 可二次开发 Turborepo | `examples/erpadmin/admin/apps/{server,web}`，包含 `modules/`、`hooks/`、`plugins/`、`features/` 和部署文件 |
 | 部署静态产物 | `ssr: false` 构建 `apps/web/build/client`，Elysia 同源静态托管与 SPA fallback；Docker/Compose/Nginx/K8s/Vercel 示例 |
@@ -559,10 +1366,10 @@ Relations 变体还在隔离 SQLite 文件完成真实迁移，并经 `PRAGMA fo
 - 文本 `.qiy` 支持安全的模块片段 `include "relative/path.qiy";`：支持递归展开与循环链诊断，拒绝绝对路径、`..` 穿越和越出项目根目录的链接；模块内容仍需遵循 V0 应用体声明顺序。`examples/modular-catalog/` 与专项测试覆盖此路径。
 - 根目录 `deploy/` 现提供 Android 国内商店发布框架：`deploy/config.ts` 只保存 `env:NAME` 凭据引用与应用元数据，`deploy/index.ts` 可选择一个或多个目标并要求 `--confirm` 才提交。华为 AppGallery Connect 与小米应用商店适配器按官方自动发布契约生成请求；OPPO、vivo、腾讯应用宝、荣耀各自有独立适配器，通过已配置的企业 relay 对接权限化/合作伙伴 API，否则 fail-closed 并提示门户操作。发布前须以真实开发者资质、商店审核与 CI Secret 验收，不能把 dry-run 视为真实上架完成。
 
-1. **身份与安全**：Local password、OTP、通用 OIDC/OAuth2/SSO 以及 Okta/Auth0/Azure AD B2C/Keycloak/Google/Kinde 已有 DSL、Refine 登录、服务端验证与本地生成包测试；外部 provider 使用 PKCE，OTP 使用签名 challenge 和可替换发送 adapter。PostgreSQL/MySQL 实库的管理员初始化与登录验收、跨租户关系推导、数据范围组合策略、真实 IdP tenant 和真实邮件/短信供应商仍未完成。生产 server 仍需真实数据库及相应认证环境变量，不能把本地 preview 公开。
+1. **身份与安全**：Local password、OTP、通用 OIDC/OAuth2/SSO 以及 Okta/Auth0/Azure AD B2C/Keycloak/Google/Kinde 已有 DSL、Refine 登录、服务端验证与本地生成包测试；外部 provider 使用 PKCE，OTP 使用签名 challenge 和可替换发送 adapter。记录级条件与字段脱敏已按三方言实库验收（见上节），但 OR 条件树、组织层级、页面级规则、与 Dataflow/`orderInventory` 的策略统一仍未完成。PostgreSQL/MySQL 实库的管理员初始化与登录验收、跨租户关系推导、真实 IdP tenant 和真实邮件/短信供应商仍未完成。生产 server 仍需真实数据库及相应认证环境变量，不能把本地 preview 公开。
 2. **业务一致性**：`workflow orderInventory;` 显式启用订单提交/审批/出库/取消事务，多仓预占与按原库存行释放、状态条件、行锁、审计事件和持久化幂等回执；分配函数与生成包 API 已单测，并测试未声明时不生成、SQLite 明确拒绝。隔离 PostgreSQL 已通过迁移、同键并发提交、审批/出库和库存审计验收；完整端到端回滚矩阵、跨租户与真实身份组合仍未完成。
 3. **模型能力**：文本 DSL 支持有限字段类型、单向 UUID FK；MPS 数据模型现也可声明并导出 `Relation`，删除级联策略已覆盖第一版。基于现有 FK 的详情页反向明细表已生成，但独立反向关系 API、隐式多对多、复杂约束、默认值、MSSQL/CockroachDB 和完整方言能力矩阵仍未完成。
-4. **后台配置剩余项**：任意嵌套 AND/OR 条件树、保存的用户筛选视图、持久化用户字段布局、其他 UI 适配器、PostgreSQL/MySQL 趋势实库验收和完整分析 Dashboard 尚未完成。
+4. **后台配置剩余项**：REST 列表 API 现接受字段白名单校验的嵌套 `and`/`or` 条件树，最多 8 层和 50 个叶子条件；生成的 Refine REST provider 会保留条件组，Drizzle repository 递归生成对应条件。GraphQL 的 `QiyFilterInput` 仍为平铺顶层 AND，因为 GraphQL input 类型不能递归引用自身。保存的用户筛选视图、持久化用户字段布局、其他 UI 适配器、PostgreSQL/MySQL 趋势实库验收和完整分析 Dashboard 尚未完成。
 5. **文件上传与平台集成剩余项**：单文件 File 已有 binary/base64、MIME 白名单、大小上限和数量校验；仍缺多文件 `Files` 类型、GraphQL multipart upload、浏览器直传/分片、对象存储孤儿扫描、GraphQL schema 文档门户、异步任务、生产部署验收和严格 Bun-only 子进程审计。S3/MinIO API smoke 已通过，但用户自己的生产 bucket 权限和拓扑仍需独立验收。Vercel 文件仍是静态站点与远程 API rewrite 草案。
 6. **Realtime 与订阅**：REST/Ably 已生成 Refine `LiveProvider`、资源级 List/Show live mode、强制认证的 role-scoped subscribe-only token endpoint、事务性 durable Outbox、失败重试/死信、单条与批量重放、自动清理、管理员 JSON/Prometheus 指标、阈值健康告警与审计、机器可读运维 CLI，以及 Dataflow event。仍缺 GraphQL Subscription、平台告警规则/原生 OTLP、自定义 channel、页面/局部/全局 scope、subscription key、permission 表达式、租户 capability，以及真实 provider/browser 断线重连验收。发布继续发生在 mutation 成功提交之后，并在握手与 channel capability 上重复执行身份和访问控制。
 7. **MPS 可选工作台**：Catalog、Relations 与 PostgreSQL ERP workflow 切片已有 MPS Make → Bun exporter → `.qiy` → Bun workspace 验收；workflow、AuthConfig、角色枚举、菜单、dashboard、字段级可见性和当前注释可由 exporter 保留。legacy TextGen 只覆盖旧结构 smoke，`qiy.generator` 只保留执行 marker；不再规划第二套 MPS 业务模板。完整 ERP 的更多 MPS 投影结构与真实 IdP 验收仍未完成。

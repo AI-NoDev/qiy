@@ -103,7 +103,7 @@ describe("PostgreSQL Database IR", () => {
     database.dialect = "sqlite";
     expect(generateDrizzleSqlite(database)).toContain('integer("createdAt", { mode: "timestamp_ms" })');
     database.dialect = "mysql";
-    expect(generateDrizzleMysql(database)).toContain('datetime("createdAt", { mode: "date" })');
+    expect(generateDrizzleMysql(database)).toContain('datetime("createdAt", { mode: "date", fsp: 3 })');
     const mysql = generateDrizzleMysql(database);
     expect(mysql.match(/createdAt: bigint\("createdAt", \{ mode: "number" \}\)/g)).toHaveLength(2);
     expect(mysql).not.toContain('createdAt: int("createdAt")');

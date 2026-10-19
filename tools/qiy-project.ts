@@ -1,4 +1,23 @@
 import { validateDatabaseIR, type DatabaseIR, type EntityIR, type FieldIR, type FilterMode, type IndexIR, type IndexColumnIR, type RelationIR } from "./database-ir";
+/**
+ * Declarative contract for an existing host API. It describes only what the
+ * generated Refine admin needs in order to talk to that API automatically: the
+ * base URL, the auth transport, where the list envelope and total live in the
+ * JSON body, the pagination convention, and how the host tenant is forwarded.
+ * URL mapping and business rules stay in the unowned host adapter.
+ */
+export interface QiyIntegrationConfig {
+  apiBase: string;
+  authTransport: "none" | "bearer" | "cookie" | "portal";
+  csrfCookie?: string;
+  csrfHeader?: string;
+  /** Dotted JSON paths inside the host response body. */
+  response?: { data?: string; total?: string; error?: string };
+  /** Query-parameter convention used for list pagination. Defaults to `page`. */
+  pagination?: "page" | "offset" | "none";
+  /** Forwards one host identity key to the API as a required request header. */
+  tenant?: { header: string; identity: string };
+}
 
 export interface QiyProject {
   name: string;
@@ -6,7 +25,7 @@ export interface QiyProject {
   commentKey?: string;
   database: DatabaseIR;
   mode?: "standalone" | "integration";
-  integration?: { apiBase: string; authTransport: "none" | "bearer" | "cookie" | "portal"; csrfCookie?: string; csrfHeader?: string };
+  integration?: QiyIntegrationConfig;
   workspace?: QiyWorkspaceConfig;
   ui?: QiyUiConfig;
   apiClient?: "rest" | "graphql";
@@ -26,12 +45,94 @@ export interface QiyProject {
   environment?: QiyEnvironmentVariable[];
   messages?: { defaultLocale: string; locales: Record<string, Record<string, string>> };
   menuGroups?: Array<{ name: string; label: string; icon?: string; parent?: string; comment?: string; commentKey?: string; resources: string[] }>;
-  dashboardMetrics?: Array<{ name: string; resource: string; label: string; icon?: string; comment?: string; commentKey?: string; span: 8 | 12 | 24; type?: "count" | "distribution" | "trend"; groupBy?: string; days?: number }>;
+  dashboardMetrics?: Array<{ name: string; resource: string; label: string; icon?: string; comment?: string; commentKey?: string; span: 8 | 12 | 24; type?: "count" | "distribution" | "trend" | "aggregate"; groupBy?: string; days?: number; field?: string; agg?: "sum" | "avg" | "min" | "max" }>;
   realtime?: QiyRealtimeConfig;
-  scopes?: Array<{ resource: string; field: string; claim: string }>;
+  scopes?: Array<{ resource: string; field: string; claim: string; tree?: { entity: string; parentField: string } }>;
+  restrictions?: QiyResourceRestriction[];
+  /**
+   * Page-level rules: per resource and per page action, the roles allowed to open
+   * that page. They refine `restrict.roles` (which only decides "may use resource
+   * at all") and are enforced both in the generated UI and by the API guard.
+   */
+  pages?: Array<{ resource: string; actions: Array<{ action: QiyPageAction; roles: QiyRole[] }>; fields?: Array<{ field: string; roles: QiyRole[] }> }>;
   workflows?: Array<"orderInventory">;
   dataflows?: DataflowIR[];
   actions?: QiyAction[];
+}
+
+export type QiyRole = "admin" | "operator" | "viewer";
+export type QiyPageAction = "list" | "show" | "create" | "edit" | "delete";
+
+/**
+ * Row-level and field-level policy for one resource. This is deliberately a
+ * closed, statically checkable set of predicates: every condition names a
+ * declared resource field and compares it either to an authenticated claim or
+ * to declared literal values, so authorization can be pushed into the database
+ * query instead of being enforced with client-side filtering.
+ */
+export interface QiyResourceRestriction {
+  resource: string;
+  /** Roles allowed to read or write the resource at all. Empty means "no role restriction". */
+  roles?: QiyRole[];
+  /** Row predicates combined with AND. Every predicate must hold for a row to be visible. */
+  rows?: QiyRowPredicate[];
+  /**
+   * Disjunctive groups: each group is OR-ed internally and AND-ed with `rows`.
+   * Lets a resource express "my tenant OR my own records" without leaving the
+   * closed, statically checkable predicate language.
+   */
+  groups?: QiyRowPredicate[][];
+  /**
+   * General boolean policy expressions (AND/OR/NOT nesting and cross-field
+   * comparisons). AND-ed with `rows` and `groups`; the language stays closed and
+   * statically checkable because every leaf names declared fields or claims.
+   */
+  expressions?: QiyPolicyExpression[];
+  /** Field masks. A mask removes the field from responses for the matching principal. */
+  masks?: QiyFieldMask[];
+}
+
+/** Comparison operators usable between two declared fields. */
+export type QiyCrossOperator = "==" | "!=" | "<" | "<=" | ">" | ">=";
+
+export type QiyPolicyExpression =
+  | { kind: "predicate"; predicate: QiyRowPredicate }
+  | { kind: "cross"; field: string; operator: QiyCrossOperator; otherField: string }
+  | { kind: "not"; expression: QiyPolicyExpression }
+  | { kind: "and"; children: QiyPolicyExpression[] }
+  | { kind: "or"; children: QiyPolicyExpression[] };
+
+export interface QiyRowPredicate {
+  field: string;
+  /** `claim` compares the field to an authenticated claim; `values` compares it to literals. */
+  source: "claim" | "values";
+  operator: "==" | "!=" | "in" | "notIn";
+  /** Claim path for `source: "claim"`. */
+  claim?: string;
+  /** Literal values for `source: "values"`. */
+  values?: string[];
+  /**
+   * When the principal lacks the claim (or the claim is empty), `deny` fails the
+   * request with 403 instead of silently returning no rows. `hide` keeps the
+   * predicate always-false so the row is simply not visible.
+   */
+  missing: "deny" | "hide";
+}
+
+export interface QiyFieldMask {
+  field: string;
+  /** Roles the mask applies to. Empty means the mask applies to every role. */
+  roles?: QiyRole[];
+  /** Optional claim guard: the mask only applies when the claim is present. */
+  claim?: string;
+  claimState?: "present" | "absent";
+  /**
+   * How the field is hidden. `omit` removes the key; `null` returns null so the
+   * client can render an explicit "restricted" placeholder without leaking the
+   * value; `redact` returns a fixed replacement string.
+   */
+  mode: "omit" | "null" | "redact";
+  replacement?: string;
 }
 
 export type QiyRealtimeMode = "auto" | "manual";
@@ -43,6 +144,8 @@ export interface QiyRealtimeConfig {
     resource: string;
     events: QiyRealtimeEvent[];
     roles: Array<"admin" | "operator" | "viewer">;
+    /** Row-scoped channel: subscribers only receive records whose field matches their claim. */
+    claim?: { field: string; claim: string };
   }>;
 }
 
@@ -163,6 +266,7 @@ export function parseQiyProject(input: string): QiyProject {
     return value;
   }
   function claimIdentifier(): string {
+    if (peek().startsWith("\"") || peek().startsWith("'")) return stringLiteral();
     const parts = [identifier()];
     while (peek() === ".") { expect("."); parts.push(identifier()); }
     return parts.join(".");
@@ -569,7 +673,7 @@ export function parseQiyProject(input: string): QiyProject {
     expect("field");
     const name = identifier();
     const type = identifier();
-    if (!["UUID", "Text", "Integer", "Decimal", "Money", "DateTime", "File", "Vector"].includes(type) && !enumNames.has(type)) throw new Error(`Unsupported field type ${type}`);
+    if (!["UUID", "Text", "Integer", "Decimal", "Money", "DateTime", "File", "Files", "Vector"].includes(type) && !enumNames.has(type)) throw new Error(`Unsupported field type ${type}`);
     const result: FieldIR = { name, type: type as FieldIR["type"] };
     if (enumNames.has(type)) { result.type = "Text"; result.enumName = type; }
     if (peek() === "(") {
@@ -613,20 +717,21 @@ export function parseQiyProject(input: string): QiyProject {
       }
       else if (attribute === "upload") {
         expect("("); const mode = identifier(); expect(")");
-        if (type !== "File") throw new Error(`Field attribute @upload is only valid for File fields`);
+        if (type !== "File" && type !== "Files") throw new Error(`Field attribute @upload is only valid for File and Files fields`);
         if (mode !== "binary" && mode !== "base64" && mode !== "both") throw new Error(`File upload mode must be binary, base64 or both; received ${mode}`);
         result.uploadMode = mode;
       }
       else if (attribute === "maxBytes") {
         expect("("); const maxBytes = integer(); expect(")");
-        if (type !== "File") throw new Error(`Field attribute @maxBytes is only valid for File fields`);
+        if (type !== "File" && type !== "Files") throw new Error(`Field attribute @maxBytes is only valid for File and Files fields`);
         if (maxBytes < 1 || maxBytes > 100 * 1024 * 1024) throw new Error(`File maxBytes must be between 1 and 104857600`);
         result.maxBytes = maxBytes;
       }
       else if (attribute === "maxFiles") {
         expect("("); const maxFiles = integer(); expect(")");
-        if (type !== "File") throw new Error(`Field attribute @maxFiles is only valid for File fields`);
-        if (maxFiles !== 1) throw new Error(`File fields currently support maxFiles(1); multiple files require a future Files field type`);
+        if (type !== "File" && type !== "Files") throw new Error(`Field attribute @maxFiles is only valid for File and Files fields`);
+        if (type === "File" && maxFiles !== 1) throw new Error(`File fields support maxFiles(1); declare the field as Files for multiple files`);
+        if (type === "Files" && (maxFiles < 1 || maxFiles > 20)) throw new Error(`Files maxFiles must be between 1 and 20; received ${maxFiles}`);
         result.maxFiles = maxFiles;
       }
       else if (attribute === "mime") {
@@ -640,7 +745,7 @@ export function parseQiyProject(input: string): QiyProject {
           expect(",");
         } while (true);
         expect(")");
-        if (type !== "File") throw new Error(`Field attribute @mime is only valid for File fields`);
+        if (type !== "File" && type !== "Files") throw new Error(`Field attribute @mime is only valid for File and Files fields`);
         if (!mimeTypes.length) throw new Error(`File @mime requires at least one MIME type`);
         result.mimeTypes = mimeTypes;
       }
@@ -664,6 +769,11 @@ export function parseQiyProject(input: string): QiyProject {
       } else throw new Error(`Unsupported field attribute @${attribute}`);
     }
     expect(";");
+    // A JSON array of storage keys has no meaningful sort or filter semantics.
+    if (result.type === "Files") {
+      result.sortable ??= false;
+      result.filterable ??= false;
+    }
     return result;
   }
   function index(): IndexIR {
@@ -693,6 +803,177 @@ export function parseQiyProject(input: string): QiyProject {
     }
     expect(";");
     return result;
+  }
+  function roleList(context: string): QiyRole[] {
+    const roles: QiyRole[] = [];
+    do {
+      const role = identifier();
+      if (role !== "admin" && role !== "operator" && role !== "viewer") throw new Error(`${context}: unsupported role ${role}`);
+      if (roles.includes(role)) throw new Error(`${context}: duplicate role ${role}`);
+      roles.push(role);
+      if (peek() !== ",") break;
+      expect(",");
+    } while (true);
+    return roles;
+  }
+  function resourceRestriction(): QiyResourceRestriction {
+    expect("restrict");
+    const resource = identifier();
+    const restriction: QiyResourceRestriction = { resource };
+    const rows: QiyRowPredicate[] = [];
+    const groups: QiyRowPredicate[][] = [];
+    const expressions: QiyPolicyExpression[] = [];
+    const masks: QiyFieldMask[] = [];
+    expect("{");
+    /** Atom: a claim/value predicate, or a cross-field comparison (`amount > field cost`). */
+    const expressionAtom = (): QiyPolicyExpression => {
+      const field = identifier();
+      const comparison = (): QiyCrossOperator | "in" | "notIn" | undefined => {
+        if (peek() === "==") { expect("=="); return "=="; }
+        if (peek() === "!=") { expect("!="); return "!="; }
+        if (peek() === "<") { expect("<"); return "<"; }
+        if (peek() === "<=") { expect("<="); return "<="; }
+        if (peek() === ">") { expect(">"); return ">"; }
+        if (peek() === ">=") { expect(">="); return ">="; }
+        if (peek() === "in") { expect("in"); return "in"; }
+        if (peek() === "notIn") { expect("notIn"); return "notIn"; }
+        return undefined;
+      };
+      if (peek() === "claim") {
+        expect("claim");
+        return { kind: "predicate", predicate: { field, source: "claim", operator: "==", claim: claimIdentifier(), missing: "deny" } };
+      }
+      const operator = comparison();
+      if (!operator) throw new Error(`Restrict ${resource}: row condition on ${field} requires claim, ==, !=, <, <=, >, >=, in or notIn`);
+      const membership = operator === "in" || operator === "notIn";
+      if (!membership && peek() === "field") {
+        expect("field");
+        return { kind: "cross", field, operator: operator as QiyCrossOperator, otherField: identifier() };
+      }
+      if (!membership && (operator === "<" || operator === "<=" || operator === ">" || operator === ">=")) {
+        throw new Error(`Restrict ${resource}: ${operator} on ${field} must compare two fields (use ==/!=/in/notIn for literals)`);
+      }
+      const values: string[] = [];
+      do {
+        const literal = stringLiteral();
+        if (values.includes(literal)) throw new Error(`Restrict ${resource}: duplicate row value ${literal}`);
+        values.push(literal);
+        if (peek() !== ",") break;
+        expect(",");
+      } while (true);
+      if (!values.length) throw new Error(`Restrict ${resource}: row condition on ${field} requires at least one value`);
+      if (!membership && values.length !== 1) throw new Error(`Restrict ${resource}: ${operator} on ${field} requires exactly one value`);
+      return { kind: "predicate", predicate: { field, source: "values", operator: membership ? operator : operator as "==" | "!=", values, missing: "hide" } };
+    };
+    const expressionUnary = (): QiyPolicyExpression => {
+      if (peek() === "not") {
+        expect("not");
+        return { kind: "not", expression: expressionUnary() };
+      }
+      if (peek() === "(") {
+        expect("(");
+        const inner = expressionOr();
+        expect(")");
+        return inner;
+      }
+      return expressionAtom();
+    };
+    const expressionAnd = (): QiyPolicyExpression => {
+      const children = [expressionUnary()];
+      while (peek() === "and") {
+        expect("and");
+        children.push(expressionUnary());
+      }
+      return children.length === 1 ? children[0]! : { kind: "and", children };
+    };
+    const expressionOr = (): QiyPolicyExpression => {
+      const children = [expressionAnd()];
+      while (peek() === "or") {
+        expect("or");
+        children.push(expressionAnd());
+      }
+      return children.length === 1 ? children[0]! : { kind: "or", children };
+    };
+    const whenExpression = expressionOr;
+    while (peek() !== "}") {
+      const section = identifier();
+      if (section === "allow") {
+        if (restriction.roles) throw new Error(`Restrict ${resource}: duplicate allow roles declaration`);
+        expect("roles");
+        const roles = roleList(`Restrict ${resource}`);
+        if (!roles.length) throw new Error(`Restrict ${resource}: roles requires at least one role`);
+        expect(";");
+        restriction.roles = roles;
+        continue;
+      }
+      if (section === "when") {
+        // `when` accepts a plain predicate, a flat OR group, or a general boolean
+        // expression with `and`/`or`/`not`, parentheses and cross-field comparisons.
+        const expression = whenExpression();
+        expect(";");
+        if (expression.kind === "predicate") {
+          const row = expression.predicate;
+          if (rows.some((existing) => existing.field === row.field)) throw new Error(`Restrict ${resource}: duplicate row condition on ${row.field}`);
+          rows.push(row);
+          continue;
+        }
+        if (expression.kind === "or" && expression.children.every((child) => child.kind === "predicate")) {
+          const group = expression.children.map((child) => (child as { kind: "predicate"; predicate: QiyRowPredicate }).predicate);
+          if (group.length < 2) throw new Error(`Restrict ${resource}: a when group needs at least two conditions`);
+          for (const row of group) {
+            if (rows.some((existing) => existing.field === row.field)) throw new Error(`Restrict ${resource}: duplicate row condition on ${row.field}`);
+          }
+          groups.push(group);
+          continue;
+        }
+        expressions.push(expression);
+        continue;
+      }
+      if (section === "mask") {
+        const field = identifier();
+        const mask: QiyFieldMask = { field, mode: "omit" };
+        while (peek() === "roles" || peek() === "claim" || peek() === "mode" || peek() === "replacement") {
+          const option = identifier();
+          if (option === "roles") {
+            if (mask.roles) throw new Error(`Restrict ${resource}: duplicate mask roles for ${field}`);
+            const roles = roleList(`Restrict ${resource} mask ${field}`);
+            if (!roles.length) throw new Error(`Restrict ${resource}: mask roles for ${field} requires at least one role`);
+            mask.roles = roles;
+            continue;
+          }
+          if (option === "claim") {
+            if (mask.claim) throw new Error(`Restrict ${resource}: duplicate mask claim for ${field}`);
+            const state = identifier();
+            if (state !== "present" && state !== "absent") throw new Error(`Restrict ${resource}: mask claim for ${field} must state present or absent`);
+            const claim = claimIdentifier();
+            mask.claim = claim;
+            mask.claimState = state;
+            continue;
+          }
+          if (option === "mode") {
+            const mode = identifier();
+            if (mode !== "omit" && mode !== "null" && mode !== "redact") throw new Error(`Restrict ${resource}: unsupported mask mode ${mode}`);
+            mask.mode = mode;
+            continue;
+          }
+          if (mask.replacement !== undefined) throw new Error(`Restrict ${resource}: duplicate mask replacement for ${field}`);
+          mask.replacement = stringLiteral();
+        }
+        expect(";");
+        if (mask.replacement !== undefined && mask.mode !== "redact") throw new Error(`Restrict ${resource}: mask replacement for ${field} requires mode redact`);
+        if (mask.mode === "redact" && mask.replacement === undefined) throw new Error(`Restrict ${resource}: mask mode redact for ${field} requires a replacement string`);
+        if (masks.some((candidate) => candidate.field === field)) throw new Error(`Restrict ${resource}: duplicate mask for ${field}`);
+        masks.push(mask);
+        continue;
+      }
+      throw new Error(`Restrict ${resource}: unsupported setting ${section}`);
+    }
+    expect("}");
+    if (rows.length) restriction.rows = rows;
+    if (groups.length) restriction.groups = groups;
+    if (expressions.length) restriction.expressions = expressions;
+    if (masks.length) restriction.masks = masks;
+    return restriction;
   }
   function entity(enumNames: Set<string>): EntityIR {
     expect("entity");
@@ -783,9 +1064,11 @@ export function parseQiyProject(input: string): QiyProject {
     let label = name;
     let icon: string | undefined;
     let span: 8 | 12 | 24 = 8;
-    let type: "count" | "distribution" | "trend" = "count";
+    let type: "count" | "distribution" | "trend" | "aggregate" = "count";
     let groupBy: string | undefined;
     let days: number | undefined;
+    let field: string | undefined;
+    let agg: "sum" | "avg" | "min" | "max" | undefined;
     let description: { comment: string; commentKey?: string } | undefined;
     while (peek() === "@") {
       expect("@");
@@ -799,10 +1082,15 @@ export function parseQiyProject(input: string): QiyProject {
         span = width;
       } else if (attribute === "type") {
         const metricType = value();
-        if (metricType !== "" && metricType !== "count" && metricType !== "distribution" && metricType !== "trend") throw new Error(`Dashboard metric ${name}: type must be count, distribution or trend`);
+        if (metricType !== "" && metricType !== "count" && metricType !== "distribution" && metricType !== "trend" && metricType !== "aggregate") throw new Error(`Dashboard metric ${name}: type must be count, distribution, trend or aggregate`);
         type = metricType === "" ? "count" : metricType;
       } else if (attribute === "groupBy") groupBy = value() || undefined;
-      else if (attribute === "days") { const metricDays = integer(); days = metricDays > 0 ? metricDays : undefined; }
+      else if (attribute === "field") field = value() || undefined;
+      else if (attribute === "agg") {
+        const operator = value();
+        if (operator !== "sum" && operator !== "avg" && operator !== "min" && operator !== "max") throw new Error(`Dashboard metric ${name}: agg must be sum, avg, min or max`);
+        agg = operator;
+      } else if (attribute === "days") { const metricDays = integer(); days = metricDays > 0 ? metricDays : undefined; }
       else if (attribute === "comment") {
         if (description) throw new Error(`Dashboard metric ${name}: duplicate @comment annotation`);
         description = documentation("dashboard metric comment");
@@ -811,7 +1099,7 @@ export function parseQiyProject(input: string): QiyProject {
       expect(")");
     }
     expect(";");
-    return { name, resource, label, span, ...(icon && { icon }), ...(description && description), ...(type !== "count" && { type }), ...(groupBy && { groupBy }), ...(days !== undefined && { days }) };
+    return { name, resource, label, span, ...(icon && { icon }), ...(description && description), ...(type !== "count" && { type }), ...(groupBy && { groupBy }), ...(days !== undefined && { days }), ...(field && { field }), ...(agg && { agg }) };
   }
   function enumeration(): import("./database-ir").EnumIR {
     expect("enum");
@@ -905,6 +1193,9 @@ export function parseQiyProject(input: string): QiyProject {
     let authTransport: "none" | "bearer" | "cookie" | "portal" = "none";
     let csrfCookie: string | undefined;
     let csrfHeader: string | undefined;
+    let response: NonNullable<QiyIntegrationConfig["response"]> | undefined;
+    let pagination: NonNullable<QiyIntegrationConfig["pagination"]> | undefined;
+    let tenant: NonNullable<QiyIntegrationConfig["tenant"]> | undefined;
     const seen = new Set<string>();
     while (peek() !== "}") {
       const key = identifier();
@@ -935,12 +1226,57 @@ export function parseQiyProject(input: string): QiyProject {
           if (csrfCookie !== undefined && !/^[A-Za-z0-9_-]+$/.test(csrfCookie)) throw new Error("integration csrfCookie must be a simple cookie name");
           if (csrfHeader !== undefined && !/^[A-Za-z0-9-]+$/.test(csrfHeader)) throw new Error("integration csrfHeader must be a simple HTTP header name");
         }
+      } else if (key === "response") {
+        if (peek() !== "{") throw new Error("integration response requires a block");
+        expect("{");
+        const contract: NonNullable<QiyIntegrationConfig["response"]> = {};
+        const contractSeen = new Set<string>();
+        while (peek() !== "}") {
+          const option = identifier();
+          if (contractSeen.has(option)) throw new Error(`Duplicate integration response setting ${option}`);
+          if (option !== "data" && option !== "total" && option !== "error") throw new Error(`Unsupported integration response setting ${option}`);
+          contractSeen.add(option);
+          const path = value();
+          if (!/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(path)) throw new Error(`integration response ${option} must be a dotted JSON path of plain keys`);
+          if (option === "data") contract.data = path;
+          else if (option === "total") contract.total = path;
+          else contract.error = path;
+          expect(";");
+        }
+        expect("}");
+        if (!contractSeen.size) throw new Error("integration response requires at least one of data, total or error");
+        response = contract;
+      } else if (key === "pagination") {
+        const style = identifier();
+        if (style !== "page" && style !== "offset" && style !== "none") throw new Error(`Unsupported integration pagination style ${style}`);
+        pagination = style;
+      } else if (key === "tenant") {
+        if (peek() !== "{") throw new Error("integration tenant requires a block");
+        expect("{");
+        let tenantHeader: string | undefined;
+        let tenantIdentity: string | undefined;
+        const tenantSeen = new Set<string>();
+        while (peek() !== "}") {
+          const option = identifier();
+          if (tenantSeen.has(option)) throw new Error(`Duplicate integration tenant setting ${option}`);
+          if (option !== "header" && option !== "identity") throw new Error(`Unsupported integration tenant setting ${option}`);
+          tenantSeen.add(option);
+          const optionValue = value();
+          if (option === "header") tenantHeader = optionValue;
+          else tenantIdentity = optionValue;
+          expect(";");
+        }
+        expect("}");
+        if (!tenantHeader || !tenantIdentity) throw new Error("integration tenant requires header and identity");
+        if (!/^[A-Za-z0-9-]+$/.test(tenantHeader)) throw new Error("integration tenant header must be a simple HTTP header name");
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(tenantIdentity)) throw new Error("integration tenant identity must be a simple identity key");
+        tenant = { header: tenantHeader, identity: tenantIdentity };
       } else throw new Error(`Unsupported integration setting ${key}`);
       expect(";");
     }
     expect("}");
     if (!apiBase) throw new Error("integration requires apiBase");
-    integration = { apiBase, authTransport, ...(csrfCookie && { csrfCookie }), ...(csrfHeader && { csrfHeader }) };
+    integration = { apiBase, authTransport, ...(csrfCookie && { csrfCookie }), ...(csrfHeader && { csrfHeader }), ...(response && { response }), ...(pagination && { pagination }), ...(tenant && { tenant }) };
   }
   if (mode === "integration" && !integration) throw new Error("application mode integration requires an integration block");
   if (integration && mode !== "integration") throw new Error("integration block requires application mode integration");
@@ -1078,6 +1414,7 @@ export function parseQiyProject(input: string): QiyProject {
       expect("{");
       let events: QiyRealtimeEvent[] | undefined;
       let roles: Array<"admin" | "operator" | "viewer"> | undefined;
+      let claim: { field: string; claim: string } | undefined;
       while (peek() !== "}") {
         const setting = identifier();
         if (setting === "events") {
@@ -1108,12 +1445,21 @@ export function parseQiyProject(input: string): QiyProject {
           expect(";");
           continue;
         }
+        if (setting === "when") {
+          if (claim) throw new Error(`Realtime resource ${resource}: duplicate when clause`);
+          const field = identifier();
+          const keyword = identifier();
+          if (keyword !== "claim") throw new Error(`Realtime resource ${resource}: when requires "claim"`);
+          claim = { field, claim: claimIdentifier() };
+          expect(";");
+          continue;
+        }
         throw new Error(`Realtime resource ${resource}: unsupported setting ${setting}`);
       }
       expect("}");
       if (!events?.length) throw new Error(`Realtime resource ${resource}: events requires at least one event`);
       if (!roles?.length) throw new Error(`Realtime resource ${resource}: roles requires at least one role`);
-      resources.push({ resource, events, roles });
+      resources.push({ resource, events, roles, ...(claim && { claim }) });
     }
     expect("}");
     if (!resources.length) throw new Error("Realtime requires at least one resource");
@@ -1313,8 +1659,107 @@ export function parseQiyProject(input: string): QiyProject {
     const field = identifier();
     expect("claim");
     const claim = claimIdentifier();
+    // `tree <entity> <parentField>` widens the claim from one org to its whole subtree.
+    let tree: { entity: string; parentField: string } | undefined;
+    if (peek() === "tree") {
+      expect("tree");
+      tree = { entity: identifier(), parentField: identifier() };
+    }
     expect(";");
-    scopes.push({ resource, field, claim });
+    scopes.push({ resource, field, claim, ...(tree && { tree }) });
+  }
+  const restrictions: NonNullable<QiyProject["restrictions"]> = [];
+  while (peek() === "restrict") restrictions.push(resourceRestriction());
+  const pages: NonNullable<QiyProject["pages"]> = [];
+  while (peek() === "pages") {
+    expect("pages");
+    const resource = identifier();
+    expect("{");
+    const actions: Array<{ action: QiyPageAction; roles: QiyRole[] }> = [];
+    const fields: Array<{ field: string; roles: QiyRole[] }> = [];
+    while (peek() !== "}") {
+      const section = identifier();
+      if (section === "field") {
+        // Page-level field layout: the field is only rendered for these roles.
+        const field = identifier();
+        if (fields.some((entry) => entry.field === field)) throw new Error(`Pages ${resource}: duplicate field rule ${field}`);
+        expect("roles");
+        const roles = roleList(`Pages ${resource} field ${field}`);
+        if (!roles.length) throw new Error(`Pages ${resource}: field ${field} requires at least one role`);
+        expect(";");
+        fields.push({ field, roles });
+        continue;
+      }
+      if (!["list", "show", "create", "edit", "delete"].includes(section)) throw new Error(`Pages ${resource}: unsupported page action ${section}`);
+      if (actions.some((entry) => entry.action === section)) throw new Error(`Pages ${resource}: duplicate page action ${section}`);
+      expect("roles");
+      const roles = roleList(`Pages ${resource}`);
+      if (!roles.length) throw new Error(`Pages ${resource}: ${section} requires at least one role`);
+      expect(";");
+      actions.push({ action: section as QiyPageAction, roles });
+    }
+    expect("}");
+    if (!actions.length && !fields.length) throw new Error(`Pages ${resource}: requires at least one page action or field rule`);
+    pages.push({ resource, actions, ...(fields.length ? { fields } : {}) });
+  }
+  const pageResources = new Set<string>();
+  for (const page of pages) {
+    const entity = entities.find((candidate) => candidate.name === page.resource || candidate.tableName === page.resource);
+    if (!entity) throw new Error(`Pages ${page.resource}: unknown resource`);
+    if (pageResources.has(entity.name)) throw new Error(`Pages ${entity.name}: duplicate page rules`);
+    pageResources.add(entity.name);
+    page.resource = entity.name;
+  }
+  const restrictedResources = new Set<string>();
+  for (const restriction of restrictions) {
+    const entity = entities.find((candidate) => candidate.name === restriction.resource || candidate.tableName === restriction.resource);
+    if (!entity) throw new Error(`Restrict ${restriction.resource}: unknown resource`);
+    if (restrictedResources.has(entity.name)) throw new Error(`Restrict ${entity.name}: duplicate resource restriction`);
+    restrictedResources.add(entity.name);
+    restriction.resource = entity.name;
+    const validateRow = (row: QiyRowPredicate) => {
+      const field = entity.fields.find((candidate) => candidate.name === row.field);
+      if (!field) throw new Error(`Restrict ${entity.name}: unknown row condition field ${row.field}`);
+      if (field.primaryKey) throw new Error(`Restrict ${entity.name}: row conditions cannot target primary key ${row.field}`);
+      if (row.source === "values" && !["Text", "Integer", "Decimal", "Money", "DateTime"].includes(field.type) && !field.enumName) {
+        throw new Error(`Restrict ${entity.name}: row value comparisons require Text, enum, Integer, Decimal, Money or DateTime field ${row.field}`);
+      }
+      if (row.source === "claim" && field.nullable) throw new Error(`Restrict ${entity.name}: row condition on nullable field ${row.field} is not supported`);
+    };
+    for (const row of restriction.rows ?? []) validateRow(row);
+    for (const group of restriction.groups ?? []) for (const row of group) validateRow(row);
+    /** Cross-field comparisons must name two declared, comparable fields. */
+    const comparisonClass = (type: string, enumName?: string): string | undefined => {
+      if (enumName || type === "Text" || type === "UUID") return "text";
+      if (type === "Integer" || type === "Decimal" || type === "Money") return "number";
+      if (type === "DateTime") return "date";
+      return undefined;
+    };
+    const validateExpression = (node: QiyPolicyExpression) => {
+      if (node.kind === "predicate") { validateRow(node.predicate); return; }
+      if (node.kind === "cross") {
+        const left = entity.fields.find((candidate) => candidate.name === node.field);
+        const right = entity.fields.find((candidate) => candidate.name === node.otherField);
+        if (!left) throw new Error(`Restrict ${entity.name}: unknown row condition field ${node.field}`);
+        if (!right) throw new Error(`Restrict ${entity.name}: unknown cross-field ${node.otherField}`);
+        if (left.primaryKey || right.primaryKey) throw new Error(`Restrict ${entity.name}: cross-field comparisons cannot target a primary key`);
+        const leftClass = comparisonClass(left.type, left.enumName);
+        const rightClass = comparisonClass(right.type, right.enumName);
+        if (!leftClass || !rightClass) throw new Error(`Restrict ${entity.name}: cross-field comparison requires Text, enum, Integer, Decimal, Money or DateTime fields`);
+        if (leftClass !== rightClass) throw new Error(`Restrict ${entity.name}: ${node.field} (${left.type}) and ${node.otherField} (${right.type}) are not comparable`);
+        if ((node.operator === "<" || node.operator === "<=" || node.operator === ">" || node.operator === ">=") && leftClass === "text" && left.type === "UUID") throw new Error(`Restrict ${entity.name}: UUID fields only support == and !=`);
+        return;
+      }
+      if (node.kind === "not") { validateExpression(node.expression); return; }
+      for (const child of node.children) validateExpression(child);
+    };
+    for (const expression of restriction.expressions ?? []) validateExpression(expression);
+    for (const mask of restriction.masks ?? []) {
+      const field = entity.fields.find((candidate) => candidate.name === mask.field);
+      if (!field) throw new Error(`Restrict ${entity.name}: unknown mask field ${mask.field}`);
+      if (field.primaryKey) throw new Error(`Restrict ${entity.name}: primary key ${mask.field} cannot be masked`);
+      if (field.type === "Vector") throw new Error(`Restrict ${entity.name}: Vector field ${mask.field} cannot be masked`);
+    }
   }
   const menuGroups: NonNullable<QiyProject["menuGroups"]> = [];
   if (peek() === "menu") {
@@ -1534,10 +1979,10 @@ export function parseQiyProject(input: string): QiyProject {
   }
   expect("}");
   expect("<end>");
-  if (mode === "integration" && (corsOrigins || elysiaPlugins || storageProvider || auth || environment || scopes.length || workflows.length || dataflows.length)) {
+  if (mode === "integration" && (corsOrigins || elysiaPlugins || storageProvider || auth || environment || scopes.length || restrictions.length || workflows.length || dataflows.length)) {
     throw new Error("application mode integration cannot configure generated server features; use integration auth and host adapters instead.");
   }
-  return { name: packageName, ...(applicationDescription && applicationDescription), database: { ...(databaseDescription && databaseDescription), dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}) }, ...(mode && { mode }), ...(integration && { integration }), ...(workspace && { workspace }), ...(ui && { ui }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(auth && { auth }), ...(environment && { environment }), ...(messages && { messages }), ...(scopes.length ? { scopes } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(dashboardMetrics.length && { dashboardMetrics }), ...(realtime && { realtime }), ...(dataflows.length && { dataflows }), ...(actions.length && { actions }) };
+  return { name: packageName, ...(applicationDescription && applicationDescription), database: { ...(databaseDescription && databaseDescription), dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}) }, ...(mode && { mode }), ...(integration && { integration }), ...(workspace && { workspace }), ...(ui && { ui }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(auth && { auth }), ...(environment && { environment }), ...(messages && { messages }), ...(scopes.length ? { scopes } : {}), ...(restrictions.length ? { restrictions } : {}), ...(pages.length ? { pages } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(dashboardMetrics.length && { dashboardMetrics }), ...(realtime && { realtime }), ...(dataflows.length && { dataflows }), ...(actions.length && { actions }) };
 }
 
 function normalizePackageName(name: string): string {
@@ -1551,6 +1996,10 @@ function qiyIdentifier(value: string, context: string): string {
 
 function qiyString(value: string): string {
   return JSON.stringify(value);
+}
+
+function qiyClaim(value: string): string {
+  return /^[a-zA-Z_][a-zA-Z_0-9-]*(\.[a-zA-Z_][a-zA-Z_0-9-]*)*$/.test(value) ? value : qiyString(value);
 }
 
 function qiyComment(target: { comment?: string; commentKey?: string }): string {
@@ -1577,6 +2026,21 @@ export function serializeQiyProject(project: QiyProject): string {
       if (project.integration.csrfHeader) lines.push(`      csrfHeader ${qiyString(project.integration.csrfHeader)};`);
       lines.push("    };");
     } else lines.push(`    auth ${project.integration.authTransport};`);
+    if (project.integration.response) {
+      lines.push("    response {");
+      for (const key of ["data", "total", "error"] as const) {
+        const path = project.integration.response[key];
+        if (path) lines.push(`      ${key} ${qiyString(path)};`);
+      }
+      lines.push("    };");
+    }
+    if (project.integration.pagination) lines.push(`    pagination ${project.integration.pagination};`);
+    if (project.integration.tenant) {
+      lines.push("    tenant {");
+      lines.push(`      header ${qiyString(project.integration.tenant.header)};`);
+      lines.push(`      identity ${qiyString(project.integration.tenant.identity)};`);
+      lines.push("    };");
+    }
     lines.push("  }");
   }
   if (project.workspace) {
@@ -1641,6 +2105,7 @@ export function serializeQiyProject(project: QiyProject): string {
       lines.push(`    resource ${qiyIdentifier(subscription.resource, "Realtime resource")} {`);
       lines.push(`      events ${subscription.events.join(", ")};`);
       lines.push(`      roles ${subscription.roles.join(", ")};`);
+      if (subscription.claim) lines.push(`      when ${qiyIdentifier(subscription.claim.field, "Realtime claim field")} claim ${qiyIdentifier(subscription.claim.claim, "Realtime claim name")};`);
       lines.push("    }");
     }
     lines.push("  }");
@@ -1768,7 +2233,47 @@ export function serializeQiyProject(project: QiyProject): string {
     lines.push(`${declaration};`);
   }
   for (const scope of project.scopes ?? []) {
-    lines.push(`  scope ${qiyIdentifier(scope.resource, "Scope resource")} ${qiyIdentifier(scope.field, "Scope field")} claim ${scope.claim.split(".").map((part) => qiyIdentifier(part, "Scope claim")).join(".")};`);
+    const tree = scope.tree ? ` tree ${qiyIdentifier(scope.tree.entity, "Scope tree entity")} ${qiyIdentifier(scope.tree.parentField, "Scope tree parent field")}` : "";
+    lines.push(`  scope ${qiyIdentifier(scope.resource, "Scope resource")} ${qiyIdentifier(scope.field, "Scope field")} claim ${scope.claim.split(".").map((part) => qiyIdentifier(part, "Scope claim")).join(".")}${tree};`);
+  }
+  for (const restriction of project.restrictions ?? []) {
+    lines.push(`  restrict ${qiyIdentifier(restriction.resource, "Restrict resource")} {`);
+    if (restriction.roles) lines.push(`    allow roles ${restriction.roles.join(", ")};`);
+    const predicateText = (row: QiyRowPredicate) => row.source === "claim"
+      ? `${qiyIdentifier(row.field, "Restrict field")} claim ${qiyClaim(row.claim!)}`
+      : `${qiyIdentifier(row.field, "Restrict field")} ${row.operator} ${row.values!.map(qiyString).join(", ")}`;
+    for (const row of restriction.rows ?? []) lines.push(`    when ${predicateText(row)};`);
+    for (const group of restriction.groups ?? []) lines.push(`    when ( ${group.map(predicateText).join(" or ")} );`);
+    /** Prints an expression, parenthesizing nested groups so the output re-parses to the same tree. */
+    const expressionText = (node: QiyPolicyExpression): string => {
+      if (node.kind === "predicate") return predicateText(node.predicate);
+      if (node.kind === "cross") return `${qiyIdentifier(node.field, "Restrict field")} ${node.operator} field ${qiyIdentifier(node.otherField, "Restrict cross field")}`;
+      if (node.kind === "not") {
+        const inner = expressionText(node.expression);
+        const needsParens = node.expression.kind === "and" || node.expression.kind === "or";
+        return `not ${needsParens ? `( ${inner} )` : inner}`;
+      }
+      return node.children.map((child) => {
+        const inner = expressionText(child);
+        return child.kind === "and" || child.kind === "or" ? `( ${inner} )` : inner;
+      }).join(` ${node.kind} `);
+    };
+    for (const expression of restriction.expressions ?? []) lines.push(`    when ${expressionText(expression)};`);
+    for (const mask of restriction.masks ?? []) {
+      let declaration = `    mask ${qiyIdentifier(mask.field, "Mask field")}`;
+      if (mask.roles) declaration += ` roles ${mask.roles.join(", ")}`;
+      if (mask.claim) declaration += ` claim ${mask.claimState ?? "present"} ${qiyClaim(mask.claim)}`;
+      declaration += ` mode ${mask.mode}`;
+      if (mask.replacement !== undefined) declaration += ` replacement ${qiyString(mask.replacement)}`;
+      lines.push(`${declaration};`);
+    }
+    lines.push("  }");
+  }
+  for (const page of project.pages ?? []) {
+    lines.push(`  pages ${qiyIdentifier(page.resource, "Pages resource")} {`);
+    for (const entry of page.actions) lines.push(`    ${entry.action} roles ${entry.roles.join(", ")};`);
+    for (const entry of page.fields ?? []) lines.push(`    field ${qiyIdentifier(entry.field, "Pages field")} roles ${entry.roles.join(", ")};`);
+    lines.push("  }");
   }
   if (project.menuGroups?.length) {
     lines.push("  menu {");
@@ -1790,6 +2295,8 @@ export function serializeQiyProject(project: QiyProject): string {
       if (metric.icon) declaration += ` @icon(${qiyString(metric.icon)})`;
       if (metric.type) declaration += ` @type(${metric.type})`;
       if (metric.groupBy) declaration += ` @groupBy(${qiyString(metric.groupBy)})`;
+      if (metric.field) declaration += ` @field(${qiyString(metric.field)})`;
+      if (metric.agg) declaration += ` @agg(${metric.agg})`;
       if (metric.days !== undefined) declaration += ` @days(${metric.days})`;
       if (metric.comment !== undefined) declaration += ` @comment(${qiyComment(metric)})`;
       lines.push(`${declaration};`);

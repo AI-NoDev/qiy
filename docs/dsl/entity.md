@@ -37,10 +37,10 @@ entity products table products @label("产品") @icon(AppstoreOutlined) {
 | `@visible` / `@listVisible` / `@formVisible` / `@showVisible` | 布尔值 |
 | `@sortable` / `@filterable` | 布尔值 |
 | `@filter` | `@filter(contains,startsWith,eq)`；同时启用字段过滤并限制可选 operator |
-| `@upload` | 仅用于 `File`：`@upload(binary)`、`@upload(base64)` 或 `@upload(both)` |
-| `@maxBytes` | 仅用于 `File`：1 到 104857600，默认 26214400 |
-| `@mime` | 仅用于 `File`：`@mime("application/pdf","image/*")`，可重复声明并合并 |
-| `@maxFiles` | 仅用于 `File`；当前只接受 `@maxFiles(1)` |
+| `@upload` | 仅用于 `File` / `Files`：`@upload(binary)`、`@upload(base64)` 或 `@upload(both)` |
+| `@maxBytes` | 仅用于 `File` / `Files`：1 到 104857600，默认 26214400（**每个文件**的上限） |
+| `@mime` | 仅用于 `File` / `Files`：`@mime("application/pdf","image/*")`，可重复声明并合并 |
+| `@maxFiles` | `File` 只接受 `@maxFiles(1)`；`Files` 接受 1 到 20，默认 6 |
 | `@column` | `@column("physical_name")` |
 | `@extension` | `@extension(pgvector)` |
 | `@dimension` / `@precision` / `@scale` | 整数 |
@@ -50,8 +50,24 @@ entity products table products @label("产品") @icon(AppstoreOutlined) {
 - Vector 必须 `@extension(pgvector)` 且 `dimension > 0`；
 - Decimal / Money 必须 `precision > 0` 且 `0 <= scale <= precision`；
 - 枚举名必须已通过 `enum` 声明；
-- 上传策略只能用于 `File`；未知模式、非法或重复 MIME、越界大小以及 `maxFiles` 大于 1 会在生成前报错；
+- 上传策略只能用于 `File` / `Files`；未知模式、非法或重复 MIME、越界大小会在生成前报错；`File` 的 `maxFiles` 只能为 1，多文件必须用 `Files`；
+- `Files` 存的是 key 数组，不能作为主键或唯一字段，且默认不可排序、不可过滤；
 - 未实现的类型或属性会直接报错，不做静默降级。
+
+## 单文件与多文件
+
+- `File` 保存**一个** storage key（字符串），适合单张图片、单个合同等。
+- `Files` 保存**一组** key（`@maxFiles` 上限内），适合附件列表、图集等：
+
+```qiy
+entity documents {
+  field id UUID @id;
+  field contract File @nullable @upload(binary) @mime("application/pdf") @maxFiles(1);
+  field attachments Files @nullable @upload(base64) @mime("application/pdf","image/*") @maxFiles(5);
+}
+```
+
+两者共用同一套上传路由与策略校验：每次上传仍然是一个文件一个对象，前端把返回的 key 收集成数组写入 `Files` 字段；服务端按 `maxFiles` 拒绝超长数组（422），并逐项校验 key 形态。
 
 完整上传、认证、Attachment 元数据与 S3 说明见[文件存储](../guide/storage)。
 
@@ -70,4 +86,4 @@ entity products {
 
 当前 operator：`eq`、`contains`、`startsWith`、`endsWith`、`gt`、`gte`、`lt`、`lte`、`between`、`in`。REST 继续兼容旧的等值对象过滤参数；高级条件使用 clause 数组。GraphQL 使用 `QiyFilterInput`，未提供 operator 时默认为 `eq`。服务端会按字段声明重复校验，不接受前端自行构造的未授权字段或 operator。
 
-当前多个条件只支持顶层 AND；嵌套 AND/OR 条件树和保存的用户筛选视图仍在 V3 待办中。
+REST DataProvider 同时保留 Refine 的嵌套 `and`/`or` 条件组；服务端会递归验证每个叶子、限制深度为 8 层及总叶子数为 50，再映射为 Drizzle 条件。GraphQL 仍使用平铺 `QiyFilterInput`（顶层 AND），因为 GraphQL 不允许递归 input 定义。保存的用户筛选视图仍在 V3 待办中。

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { DatabaseIR } from "../tools/database-ir";
 import { generateWeb } from "../tools/generate-web";
+import { parseQiyProject } from "../tools/qiy-project";
 
 const fixture = await Bun.file(new URL("../examples/catalog.ir.json", import.meta.url)).json() as DatabaseIR;
 
@@ -64,8 +65,8 @@ describe("Refine SPA generation", () => {
     database.entities[0]!.fields[1]!.formVisible = true;
     const files = generateWeb(database);
     expect(files["web/app/routes/list.tsx"]).toContain("visibleKeys");
-    expect(files["web/app/routes/show.tsx"]).toContain("resource.fields.filter((field) => field.showVisible)");
-    expect(files["web/app/components/resource-form.tsx"]).toContain("field.formVisible && !field.primaryKey");
+    expect(files["web/app/routes/show.tsx"]).toContain("resource.fields.filter((field) => field.showVisible && canSeeField(field, identity?.role))");
+    expect(files["web/app/components/resource-form.tsx"]).toContain("field.formVisible && !field.primaryKey && field.type !== \"Vector\" && canSeeField(field, identity?.role)");
   });
 
   test("imports configured resource icons instead of silently using a fallback", () => {
@@ -94,3 +95,35 @@ describe("Refine SPA generation", () => {
     expect(files["web/app/components/related-records.tsx"]).toContain('pagination: { currentPage: 1, pageSize: 10 }');
   });
 });
+
+test("generates the tree management page for scope tree entities", () => {
+  const model = (scope: string) => `qiy v0; application tree-ui {
+    database sqlite {}
+    entity organizations {
+      field id UUID @id;
+      field name Text;
+      field parentId UUID @nullable;
+    }
+    entity orders {
+      field id UUID @id;
+      field title Text;
+      field orgId UUID;
+    }
+    ${scope}
+  }`;
+  const project = parseQiyProject(model("scope orders orgId claim org tree organizations parentId;"));
+  const web = generateWeb(project.database, project);
+  expect(web["web/app/tree.ts"]).toContain("export function buildTree");
+  expect(web["web/app/tree.ts"]).toContain('"organizations"');
+  expect(web["web/app/components/tree-view.tsx"]).toContain("onSelect");
+  expect(web["web/app/routes/tree.tsx"]).toContain("TreeView");
+  expect(web["web/app/routes.ts"]).toContain('route(":resource/tree", "./routes/tree.tsx")');
+  expect(web["web/app/tests/tree.test.ts"]).toBeUndefined();
+  expect(web["web/tests/tree.test.ts"]).toContain("buildTree");
+  // Without a tree scope the extra page and route do not exist.
+  const plain = parseQiyProject(model(""));
+  const plainWeb = generateWeb(plain.database, plain);
+  expect(plainWeb["web/app/routes/tree.tsx"]).toBeUndefined();
+  expect(plainWeb["web/app/routes.ts"]).not.toContain(":resource/tree");
+});
+

@@ -1,0 +1,31 @@
+qiy v0;
+
+application resource-policy {
+  database sqlite {}
+
+  enum recordStatus {
+    value draft;
+    value pending;
+    value closed;
+  }
+
+  entity records {
+    field id UUID @id;
+    field ownerId UUID;
+    field status recordStatus;
+    field salary Decimal(10,2) @nullable;
+    field note Text;
+    field score Integer;
+  }
+
+  scope records ownerId claim tenant.ownerId;
+
+  restrict records {
+    allow roles admin, operator;
+    when ownerId claim user.id;
+    when status in "draft", "pending";
+    when score notIn "0";
+    mask salary roles operator mode redact replacement "***";
+    mask note claim absent compliance.level mode omit;
+  }
+}

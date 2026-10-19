@@ -6,3 +6,5 @@ apps/server/.env
 apps/server/.env.development
 apps/server/.env.production
 /storage/
+# Logical backups written by db:backup contain production data; never commit them.
+apps/server/backups/

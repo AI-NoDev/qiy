@@ -170,6 +170,7 @@ export async function initApp(options: InitAppOptions): Promise<string> {
     auth: project.auth,
     environment: project.environment,
     scopes: project.scopes,
+    restrictions: project.restrictions,
     workflows: project.workflows,
     testSuite,
   });

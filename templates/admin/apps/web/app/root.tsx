@@ -1,6 +1,6 @@
 import "antd/dist/reset.css";
 import "./styles.css";
-import { Select, Space, Typography } from "antd";
+import { Select, Space, Typography, theme } from "antd";
 import { Refine, useTranslation, type I18nProvider } from "@refinedev/core";
 import { RefineKbar, RefineKbarProvider } from "@refinedev/kbar";
 import routerProvider from "@refinedev/react-router";
@@ -31,13 +31,18 @@ export default function Root() {
 function RefineApplication({ i18nProvider }: { i18nProvider: I18nProvider }) {
   __QIY_AUTH_LOCATION__
   const notificationProvider = useQiyNotificationProvider();
+  const overviewLabel = i18nProvider.getLocale() === "zh-CN" ? "概览" : "Overview";
   return <RefineKbarProvider><Refine
     dataProvider={dataProvider}
     __QIY_AUTH_PROPS__
     routerProvider={routerProvider}
     notificationProvider={notificationProvider}
     i18nProvider={i18nProvider}
-    resources={[...menuGroups.map((group) => ({
+    resources={[{
+      name: "qiy-overview",
+      list: "/",
+      meta: { label: overviewLabel, icon: resolveResourceIcon("DashboardOutlined") },
+    }, ...menuGroups.map((group) => ({
       name: group.name,
       meta: { label: group.label, icon: resolveResourceIcon(group.icon), ...("parent" in group ? { parent: group.parent } : {}) },
     })), ...resources.map((resource) => ({
@@ -57,9 +62,10 @@ function RefineApplication({ i18nProvider }: { i18nProvider: I18nProvider }) {
 
 function AdminHeader() {
   const { getLocale, changeLocale } = useTranslation();
-  return <div className="qiy-header"><Space style={{ width: "100%", justifyContent: "flex-end", paddingRight: 16 }}>
+  const { token } = theme.useToken();
+  return <header className="qiy-header" style={{ background: token.colorBgElevated, color: token.colorText, borderBottom: `1px solid ${token.colorBorderSecondary}` }}><Space wrap style={{ width: "100%", justifyContent: "flex-end" }}>
     <Typography.Text type="secondary">Qiy Admin</Typography.Text>
     <QiyThemeControls />
     <Select aria-label="Language" value={getLocale()} onChange={(value) => void changeLocale(value)} options={languageOptions} />
-  </Space></div>;
+  </Space></header>;
 }

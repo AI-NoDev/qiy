@@ -6,7 +6,7 @@ import { generateWeb } from "./generate-web";
 import type { QiyProject } from "./qiy-project";
 import type { QiyTestSuite } from "./qiy-test";
 
-type ProjectOptions = Pick<QiyProject, "comment" | "commentKey" | "mode" | "integration" | "ui" | "messages" | "dataflows" | "actions" | "apiClient" | "corsOrigins" | "elysiaPlugins" | "menuGroups" | "dashboardMetrics" | "realtime" | "storageProvider" | "auth" | "environment" | "scopes" | "workflows"> & { testSuite?: QiyTestSuite };
+type ProjectOptions = Pick<QiyProject, "comment" | "commentKey" | "mode" | "integration" | "ui" | "messages" | "dataflows" | "actions" | "apiClient" | "corsOrigins" | "elysiaPlugins" | "menuGroups" | "dashboardMetrics" | "realtime" | "storageProvider" | "auth" | "environment" | "scopes" | "restrictions" | "pages" | "workflows"> & { testSuite?: QiyTestSuite };
 
 export function generateProject(database: DatabaseIR, name: string, options: ProjectOptions = {}): Record<string, string> {
   if (options.realtime && !options.auth) throw new Error("Realtime requires generated authentication");
@@ -71,28 +71,22 @@ export function generateProject(database: DatabaseIR, name: string, options: Pro
     serverPackage.scripts["auth:set-password"] = "bun src/auth/set-password.ts";
     apps["apps/server/package.json"] = `${JSON.stringify(serverPackage, null, 2)}\n`;
   }
-  if (database.dialect === "sqlite") {
-    const serverPackage = JSON.parse(apps["apps/server/package.json"]!) as { scripts: Record<string, string> };
-    serverPackage.scripts["db:migrate"] = "bun src/migrate.ts";
-    apps["apps/server/package.json"] = `${JSON.stringify(serverPackage, null, 2)}\n`;
-  }
   const serverPackage = JSON.parse(apps["apps/server/package.json"]!) as { scripts: Record<string, string> };
   serverPackage.scripts.dev = "bun --env-file=.env.development --watch src/server.ts";
   serverPackage.scripts.start = "bun --env-file=.env.production src/server.ts";
   serverPackage.scripts.preview = "bun --env-file=.env.development src/preview.ts";
   serverPackage.scripts["db:generate"] = "bun --env-file=.env.development run drizzle-kit generate";
-  serverPackage.scripts["db:migrate"] = database.dialect === "sqlite"
-    ? "bun --env-file=.env.development src/migrate.ts"
-    : "bun --env-file=.env.development run drizzle-kit migrate";
-  serverPackage.scripts["db:migrate:production"] = database.dialect === "sqlite"
-    ? "bun --env-file=.env.production src/migrate.ts"
-    : "bun --env-file=.env.production run drizzle-kit migrate";
+  serverPackage.scripts["db:migrate"] = "bun --env-file=.env.development src/db-migrate.ts";
+  serverPackage.scripts["db:migrate:production"] = "bun --env-file=.env.production src/db-migrate.ts";
+  serverPackage.scripts["db:rollback"] = "bun --env-file=.env.production src/db-rollback.ts";
+  serverPackage.scripts["db:backup"] = "bun --env-file=.env.production src/db-backup.ts";
+  serverPackage.scripts["db:restore"] = "bun --env-file=.env.production src/db-restore.ts";
+  serverPackage.scripts["db:check"] = "bun --env-file=.env.development src/db-check.ts";
   if (options.auth?.provider === "local") {
     serverPackage.scripts["auth:bootstrap-admin"] = "bun --env-file=.env.production src/auth/bootstrap-admin.ts";
     serverPackage.scripts["auth:set-password"] = "bun --env-file=.env.production src/auth/set-password.ts";
   }
-  if (options.realtime) serverPackage.scripts["realtime:admin"] = "bun --env-file=.env.production src/realtime-admin.ts";
-  apps["apps/server/package.json"] = `${JSON.stringify(serverPackage, null, 2)}\n`;
+  if (options.realtime) serverPackage.scripts["realtime:admin"] = "bun --env-file=.env.production src/realtime-admin.ts";  apps["apps/server/package.json"] = `${JSON.stringify(serverPackage, null, 2)}\n`;
   if (options.comment) {
     for (const path of ["apps/server/package.json", "apps/web/package.json"]) {
       const packageJson = JSON.parse(apps[path]!) as Record<string, unknown>;
@@ -118,32 +112,106 @@ function generateIntegrationProject(database: DatabaseIR, options: ProjectOption
   for (const path of Object.keys(apps)) if (path.startsWith("apps/web/tests/")) delete apps[path];
   const apiBase = JSON.stringify(options.integration.apiBase);
   const authTransport = JSON.stringify(options.integration.authTransport);
+  const responseContract = JSON.stringify({
+    data: options.integration.response?.data ?? "data",
+    total: options.integration.response?.total ?? null,
+    error: options.integration.response?.error ?? "error",
+  });
+  const paginationStyle = JSON.stringify(options.integration.pagination ?? "page");
+  const tenantHeader = JSON.stringify(options.integration.tenant?.header ?? null);
+  const tenantIdentity = JSON.stringify(options.integration.tenant?.identity ?? null);
+  const tenantGuide = options.integration.tenant
+    ? ` The configured tenant header is read from window.qiyHostAuth.getIdentity().${options.integration.tenant.identity} on every request and the call fails closed when it is missing.`
+    : "";
   apps["apps/web/app/data-provider.ts"] = 'export { dataProvider } from "./host/data-provider";\n';
   apps["apps/web/app/host/data-provider.ts"] = `import type { DataProvider } from "@refinedev/core";
-import { qiyIntegrationFetch, qiyIntegrationUrl } from "./auth";
+import { qiyIntegrationFetch } from "./auth";
 
 export const apiBase = import.meta.env.VITE_QIY_API_BASE ?? ${apiBase};
 export const authTransport = ${authTransport} as "none" | "cookie" | "bearer" | "portal";
 
+/**
+ * Host response envelope. Paths are dotted keys inside the JSON body. \`total\` is
+ * null when the host does not return a total count for list requests.
+ */
+export const responseContract: { data: string; total: string | null; error: string } = ${responseContract};
+export const paginationStyle = ${paginationStyle} as "page" | "offset" | "none";
+
+export function readPath(payload: unknown, path: string): unknown {
+  let current: unknown = payload;
+  for (const segment of path.split(".")) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
 export async function hostRequest(path: string, init?: RequestInit): Promise<unknown> {
   const response = await qiyIntegrationFetch(path, init);
   const payload = await response.json().catch(() => null);
-  if (!response.ok) throw Object.assign(new Error(typeof payload === "object" && payload && "error" in payload ? String(payload.error) : \`Host API error \${response.status}\`), { statusCode: response.status });
+  if (!response.ok) {
+    const detail = readPath(payload, responseContract.error);
+    throw Object.assign(new Error(typeof detail === "string" && detail ? detail : \`Host API error \${response.status}\`), { statusCode: response.status });
+  }
   return payload;
 }
 
-const unsupported = async (): Promise<never> => {
-  throw new Error("Qiy integration data provider is not configured. Implement the host API resource mapping in this unowned adapter.");
-};
+/** List rows: the declared envelope path, or the body itself when it is already an array. */
+export function hostRecords(payload: unknown): Array<Record<string, unknown>> {
+  const value = readPath(payload, responseContract.data);
+  if (Array.isArray(value)) return value as Array<Record<string, unknown>>;
+  if (Array.isArray(payload)) return payload as Array<Record<string, unknown>>;
+  return [];
+}
 
-export const dataProvider: DataProvider = {
+/** One record: the declared envelope path, or the body itself when it is already an object. */
+export function hostRecord(payload: unknown): Record<string, unknown> {
+  const value = readPath(payload, responseContract.data);
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) return payload as Record<string, unknown>;
+  throw new Error("Host API returned no record");
+}
+
+export function hostTotal(payload: unknown, fallback: number): number {
+  if (!responseContract.total) return fallback;
+  const value = readPath(payload, responseContract.total);
+  const total = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(total) ? total : fallback;
+}
+
+function resourcePath(resource: string): string {
+  return resource.replace(/^\\/+/, "");
+}
+
+/**
+ * Baseline CRUD mapping generated from the declared envelope and pagination.
+ * Host-specific sorting, filtering, nested resources and bulk endpoints belong
+ * in this unowned adapter.
+ */
+export const dataProvider = {
   getApiUrl: () => apiBase,
-  getList: unsupported,
-  getOne: unsupported,
-  create: unsupported,
-  update: unsupported,
-  deleteOne: unsupported,
-};
+  getList: async ({ resource, pagination }) => {
+    const currentPage = pagination?.currentPage ?? 1;
+    const pageSize = pagination?.pageSize ?? 20;
+    const params = new URLSearchParams();
+    if (paginationStyle === "page") { params.set("page", String(currentPage)); params.set("pageSize", String(pageSize)); }
+    else if (paginationStyle === "offset") { params.set("offset", String((currentPage - 1) * pageSize)); params.set("limit", String(pageSize)); }
+    const query = params.toString();
+    const payload = await hostRequest(resourcePath(resource) + (query ? "?" + query : ""));
+    const data = hostRecords(payload);
+    return { data, total: hostTotal(payload, data.length) };
+  },
+  getOne: async ({ resource, id }) => ({ data: hostRecord(await hostRequest(resourcePath(resource) + "/" + encodeURIComponent(String(id)))) }),
+  create: async ({ resource, variables }) => ({ data: hostRecord(await hostRequest(resourcePath(resource), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(variables ?? {}) })) }),
+  update: async ({ resource, id, variables }) => ({ data: hostRecord(await hostRequest(resourcePath(resource) + "/" + encodeURIComponent(String(id)), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(variables ?? {}) })) }),
+  deleteOne: async ({ resource, id, variables }) => {
+    const payload = await hostRequest(resourcePath(resource) + "/" + encodeURIComponent(String(id)), variables ? { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify(variables) } : { method: "DELETE" });
+    if (payload && typeof payload === "object" && Object.keys(payload as Record<string, unknown>).length > 0) return { data: hostRecord(payload) };
+    return { data: { id } as Record<string, unknown> };
+  },
+} as DataProvider;
+
+export const dataProviderGuide = "getList/getOne/create/update/deleteOne are generated from the declared response envelope and pagination. Map host-specific sorting, filtering, nested resources and bulk operations in this unowned adapter.";
 `;
   apps["apps/web/app/host/auth.ts"] = `import type { AuthProvider } from "@refinedev/core";
 
@@ -151,6 +219,8 @@ export const authTransport = ${authTransport} as "none" | "cookie" | "bearer" | 
 const apiBase = import.meta.env.VITE_QIY_API_BASE ?? ${apiBase};
 const csrfCookieName = ${JSON.stringify(options.integration.csrfCookie ?? "csrf_token")};
 const csrfHeaderName = ${JSON.stringify(options.integration.csrfHeader ?? "x-csrf-token")};
+const tenantHeaderName = ${tenantHeader};
+const tenantIdentityKey = ${tenantIdentity};
 
 export interface QiyHostAuthBridge {
   getAccessToken?: () => string | undefined | Promise<string | undefined>;
@@ -197,6 +267,12 @@ export async function qiyIntegrationFetch(input: string | URL, init: RequestInit
     if (!csrf) throw new Error("Host CSRF cookie is missing or invalid");
     headers.set(csrfHeaderName, csrf);
   }
+  if (tenantHeaderName && tenantIdentityKey) {
+    const identity = typeof window === "undefined" ? null : await window.qiyHostAuth?.getIdentity?.();
+    const tenant = identity ? identity[tenantIdentityKey] : undefined;
+    if (tenant === undefined || tenant === null || tenant === "") throw new Error("Host tenant identity is missing");
+    headers.set(tenantHeaderName, String(tenant));
+  }
   return fetch(url, { ...init, method, headers, redirect: "error", credentials: authTransport === "cookie" ? "include" : init.credentials ?? "same-origin" });
 }
 
@@ -214,7 +290,7 @@ export const qiyIntegrationAuthProvider: AuthProvider = {
   },
 };
 
-export const integrationAuthGuide = "Provide window.qiyHostAuth.getAccessToken for bearer/portal mode. Cookie mode includes credentials and copies the configured readable CSRF cookie into its request header. Implement host login, refresh, identity, logout, and authorization in this unowned adapter; keep secrets out of the Qiy model.";
+export const integrationAuthGuide = "Provide window.qiyHostAuth.getAccessToken for bearer/portal mode. Cookie mode includes credentials and copies the configured readable CSRF cookie into its request header.${tenantGuide} Implement host login, refresh, identity, logout, and authorization in this unowned adapter; keep secrets out of the Qiy model.";
 `;
   apps["apps/web/app/host/access-control.ts"] = `import type { AccessControlProvider } from "@refinedev/core";
 import type { QiyHostAuthBridge } from "./auth";
@@ -244,8 +320,8 @@ export default function HostLoginExtension() { const startLogin = async () => { 
 
 This Qiy model generated only the Refine admin package. It did not generate a server, database schema, migration, deployment file, or a second authentication system.
 
-- app/host/data-provider.ts: map Refine CRUD and custom actions to the existing API's URLs, response envelope, and error shape. Use hostRequest() (or qiyIntegrationFetch()) for the configured auth transport.
-- app/host/auth.ts: provide window.qiyHostAuth.getAccessToken for Bearer/portal mode, or configure a readable CSRF cookie and header for cookie mode; implement host login/session/refresh/identity/logout here. Do not copy secrets into the Qiy model.
+- app/host/data-provider.ts: a baseline getList/getOne/create/update/deleteOne mapping is generated from the declared \`response\`, \`pagination\` and \`apiBase\` settings, using the model resource names as URL paths. Map host-specific sorting, filtering, nested resources, bulk endpoints and a different URL layout in this unowned adapter. Use hostRequest() (or qiyIntegrationFetch()) for the configured auth transport.
+- app/host/auth.ts: provide window.qiyHostAuth.getAccessToken for Bearer/portal mode, or configure a readable CSRF cookie and header for cookie mode; implement host login/session/refresh/identity/logout here.${tenantGuide ? ` The declared tenant header is copied from window.qiyHostAuth.getIdentity() on every request and missing tenant data fails closed.` : ""} Do not copy secrets into the Qiy model.
 - app/host/access-control.ts: implement window.qiyHostAuth.can({ resource, action, params }) to map host permissions to UI visibility and business-page access. Missing or failed checks deny access. The host API remains the authorization authority.
 
 The app/host/ files are intentionally not Qiy-owned. qiy init --sync preserves local changes there.
@@ -285,12 +361,16 @@ function renderEnvironmentExample(
   if (options.auth?.provider === "otp") {
     values.set("QIY_OTP_DELIVERY_URL", "");
     values.set("QIY_OTP_DELIVERY_TOKEN", "");
+    values.set("QIY_OTP_DELIVERY_TIMEOUT_MS", "10000");
     values.set("QIY_OTP_DEV_CODE", "");
   }
   if (options.auth && options.auth.provider !== "local" && options.auth.provider !== "otp") {
     values.set("QIY_OIDC_ISSUER", "");
     values.set("QIY_OIDC_AUDIENCE", "");
     values.set("QIY_OIDC_JWKS_URL", "");
+    values.set("QIY_OIDC_JWKS_TIMEOUT_MS", "5000");
+    values.set("QIY_OIDC_JWKS_COOLDOWN_MS", "30000");
+    values.set("QIY_OIDC_JWKS_CACHE_MAX_AGE_MS", "600000");
   }
   if (options.corsOrigins?.length) values.set("QIY_CORS_ORIGINS", options.corsOrigins.join(","));
   if (options.elysiaPlugins?.jwt) values.set(options.elysiaPlugins.jwt.secretEnv, "");

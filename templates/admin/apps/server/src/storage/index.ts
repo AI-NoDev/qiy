@@ -1,5 +1,5 @@
-import { mkdir, unlink } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { mkdir, readdir, unlink } from "node:fs/promises";
+import { dirname, join, relative, resolve, sep } from "node:path";
 
 export interface StorageProvider {
   save(key: string, data: Blob): Promise<void>;
@@ -7,6 +7,8 @@ export interface StorageProvider {
   exists(key: string): Promise<boolean>;
   delete(key: string): Promise<void>;
   signedUrl(key: string, method?: "GET" | "PUT"): string | null;
+  /** Every stored object key. Used by orphan scanning; implementations bound their own page count. */
+  list(): Promise<string[]>;
 }
 
 export function storageKey(key: string): string {
@@ -33,6 +35,19 @@ export function createLocalStorage(root: string): StorageProvider {
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     },
     signedUrl(key) { storageKey(key); return null; },
+    async list() {
+      const keys: string[] = [];
+      const walk = async (current: string): Promise<void> => {
+        const entries = await readdir(current, { withFileTypes: true }).catch(() => [] as never[]);
+        for (const entry of entries as Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>) {
+          const path = join(current, entry.name);
+          if (entry.isDirectory()) await walk(path);
+          else if (entry.isFile()) keys.push(relative(directory, path).split(sep).join("/"));
+        }
+      };
+      await walk(directory);
+      return keys;
+    },
   };
 }
 
@@ -45,6 +60,18 @@ export function createS3Storage(options: Bun.S3Options): StorageProvider {
     async exists(key) { return client.exists(storageKey(key)); },
     async delete(key) { await client.unlink(storageKey(key)); },
     signedUrl(key, method = "GET") { return client.presign(storageKey(key), { method, expiresIn: 300 }); },
+    async list() {
+      // Bounded paging so a misconfigured bucket cannot make this scan unbounded.
+      const keys: string[] = [];
+      let token: string | undefined;
+      for (let page = 0; page < 20; page++) {
+        const response = await client.list({ prefix: "", maxKeys: 1000, ...(token ? { continuationToken: token } : {}) });
+        for (const item of response.contents ?? []) if (item.key) keys.push(item.key);
+        if (!response.isTruncated || !response.nextContinuationToken) break;
+        token = response.nextContinuationToken;
+      }
+      return keys;
+    },
   };
 }
 

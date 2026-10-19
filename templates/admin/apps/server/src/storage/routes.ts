@@ -3,7 +3,7 @@ import type { Authenticator } from "../auth/guard";
 import { createStorageFromEnv, storageKey } from "./index";
 
 type AttachmentMetadata = { id: string; storageKey: string; fileName: string | null; contentType: string; size: number; ownerId: string; resource: string; resourceId: string | null; createdAt: string };
-type UploadPolicy = { mode: "binary" | "base64" | "both"; maxBytes: number; mimeTypes: string[]; maxFiles: 1 };
+type UploadPolicy = { mode: "binary" | "base64" | "both"; maxBytes: number; mimeTypes: string[]; maxFiles: number };
 const uploadPolicies = __QIY_UPLOAD_POLICIES__ as Record<string, UploadPolicy>;
 const memoryMetadata = new Map<string, AttachmentMetadata>();
 let databasePromise: Promise<{ db: any; attachments: any; eq: any } | null> | undefined;
@@ -54,6 +54,27 @@ export async function cleanupMissingAttachmentObjects(options: { dryRun?: boolea
     if (!dryRun) await handle.db.delete(handle.attachments).where(handle.eq(handle.attachments.id, row.id));
   }
   return { checked: rows.length, removed, dryRun };
+}
+
+/**
+ * Finds stored objects that no attachment metadata references. Unlike
+ * cleanupMissingAttachmentObjects (metadata without an object) this covers the
+ * opposite direction, which is what a failed metadata write or a manual delete
+ * leaves behind. It never deletes unless dryRun is false.
+ */
+export async function scanOrphanAttachmentObjects(options: { dryRun?: boolean; limit?: number } = {}): Promise<{ objects: number; metadata: number; orphans: string[]; missingObjects: number; removed: number; dryRun: boolean; truncated: boolean }> {
+  const handle = await databaseHandle();
+  if (!handle) throw new Error("Attachment orphan scanning requires QIY_STORAGE_METADATA=database and DATABASE_URL");
+  const storage = createStorageFromEnv();
+  const dryRun = options.dryRun ?? true;
+  const limit = Math.max(1, Math.min(options.limit ?? 1000, 10000));
+  const rows = await handle.db.select().from(handle.attachments) as Array<{ storageKey: string }>;
+  const known = new Set(rows.map((row) => row.storageKey));
+  const objects = await storage.list();
+  const orphans = objects.filter((key) => !known.has(key)).sort();
+  const missingObjects = rows.filter((row) => !objects.includes(row.storageKey)).length;
+  const removed = dryRun ? 0 : (await Promise.all(orphans.slice(0, limit).map((key) => storage.delete(key).then(() => 1)))).length;
+  return { objects: objects.length, metadata: rows.length, orphans: orphans.slice(0, limit), missingObjects, removed, dryRun, truncated: orphans.length > limit };
 }
 
 function canReadAttachment(principal: { id: string; role: string }, metadata: AttachmentMetadata | undefined): boolean {

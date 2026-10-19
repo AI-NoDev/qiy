@@ -25,7 +25,7 @@ test("declares distributable VS Code and JetBrains language plugins", () => {
 test("highlights business commands, translations and hash comments", () => {
   const grammar = JSON.parse(readFileSync(grammarPath, "utf8"));
   const keyword = new RegExp(grammar.repository.keywords.patterns[0].match);
-  for (const token of ["messages", "locale", "dataflow", "step", "action", "integration", "env", "realtime", "events"]) {
+  for (const token of ["messages", "locale", "dataflow", "step", "action", "integration", "env", "realtime", "events", "restrict", "mask", "notIn", "redact"]) {
     expect(keyword.test(token)).toBe(true);
   }
   expect(grammar.repository.comments.patterns.some((pattern: { match: string }) => new RegExp(pattern.match).test("# model description"))).toBe(true);

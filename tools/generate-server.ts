@@ -1,6 +1,33 @@
 import type { DatabaseIR, EntityIR, FieldIR, FilterMode } from "./database-ir";
-import type { QiyProject, DataflowIR } from "./qiy-project";
+import type { QiyProject, DataflowIR, QiyPolicyExpression, QiyResourceRestriction, QiyRowPredicate, QiyFieldMask } from "./qiy-project";
 import { resolveQiyTestValue, type QiyTestSuite, type QiyTestScenario } from "./qiy-test";
+
+/** A data scope, optionally widened to the whole subtree of a self-referencing entity. */
+type QiyScope = NonNullable<QiyProject["scopes"]>[number];
+
+/** Resolves the tree table, id column and parent column a `tree` scope needs. */
+function resolveScopeTree(database: DatabaseIR, entity: EntityIR): { scope: QiyScope; table: EntityIR; idField: FieldIR; parentField: FieldIR } | undefined {
+  const scope = (database as DatabaseIR & { scopes?: QiyScope[] }).scopes?.find((candidate) => (candidate.resource === entity.name || candidate.resource === entity.tableName) && candidate.tree);
+  if (!scope?.tree) return undefined;
+  const table = database.entities.find((candidate) => candidate.name === scope.tree!.entity || candidate.tableName === scope.tree!.entity);
+  const idField = table?.fields.find((field) => field.primaryKey);
+  const parentField = table?.fields.find((field) => field.name === scope.tree!.parentField);
+  return table && idField && parentField ? { scope, table, idField, parentField } : undefined;
+}
+
+/** Emits the recursive CTE used to turn one claim value into the allowed subtree ids. */
+function renderScopeTreeHelper(database: DatabaseIR, entity: EntityIR): string {
+  const tree = resolveScopeTree(database, entity);
+  if (!tree) return "";
+  const cast = JSON.stringify(database.dialect === "mysql" ? "CHAR" : "TEXT");
+  const table = tree.table.name;
+  return `const qiyScopeCast = ${cast};
+/** Subtree ids are structural metadata: the recursive CTE does not re-apply the row policy. */
+function qiyScopeSubtree(column: any, value: string) {
+  return sql\`CAST(\${column} AS \${sql.raw(qiyScopeCast)}) IN (WITH RECURSIVE qiy_scope(id, depth) AS (SELECT CAST(\${${table}.${tree.idField.name}} AS \${sql.raw(qiyScopeCast)}), 0 FROM \${${table}} WHERE CAST(\${${table}.${tree.idField.name}} AS \${sql.raw(qiyScopeCast)}) = \${value} UNION ALL SELECT CAST(child.${tree.idField.name} AS \${sql.raw(qiyScopeCast)}), qiy_scope.depth + 1 FROM \${${table}} AS child JOIN qiy_scope ON CAST(child.${tree.parentField.name} AS \${sql.raw(qiyScopeCast)}) = qiy_scope.id WHERE qiy_scope.depth < 64) SELECT id FROM qiy_scope)\`;
+}
+`;
+}
 import { renderAppTemplate } from "./admin-template";
 import { validateDatabaseIR } from "./database-ir";
 import { generateDrizzlePostgres } from "./drizzle-pg";
@@ -18,6 +45,7 @@ function apiFieldSchema(field: FieldIR, database: DatabaseIR): string {
     case "UUID": return "t.String({ format: \"uuid\" })";
     case "Text": return "t.String({ minLength: 1 })";
     case "File": return "t.String({ minLength: 1, maxLength: 240 })";
+    case "Files": return `t.Array(t.String({ minLength: 1, maxLength: 240 }), { minItems: 1, maxItems: ${field.maxFiles ?? 6} })`;
     case "Integer": return "t.Integer()";
     case "DateTime": return "t.String({ format: \"date-time\" })";
     case "Decimal":
@@ -49,6 +77,17 @@ function modelName(entity: EntityIR): string {
   return entity.name[0]!.toUpperCase() + entity.name.slice(1);
 }
 
+/**
+ * Builds the principal display-name expression from the fields the user entity
+ * actually declares. Hardcoding `displayName`/`email` produced server code that
+ * did not compile for user entities without those fields.
+ */
+function principalNameExpression(entity: EntityIR | undefined, ...candidates: Array<string | undefined>): string {
+  const declared = [...new Set(candidates.filter((field): field is string => typeof field === "string" && field.length > 0))]
+    .filter((field) => entity?.fields.some((item) => item.name === field));
+  return `String(${[...declared.map((field) => `row.${field}`), "row.id"].join(" ?? ")})`;
+}
+
 function filterModesForField(field: FieldIR): FilterMode[] {
   return field.filterModes ?? (field.enumName
     ? ["eq"]
@@ -66,7 +105,8 @@ function graphqlType(field: FieldIR, required = true): string {
     : field.type === "UUID" ? "ID"
       : field.type === "Integer" ? "Int"
         : field.type === "Vector" ? "[Float!]"
-          : "String";
+          : field.type === "Files" ? "[String!]"
+            : "String";
   return required && !field.nullable ? `${base}!` : base;
 }
 
@@ -112,7 +152,7 @@ function graphqlDataflowResultType(entity: EntityIR): string {
   return `{ ${entity.fields.map((field) => `${field.name}?: ${fieldType(field)}`).join("; ")} }`;
 }
 
-function graphqlSchema(database: DatabaseIR, hiddenFields: Record<string, string[]> = {}, dataflows: DataflowIR[] = [], actions: NonNullable<QiyProject["actions"]> = []): string {
+function graphqlSchema(database: DatabaseIR, hiddenFields: Record<string, string[]> = {}, dataflows: DataflowIR[] = [], actions: NonNullable<QiyProject["actions"]> = [], realtimeEntities: EntityIR[] = []): string {
   const batchFlows = new Set(actions.filter((action) => action.batch && action.target.kind === "dataflow").map((action) => action.target.kind === "dataflow" ? action.target.dataflow : ""));
   const enums = (database.enums ?? []).map((enumeration) => `enum ${graphqlName(enumeration.name)} {\n${enumeration.values.map((value) => `  ${value.name}`).join("\n")}\n}`).join("\n\n");
   const types = database.entities.map((entity) => {
@@ -123,6 +163,7 @@ function graphqlSchema(database: DatabaseIR, hiddenFields: Record<string, string
   const queries = database.entities.flatMap((entity) => [
     `  ${entity.name}(page: Int = 1, pageSize: Int = 20, search: String, sort: String, order: String, filters: [QiyFilterInput!]): ${modelName(entity)}Page!`,
     `  ${entity.name}ById(id: ID!): ${modelName(entity)}`,
+    `  ${entity.name}Aggregate(field: String!, op: String!): Float`,
     `  ${entity.name}Distribution(field: String!): [QiyDistribution!]!`,
     `  ${entity.name}Trend(field: String!, days: Int!): [QiyTrend!]!`,
   ]).join("\n");
@@ -142,23 +183,83 @@ function graphqlSchema(database: DatabaseIR, hiddenFields: Record<string, string
       : undefined;
     return batch ? [single, batch] : [single];
   }).join("\n");
-  return `${enums ? `${enums}\n\n` : ""}input QiyFilterInput {\n  field: String!\n  operator: String = "eq"\n  value: String!\n}\n\ntype QiyDistribution {\n  value: String\n  count: Int!\n}\n\ntype QiyTrend {\n  day: String!\n  count: Int!\n}\n\n${types}${dataflowInputs ? `\n\n${dataflowInputs}` : ""}\n\ntype Query {\n${queries}\n}\n\ntype Mutation {\n${mutations}${dataflowMutations ? `\n${dataflowMutations}` : ""}\n}`;
+  return `${enums ? `${enums}\n\n` : ""}input QiyFilterInput {\n  field: String!\n  operator: String = "eq"\n  value: String!\n}\n\ntype QiyDistribution {\n  value: String\n  count: Int!\n}\n\ntype QiyTrend {\n  day: String!\n  count: Int!\n}\n\n${types}${realtimeEntities.length ? `\n\n${realtimeEntities.map((entity) => `type ${modelName(entity)}Event {\n  event: String!\n  record: ${modelName(entity)}!\n}`).join("\n\n")}` : ""}${dataflowInputs ? `\n\n${dataflowInputs}` : ""}\n\ntype Query {\n${queries}\n}\n\ntype Mutation {\n${mutations}${dataflowMutations ? `\n${dataflowMutations}` : ""}\n}${realtimeEntities.length ? `\n\ntype Subscription {\n${realtimeEntities.map((entity) => `  ${entity.name}Changed: ${modelName(entity)}Event!`).join("\n")}\n}` : ""}`;
 }
 
-function graphqlResolver(entity: EntityIR): string {
+function graphqlResolver(entity: EntityIR, restricted = false): string {
   const name = modelName(entity);
   const sortableFields = JSON.stringify(entity.fields.filter((field) => field.sortable !== false).map((field) => field.name));
   const filterableFields = JSON.stringify(entity.fields.filter((field) => field.filterable !== false).map((field) => field.name));
   const filterModes = JSON.stringify(Object.fromEntries(entity.fields.filter((field) => field.filterable !== false).map((field) => [field.name, filterModesForField(field)])));
-  return `  ${entity.name}Distribution: ({ field }: { field: string }, context: { scopeFor: (resource: string) => { field: string; value: string } | undefined }) => (${JSON.stringify(entity.fields.filter((item) => item.enumName).map((item) => item.name))} as string[]).includes(field) ? services.${entity.name}.distribution(field, context.scopeFor("${entity.name}")) : Promise.reject(new Error("Unsupported distribution field")),\n  ${entity.name}Trend: ({ field, days }: { field: string; days: number }, context: { scopeFor: (resource: string) => { field: string; value: string } | undefined }) => (${JSON.stringify(entity.fields.filter((item) => item.type === "DateTime").map((item) => item.name))} as string[]).includes(field) && Number.isInteger(days) && days >= 1 && days <= 365 ? services.${entity.name}.trend(field, days, context.scopeFor("${entity.name}")) : Promise.reject(new Error("Invalid trend query")),\n` + `  ${entity.name}: async (args: { page?: number; pageSize?: number; search?: string; sort?: string; order?: string; filters?: Array<{ field: string; operator?: FilterOperator; value: string }> }, context: { scopeFor: (resource: string) => { field: string; value: string } | undefined }) => {\n    const sortableFields = ${sortableFields} as string[];\n    const filterableFields = ${filterableFields} as string[];\n    const filterModes = ${filterModes} as Record<string, FilterOperator[]>;\n    if (args.sort && !sortableFields.includes(args.sort)) throw new Error("Unsupported sort field");\n    if ((args.filters ?? []).some((filter) => !filterableFields.includes(filter.field))) throw new Error("Unsupported filter field");\n    if ((args.filters ?? []).some((filter) => !filterModes[filter.field]?.includes(filter.operator ?? "eq"))) throw new Error("Unsupported filter operator");\n    const result = await services.${entity.name}.list(args.page ?? 1, args.pageSize ?? 20, {\n      search: args.search, sort: args.sort, order: args.order === "desc" ? "desc" : "asc",\n      filters: (args.filters ?? []).map((filter) => ({ ...filter, operator: filter.operator ?? "eq" })), scope: context.scopeFor("${entity.name}"),\n    });\n    return { ...result, items: result.data, page: args.page ?? 1, pageSize: args.pageSize ?? 20 };\n  },\n  ${entity.name}ById: ({ id }: { id: string }, context: { scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.one(id, context.scopeFor("${entity.name}")),\n  create${name}: ({ input }: { input: Record<string, unknown> }, context: { actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.create(input, context.actorId, context.scopeFor("${entity.name}")),\n  update${name}: ({ id, input }: { id: string; input: Record<string, unknown> }, context: { actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.update(id, input, context.actorId, context.scopeFor("${entity.name}")),\n  delete${name}: ({ id }: { id: string }, context: { actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.delete(id, context.actorId, context.scopeFor("${entity.name}")),\n  delete${name}Many: ({ ids }: { ids: string[] }, context: { actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined }) => services.${entity.name}.deleteMany(ids, context.actorId, context.scopeFor("${entity.name}")),`;
+  // GraphQL must not become an authorization bypass: every resolver resolves the
+  // same request policy as REST, forwards it to the service, and applies the
+  // field masks before returning records.
+  const readContextType = restricted
+    ? `{ scopeFor: (resource: string) => { field: string; value: string } | undefined; policyFor: (resource: string) => QiyPolicy }`
+    : `{ scopeFor: (resource: string) => { field: string; value: string } | undefined }`;
+  const writeContextType = restricted
+    ? `{ actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined; policyFor: (resource: string) => QiyPolicy }`
+    : `{ actorId?: string; scopeFor: (resource: string) => { field: string; value: string } | undefined }`;
+  const policyArg = restricted ? `, context.policyFor("${entity.name}")` : "";
+  const listScope = restricted
+    ? `scope: context.scopeFor("${entity.name}"), policy: context.policyFor("${entity.name}"),`
+    : `scope: context.scopeFor("${entity.name}"),`;
+  const listReturn = restricted
+    ? `\n    const policy = context.policyFor("${entity.name}");\n    return { ...result, items: result.data.map((record) => policy.mask(record)), page: args.page ?? 1, pageSize: args.pageSize ?? 20 };`
+    : `\n    return { ...result, items: result.data, page: args.page ?? 1, pageSize: args.pageSize ?? 20 };`;
+  const oneCall = `services.${entity.name}.one(id, context.scopeFor("${entity.name}")${policyArg})`;
+  const oneReturn = restricted ? `${oneCall}.then((record) => record ? context.policyFor("${entity.name}").mask(record) : record)` : oneCall;
+  const writeReturn = (expression: string) => restricted
+    ? `${expression}.then((record) => record ? context.policyFor("${entity.name}").mask(record) : record)`
+    : expression;
+  const guardedWrite = (method: "create" | "update") => restricted
+    ? `(async () => { const policy = context.policyFor("${entity.name}"); if (Object.keys(input).some((field) => policy.maskedFields.includes(field))) throw new QiyPolicyError("Masked fields cannot be written", 400, "policy.maskedField"); const record = await services.${entity.name}.${method}(${method === "update" ? "id, input" : "input"}, context.actorId, context.scopeFor("${entity.name}"), policy); return record ? policy.mask(record) : record; })()`
+    : `services.${entity.name}.${method}(${method === "update" ? "id, input" : "input"}, context.actorId, context.scopeFor("${entity.name}"))`;
+  const deleteManyExpression = `services.${entity.name}.deleteMany(ids, context.actorId, context.scopeFor("${entity.name}")${policyArg})`;
+  const deleteManyReturn = restricted
+    ? `${deleteManyExpression}.then((records) => records.map((record) => context.policyFor("${entity.name}").mask(record)))`
+    : deleteManyExpression;
+  return `  ${entity.name}Aggregate: ({ field, op }: { field: string; op: string }, context: ${readContextType}) => { ${restricted ? `if (context.policyFor("${entity.name}").maskedFields.includes(field)) return Promise.reject(new Error("Aggregating a masked field is not permitted")); ` : ""}if (!["sum", "avg", "min", "max"].includes(op)) return Promise.reject(new Error("Unsupported aggregate operator")); return services.${entity.name}.aggregate(field, op, context.scopeFor("${entity.name}")${policyArg}).then((result) => result.value); },  ${entity.name}Distribution: ({ field }: { field: string }, context: ${readContextType}) => (${JSON.stringify(entity.fields.filter((item) => item.enumName).map((item) => item.name))} as string[]).includes(field) ? services.${entity.name}.distribution(field, context.scopeFor("${entity.name}")${policyArg}) : Promise.reject(new Error("Unsupported distribution field")),\n  ${entity.name}Trend: ({ field, days }: { field: string; days: number }, context: ${readContextType}) => (${JSON.stringify(entity.fields.filter((item) => item.type === "DateTime").map((item) => item.name))} as string[]).includes(field) && Number.isInteger(days) && days >= 1 && days <= 365 ? services.${entity.name}.trend(field, days, context.scopeFor("${entity.name}")${policyArg}) : Promise.reject(new Error("Invalid trend query")),\n` + `  ${entity.name}: async (args: { page?: number; pageSize?: number; search?: string; sort?: string; order?: string; filters?: Array<{ field: string; operator?: FilterOperator; value: string }> }, context: ${readContextType}) => {
+    const sortableFields = ${sortableFields} as string[];
+    const filterableFields = ${filterableFields} as string[];
+    const filterModes = ${filterModes} as Record<string, FilterOperator[]>;
+    if (args.sort && !sortableFields.includes(args.sort)) throw new Error("Unsupported sort field");
+    if ((args.filters ?? []).some((filter) => !filterableFields.includes(filter.field))) throw new Error("Unsupported filter field");
+    if ((args.filters ?? []).some((filter) => !filterModes[filter.field]?.includes(filter.operator ?? "eq"))) throw new Error("Unsupported filter operator");
+    const result = await services.${entity.name}.list(args.page ?? 1, args.pageSize ?? 20, {
+      search: args.search, sort: args.sort, order: args.order === "desc" ? "desc" : "asc",
+      filters: (args.filters ?? []).map((filter) => ({ ...filter, operator: filter.operator ?? "eq" })), ${listScope}
+    });${listReturn}
+  },
+  ${entity.name}ById: ({ id }: { id: string }, context: ${readContextType}) => ${oneReturn},
+  create${name}: ({ input }: { input: Record<string, unknown> }, context: ${writeContextType}) => ${guardedWrite("create")},
+  update${name}: ({ id, input }: { id: string; input: Record<string, unknown> }, context: ${writeContextType}) => ${guardedWrite("update")},
+  delete${name}: ({ id }: { id: string }, context: ${writeContextType}) => ${writeReturn(`services.${entity.name}.delete(id, context.actorId, context.scopeFor("${entity.name}")${policyArg})`)},
+  delete${name}Many: ({ ids }: { ids: string[] }, context: ${writeContextType}) => ${deleteManyReturn},`;
 }
 
-function renderGraphQL(database: DatabaseIR, hiddenFields: Record<string, string[]> = {}, dataflows: DataflowIR[] = [], actions: NonNullable<QiyProject["actions"]> = []): string {
-  const schema = JSON.stringify(graphqlSchema(database, hiddenFields, dataflows, actions));
+function renderGraphQL(database: DatabaseIR, hiddenFields: Record<string, string[]> = {}, dataflows: DataflowIR[] = [], actions: NonNullable<QiyProject["actions"]> = [], realtimeEntities: EntityIR[] = []): string {
+  const restrictions = (database as DatabaseIR & { restrictions?: QiyResourceRestriction[] }).restrictions ?? [];
+  const restrictedResources = new Set(restrictions.map((restriction) => restriction.resource));
+  const schema = JSON.stringify(graphqlSchema(database, hiddenFields, dataflows, actions, realtimeEntities));
   const batchFlows = new Set(actions.filter((action) => action.batch && action.target.kind === "dataflow").map((action) => action.target.kind === "dataflow" ? action.target.dataflow : ""));
   const serviceImports = database.entities.map((entity) => `import { create${modelName(entity)}Service } from "./modules/${entity.name}/${entity.name}.service";`).join("\n") + '\nimport { withPaginationLimit } from "./pagination";\n\ntype FilterOperator = "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in";';
   const services = database.entities.map((entity) => `  ${entity.name}: withPaginationLimit(create${modelName(entity)}Service(repositories.${entity.name})),`).join("\n");
-  const resolvers = database.entities.map(graphqlResolver).join("\n");
+  const resolvers = database.entities.map((entity) => graphqlResolver(entity, restrictedResources.has(entity.name))).join("\n");
+  // Subscription roots resolve through the in-process bus that the outbox dispatcher feeds.
+  // Subscriptions stream over Server-Sent Events: one `data:` frame per GraphQL result.
+  const policyImports = restrictions.length
+    ? `import { QiyPolicyError, resolvePolicy, type QiyPolicy } from "./security/policy";\nimport { ${[...restrictedResources].join(", ")} } from "./schema";\n`
+    : "";
+  const policyColumnsLiteral = restrictions.length
+    ? `\nconst policyColumns: Record<string, Record<string, unknown>> = {\n${restrictions.map((restriction) => {
+      const entity = database.entities.find((candidate) => candidate.name === restriction.resource)!;
+      return `  ${JSON.stringify(restriction.resource)}: { ${entity.fields.map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ")} },`;
+    }).join("\n")}\n};\n`
+    : "";
+  const policyContext = restrictions.length
+    ? `, policyFor: (resource: string) => resolvePolicy(resource, principal, policyColumns[resource] ?? {})`
+    : "";
   const commandResolvers = dataflows.flatMap((flow) => {
     const operation = `run${dataflowGraphqlName(flow.name)}`;
     const single = `  ${operation}: (args: { input?: Record<string, unknown>; idempotencyKey?: string }, context: { request: Request }) => executeDataflowCommand<${graphqlDataflowResultType(dataflowResultEntity(database, flow))}>(commandRoutes, context.request, ${JSON.stringify(flow.name)}, args.input ?? {}, args.idempotencyKey),`;
@@ -171,7 +272,62 @@ function renderGraphQL(database: DatabaseIR, hiddenFields: Record<string, string
   const commandImport = dataflows.length ? 'import { createDataflowRoutes } from "./dataflows";\n' : "";
   const commandSetup = dataflows.length ? "  const commandRoutes = createDataflowRoutes(authenticate);\n" : "";
   const commandArgument = dataflows.length ? ", commandRoutes" : "";
+  const subscriptionRoute = realtimeEntities.length
+    ? `
+    .get("/subscribe", async ({ query, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      let document;
+      try { document = parse(query.query); }
+      catch { return status(400, { error: "Invalid GraphQL document" }); }
+      const capabilities = realtimeCapabilities(principal);
+      const contextValue = {
+        request,
+        actorId: principal.id,
+        canSubscribe: (channel: string) => Boolean(capabilities[channel]?.includes("subscribe")),
+        channelFor: (prefix: string) => Object.keys(capabilities).find((channel) => (channel === prefix || channel.startsWith(prefix + ":")) && capabilities[channel]?.includes("subscribe")),
+        scopeFor: () => undefined,
+      };
+      let result: unknown;
+      try { result = await subscribe({ schema, document, rootValue: resolvers(services${commandArgument}, { canSubscribe: (channel: string) => Boolean(capabilities[channel]?.includes("subscribe")), channelFor: (prefix: string) => Object.keys(capabilities).find((channel) => (channel === prefix || channel.startsWith(prefix + ":")) && capabilities[channel]?.includes("subscribe")) }), contextValue, variableValues: query.variables ? JSON.parse(query.variables) as Record<string, unknown> : undefined, operationName: query.operationName }); }
+      catch (error) { return status(400, { error: error instanceof Error ? error.message : "Unsupported subscription" }); }
+      if (!(Symbol.asyncIterator in (result as object))) {
+        const failures = (result as { errors?: Array<{ message: string }> }).errors ?? [];
+        const forbidden = failures.some((error) => error.message.includes("not permitted"));
+        return status(forbidden ? 403 : 400, { error: failures[0]?.message ?? "Unsupported subscription" });
+      }
+      const iterator = result as AsyncIterableIterator<Record<string, unknown>>;
+      const body = new ReadableStream({
+        async start(controller) {
+          const encoder = new TextEncoder();
+          request.signal.addEventListener("abort", () => { void iterator.return?.(); try { controller.close(); } catch { /* already closed */ } });
+          try {
+            for await (const payload of iterator) controller.enqueue(encoder.encode("data: " + JSON.stringify(payload) + "\\n\\n"));
+          } catch (error) {
+            controller.enqueue(encoder.encode("event: error\\ndata: " + JSON.stringify({ message: error instanceof Error ? error.message : String(error) }) + "\\n\\n"));
+          } finally {
+            try { controller.close(); } catch { /* already closed */ }
+          }
+        },
+      });
+      return new Response(body, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-store", "X-Accel-Buffering": "no" } });
+    }, { query: t.Object({ query: t.String({ minLength: 1, maxLength: 20000 }), variables: t.Optional(t.String({ maxLength: 20000 })), operationName: t.Optional(t.String({ maxLength: 200 })) }) })`
+    : "";
+
   const commandParameter = dataflows.length ? ", commandRoutes: ReturnType<typeof createDataflowRoutes>" : "";
+  // Subscription roots are lazy top-level getters: graphql-js reads rootValue[field]
+  // when the operation is executed, so queries never evaluate them. The emitted value
+  // must be shaped like the root field result, because graphql-js re-executes the
+  // root selection against each event.
+  const subscriptionResolvers = realtimeEntities.length
+    ? realtimeEntities.map((entity) => {
+      const field = `${entity.name}Changed`;
+      // The granted channel may be claim-segmented (`qiy:orders:eu`), so resolve it
+      // from the caller's capabilities instead of assuming the base name.
+      return `  get ${field}() { const channel = context?.channelFor?.(${JSON.stringify(`qiy:${entity.tableName}`)}); if (!channel) throw new GraphQLError("Realtime subscription is not permitted", { extensions: { status: 403, errorKey: "realtime.forbidden" } }); const events = realtimeChannelIterator(channel); return (async function* () { try { for await (const event of events) yield { ${field}: { event: event.event, record: event.record } }; } finally { events.close(); } })(); },`;
+    }).join("\n")
+    : "";
+
   const commandHelpers = dataflows.length ? `async function executeDataflowCommand<T>(routes: ReturnType<typeof createDataflowRoutes>, request: Request, flow: string, input: Record<string, unknown>, idempotencyKey?: string): Promise<T> {
   const headers = new Headers(request.headers);
   headers.set("content-type", "application/json");
@@ -185,19 +341,19 @@ function renderGraphQL(database: DatabaseIR, hiddenFields: Record<string, string
 
 ` : "";
   return `import { Elysia, t } from "elysia";
-import { buildSchema, graphql, parse, getOperationAST, Kind, GraphQLError } from "graphql";
+import { buildSchema, graphql, parse, subscribe, getOperationAST, Kind, GraphQLError } from "graphql";
 import type { Repositories } from "./app";
 import type { Authenticator } from "./auth/guard";
-${commandImport}${serviceImports}
+${policyImports}${commandImport}${serviceImports}${realtimeEntities.length ? '\nimport { realtimeChannelIterator } from "./realtime";\nimport { realtimeCapabilities } from "./realtime";\n' : ""}
 
 export const graphqlTypeDefs = ${schema};
 const schema = buildSchema(graphqlTypeDefs);
-const scopeDefinitions = ${scopeDefinitions} as Array<{ resource: string; field: string; claim: string }>;
+const scopeDefinitions = ${scopeDefinitions} as Array<{ resource: string; field: string; claim: string; tree?: { entity: string; parentField: string } }>;${policyColumnsLiteral}
 
 ${commandHelpers}export async function createGraphQLContext(authenticate: Authenticator, request: Request) {
   const principal = await authenticate(request);
   const scopes = Object.fromEntries(scopeDefinitions.map(({ resource, field, claim }) => [resource, { field, value: String(principal?.claims?.[claim] ?? "") }]));
-  return { request, actorId: principal?.id, scopeFor: (resource: string) => { const scope = scopes[resource]; if (scope && !scope.value) throw new Error("Missing required data scope claim"); return scope; } };
+  return { request, actorId: principal?.id, scopeFor: (resource: string) => { const scope = scopes[resource]; if (scope && !scope.value) throw new Error("Missing required data scope claim"); return scope; }${policyContext} };
 }
 
 function requestedFields(query: string, operationName?: string): Set<string> {
@@ -234,17 +390,16 @@ ${commandSetup}  return new Elysia({ prefix: "/graphql" })
       let fields: Set<string>;
       try { fields = requestedFields(operation.query, operation.operationName); } catch { fields = new Set(); }
       if (scopeDefinitions.some(({ resource }) => [resource, resource + "ById", resource + "Distribution", resource + "Trend", "create" + resource[0]!.toUpperCase() + resource.slice(1), "update" + resource[0]!.toUpperCase() + resource.slice(1), "delete" + resource[0]!.toUpperCase() + resource.slice(1), "delete" + resource[0]!.toUpperCase() + resource.slice(1) + "Many"].some((name) => fields.has(name)) && !scopes[resource]?.value)) return status(403, { error: "Missing required data scope claim" });
-      return graphql({ schema, rootValue: resolvers(services${commandArgument}), contextValue: { request, actorId: principal?.id, scopeFor: (resource: string) => { const scope = scopes[resource]; if (scope && !scope.value) throw new Error("Missing required data scope claim"); return scope; } }, source: operation.query, variableValues: operation.variables, operationName: operation.operationName });
-    }, { body: t.Object({ query: t.String({ minLength: 1 }), variables: t.Optional(t.Record(t.String(), t.Any())), operationName: t.Optional(t.String()) }) });
+      return graphql({ schema, rootValue: resolvers(services${commandArgument}), contextValue: { request, actorId: principal?.id, scopeFor: (resource: string) => { const scope = scopes[resource]; if (scope && !scope.value) throw new Error("Missing required data scope claim"); return scope; }${policyContext} }, source: operation.query, variableValues: operation.variables, operationName: operation.operationName });
+    }, { body: t.Object({ query: t.String({ minLength: 1 }), variables: t.Optional(t.Record(t.String(), t.Any())), operationName: t.Optional(t.String()) }) })${subscriptionRoute};
 }
 
 function resolvers(services: {
 ${database.entities.map((entity) => `  ${entity.name}: ReturnType<typeof create${modelName(entity)}Service>;`).join("\n")}
-}${commandParameter}) {
+}${commandParameter}, context?: { canSubscribe?: (channel: string) => boolean; channelFor?: (prefix: string) => string | undefined }) {
   return {
-${resolvers}${commandResolvers ? `\n${commandResolvers}` : ""}
-  };
-}
+${subscriptionResolvers ? `${subscriptionResolvers}\n` : ""}${resolvers}${commandResolvers ? `\n${commandResolvers}` : ""}
+  };}
 
 export function createGraphQLResolvers(repositories: Repositories, authenticate: Authenticator = async () => null) {
   const services = {
@@ -275,18 +430,21 @@ ${[...database.entities.flatMap((entity) => [`create${modelName(entity)}`, `upda
   return `import type { Repositories } from "./app";\nimport type { Authenticator } from "./auth/guard";\nimport { createGraphQLContext } from "./graphql";\nimport { createGraphQLResolvers } from "./graphql";\n\n${adapterResolvers}\n`;
 }
 
-function renderGraphQLTest(database: DatabaseIR): string {
+function renderGraphQLTest(database: DatabaseIR, hiddenFields: string[] = []): string {
   const entity = database.entities[0]!;
+  const visibleFields = entity.fields.filter((field) => !hiddenFields.includes(field.name));
   const scopes = (database as DatabaseIR & { scopes?: Array<{ resource: string; field: string; claim: string }> }).scopes ?? [];
   const claims = JSON.stringify(Object.fromEntries(scopes.map((scope) => [scope.claim, "00000000-0000-4000-8000-000000000002"])));
   const name = modelName(entity);
-  const values = entity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => {
+  // Hidden fields (for example the local-auth password column) are absent from the
+  // generated schema, so neither the selection set nor the input may reference them.
+  const values = visibleFields.filter((field) => !field.primaryKey && !field.nullable).map((field) => {
     const example = field.type === "Integer" ? "1" : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
-      : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
+      : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
         : field.enumName ? JSON.stringify(database.enums?.find((enumeration) => enumeration.name === field.enumName)?.values[0]?.name ?? "") : '"Example"';
     return `${JSON.stringify(field.name)}: ${example}`;
   }).join(", ");
-  const fields = entity.fields.slice(0, 3).map((field) => field.name).join(" ");
+  const fields = visibleFields.slice(0, 3).map((field) => field.name).join(" ");
   return `import { describe, expect, test } from "bun:test";\nimport { Elysia } from "elysia";\nimport { createGraphQLRoutes } from "../src/graphql";\nimport type { Repositories } from "../src/app";\n\nconst records = new Map<string, Record<string, unknown>>();\nconst repository: Repositories["${entity.name}"] = {\n  async distribution(field) { const counts = new Map<string, number>(); for (const record of records.values()) { const value = String(record[field] ?? ""); counts.set(value, (counts.get(value) ?? 0) + 1); } return [...counts].map(([value, count]) => ({ value, count })); },\n  async trend(field, days) { const start = Date.now() - days * 86400000; const counts = new Map<string, number>(); for (const record of records.values()) { const date = new Date(String(record[field] ?? "")); if (date.getTime() >= start) { const day = date.toISOString().slice(0, 10); counts.set(day, (counts.get(day) ?? 0) + 1); } } return [...counts].map(([day, count]) => ({ day, count })); },\n  async list(page, pageSize, options = {}) {\n    const rows = [...records.values()];\n    const filtered = options.search ? rows.filter((record) => Object.values(record).some((value) => String(value ?? "").toLowerCase().includes(options.search!.toLowerCase()))) : rows;\n    return { data: filtered.slice((page - 1) * pageSize, page * pageSize), total: filtered.length };\n  },\n  async one(id) { return records.get(id); },\n  async create(values) { const record = { id: crypto.randomUUID(), ...values }; records.set(record.id, record); return record; },\n  async update(id, values) { const old = records.get(id); if (!old) return undefined; const record = { ...old, ...values }; records.set(id, record); return record; },\n  async delete(id) { const record = records.get(id); records.delete(id); return record; },\n  async deleteMany(ids) { return ids.flatMap((id) => { const record = records.get(id); records.delete(id); return record ? [record] : []; }); },\n};\nconst app = new Elysia().use(createGraphQLRoutes({ ${entity.name}: repository } as Repositories, async () => ({ id: "test-user", role: "admin", name: "Test", claims: ${claims} })));\n\ndescribe("GraphQL API", () => {\n  test("supports create, list and delete mutations", async () => {\n    records.clear();\n    const create = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: "mutation($input: ${name}CreateInput!) { create${name}(input: $input) { id } }", variables: { input: { ${values} } } }) }));\n    expect(create.status).toBe(200);\n    const created = await create.json() as { data: { create${name}: { id: string } } };\n    expect(created.data.create${name}.id).toBeTruthy();\n    const list = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: "query { ${entity.name} { items { ${fields} } total } }" }) }));\n    expect((await list.json() as { data: { ${entity.name}: { total: number } } }).data.${entity.name}.total).toBe(1);\n    const deleted = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: "mutation($id: ID!) { delete${name}(id: $id) { id } }", variables: { id: created.data.create${name}.id } }) }));\n    expect((await deleted.json() as { data: { delete${name}: { id: string } } }).data.delete${name}.id).toBeTruthy();\n  });\n});\n`;
 }
 
@@ -467,6 +625,7 @@ function previewRepository(entity: EntityIR, database: DatabaseIR, scopes: NonNu
   const configured = scopes.find((scope) => scope.resource === entity.name || scope.resource === entity.tableName);
   const field = entity.fields.find((item) => item.name === configured?.field);
   const scope = configured && field ? { field: field.name, value: field.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : `Demo ${entity.name}` } : undefined;
+  const scopeWriteSpread = "...(scope ? { [scope.field]: scope.value } : {})";
   return `${entity.name}: (() => {
     const records: Array<Record<string, unknown>> = [${previewRecord(entity, database, scope)}];
     const visible = (record: Record<string, unknown>, scope?: { field: string; value: string }) => !scope || record[scope.field] === scope.value;
@@ -476,7 +635,7 @@ function previewRepository(entity: EntityIR, database: DatabaseIR, scopes: NonNu
       async list(page: number, pageSize: number, options?: { scope?: { field: string; value: string } }) { const rows = records.filter((record) => visible(record, options?.scope)); return { data: rows.slice((page - 1) * pageSize, page * pageSize), total: rows.length }; },
       async one(id: string, scope?: { field: string; value: string }) { return records.find((record) => record.id === id && visible(record, scope)); },
       async create(values: Record<string, unknown>, _actor?: string, scope?: { field: string; value: string }) {
-        const record = { id: crypto.randomUUID(), ...values, ...(scope ? { [scope.field]: scope.value } : {}) };
+        const record = { id: crypto.randomUUID(), ...values, ${scopeWriteSpread} };
         records.push(record);
         return record;
       },
@@ -498,7 +657,195 @@ function previewRepository(entity: EntityIR, database: DatabaseIR, scopes: NonNu
   })(),`;
 }
 
-function renderRoutes(entity: EntityIR, database: DatabaseIR, scopes: Array<{ resource: string; field: string; claim: string }> = [], hiddenFields: string[] = []): string {
+/**
+ * Row-level and field-level authorization shared by REST, GraphQL and the
+ * repository layer. Row predicates are compiled into Drizzle conditions so the
+ * database enforces visibility, and field masks are applied to every response
+ * projection. Both are derived from the authenticated principal, never from the
+ * request body, so a client cannot widen its own scope.
+ */
+function renderPolicyModule(restrictions: QiyResourceRestriction[], database: DatabaseIR): string {
+  const rowsLiteral = JSON.stringify(Object.fromEntries(restrictions.map((restriction) => {
+    const entity = database.entities.find((candidate) => candidate.name === restriction.resource)!;
+    const numericFields = [...(restriction.rows ?? []), ...(restriction.groups ?? []).flat()]
+      .filter((row) => entity.fields.find((field) => field.name === row.field)?.type === "Integer")
+      .map((row) => row.field);
+    return [restriction.resource, { rows: restriction.rows ?? [], groups: restriction.groups ?? [], expressions: restriction.expressions ?? [], masks: restriction.masks ?? [], roles: restriction.roles ?? [], numericFields }];
+  })));
+  const roleLiteral = JSON.stringify(Object.fromEntries(restrictions.filter((restriction) => restriction.roles?.length).map((restriction) => [restriction.resource, restriction.roles!])));
+  return `import { and, eq, gt, gte, inArray, lt, lte, ne, not, notInArray, or } from "drizzle-orm";
+import type { Principal } from "../auth/guard";
+
+export type QiyRole = "admin" | "operator" | "viewer";
+
+export interface QiyRowPredicate {
+  field: string;
+  source: "claim" | "values";
+  operator: "==" | "!=" | "in" | "notIn";
+  claim?: string;
+  values?: string[];
+  missing: "deny" | "hide";
+}
+
+export type QiyCrossOperator = "==" | "!=" | "<" | "<=" | ">" | ">=";
+
+export type QiyPolicyExpression =
+  | { kind: "predicate"; predicate: QiyRowPredicate }
+  | { kind: "cross"; field: string; operator: QiyCrossOperator; otherField: string }
+  | { kind: "not"; expression: QiyPolicyExpression }
+  | { kind: "and"; children: QiyPolicyExpression[] }
+  | { kind: "or"; children: QiyPolicyExpression[] };
+
+export interface QiyFieldMask {
+  field: string;
+  roles?: QiyRole[];
+  claim?: string;
+  claimState?: "present" | "absent";
+  mode: "omit" | "null" | "redact";
+  replacement?: string;
+}
+
+export interface QiyResourcePolicy {
+  rows: QiyRowPredicate[];
+  /** Each group is OR-ed internally and AND-ed with rows. */
+  groups: QiyRowPredicate[][];
+  /** General boolean expressions AND-ed with rows and groups. */
+  expressions: QiyPolicyExpression[];
+  masks: QiyFieldMask[];
+  roles: QiyRole[];
+  /** Fields whose declared literal values must be coerced to numbers. */
+  numericFields: string[];
+}
+
+/** Resolved authorization state for one request and one resource. */
+export interface QiyPolicy {
+  /** Drizzle row conditions that must all hold for a row to be visible. */
+  conditions: unknown[];
+  /** Fields the current principal must not read or write. */
+  maskedFields: string[];
+  /** Applies role and claim based field masking to a response record. */
+  mask(record: Record<string, unknown>): Record<string, unknown>;
+}
+
+const policies = ${rowsLiteral} as Record<string, QiyResourcePolicy>;
+const resourceRoles = ${roleLiteral} as Record<string, QiyRole[]>;
+
+export class QiyPolicyError extends Error {
+  readonly status: number;
+  readonly errorKey: string;
+  constructor(message: string, status = 403, errorKey = "policy.denied") {
+    super(message);
+    this.status = status;
+    this.errorKey = errorKey;
+  }
+}
+
+/** True when the principal carries any role permitted for the resource. */
+export function mayUseResource(resource: string, principal: Principal | null): boolean {
+  const roles = resourceRoles[resource];
+  if (!roles || roles.length === 0) return true;
+  if (!principal) return false;
+  return roles.includes(principal.role as QiyRole);
+}
+
+function claimValue(principal: Principal | null, claim: string): string | undefined {
+  const value = principal?.claims?.[claim];
+  if (value === undefined || value === null || value === "") return undefined;
+  return String(value);
+}
+
+/**
+ * Builds the row conditions and mask function for a resource. When the resource
+ * has no recorded policy the result is inert, so generated behaviour for models
+ * without \`restrict\` blocks is unchanged.
+ */
+export function resolvePolicy(resource: string, principal: Principal | null, columns: Record<string, unknown>): QiyPolicy {
+  const policy = policies[resource];
+  if (!policy) return { conditions: [], maskedFields: [], mask: (record) => record };
+  if (!mayUseResource(resource, principal)) throw new QiyPolicyError("Permission denied for resource " + resource, 403, "policy.resourceDenied");
+  const conditions: unknown[] = [];
+  /** Returns the condition for one predicate, or undefined when it must be hidden. */
+  const buildCondition = (row: QiyRowPredicate, missingIsHide: boolean): unknown | undefined => {
+    const column = columns[row.field];
+    if (!column) throw new QiyPolicyError("Unknown policy column " + row.field, 500, "policy.misconfigured");
+    if (row.source === "claim") {
+      const value = claimValue(principal, row.claim!);
+      if (value === undefined) {
+        if (row.missing === "deny" && !missingIsHide) throw new QiyPolicyError("Missing required authorization claim: " + row.claim, 403, "policy.missingClaim");
+        return undefined;
+      }
+      return eq(column as never, value as never);
+    }
+    const values = (row.values ?? []).map((value) => (policy.numericFields.includes(row.field) ? Number(value) : value));
+    if (row.operator === "==") return eq(column as never, values[0] as never);
+    if (row.operator === "!=") return ne(column as never, values[0] as never);
+    if (row.operator === "in") return inArray(column as never, values as never[]);
+    return notInArray(column as never, values as never[]);
+  };
+  for (const row of policy.rows) {
+    conditions.push(buildCondition(row, false) ?? eq(columns[row.field] as never, "__qiy_policy_never_matches__" as never));
+  }
+  for (const group of policy.groups ?? []) {
+    // A missing claim drops only its own branch; if every branch drops the request
+    // stays fail-closed instead of silently returning every row.
+    const branches = group.map((row) => buildCondition(row, true)).filter((condition) => condition !== undefined);
+    if (!branches.length) throw new QiyPolicyError("Missing required authorization claim for a policy group", 403, "policy.missingClaim");
+    conditions.push(branches.length === 1 ? branches[0] : or(...(branches as never[])));
+  }
+  /** Builds one boolean expression; undefined means "cannot be satisfied for this principal". */
+  const buildExpression = (node: QiyPolicyExpression): unknown | undefined => {
+    if (node.kind === "predicate") return buildCondition(node.predicate, true);
+    if (node.kind === "cross") {
+      const left = columns[node.field];
+      const right = columns[node.otherField];
+      if (!left || !right) throw new QiyPolicyError("Unknown cross-field policy column", 500, "policy.misconfigured");
+      if (node.operator === "==") return eq(left as never, right as never);
+      if (node.operator === "!=") return ne(left as never, right as never);
+      if (node.operator === "<") return lt(left as never, right as never);
+      if (node.operator === "<=") return lte(left as never, right as never);
+      if (node.operator === ">") return gt(left as never, right as never);
+      return gte(left as never, right as never);
+    }
+    if (node.kind === "not") {
+      // NOT of an unsatisfiable claim branch is never treated as "allow everything".
+      const inner = buildExpression(node.expression);
+      return inner === undefined ? undefined : not(inner as never);
+    }
+    const children = node.children.map(buildExpression).filter((condition) => condition !== undefined);
+    if (!children.length) return undefined;
+    if (children.length === 1) return children[0];
+    return node.kind === "and" ? and(...(children as never[])) : or(...(children as never[]));
+  };
+  for (const expression of policy.expressions ?? []) {
+    const built = buildExpression(expression);
+    if (built === undefined) throw new QiyPolicyError("Missing required authorization claim for a policy expression", 403, "policy.missingClaim");
+    conditions.push(built);
+  }
+  const activeMasks = policy.masks.filter((mask) => {
+    if (mask.roles && !(principal && mask.roles.includes(principal.role as QiyRole))) return false;
+    if (mask.claim) {
+      const present = claimValue(principal, mask.claim) !== undefined;
+      if (mask.claimState === "absent" ? present : !present) return false;
+    }
+    return true;
+  });
+  const mask = (record: Record<string, unknown>) => {
+    if (!activeMasks.length) return record;
+    const safe = { ...record };
+    for (const item of activeMasks) {
+      if (!Object.hasOwn(safe, item.field)) continue;
+      if (item.mode === "omit") delete safe[item.field];
+      else if (item.mode === "null") safe[item.field] = null;
+      else safe[item.field] = item.replacement;
+    }
+    return safe;
+  };
+  return { conditions, maskedFields: activeMasks.map((item) => item.field), mask };
+}
+`;
+}
+
+function renderRoutes(entity: EntityIR, database: DatabaseIR, scopes: Array<{ resource: string; field: string; claim: string }> = [], hiddenFields: string[] = [], restricted = false): string {
   const name = modelName(entity);
   const route = JSON.stringify(`/${entity.tableName}`);
   const scope = scopes.find((item) => item.resource === entity.name || item.resource === entity.tableName);
@@ -516,6 +863,87 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
         if (values && typeof values === "object" && !Array.isArray(values) && privateFields.some((field) => Object.hasOwn(values, field))) return status(400, { error: "Private fields cannot be written" });
       } catch { return; }
     })` : "";
+  const maskWriteGuard = restricted ? `.onRequest(async ({ request, status }) => {
+      // Elysia hooks run for every request, so this guard must only inspect its own resource.
+      if (!new URL(request.url).pathname.startsWith("/api/v1" + ${route})) return;
+      if (request.method !== "POST" && request.method !== "PATCH") return;
+      let values: unknown;
+      try { values = await request.clone().json(); } catch { return; }
+      if (!values || typeof values !== "object" || Array.isArray(values)) return;
+      const principal = await authenticate(request);
+      const policy = resolveResourcePolicy(principal);
+      if (policy.maskedFields.some((field) => Object.hasOwn(values, field))) return status(400, { error: "Masked fields cannot be written", errorKey: "policy.maskedField" });
+    })` : "";
+  const policyColumnEntries = entity.fields.map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
+  const policyPlumbing = restricted ? `
+  const policyColumns: Record<string, any> = { ${policyColumnEntries} };
+  const resolveResourcePolicy = (principal: Principal | null) => resolvePolicy(${JSON.stringify(entity.name)}, principal, policyColumns);` : "";
+  const policyErrorHandler = restricted
+    ? ".onError(({ error, status }) => error instanceof QiyPolicyError ? status(error.status as 403, { error: error.message, errorKey: error.errorKey }) : undefined)"
+    : "";
+  const redactRecordHelper = restricted
+    ? `const redactRecord = (record: Record<string, unknown>, policy?: QiyPolicy) => redact(policy ? policy.mask(record) : record);`
+    : `const redactRecord = (record: Record<string, unknown>) => redact(record);`;
+  /**
+   * Handler bodies are emitted verbatim for unrestricted resources so existing
+   * generated output is unchanged; restricted resources additionally resolve the
+   * request policy and thread it into every repository call.
+   */
+  const oneHandler = restricted
+    ? `.get("/:id", async ({ params, status, request }) => {
+      const principal = await authenticate(request);
+      const policy = resolveResourcePolicy(principal);
+      const record = await repository.one(params.id, await resolveScope(request), policy);
+      return record ? redactRecord(record, policy) : status(404, { error: "Not found" });
+    }, { params: t.Object({ id: t.String({ format: "uuid" }) }) })`
+    : `.get("/:id", async ({ params, status, request }) => {
+      const record = await repository.one(params.id, await resolveScope(request));
+      return record ? redactRecord(record) : status(404, { error: "Not found" });
+    }, { params: t.Object({ id: t.String({ format: "uuid" }) }) })`;
+  const createHandler = restricted
+    ? `.post("/", async ({ body, status, request }) => {
+      const principal = await authenticate(request);
+      const policy = resolveResourcePolicy(principal);
+      return status(201, redactRecord(await repository.create(body, principal?.id, await resolveScope(request), policy), policy));
+    }, { body: create${name} })`
+    : `.post("/", async ({ body, status, request }) => status(201, redactRecord(await repository.create(body, (await authenticate(request))?.id, await resolveScope(request)))), { body: create${name} })`;
+  const patchHandler = restricted
+    ? `.patch("/:id", async ({ params, body, status, request }) => {
+      if (Object.keys(body).length === 0) return status(400, { error: "Empty update" });
+      const principal = await authenticate(request);
+      const policy = resolveResourcePolicy(principal);
+      const record = await repository.update(params.id, body, principal?.id, await resolveScope(request), policy);
+      return record ? redactRecord(record, policy) : status(404, { error: "Not found" });
+    }, { params: t.Object({ id: t.String({ format: "uuid" }) }), body: patch${name} })`
+    : `.patch("/:id", async ({ params, body, status, request }) => {
+      if (Object.keys(body).length === 0) return status(400, { error: "Empty update" });
+      const principal = await authenticate(request);
+      const record = await repository.update(params.id, body, principal?.id, await resolveScope(request));
+      return record ? redactRecord(record) : status(404, { error: "Not found" });
+    }, { params: t.Object({ id: t.String({ format: "uuid" }) }), body: patch${name} })`;
+  const deleteManyHandler = restricted
+    ? `.delete("/", async ({ query, request }) => {
+      const principal = await authenticate(request);
+      const policy = resolveResourcePolicy(principal);
+      const records = await repository.deleteMany(query.ids.split(","), principal?.id, await resolveScope(request), policy);
+      return records.map((record) => redactRecord(record, policy));
+    }, {
+      query: t.Object({ ids: t.String({ minLength: 1 }) }),
+    })`
+    : `.delete("/", async ({ query, request }) => (await repository.deleteMany(query.ids.split(","), (await authenticate(request))?.id, await resolveScope(request))).map((record) => redactRecord(record)), {
+      query: t.Object({ ids: t.String({ minLength: 1 }) }),
+    })`;
+  const deleteHandler = restricted
+    ? `.delete("/:id", async ({ params, status, request }) => {
+      const principal = await authenticate(request);
+      const policy = resolveResourcePolicy(principal);
+      const record = await repository.delete(params.id, principal?.id, await resolveScope(request), policy);
+      return record ? redactRecord(record, policy) : status(404, { error: "Not found" });
+    }, { params: t.Object({ id: t.String({ format: "uuid" }) }) });`
+    : `.delete("/:id", async ({ params, status, request }) => {
+      const record = await repository.delete(params.id, (await authenticate(request))?.id, await resolveScope(request));
+      return record ? redactRecord(record) : status(404, { error: "Not found" });
+    }, { params: t.Object({ id: t.String({ format: "uuid" }) }) });`;
   return `
 const create${name} = t.Object({
 ${createFields(entity, database)}
@@ -526,29 +954,38 @@ ${patchFields(entity, database)}
 }, { additionalProperties: false${entity.comment !== undefined ? `, description: ${JSON.stringify(entity.comment)}` : ""} });
 
 export interface ${name}Repository {
-  distribution(field: string, scope?: { field: string; value: string }): Promise<Array<{ value: string | null; count: number }>>;
-  trend(field: string, days: number, scope?: { field: string; value: string }): Promise<Array<{ day: string; count: number }>>;
+  distribution(field: string, scope?: { field: string; value: string }${restricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<{ value: string | null; count: number }>>;
+  /** Optional so generated test doubles and hand-written repositories keep compiling. */
+  aggregate?(field: string, operator: string, scope?: { field: string; value: string }${restricted ? ", policy?: QiyPolicy" : ""}): Promise<{ value: number | null; operator: string }>;
+  trend(field: string, days: number, scope?: { field: string; value: string }${restricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<{ day: string; count: number }>>;
   list(page: number, pageSize: number, options?: ListQuery): Promise<{ data: Array<Record<string, unknown>>; total: number }>;
-  one(id: string, scope?: { field: string; value: string }): Promise<Record<string, unknown> | undefined>;
-  create(values: typeof create${name}.static, actorId?: string, scope?: { field: string; value: string }): Promise<Record<string, unknown>>;
-  update(id: string, values: typeof patch${name}.static, actorId?: string, scope?: { field: string; value: string }): Promise<Record<string, unknown> | undefined>;
-  delete(id: string, actorId?: string, scope?: { field: string; value: string }): Promise<Record<string, unknown> | undefined>;
-  deleteMany(ids: string[], actorId?: string, scope?: { field: string; value: string }): Promise<Array<Record<string, unknown>>>;
+  one(id: string, scope?: { field: string; value: string }${restricted ? ", policy?: QiyPolicy" : ""}): Promise<Record<string, unknown> | undefined>;
+  create(values: typeof create${name}.static, actorId?: string, scope?: { field: string; value: string }${restricted ? ", policy?: QiyPolicy" : ""}): Promise<Record<string, unknown>>;
+  update(id: string, values: typeof patch${name}.static, actorId?: string, scope?: { field: string; value: string }${restricted ? ", policy?: QiyPolicy" : ""}): Promise<Record<string, unknown> | undefined>;
+  delete(id: string, actorId?: string, scope?: { field: string; value: string }${restricted ? ", policy?: QiyPolicy" : ""}): Promise<Record<string, unknown> | undefined>;
+  deleteMany(ids: string[], actorId?: string, scope?: { field: string; value: string }${restricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<Record<string, unknown>>>;
+  /** Optional so test doubles and hand-written repositories keep working. */
+  recordExportAudit?(input: { rows: number; filters: number; principalId?: string }): Promise<void>;
+  recordImportAudit?(input: { rows: number; principalId?: string }): Promise<void>;
 }
 
 export type FilterOperator = "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in";
 export interface FilterClause { field: string; operator: FilterOperator; value: string; }
+export interface FilterGroup { operator: "and" | "or"; filters: FilterExpression[]; }
+export type FilterExpression = FilterClause | FilterGroup;
 
 export interface ListQuery {
   search?: string;
   sort?: string;
   order?: "asc" | "desc";
-  filters?: Record<string, string> | FilterClause[];
+  filters?: Record<string, string> | FilterExpression[];
   scope?: { field: string; value: string };
+${restricted ? "  policy?: QiyPolicy;" : ""}
 }
 
 export function ${name}Routes(repository: ${name}Repository, authenticate: Authenticator = async () => null) {
   ${sanitize}
+  ${redactRecordHelper}
   const sortableFields = ${sortableFields} as string[];
   const filterableFields = ${filterableFields} as string[];
   const filterModes = ${filterModes} as Record<string, FilterOperator[]>;
@@ -561,28 +998,138 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
     const claimValue = principal?.claims?.[scopeClaim];
     if (!principal || claimValue === undefined || claimValue === null || claimValue === "") throw new Error("Missing required data scope claim: " + scopeClaim);
     return { field: scopeField, value: String(claimValue) };
-  };
-  return new Elysia({ prefix: ${route} })${privateInputGuard}\n    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)\n    .get("/distribution", async ({ query, status, request }) => (${JSON.stringify(entity.fields.filter((field) => field.enumName).map((field) => field.name))} as string[]).includes(query.field) ? repository.distribution(query.field, await resolveScope(request)) : status(400, { error: "Unsupported distribution field" }), { query: t.Object({ field: t.String() }) })
-    .get("/trend", async ({ query, status, request }) => (${JSON.stringify(entity.fields.filter((field) => field.type === "DateTime").map((field) => field.name))} as string[]).includes(query.field) ? repository.trend(query.field, query.days, await resolveScope(request)) : status(400, { error: "Unsupported trend field" }), { query: t.Object({ field: t.String(), days: t.Numeric({ minimum: 1, maximum: 365 }) }) })
-    .get("/", async ({ query, status, request }) => {
-      let filters: Record<string, string> | FilterClause[] | undefined;
-      if (query.filters) {
-        try {
-          const parsed: unknown = JSON.parse(query.filters);
-          const oldShape = parsed && typeof parsed === "object" && !Array.isArray(parsed) && Object.values(parsed).every((value) => typeof value === "string");
-          const newShape = Array.isArray(parsed) && parsed.every((filter) => filter && typeof filter === "object" && typeof filter.field === "string" && typeof filter.operator === "string" && typeof filter.value === "string");
-          if (!oldShape && !newShape) return status(400, { error: "Invalid filters" });
-          filters = parsed as Record<string, string> | FilterClause[];
-        }
-        catch { return status(400, { error: "Invalid filters" }); }
+  };${policyPlumbing}
+  const exportColumns = ${JSON.stringify(entity.fields.filter((field) => field.type !== "Vector").map((field) => field.name))} as string[];
+  const exportMaxRows = () => { const value = Number(Bun.env.QIY_EXPORT_MAX_ROWS ?? 1000); return Number.isSafeInteger(value) && value >= 1 && value <= 100000 ? value : 1000; };
+  // Exports stream in bounded pages so memory does not grow with the result set.
+  const EXPORT_PAGE_SIZE = Math.min(250, exportMaxRows());
+  // Import accepts plain scalar columns only; vectors and key lists need the API.
+  const importTypes = ${JSON.stringify(Object.fromEntries(entity.fields.filter((field) => !field.primaryKey && field.type !== "Vector" && field.type !== "Files").map((field) => [field.name, field.type])))} as Record<string, string>;
+  const importColumns = Object.keys(importTypes);
+  const importMaxRows = () => { const value = Number(Bun.env.QIY_IMPORT_MAX_ROWS ?? 1000); return Number.isSafeInteger(value) && value >= 1 && value <= 100000 ? value : 1000; };
+  /** RFC 4180 reader: quoted fields, doubled quotes and CRLF line endings. */
+  const parseCsv = (input: string): string[][] => {
+    const rows: string[][] = []; let row: string[] = []; let field = ""; let quoted = false;
+    for (let index = 0; index < input.length; index++) {
+      const char = input[index]!;
+      if (quoted) {
+        if (char === '"') { if (input[index + 1] === '"') { field += '"'; index++; } else quoted = false; }
+        else field += char;
+        continue;
       }
-      if (query.sort && !sortableFields.includes(query.sort)) return status(400, { error: "Unsupported sort field" });
-      const filterClauses = Array.isArray(filters) ? filters : Object.entries(filters ?? {}).map(([field, value]) => ({ field, operator: "eq" as const, value }));
-      if (filterClauses.some((filter) => !filterableFields.includes(filter.field))) return status(400, { error: "Unsupported filter field" });
-      if (filterClauses.some((filter) => !filterModes[filter.field]?.includes(filter.operator))) return status(400, { error: "Unsupported filter operator" });
-      const scope = await resolveScope(request);
-      const result = await repository.list(query.page ?? 1, query.pageSize ?? 20, { ...query, filters, scope });
-      return { ...result, data: result.data.map((record) => redact(record)) };
+      if (char === '"') { quoted = true; continue; }
+      if (char === ",") { row.push(field); field = ""; continue; }
+      if (char === "\\r") continue;
+      if (char === "\\n") { row.push(field); rows.push(row); row = []; field = ""; continue; }
+      field += char;
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    return rows.filter((cells) => cells.some((cell) => cell.length > 0));
+  };
+  const importValue = (field: string, value: string) => {
+    if (value === "") return null;
+    if (importTypes[field] === "Integer") { const parsed = Number(value); if (!Number.isFinite(parsed)) throw new Error("Column " + field + " must be an integer"); return parsed; }
+    if (importTypes[field] === "DateTime") { const parsed = new Date(value); if (Number.isNaN(parsed.getTime())) throw new Error("Column " + field + " must be an ISO date-time"); return parsed; }
+    return value;
+  };
+  const importWorkerId = crypto.randomUUID();
+  /**
+   * Claims one import job (by id when running inline, otherwise the oldest queued one)
+   * and writes its stored payload. Any replica can run this; the lease decides who wins.
+   */
+  const claimAndProcessImportJob = async (jobId?: string): Promise<string | undefined> => {
+    const claimed = await claimImportJob(${JSON.stringify(entity.tableName)}, importWorkerId, new Date(Date.now() + 120000), jobId);
+    if (!claimed) return undefined;
+    type ImportPayload = { header: string[]; rows: string[][]; principal: { id: string; name?: string; role?: string; claims?: Record<string, string | number | boolean | null> }; scope?: { field: string; value: string } };
+    let payload: ImportPayload;
+    try { payload = JSON.parse(claimed.payload) as ImportPayload; }
+    catch { await updateImportJob(claimed.id, { status: "failed", errors: ["Import job payload is invalid"], releaseLease: true }).catch(() => undefined); return claimed.id; }
+    const payloadPrincipal = { id: payload.principal.id, name: payload.principal.name ?? "", role: (payload.principal.role ?? "viewer") as "admin" | "operator" | "viewer", claims: payload.principal.claims ?? {} };
+    const payloadScope = payload.scope;
+    ${restricted ? "const payloadPolicy = resolveResourcePolicy(payloadPrincipal as never);" : ""}
+    const createdKeys: string[] = [];
+    const jobErrors: string[] = [];
+    let processed = 0;
+    try {
+      for (const [offset, cells] of payload.rows.entries()) {
+        const rowNumber = offset + 2;
+        try {
+          if (cells.length !== payload.header.length) throw new Error("Row " + rowNumber + " has " + cells.length + " columns, expected " + payload.header.length);
+          const values = Object.fromEntries(payload.header.map((name, column) => [name, importValue(name, cells[column] ?? "")]));
+          const record = await repository.create(values, payloadPrincipal.id, payloadScope${restricted ? ", payloadPolicy" : ""});
+          createdKeys.push(String((record as Record<string, unknown>).id));
+        } catch (error) {
+          jobErrors.push("Row " + rowNumber + ": " + (error instanceof Error ? error.message : String(error)));
+          break;
+        }
+        processed++;
+        if (processed % 25 === 0) await updateImportJob(claimed.id, { processed });
+        if (processed % 10 === 0 && await isImportJobCancelled(claimed.id)) {
+          if (createdKeys.length) await repository.deleteMany(createdKeys, payloadPrincipal.id, payloadScope${restricted ? ", payloadPolicy" : ""}).catch(() => undefined);
+          await updateImportJob(claimed.id, { status: "cancelled", processed, errors: ["Cancelled"], releaseLease: true });
+          return claimed.id;
+        }
+        const delayMs = Number(Bun.env.QIY_IMPORT_JOB_DELAY_MS ?? 0);
+        if (Number.isSafeInteger(delayMs) && delayMs > 0) await Bun.sleep(Math.min(delayMs, 1000));
+      }
+      if (jobErrors.length) {
+        if (createdKeys.length) await repository.deleteMany(createdKeys, payloadPrincipal.id, payloadScope${restricted ? ", payloadPolicy" : ""}).catch(() => undefined);
+        await updateImportJob(claimed.id, { status: "failed", processed, failed: jobErrors.length, errors: jobErrors, releaseLease: true });
+      } else {
+        await repository.recordImportAudit?.({ rows: processed, principalId: payloadPrincipal.id });
+        await updateImportJob(claimed.id, { status: "completed", processed, errors: [], releaseLease: true });
+      }
+    } catch (error) {
+      await updateImportJob(claimed.id, { status: "failed", errors: [...jobErrors, error instanceof Error ? error.message : String(error)], releaseLease: true }).catch(() => undefined);
+    }
+    return claimed.id;
+  };
+  // The list and export routes share one query path so export cannot diverge from
+  // the list's filter validation, scope handling or row policy.
+  const runListQuery = async (query: { page?: number; pageSize?: number; search?: string; sort?: string; order?: "asc" | "desc"; filters?: string }, request: Request): Promise<{ status: number; error: string } | { result: { data: Array<Record<string, unknown>>; total: number }; clauses: number; policy: ${restricted ? "QiyPolicy" : "undefined"} }> => {
+    let filters: Record<string, string> | FilterExpression[] | undefined;
+    if (query.filters) {
+      try {
+        const parsed: unknown = JSON.parse(query.filters);
+        const oldShape = parsed && typeof parsed === "object" && !Array.isArray(parsed) && Object.values(parsed).every((value) => typeof value === "string");
+        const validExpression = (value: unknown, depth = 0): value is FilterExpression => {
+          if (depth > 8 || !value || typeof value !== "object" || Array.isArray(value)) return false;
+          const filter = value as Record<string, unknown>;
+          if (typeof filter.field === "string" && typeof filter.operator === "string" && typeof filter.value === "string") return true;
+          return (filter.operator === "and" || filter.operator === "or") && Array.isArray(filter.filters) && filter.filters.length > 0 && filter.filters.every((child) => validExpression(child, depth + 1));
+        };
+        const newShape = Array.isArray(parsed) && parsed.length > 0 && parsed.every((filter) => validExpression(filter));
+        if (!oldShape && !newShape) return { status: 400, error: "Invalid filters" };
+        filters = parsed as Record<string, string> | FilterExpression[];
+      } catch { return { status: 400, error: "Invalid filters" }; }
+    }
+    if (query.sort && !sortableFields.includes(query.sort)) return { status: 400, error: "Unsupported sort field" };
+    const flatten = (expressions: FilterExpression[]): FilterClause[] => expressions.flatMap((filter) => "field" in filter ? [filter] : flatten(filter.filters));
+    const clauses = Array.isArray(filters) ? flatten(filters) : Object.entries(filters ?? {}).map(([field, value]) => ({ field, operator: "eq" as const, value }));
+    if (clauses.length > 50) return { status: 400, error: "Too many filters" };
+    if (clauses.some((filter) => !filterableFields.includes(filter.field))) return { status: 400, error: "Unsupported filter field" };
+    if (clauses.some((filter) => !filterModes[filter.field]?.includes(filter.operator))) return { status: 400, error: "Unsupported filter operator" };
+    const scope = await resolveScope(request);
+    const principal = await authenticate(request);
+    const policy = ${restricted ? "resolveResourcePolicy(principal)" : "undefined"};
+    const result = await repository.list(query.page ?? 1, query.pageSize ?? 20, { ...query, filters, scope${restricted ? ", policy" : ""} });
+    return { result, clauses: clauses.length, policy };
+  };
+  return new Elysia({ prefix: ${route} })${privateInputGuard}${maskWriteGuard}\n    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)${policyErrorHandler}\n    .get("/aggregate", async ({ query, status, request }) => {
+      ${restricted ? "const principal = await authenticate(request);\n      const policy = resolveResourcePolicy(principal);\n      if (policy.maskedFields.includes(query.field)) return status(403, { error: \"Aggregating a masked field is not permitted\", errorKey: \"policy.maskedField\" });\n      " : ""}if (!["sum", "avg", "min", "max"].includes(query.op)) return status(400, { error: "Unsupported aggregate operator" });
+      if (!(${JSON.stringify(entity.fields.filter((field) => ["Integer", "Decimal", "Money"].includes(field.type)).map((field) => field.name))} as string[]).includes(query.field)) return status(400, { error: "Unsupported aggregate field" });
+      return repository.aggregate ? repository.aggregate(query.field, query.op as "sum" | "avg" | "min" | "max", await resolveScope(request)${restricted ? ", policy" : ""}) : { value: null, operator: query.op };
+    }, { query: t.Object({ field: t.String({ minLength: 1 }), op: t.String({ minLength: 3 }) }) })
+    .get("/distribution", async ({ query, status, request }) => {
+      ${restricted ? "const principal = await authenticate(request);\n      const policy = resolveResourcePolicy(principal);\n      " : ""}return (${JSON.stringify(entity.fields.filter((field) => field.enumName).map((field) => field.name))} as string[]).includes(query.field) ? repository.distribution(query.field, await resolveScope(request)${restricted ? ", policy" : ""}) : status(400, { error: "Unsupported distribution field" });
+    }, { query: t.Object({ field: t.String() }) })
+    .get("/trend", async ({ query, status, request }) => {
+      ${restricted ? "const principal = await authenticate(request);\n      const policy = resolveResourcePolicy(principal);\n      " : ""}return (${JSON.stringify(entity.fields.filter((field) => field.type === "DateTime").map((field) => field.name))} as string[]).includes(query.field) ? repository.trend(query.field, query.days, await resolveScope(request)${restricted ? ", policy" : ""}) : status(400, { error: "Unsupported trend field" });
+    }, { query: t.Object({ field: t.String(), days: t.Numeric({ minimum: 1, maximum: 365 }) }) })
+    .get("/", async ({ query, status, request }) => {
+      const outcome = await runListQuery(query, request);
+      if ("error" in outcome) return status(outcome.status, { error: outcome.error });
+      return { ...outcome.result, data: outcome.result.data.map((record) => redactRecord(record${restricted ? ", outcome.policy" : ""})) };
     }, {
       query: t.Object({
         page: t.Optional(t.Numeric({ minimum: 1 })),
@@ -593,197 +1140,451 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
         filters: t.Optional(t.String({ maxLength: 2000 })),
       }),
     })
-    .get("/:id", async ({ params, status, request }) => {
-      const record = await repository.one(params.id, await resolveScope(request));
-      return record ? redact(record) : status(404, { error: "Not found" });
-    }, { params: t.Object({ id: t.String({ format: "uuid" }) }) })
-    .post("/", async ({ body, status, request }) => status(201, redact(await repository.create(body, (await authenticate(request))?.id, await resolveScope(request)))), { body: create${name} })
-    .patch("/:id", async ({ params, body, status, request }) => {
-      if (Object.keys(body).length === 0) return status(400, { error: "Empty update" });
+    .get("/export", async ({ query, status, request }) => {
       const principal = await authenticate(request);
-      const record = await repository.update(params.id, body, principal?.id, await resolveScope(request));
-      return record ? redact(record) : status(404, { error: "Not found" });
-    }, { params: t.Object({ id: t.String({ format: "uuid" }) }), body: patch${name} })
-    .delete("/", async ({ query, request }) => (await repository.deleteMany(query.ids.split(","), (await authenticate(request))?.id, await resolveScope(request))).map((record) => redact(record)), {
-      query: t.Object({ ids: t.String({ minLength: 1 }) }),
+      if (!principal) return status(401, { error: "Authentication required" });
+      const limit = exportMaxRows();
+      // Selected-row export is bounded on its own; a large table must not block it.
+      const selectedIds = query.ids ? query.ids.split(",").map((id) => id.trim()).filter(Boolean) : [];
+      if (selectedIds.length > 500) return status(400, { error: "Select at most 500 rows to export", errorKey: "export.tooManyIds" });
+      if (selectedIds.some((id) => !/^[A-Za-z0-9_-]{1,64}$/.test(id))) return status(400, { error: "Invalid row id for export", errorKey: "export.invalidId" });
+      // Column selection is limited to declared exportable columns.
+      const requestedColumns = query.columns ? [...new Set(query.columns.split(",").map((column) => column.trim()).filter(Boolean))] : [];
+      if (requestedColumns.length > 100) return status(400, { error: "Select at most 100 columns to export", errorKey: "export.tooManyColumns" });
+      if (requestedColumns.some((column) => !exportColumns.includes(column))) return status(400, { error: "Unknown export column", errorKey: "export.invalidColumn" });
+      const pageSize = Math.min(EXPORT_PAGE_SIZE, limit);
+      const firstPage = await runListQuery({ ...query, page: 1, pageSize: selectedIds.length ? limit : pageSize }, request);
+      if ("error" in firstPage) return status(firstPage.status, { error: firstPage.error });
+      // Refuse rather than silently exporting a partial data range.
+      if (!selectedIds.length && firstPage.result.total > limit) return status(400, { error: "Export is limited to " + limit + " rows; narrow the filters", errorKey: "export.tooLarge" });
+      const project = (record: Record<string, unknown>) => redactRecord(record${restricted ? ", firstPage.policy" : ""}) as Record<string, unknown>;
+      const firstRecords = selectedIds.length ? firstPage.result.data : firstPage.result.data;
+      let firstRows = firstRecords.map(project);
+      if (selectedIds.length) firstRows = firstRows.filter((record) => selectedIds.includes(String(record.id)));
+      // Masked omit fields disappear from the projection, so the column set is taken once.
+      const visibleColumns = exportColumns.filter((column) => firstRows.some((row) => Object.hasOwn(row, column)));
+      const columns = requestedColumns.length ? visibleColumns.filter((column) => requestedColumns.includes(column)) : visibleColumns;
+      if (requestedColumns.length && !columns.length) return status(400, { error: "None of the requested columns can be exported", errorKey: "export.noColumns" });
+      const csvCell = (value: unknown) => {
+        if (value === null || value === undefined) return "";
+        const text = value instanceof Date ? value.toISOString() : typeof value === "object" ? JSON.stringify(value) : String(value);
+        return /[",\\r\\n]/.test(text) ? '"' + text.replaceAll('"', '""') + '"' : text;
+      };
+      const encoder = new TextEncoder();
+      const line = (row: Record<string, unknown>) => columns.map((column) => csvCell(row[column])).join(",") + "\\r\\n";
+      const totalPages = selectedIds.length ? 1 : Math.ceil(firstPage.result.total / pageSize);
+      let exported = firstRows.length;
+      // Background export: the worker builds the CSV and stores it on the job row.
+      if (query.async === "1") {
+        const jobId = await createExportJob({ resource: ${JSON.stringify(entity.tableName)}, total: firstPage.result.total, actorId: principal.id });
+        void (async () => {
+          try {
+            await updateExportJob(jobId, { status: "running" });
+            const lines = [columns.join(",") + "\\r\\n"];
+            let written = 0;
+            for (const row of firstRows) { lines.push(line(row)); written++; }
+            firstRows = [];
+            for (let page = 2; page <= totalPages; page++) {
+              const next = await runListQuery({ ...query, page, pageSize }, request);
+              if ("error" in next) throw new Error(next.error);
+              for (const record of next.result.data.map(project)) { lines.push(line(record)); written++; }
+              if (written % 500 === 0) await updateExportJob(jobId, { processed: written });
+            }
+            await repository.recordExportAudit?.({ rows: written, filters: firstPage.clauses, principalId: principal.id });
+            await updateExportJob(jobId, { status: "completed", processed: written, payload: lines.join("") });
+          } catch (error) {
+            await updateExportJob(jobId, { status: "failed", errors: [error instanceof Error ? error.message : String(error)] }).catch(() => undefined);
+          }
+        })();
+        return status(202, { jobId, total: firstPage.result.total });
+      }
+      // Rows stream page by page, so a large export never materializes the whole table.
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          try {
+            controller.enqueue(encoder.encode(columns.join(",") + "\\r\\n"));
+            for (const row of firstRows) controller.enqueue(encoder.encode(line(row)));
+            firstRows = [];
+            for (let page = 2; page <= totalPages; page++) {
+              const next = await runListQuery({ ...query, page, pageSize }, request);
+              if ("error" in next) throw new Error(next.error);
+              for (const record of next.result.data.map(project)) {
+                controller.enqueue(encoder.encode(line(record)));
+                exported++;
+              }
+            }
+            await repository.recordExportAudit?.({ rows: exported, filters: firstPage.clauses, principalId: principal.id });
+            controller.close();
+          } catch (error) {
+            controller.error(error);
+          }
+        },
+      });
+      return new Response(stream, { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": 'attachment; filename="' + ${JSON.stringify(entity.tableName)} + '.csv"' } });
+    }, {
+      query: t.Object({
+        search: t.Optional(t.String({ maxLength: 200 })),
+        sort: t.Optional(t.String({ maxLength: 64 })),
+        order: t.Optional(t.Union([t.Literal("asc"), t.Literal("desc")])),
+        filters: t.Optional(t.String({ maxLength: 2000 })),
+        ids: t.Optional(t.String({ maxLength: 32000 })),
+        columns: t.Optional(t.String({ maxLength: 4000 })),
+        async: t.Optional(t.String({ maxLength: 1 })),
+      }),
     })
-    .delete("/:id", async ({ params, status, request }) => {
-      const record = await repository.delete(params.id, (await authenticate(request))?.id, await resolveScope(request));
-      return record ? redact(record) : status(404, { error: "Not found" });
-    }, { params: t.Object({ id: t.String({ format: "uuid" }) }) });
+    .post("/import", async ({ request, status, query }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      ${restricted ? "const policy = resolveResourcePolicy(principal);" : ""}
+      const rows = parseCsv(await request.text());
+      if (rows.length < 2) return status(400, { error: "CSV must include a header and at least one data row", errorKey: "import.empty" });
+      const header = rows[0]!.map((name) => name.trim());
+      const duplicate = header.filter((name, index) => header.indexOf(name) !== index);
+      if (duplicate.length) return status(400, { error: "Duplicate import columns: " + duplicate.join(", "), errorKey: "import.duplicateColumn" });
+      const unsupported = header.filter((name) => !importColumns.includes(name));
+      if (unsupported.length) return status(400, { error: "Unsupported import columns: " + unsupported.join(", "), errorKey: "import.unknownField" });
+      ${restricted ? "const maskedColumns = policy.maskedFields.filter((field) => header.includes(field));\n      if (maskedColumns.length) return status(400, { error: \"Masked fields cannot be imported: \" + maskedColumns.join(\", \"), errorKey: \"import.maskedField\" });" : ""}
+      const limit = importMaxRows();
+      if (rows.length - 1 > limit) return status(400, { error: "Import is limited to " + limit + " rows", errorKey: "import.tooLarge" });
+      const scope = await resolveScope(request);
+      // Background import: the row payload is stored on the job so any replica can run it.
+      if (query?.async === "1") {
+        const jobId = await createImportJob({
+          resource: ${JSON.stringify(entity.tableName)},
+          total: rows.length - 1,
+          actorId: principal.id,
+          payload: JSON.stringify({ header, rows: rows.slice(1), principal: { id: principal.id, name: principal.name, role: principal.role, claims: principal.claims ?? {} }, scope }),
+        });
+        if (Bun.env.QIY_IMPORT_INLINE !== "off") void claimAndProcessImportJob(jobId);
+        return status(202, { jobId, total: rows.length - 1 });
+      }
+      const created: string[] = [];
+      // Rows are written one by one, so a failure compensates by deleting what this
+      // request already created instead of leaving a partial import behind.
+      for (let index = 1; index < rows.length; index++) {
+        const cells = rows[index]!;
+        if (cells.length !== header.length) { if (created.length) await repository.deleteMany(created, principal.id, scope${restricted ? ", policy" : ""}).catch(() => undefined); return status(400, { error: "Row " + (index + 1) + " has " + cells.length + " columns, expected " + header.length, errorKey: "import.rowLength" }); }
+        try {
+          const values = Object.fromEntries(header.map((name, column) => [name, importValue(name, cells[column] ?? "")]));
+          const record = await repository.create(values, principal.id, scope${restricted ? ", policy" : ""});
+          created.push(String((record as Record<string, unknown>).id));
+        } catch (error) {
+          if (created.length) await repository.deleteMany(created, principal.id, scope${restricted ? ", policy" : ""}).catch(() => undefined);
+          ${restricted ? 'if (error instanceof QiyPolicyError) return status(403, { error: "Row " + (index + 1) + ": " + error.message, errorKey: error.errorKey });' : ""}
+          return status(400, { error: "Row " + (index + 1) + ": " + (error instanceof Error ? error.message : String(error)), errorKey: "import.invalidRow" });
+        }
+      }
+      await repository.recordImportAudit?.({ rows: created.length, principalId: principal.id });
+      return status(201, { imported: created.length });
+    })
+    // Background export progress: status, then a one-shot CSV download.
+    .get("/export/jobs/:id", async ({ params, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      const job = await readExportJob(params.id);
+      if (!job || job.resource !== ${JSON.stringify(entity.tableName)}) return status(404, { error: "Export job not found" });
+      return { id: job.id, resource: job.resource, status: job.status, total: job.total, processed: job.processed, errors: job.errors, createdAt: job.createdAt, updatedAt: job.updatedAt };
+    })
+    .get("/export/jobs/:id/download", async ({ params, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      const job = await readExportJob(params.id);
+      if (!job || job.resource !== ${JSON.stringify(entity.tableName)} || !job.payload) return status(404, { error: "Export job not found" });
+      if (job.status !== "completed") return status(409, { error: "Export job is not finished", errorKey: "export.notReady" });
+      return new Response(job.payload, { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": 'attachment; filename="' + job.resource + '.csv"' } });
+    })
+    // Cross-replica worker: an admin can list work and drive one job from any replica.
+    .get("/import/jobs", async ({ request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      if (principal.role !== "admin") return status(403, { error: "Worker dispatch requires the admin role", errorKey: "import.forbidden" });
+      return { items: await listImportJobs(${JSON.stringify(entity.tableName)}) };
+    })
+    .post("/import/jobs/:id/run", async ({ params, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      if (principal.role !== "admin") return status(403, { error: "Worker dispatch requires the admin role", errorKey: "import.forbidden" });
+      const job = await readImportJob(params.id);
+      if (!job || job.resource !== ${JSON.stringify(entity.tableName)}) return status(404, { error: "Import job not found" });
+      if (job.status !== "queued") return status(409, { error: "Import job is not queued", errorKey: "import.notQueued" });
+      const ran = await claimAndProcessImportJob(params.id);
+      if (!ran) return status(409, { error: "Import job was claimed by another worker", errorKey: "import.claimed" });
+      return status(202, { jobId: ran });
+    })
+    // Background import progress: the caller polls this job id.
+    .get("/import/jobs/:id", async ({ params, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      await releaseStaleImportJobs();
+      const job = await readImportJob(params.id);
+      if (!job || job.resource !== ${JSON.stringify(entity.tableName)}) return status(404, { error: "Import job not found" });
+      return job;
+    })
+    // Cancelling stops the background loop and compensates what it already wrote.
+    .post("/import/jobs/:id/cancel", async ({ params, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      await releaseStaleImportJobs();
+      const job = await readImportJob(params.id);
+      if (!job || job.resource !== ${JSON.stringify(entity.tableName)}) return status(404, { error: "Import job not found" });
+      const outcome = await requestImportJobCancel(params.id);
+      if (outcome === "notRunning") return status(409, { error: "Import job is not running", errorKey: "import.notRunning" });
+      return status(202, { status: "cancelled" });
+    })
+    ${oneHandler}
+    ${createHandler}
+    ${patchHandler}
+    ${deleteManyHandler}
+    ${deleteHandler}
 }
 
 export const ${entity.name}WritableFields = [${allowed}] as const;
 `;
 }
 
-function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtimeEvents: ReadonlySet<string> = new Set()): string {
-  const searchOperator = database.dialect === "postgresql" ? "ilike" : "like";
+/**
+ * A realtime channel is shared by every subscriber of a resource, so a field that
+ * is masked for any role allowed to subscribe must be stripped from the event
+ * payload at publish time. A mask without roles (or with a claim predicate only)
+ * applies to everyone, so it always counts.
+ */
+function maskedRealtimeFields(restriction: QiyResourceRestriction | undefined, subscriberRoles: readonly string[]): string[] {
+  if (!restriction?.masks?.length) return [];
+  const fields = restriction.masks
+    .filter((mask) => !mask.roles?.length || mask.roles.some((role) => subscriberRoles.includes(role)))
+    .map((mask) => mask.field);
+  return [...new Set(fields)];
+}
+
+function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtimeEvents: ReadonlySet<string> = new Set(), restricted = false, realtimeMasked: string[] = [], realtimeClaim?: { field: string; claim: string }): string {  const searchOperator = database.dialect === "postgresql" ? "ilike" : "like";
   const searchableFields = entity.fields.filter((field) => field.type === "Text").map((field) => `${entity.name}.${field.name}`).join(", ");
   const sortFields = entity.fields.filter((field) => field.sortable !== false).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
   const filterableEntityFields = entity.fields.filter((field) => field.filterable !== false);
   const filterFields = filterableEntityFields.map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
   const filterTypes = JSON.stringify(Object.fromEntries(filterableEntityFields.map((field) => [field.name, field.type])));
-  const configuredScopes = (database as DatabaseIR & { scopes?: Array<{ resource: string; field: string; claim: string }> }).scopes ?? [];
+  const configuredScopes = (database as DatabaseIR & { scopes?: QiyScope[] }).scopes ?? [];
   const scopeFields = entity.fields.filter((field) => configuredScopes.some((scope) => (scope.resource === entity.name || scope.resource === entity.tableName) && scope.field === field.name));
   const scopeColumnFields = [...new Set([...filterableEntityFields, ...scopeFields])].map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
   const groupFields = entity.fields.filter((field) => field.enumName).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
+  const numericFields = entity.fields.filter((field) => ["Integer", "Decimal", "Money"].includes(field.type)).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
   const dateFields = entity.fields.filter((field) => field.type === "DateTime").map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
   const scopeColumns = scopeColumnFields || "";
+  // A `tree` scope widens the claim to the whole subtree, so the row predicate
+  // becomes a recursive CTE over the tree entity instead of an equality check.
+  const scopeColumnCondition = resolveScopeTree(database, entity) ? `qiyScopeSubtree(scopeColumns[scope.field], scope.value)` : `eq(scopeColumns[scope.field], scope.value)`;
+  // The list method names its argument differently, so mirror the same predicate for it.
+  const scopeColumnConditionFor = (name: string) => resolveScopeTree(database, entity) ? `qiyScopeSubtree(scopeColumns[${name}.field], ${name}.value)` : `eq(scopeColumns[${name}.field], ${name}.value)`;
+  // Writes always land on the caller's own node: the subtree predicate governs reads.
+  const scopeWriteSpread = "...(scope ? { [scope.field]: scope.value } : {})";
+  const policyCondition = restricted
+    ? `const policyCondition = policy && policy.conditions.length ? and(...(policy.conditions as any[])) : undefined;`
+    : "";
+  /** `policyCondition` is only emitted for restricted resources, so every condition list must reference it conditionally. */
+  const policyArg = restricted ? ", policyCondition" : "";
+  // Audit columns differ per dialect: SQLite stores JSON text and a Date, MySQL a
+  // numeric millisecond timestamp without a column default, PostgreSQL defaults now().
+  const exportAuditValues = database.dialect === "sqlite"
+    ? `{ id: crypto.randomUUID(), actorId: input.principalId ?? null, action: "${entity.tableName}.exported", resource: "${entity.tableName}", resourceId: null, metadata: JSON.stringify({ rows: input.rows, filters: input.filters }), createdAt: new Date() }`
+    : database.dialect === "mysql"
+      ? `{ id: crypto.randomUUID(), actorId: input.principalId ?? null, action: "${entity.tableName}.exported", resource: "${entity.tableName}", resourceId: null, metadata: { rows: input.rows, filters: input.filters }, createdAt: Date.now() }`
+      : `{ id: crypto.randomUUID(), actorId: input.principalId ?? null, action: "${entity.tableName}.exported", resource: "${entity.tableName}", resourceId: null, metadata: { rows: input.rows, filters: input.filters } }`;
+  const importAuditValues = database.dialect === "sqlite"
+    ? `{ id: crypto.randomUUID(), actorId: input.principalId ?? null, action: "${entity.tableName}.imported", resource: "${entity.tableName}", resourceId: null, metadata: JSON.stringify({ rows: input.rows }), createdAt: new Date() }`
+    : database.dialect === "mysql"
+      ? `{ id: crypto.randomUUID(), actorId: input.principalId ?? null, action: "${entity.tableName}.imported", resource: "${entity.tableName}", resourceId: null, metadata: { rows: input.rows }, createdAt: Date.now() }`
+      : `{ id: crypto.randomUUID(), actorId: input.principalId ?? null, action: "${entity.tableName}.imported", resource: "${entity.tableName}", resourceId: null, metadata: { rows: input.rows } }`;
+  /**
+   * A shared channel cannot carry per-recipient permissions, so masked fields are
+   * stripped once at publish time for every role that may subscribe to it.
+   */
+  const realtimePayload = (record: string) => realtimeMasked.length ? `qiyRealtimePayload(${record})` : record;
+  // Claim-scoped resources publish per segment so subscribers only ever see their own rows.
+  const realtimeChannelExpression = (record: string) => realtimeClaim
+    ? `"qiy:${entity.tableName}:" + String((${record} as Record<string, unknown>)[${JSON.stringify(realtimeClaim.field)}])`
+    : JSON.stringify(`qiy:${entity.tableName}`);
   const realtimeWrite = (type: "created" | "updated" | "deleted", payload: string) => realtimeEvents.has(type)
-    ? `${database.dialect === "sqlite" ? "" : "await "}tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: ${JSON.stringify(`qiy:${entity.tableName}`)}, type: ${JSON.stringify(type)}, payload: JSON.stringify(${payload}), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() })${database.dialect === "sqlite" ? ".run()" : ""};`
+    ? `${database.dialect === "sqlite" ? "" : "await "}tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: ${realtimeChannelExpression(payload)}, type: ${JSON.stringify(type)}, payload: JSON.stringify(${realtimePayload(payload)}), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() })${database.dialect === "sqlite" ? ".run()" : ""};`
     : "";
   const realtimeDeleteManyWrite = realtimeEvents.has("deleted")
-    ? `${database.dialect === "sqlite" ? "" : "await "}tx.insert(realtimeOutbox).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), channel: ${JSON.stringify(`qiy:${entity.tableName}`)}, type: "deleted", payload: JSON.stringify(record), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() })))${database.dialect === "sqlite" ? ".run()" : ""};`
+    ? `${database.dialect === "sqlite" ? "" : "await "}tx.insert(realtimeOutbox).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), channel: ${realtimeChannelExpression("record")}, type: "deleted", payload: JSON.stringify(${realtimePayload("record")}), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() })))${database.dialect === "sqlite" ? ".run()" : ""};`
     : "";
-  const auditedMutationMethods = database.dialect === "sqlite" ? `  async create(values, actorId, scope) {
+  const auditedMutationMethods = database.dialect === "sqlite" ? `  async create(values, actorId, scope${restricted ? ", policy" : ""}) {
     return db.transaction((tx) => {
-      const record = tx.insert(${entity.name}).values({ ...values, ...(scope ? { [scope.field]: scope.value } : {}), id: crypto.randomUUID() } as typeof ${entity.name}.$inferInsert).returning().get();
+      ${policyCondition}
+      const record = tx.insert(${entity.name}).values({ ...values, ${scopeWriteSpread}, id: crypto.randomUUID() } as typeof ${entity.name}.$inferInsert).returning().get();
       if (!record) throw new Error("Insert returned no record");
+      ${restricted ? "const visible = tx.select().from(" + entity.name + ").where(and(eq(" + entity.name + ".id, record.id)" + policyArg + ")).get(); if (!visible) throw new QiyPolicyError(\"Write is outside the record policy\", 403, \"policy.outsideScope\");" : ""}
       tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.created", resource: "${entity.tableName}", resourceId: record.id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
        ${realtimeWrite("created", "record")}
       return record;
     });
   },
-  async update(id, values, actorId, scope) {
+  async update(id, values, actorId, scope${restricted ? ", policy" : ""}) {
     return db.transaction((tx) => {
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
-      const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
-      const record = tx.update(${entity.name}).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(eq(${entity.name}.id, id), scopeCondition)).returning().get();
+      const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+      ${policyCondition}
+      const record = tx.update(${entity.name}).set({ ...values, ${scopeWriteSpread} }).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg})).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.updated", resource: "${entity.tableName}", resourceId: id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
        if (record) ${realtimeWrite("updated", "record") || "void 0;"}
       return record;
     });
   },
-  async delete(id, actorId, scope) {
+  async delete(id, actorId, scope${restricted ? ", policy" : ""}) {
     return db.transaction((tx) => {
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
-      const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
-      const record = tx.delete(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition)).returning().get();
+      const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+      ${policyCondition}
+      const record = tx.delete(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg})).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: id, metadata: "{}", createdAt: new Date() }).run();
        if (record) ${realtimeWrite("deleted", "record") || "void 0;"}
       return record;
     });
   },
-  async deleteMany(ids, actorId, scope) {
+  async deleteMany(ids, actorId, scope${restricted ? ", policy" : ""}) {
     return db.transaction((tx) => {
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
-      const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
-      const deletedRows = tx.delete(${entity.name}).where(and(inArray(${entity.name}.id, ids), scopeCondition)).returning().all();
+      const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+      ${policyCondition}
+      const deletedRows = tx.delete(${entity.name}).where(and(inArray(${entity.name}.id, ids), scopeCondition${policyArg})).returning().all();
       if (deletedRows.length) tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: record.id, metadata: "{}", createdAt: new Date() }))).run();
        if (deletedRows.length) ${realtimeDeleteManyWrite || "void 0;"}
       return deletedRows;
     });
   },
-` : database.dialect === "mysql" ? `  async create(values, actorId, scope) {
+` : database.dialect === "mysql" ? `  async create(values, actorId, scope${restricted ? ", policy" : ""}) {
     return db.transaction(async (tx) => {
+      ${policyCondition}
       const id = crypto.randomUUID();
-      await tx.insert(${entity.name}).values({ ...values, ...(scope ? { [scope.field]: scope.value } : {}), id } as typeof ${entity.name}.$inferInsert);
-      const [record] = await tx.select().from(${entity.name}).where(eq(${entity.name}.id, id)).limit(1);
+      await tx.insert(${entity.name}).values({ ...values, ${scopeWriteSpread}, id } as typeof ${entity.name}.$inferInsert);
+      const [record] = await tx.select().from(${entity.name}).where(and(eq(${entity.name}.id, id)${policyArg})).limit(1);
       if (!record) throw new Error("Insert returned no record");
       await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.created", resource: "${entity.tableName}", resourceId: id, metadata: { fields: Object.keys(values) }, createdAt: Date.now() });
        ${realtimeWrite("created", "record")}
       return record;
     });
   },
-  async update(id, values, actorId, scope) {
+  async update(id, values, actorId, scope${restricted ? ", policy" : ""}) {
     return db.transaction(async (tx) => {
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
-      const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
-      const [existing] = await tx.select().from(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition)).limit(1).for("update");
+      const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+      ${policyCondition}
+      const [existing] = await tx.select().from(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg})).limit(1).for("update");
       if (!existing) return undefined;
-      await tx.update(${entity.name}).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(eq(${entity.name}.id, id), scopeCondition));
-      const [record] = await tx.select().from(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition)).limit(1);
+      await tx.update(${entity.name}).set({ ...values, ${scopeWriteSpread} }).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg}));
+      const [record] = await tx.select().from(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg})).limit(1);
       if (record) await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.updated", resource: "${entity.tableName}", resourceId: id, metadata: { fields: Object.keys(values) }, createdAt: Date.now() });
        if (record) ${realtimeWrite("updated", "record") || "void 0;"}
       return record;
     });
   },
-  async delete(id, actorId, scope) {
+  async delete(id, actorId, scope${restricted ? ", policy" : ""}) {
     return db.transaction(async (tx) => {
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
-      const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
-      const [record] = await tx.select().from(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition)).limit(1).for("update");
+      const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+      ${policyCondition}
+      const [record] = await tx.select().from(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg})).limit(1).for("update");
       if (!record) return undefined;
-      await tx.delete(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition));
+      await tx.delete(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg}));
       await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: id, metadata: {}, createdAt: Date.now() });
        ${realtimeWrite("deleted", "record")}
       return record;
     });
   },
-  async deleteMany(ids, actorId, scope) {
+  async deleteMany(ids, actorId, scope${restricted ? ", policy" : ""}) {
     return db.transaction(async (tx) => {
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
-      const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
-      const deletedRows = await tx.select().from(${entity.name}).where(and(inArray(${entity.name}.id, ids), scopeCondition)).for("update");
+      const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+      ${policyCondition}
+      const deletedRows = await tx.select().from(${entity.name}).where(and(inArray(${entity.name}.id, ids), scopeCondition${policyArg})).for("update");
       if (deletedRows.length) {
-        await tx.delete(${entity.name}).where(and(inArray(${entity.name}.id, deletedRows.map((record) => record.id)), scopeCondition));
+        await tx.delete(${entity.name}).where(and(inArray(${entity.name}.id, deletedRows.map((record) => record.id)), scopeCondition${policyArg}));
         await tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: record.id, metadata: {}, createdAt: Date.now() })));
          ${realtimeDeleteManyWrite}
       }
       return deletedRows;
     });
   },
-` : `  async create(values, actorId, scope) {
+` : `  async create(values, actorId, scope${restricted ? ", policy" : ""}) {
     return db.transaction(async (tx) => {
-      const [record] = await tx.insert(${entity.name}).values({ ...values, ...(scope ? { [scope.field]: scope.value } : {}), id: crypto.randomUUID() } as typeof ${entity.name}.$inferInsert).returning();
+      ${policyCondition}
+      const [record] = await tx.insert(${entity.name}).values({ ...values, ${scopeWriteSpread}, id: crypto.randomUUID() } as typeof ${entity.name}.$inferInsert).returning();
       if (!record) throw new Error("Insert returned no record");
+      ${restricted ? "const [visible] = await tx.select().from(" + entity.name + ").where(and(eq(" + entity.name + ".id, record.id)" + policyArg + ")).limit(1); if (!visible) throw new QiyPolicyError(\"Write is outside the record policy\", 403, \"policy.outsideScope\");" : ""}
       await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.created", resource: "${entity.tableName}", resourceId: record.id, metadata: { fields: Object.keys(values) } });
        ${realtimeWrite("created", "record")}
       return record;
     });
   },
-  async update(id, values, actorId, scope) {
+  async update(id, values, actorId, scope${restricted ? ", policy" : ""}) {
     return db.transaction(async (tx) => {
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
-      const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
-      const [record] = await tx.update(${entity.name}).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(eq(${entity.name}.id, id), scopeCondition)).returning();
+      const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+      ${policyCondition}
+      const [record] = await tx.update(${entity.name}).set({ ...values, ${scopeWriteSpread} }).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg})).returning();
       if (record) await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.updated", resource: "${entity.tableName}", resourceId: id, metadata: { fields: Object.keys(values) } });
        if (record) ${realtimeWrite("updated", "record") || "void 0;"}
       return record;
     });
   },
-  async delete(id, actorId, scope) {
+  async delete(id, actorId, scope${restricted ? ", policy" : ""}) {
     return db.transaction(async (tx) => {
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
-      const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
-      const [record] = await tx.delete(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition)).returning();
+      const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+      ${policyCondition}
+      const [record] = await tx.delete(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg})).returning();
       if (record) await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: id, metadata: {} });
        if (record) ${realtimeWrite("deleted", "record") || "void 0;"}
       return record;
     });
   },
-  async deleteMany(ids, actorId, scope) {
+  async deleteMany(ids, actorId, scope${restricted ? ", policy" : ""}) {
     return db.transaction(async (tx) => {
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
-      const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
-      const deletedRows = await tx.delete(${entity.name}).where(and(inArray(${entity.name}.id, ids), scopeCondition)).returning();
+      const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+      ${policyCondition}
+      const deletedRows = await tx.delete(${entity.name}).where(and(inArray(${entity.name}.id, ids), scopeCondition${policyArg})).returning();
       if (deletedRows.length) await tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: record.id, metadata: {} })));
        if (deletedRows.length) ${realtimeDeleteManyWrite || "void 0;"}
       return deletedRows;
     });
   },
 `;
-  return `  async distribution(field, scope) {
+  return `  async aggregate(field, operator, scope${restricted ? ", policy" : ""}) {
+    if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
+    const columns: Record<string, any> = { ${numericFields} };
+    const column = columns[field];
+    if (!column) throw new Error("Unsupported aggregate field");
+    const scopeColumns: Record<string, any> = { ${scopeColumns} };
+    const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+    ${policyCondition}
+    const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
+    const [row] = await db.select({ value: expression }).from(${entity.name}).where(and(scopeCondition${policyArg}));
+    const value = row?.value === null || row?.value === undefined ? null : Number(row.value);
+    return { value: value === null || Number.isFinite(value) ? value : null, operator };
+  },
+  async distribution(field, scope${restricted ? ", policy" : ""}) {
     const columns: Record<string, any> = { ${groupFields} };
     const column = columns[field];
     if (!column) throw new Error("Unsupported distribution field");
     const scopeColumns: Record<string, any> = { ${scopeColumns} };
-    const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
-    return db.select({ value: column, count: count() }).from(${entity.name}).where(scopeCondition).groupBy(column);
+    const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+    ${policyCondition}
+    return db.select({ value: column, count: count() }).from(${entity.name}).where(and(scopeCondition${policyArg})).groupBy(column);
   },
-  async trend(field, days, scope) {
+  async trend(field, days, scope${restricted ? ", policy" : ""}) {
     const columns: Record<string, any> = { ${dateFields} };
     const column = columns[field];
     if (!column || !Number.isInteger(days) || days < 1 || days > 365) throw new Error("Invalid trend query");
     const scopeColumns: Record<string, any> = { ${scopeColumns} };
-    const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
+    const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+    ${policyCondition}
     const now = new Date();
     const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
     const start = new Date(today - (days - 1) * 86400000);
     const end = new Date(today + 86400000);
     const day = ${database.dialect === "postgresql" ? "sql<string>`to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`" : database.dialect === "sqlite" ? "sql<string>`strftime('%Y-%m-%d', ${column} / 1000, 'unixepoch')`" : "sql<string>`date_format(${column}, '%Y-%m-%d')`"};
-    return db.select({ day, count: count() }).from(${entity.name}).where(and(gte(column, start), lt(column, end), scopeCondition)).groupBy(day).orderBy(day);
+    return db.select({ day, count: count() }).from(${entity.name}).where(and(gte(column, start), lt(column, end), scopeCondition${policyArg})).groupBy(day).orderBy(day);
   },
   async list(page, pageSize, options = {}) {
     const searchableColumns: any[] = [${searchableFields}];
@@ -797,9 +1598,10 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
     const filterColumns: Record<string, any> = { ${filterFields} };
     const filterTypes = ${filterTypes} as Record<string, string>;
     const filters = Array.isArray(options.filters) ? options.filters : Object.entries(options.filters ?? {}).map(([field, value]) => ({ field, operator: "eq" as const, value }));
-    if (filters.some(({ field }) => !filterColumns[field])) throw new Error("Unsupported filter field");
+    const filterClauses = (expressions: FilterExpression[]): FilterClause[] => expressions.flatMap((filter) => "field" in filter ? [filter] : filterClauses(filter.filters));
+    if (filterClauses(filters as FilterExpression[]).some(({ field }) => !filterColumns[field])) throw new Error("Unsupported filter field");
     const coerce = (field: string, value: string) => filterTypes[field] === "Integer" ? Number(value) : filterTypes[field] === "DateTime" ? new Date(value) : value;
-    const filterConditions = filters.map(({ field, operator, value }) => {
+    const filterCondition = ({ field, operator, value }: FilterClause) => {
       const column = filterColumns[field];
       if (operator === "contains") return ${searchOperator}(column, "%" + value + "%");
       if (operator === "startsWith") return ${searchOperator}(column, value + "%");
@@ -819,10 +1621,14 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
         return inArray(column, values);
       }
       return eq(column, coerce(field, value));
-    });
+    };
+    const filterExpression = (filter: FilterExpression): any => "field" in filter
+      ? filterCondition(filter)
+      : filter.operator === "and" ? and(...filter.filters.map(filterExpression)) : or(...filter.filters.map(filterExpression));
     const scopeColumns: Record<string, any> = { ${scopeColumns} };
-    const scopeCondition = options.scope && scopeColumns[options.scope.field] ? eq(scopeColumns[options.scope.field], options.scope.value) : undefined;
-    const whereCondition = and(searchCondition, scopeCondition, ...filterConditions);
+    const scopeCondition = options.scope && scopeColumns[options.scope.field] ? ${scopeColumnConditionFor("options.scope")} : undefined;
+    ${policyCondition.replace("policy && policy.conditions.length", "options.policy && options.policy.conditions.length").replace("(policy.conditions as any[])", "(options.policy.conditions as any[])")}
+    const whereCondition = and(searchCondition, scopeCondition${policyArg}, ...(filters as FilterExpression[]).map(filterExpression));
     const [data, totalRows] = await Promise.all([
       db.select().from(
 ${entity.name}
@@ -833,17 +1639,24 @@ ${entity.name}
     ]);
     return { data, total: totalRows[0]?.total ?? 0 };
   },
-  async one(id, scope) {
+  async one(id, scope${restricted ? ", policy" : ""}) {
     const scopeColumns: Record<string, any> = { ${filterFields} };
-    const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
+    const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+    ${policyCondition}
     const [record] = await db.select().from(
 ${entity.name}
 ).where(and(eq(
 ${entity.name}
-.id, id), scopeCondition)).limit(1);
+.id, id), scopeCondition${policyArg})).limit(1);
     return record;
   },
 ${auditedMutationMethods}
+  async recordExportAudit(input) {
+    await db.insert(auditEvents).values(${exportAuditValues});
+  },
+  async recordImportAudit(input) {
+    await db.insert(auditEvents).values(${importAuditValues});
+  },
 `;
 }
 
@@ -852,7 +1665,7 @@ function renderRouteTest(entity: EntityIR, database: DatabaseIR, scopes: NonNull
   const claims = JSON.stringify(Object.fromEntries(scopes.map((scope) => [scope.claim, database.entities.find((item) => item.name === scope.resource || item.tableName === scope.resource)?.fields.find((field) => field.name === scope.field)?.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : "Example"])));
   const values = entity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => {
     const example = field.type === "Integer" ? "1" : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
-      : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
+      : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
         : field.enumName ? JSON.stringify(database.enums?.find((enumeration) => enumeration.name === field.enumName)?.values[0]?.name ?? "") : '"Example"';
     return `${JSON.stringify(field.name)}: ${example}`;
   }).join(", ");
@@ -895,7 +1708,8 @@ const repository: ${name}Repository = {
   async list(page, pageSize, options = {}) {
     const data = [...records.values()];
     const filtered = options.search ? data.filter((record) => Object.values(record).some((value) => String(value ?? "").toLowerCase().includes(options.search!.toLowerCase()))) : data;
-    const clauses = Array.isArray(options.filters) ? options.filters : Object.entries(options.filters ?? {}).map(([field, value]) => ({ field, operator: "eq" as const, value }));
+    const filterClauses = (expressions: Array<{ field: string; operator: string; value: string } | { operator: "and" | "or"; filters: unknown[] }>): Array<{ field: string; operator: string; value: string }> => expressions.flatMap((filter) => "field" in filter ? [filter] : filterClauses(filter.filters as Array<{ field: string; operator: string; value: string } | { operator: "and" | "or"; filters: unknown[] }>));
+    const clauses = Array.isArray(options.filters) ? filterClauses(options.filters) : Object.entries(options.filters ?? {}).map(([field, value]) => ({ field, operator: "eq" as const, value }));
     const filteredByFields = clauses.reduce((rows, { field, operator, value }) => rows.filter((record) => {
       const actual = record[field]; const text = String(actual ?? "");
       if (operator === "contains") return text.toLowerCase().includes(value.toLowerCase());
@@ -1156,15 +1970,331 @@ function renderDataflowIdempotencySchema(dialect: DatabaseIR["dialect"]): string
 
 function renderDataflowOutboxSchema(dialect: DatabaseIR["dialect"]): string {
   const table = dialect === "postgresql" ? "pgTable" : dialect === "sqlite" ? "sqliteTable" : "mysqlTable";
-  return `\n\nexport const dataflowOutbox = ${table}("dataflow_outbox", {\n  id: ${dialect === "mysql" ? 'varchar("id", { length: 36 })' : 'text("id")'}.primaryKey(),\n  actorId: ${dialect === "mysql" ? 'varchar("actorId", { length: 128 })' : 'text("actorId")'},\n  event: ${dialect === "mysql" ? 'varchar("event", { length: 190 })' : 'text("event")'}.notNull(),\n  payload: text("payload").notNull(),\n  createdAt: ${dialect === "postgresql" ? 'timestamp("createdAt", { withTimezone: true })' : dialect === "sqlite" ? 'integer("createdAt", { mode: "timestamp" })' : 'datetime("createdAt")'}.notNull(),\n});\n`;
+  return `\n\nexport const dataflowOutbox = ${table}("dataflow_outbox", {\n  id: ${dialect === "mysql" ? 'varchar("id", { length: 36 })' : 'text("id")'}.primaryKey(),\n  actorId: ${dialect === "mysql" ? 'varchar("actorId", { length: 128 })' : 'text("actorId")'},\n  event: ${dialect === "mysql" ? 'varchar("event", { length: 190 })' : 'text("event")'}.notNull(),\n  payload: text("payload").notNull(),\n  createdAt: ${dialect === "postgresql" ? 'timestamp("createdAt", { withTimezone: true })' : dialect === "sqlite" ? 'integer("createdAt", { mode: "timestamp" })' : 'datetime("createdAt", { mode: "date", fsp: 3 })'}.notNull(),\n});\n`;
 }
 
-function renderRealtimeOutboxSchema(dialect: DatabaseIR["dialect"]): string {
-  const table = dialect === "postgresql" ? "pgTable" : dialect === "sqlite" ? "sqliteTable" : "mysqlTable";
+function renderRealtimeOutboxSchema(dialect: DatabaseIR["dialect"]): string {  const table = dialect === "postgresql" ? "pgTable" : dialect === "sqlite" ? "sqliteTable" : "mysqlTable";
   const string = dialect === "mysql" ? (name: string, length: number) => `varchar(${JSON.stringify(name)}, { length: ${length} })` : (name: string) => `text(${JSON.stringify(name)})`;
   const integer = dialect === "mysql" ? "int" : "integer";
-  const date = (name: string) => dialect === "postgresql" ? `timestamp(${JSON.stringify(name)}, { withTimezone: true })` : dialect === "sqlite" ? `integer(${JSON.stringify(name)}, { mode: "timestamp_ms" })` : `datetime(${JSON.stringify(name)}, { mode: "date" })`;
+  const date = (name: string) => dialect === "postgresql" ? `timestamp(${JSON.stringify(name)}, { withTimezone: true })` : dialect === "sqlite" ? `integer(${JSON.stringify(name)}, { mode: "timestamp_ms" })` : `datetime(${JSON.stringify(name)}, { mode: "date", fsp: 3 })`;
   return `\n\nexport const realtimeOutbox = ${table}("qiy_realtime_outbox", {\n  id: ${string("id", 36)}.primaryKey(),\n  channel: ${string("channel", 190)}.notNull(),\n  type: ${string("type", 80)}.notNull(),\n  payload: text("payload").notNull(),\n  attempts: ${integer}("attempts").notNull(),\n  availableAt: ${date("availableAt")}.notNull(),\n  deliveredAt: ${date("deliveredAt")},\n  deadLetteredAt: ${date("deadLetteredAt")},\n  lastError: text("lastError"),\n  leaseOwner: ${string("leaseOwner", 80)},\n  leaseUntil: ${date("leaseUntil")},\n  createdAt: ${date("createdAt")}.notNull(),\n}, (table) => [index("qiy_realtime_outbox_pending_idx").on(table.deliveredAt, table.deadLetteredAt, table.availableAt, table.leaseUntil, table.createdAt)]);\n`;
+}
+
+/**
+ * Background export jobs: the CSV is materialized by the worker and stored on the
+ * job row so a client can download it later (or after a reconnect).
+ */
+function renderExportJobsModule(dialect: DatabaseIR["dialect"]): string {
+  const sqlite = dialect === "sqlite";
+  const now = "new Date()";
+  return `import { eq } from "drizzle-orm";
+import { db } from "./db";
+import { qiyExportJobs } from "./schema";
+
+export type QiyExportJobStatus = "queued" | "running" | "completed" | "failed";
+
+export interface QiyExportJob {
+  id: string;
+  resource: string;
+  status: QiyExportJobStatus;
+  total: number;
+  processed: number;
+  errors: string[];
+  actorId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type QiyExportJobRow = typeof qiyExportJobs.$inferSelect;
+const iso = (value: Date | number | string) => value instanceof Date ? value.toISOString() : new Date(Number(value)).toISOString();
+
+function toJob(row: QiyExportJobRow): QiyExportJob {
+  return {
+    id: row.id,
+    resource: row.resource,
+    status: row.status as QiyExportJobStatus,
+    total: Number(row.total),
+    processed: Number(row.processed),
+    errors: row.errors ? (JSON.parse(row.errors) as string[]) : [],
+    actorId: row.actorId ?? null,
+    createdAt: iso(row.createdAt as Date | number),
+    updatedAt: iso(row.updatedAt as Date | number),
+  };
+}
+
+export async function createExportJob(input: { resource: string; total: number; actorId: string | null }): Promise<string> {
+  const id = crypto.randomUUID();
+  const values = { id, resource: input.resource, status: "queued", total: input.total, processed: 0, payload: null, errors: null, actorId: input.actorId, createdAt: ${now}, updatedAt: ${now} };
+  ${sqlite ? "db.insert(qiyExportJobs).values(values).run();" : "await db.insert(qiyExportJobs).values(values);"}
+  return id;
+}
+
+export async function updateExportJob(id: string, patch: { status?: QiyExportJobStatus; processed?: number; payload?: string; errors?: string[] }): Promise<void> {
+  const values = {
+    ...(patch.status ? { status: patch.status } : {}),
+    ...(patch.processed !== undefined ? { processed: patch.processed } : {}),
+    ...(patch.payload !== undefined ? { payload: patch.payload } : {}),
+    ...(patch.errors ? { errors: JSON.stringify(patch.errors) } : {}),
+    updatedAt: ${now},
+  };
+  ${sqlite ? "db.update(qiyExportJobs).set(values).where(eq(qiyExportJobs.id, id)).run();" : "await db.update(qiyExportJobs).set(values).where(eq(qiyExportJobs.id, id));"}
+}
+
+export async function readExportJob(id: string): Promise<(QiyExportJob & { payload?: string }) | undefined> {
+  ${sqlite ? "const row = db.select().from(qiyExportJobs).where(eq(qiyExportJobs.id, id)).get();" : "const [row] = await db.select().from(qiyExportJobs).where(eq(qiyExportJobs.id, id)).limit(1);"}
+  if (!row) return undefined;
+  const job = toJob(row as QiyExportJobRow);
+  const payload = (row as QiyExportJobRow).payload;
+  return payload ? { ...job, payload } : job;
+}
+`;
+}
+
+/**
+ * Server-side saved views: a per-user list of named filter/sort/column snapshots,
+ * optionally shared with everyone who can read the resource. The browser keeps a
+ * local copy too, so the UI works offline; this store is what makes views follow
+ * the user across devices and lets teams share them.
+ */
+function renderSavedViewsModule(dialect: DatabaseIR["dialect"], resources: string[]): string {
+  const sqlite = dialect === "sqlite";
+  const now = "new Date()";
+  return `import { and, desc, eq, or } from "drizzle-orm";
+import { Elysia, t } from "elysia";
+import { db } from "./db";
+import { qiySavedViews } from "./schema";
+import type { Authenticator, Principal } from "./auth/guard";
+
+export interface QiySavedView {
+  id: string;
+  resource: string;
+  name: string;
+  ownerId: string;
+  shared: boolean;
+  search?: string;
+  filters?: unknown[];
+  sorters?: unknown[];
+  columns?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+const viewResources = ${JSON.stringify(resources)} as string[];
+const MAX_VIEWS_PER_RESOURCE = 100;
+const iso = (value: Date | number | string) => value instanceof Date ? value.toISOString() : new Date(Number(value)).toISOString();
+const decode = (value: string | null): unknown[] | undefined => { if (!value) return undefined; try { const parsed = JSON.parse(value) as unknown; return Array.isArray(parsed) ? parsed : undefined; } catch { return undefined; } };
+
+function toView(row: typeof qiySavedViews.$inferSelect): QiySavedView {
+  return {
+    id: row.id,
+    resource: row.resource,
+    name: row.name,
+    ownerId: row.ownerId,
+    shared: Boolean(row.shared),
+    ...(row.search ? { search: row.search } : {}),
+    ...(decode(row.filters) ? { filters: decode(row.filters) } : {}),
+    ...(decode(row.sorters) ? { sorters: decode(row.sorters) } : {}),
+    ...(decode(row.columns) ? { columns: decode(row.columns) as string[] } : {}),
+    createdAt: iso(row.createdAt as Date | number),
+    updatedAt: iso(row.updatedAt as Date | number),
+  };
+}
+
+export async function listSavedViews(resource: string, principal: Principal): Promise<QiySavedView[]> {
+  ${sqlite
+    ? "const rows = db.select().from(qiySavedViews).where(and(eq(qiySavedViews.resource, resource), or(eq(qiySavedViews.ownerId, principal.id), eq(qiySavedViews.shared, 1)))).orderBy(desc(qiySavedViews.updatedAt)).all();"
+    : dialect === "mysql"
+      ? "const rows = await db.select().from(qiySavedViews).where(and(eq(qiySavedViews.resource, resource), or(eq(qiySavedViews.ownerId, principal.id), eq(qiySavedViews.shared, 1)))).orderBy(desc(qiySavedViews.updatedAt));"
+      : "const rows = await db.select().from(qiySavedViews).where(and(eq(qiySavedViews.resource, resource), or(eq(qiySavedViews.ownerId, principal.id), eq(qiySavedViews.shared, true)))).orderBy(desc(qiySavedViews.updatedAt));"}
+  return rows.map((row) => toView(row as typeof qiySavedViews.$inferSelect));
+}
+
+export async function createSavedView(input: { resource: string; name: string; shared: boolean; search?: string; filters?: unknown[]; sorters?: unknown[]; columns?: string[]; principal: Principal }): Promise<QiySavedView> {
+  ${sqlite
+    ? "const existing = db.select().from(qiySavedViews).where(and(eq(qiySavedViews.resource, input.resource), eq(qiySavedViews.ownerId, input.principal.id))).all();"
+    : "const existing = await db.select().from(qiySavedViews).where(and(eq(qiySavedViews.resource, input.resource), eq(qiySavedViews.ownerId, input.principal.id)));"}
+  if (existing.length >= MAX_VIEWS_PER_RESOURCE) throw new Error("view.limit");
+  const id = crypto.randomUUID();
+  const values = {
+    id,
+    resource: input.resource,
+    name: input.name,
+    ownerId: input.principal.id,
+    shared: ${dialect === "postgresql" ? "input.shared" : "input.shared ? 1 : 0"},
+    search: input.search ?? null,
+    filters: input.filters ? JSON.stringify(input.filters) : null,
+    sorters: input.sorters ? JSON.stringify(input.sorters) : null,
+    columns: input.columns ? JSON.stringify(input.columns) : null,
+    createdAt: ${now},
+    updatedAt: ${now},
+  };
+  ${sqlite ? "db.insert(qiySavedViews).values(values).run();" : "await db.insert(qiySavedViews).values(values);"}
+  const [created] = await listSavedViews(input.resource, input.principal);
+  return created!;
+}
+
+export async function deleteSavedView(id: string, principal: Principal): Promise<"deleted" | "missing" | "forbidden"> {
+  ${sqlite ? "const row = db.select().from(qiySavedViews).where(eq(qiySavedViews.id, id)).get();" : "const [row] = await db.select().from(qiySavedViews).where(eq(qiySavedViews.id, id)).limit(1);"}
+  if (!row) return "missing";
+  if (row.ownerId !== principal.id) return "forbidden";
+  ${sqlite ? "db.delete(qiySavedViews).where(eq(qiySavedViews.id, id)).run();" : "await db.delete(qiySavedViews).where(eq(qiySavedViews.id, id));"}
+  return "deleted";
+}
+
+export function createSavedViewsRoutes(authenticate: Authenticator) {
+  return new Elysia({ prefix: "/api/v1/saved-views" })
+    .get("/", async ({ query, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      if (!viewResources.includes(query.resource)) return status(400, { error: "Unknown view resource", errorKey: "views.unknownResource" });
+      return { items: await listSavedViews(query.resource, principal) };
+    }, { query: t.Object({ resource: t.String({ minLength: 1, maxLength: 160 }) }) })
+    .post("/", async ({ body, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      if (!viewResources.includes(body.resource)) return status(400, { error: "Unknown view resource", errorKey: "views.unknownResource" });
+      const name = body.name.trim();
+      if (!name) return status(400, { error: "View name is required", errorKey: "views.invalidName" });
+      try {
+        const view = await createSavedView({ ...body, name, shared: body.shared ?? false, principal });
+        return status(201, view);
+      } catch (error) {
+        if (error instanceof Error && error.message === "view.limit") return status(400, { error: "Too many saved views for this resource", errorKey: "views.limit" });
+        throw error;
+      }
+    }, { body: t.Object({ resource: t.String({ minLength: 1, maxLength: 160 }), name: t.String({ minLength: 1, maxLength: 80 }), shared: t.Optional(t.Boolean()), search: t.Optional(t.String({ maxLength: 300 })), filters: t.Optional(t.Array(t.Any(), { maxItems: 50 })), sorters: t.Optional(t.Array(t.Any(), { maxItems: 10 })), columns: t.Optional(t.Array(t.String({ maxLength: 80 }), { maxItems: 100 })) }, { additionalProperties: false }) })
+    .delete("/:id", async ({ params, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      const outcome = await deleteSavedView(params.id, principal);
+      if (outcome === "missing") return status(404, { error: "Saved view not found" });
+      if (outcome === "forbidden") return status(403, { error: "Saved view belongs to another user", errorKey: "views.forbidden" });
+      return status(204);
+    });
+}
+`;
+}
+
+/**
+ * Job store shared by every generated import route. Import can take longer than a
+ * request should, so `POST /import?async=1` records the job here and the caller
+ * polls `GET /import/jobs/:id`; the table is generated for every application.
+ */
+function renderImportJobsModule(dialect: DatabaseIR["dialect"]): string {
+  const sqlite = dialect === "sqlite";
+  const dateValue = sqlite ? "new Date()" : dialect === "mysql" ? "new Date()" : "new Date()";
+  return `import { and, desc, eq } from "drizzle-orm";
+import { db } from "./db";
+import { qiyImportJobs } from "./schema";
+
+export type QiyImportJobStatus = "queued" | "running" | "cancelling" | "completed" | "failed" | "cancelled";
+
+export interface QiyImportJob {
+  id: string;
+  resource: string;
+  status: QiyImportJobStatus;
+  total: number;
+  processed: number;
+  failed: number;
+  errors: string[];
+  actorId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type QiyImportJobRow = typeof qiyImportJobs.$inferSelect;
+
+function toJob(row: QiyImportJobRow): QiyImportJob {
+  const iso = (value: Date | number | string) => value instanceof Date ? value.toISOString() : new Date(Number(value)).toISOString();
+  return {
+    id: row.id,
+    resource: row.resource,
+    status: row.status as QiyImportJobStatus,
+    total: Number(row.total),
+    processed: Number(row.processed),
+    failed: Number(row.failed),
+    errors: row.errors ? (JSON.parse(row.errors) as string[]) : [],
+    actorId: row.actorId ?? null,
+    createdAt: iso(row.createdAt as Date | number),
+    updatedAt: iso(row.updatedAt as Date | number),
+  };
+}
+
+export async function createImportJob(input: { resource: string; total: number; actorId: string | null; payload?: string }): Promise<string> {
+  const id = crypto.randomUUID();
+  const values = { id, resource: input.resource, status: "queued", total: input.total, processed: 0, failed: 0, errors: null, actorId: input.actorId, payload: input.payload ?? null, leaseOwner: null, leaseUntil: null, createdAt: ${dateValue}, updatedAt: ${dateValue} };
+  ${sqlite ? "db.insert(qiyImportJobs).values(values).run();" : "await db.insert(qiyImportJobs).values(values);"}
+  return id;
+}
+
+export async function updateImportJob(id: string, patch: { status?: QiyImportJobStatus; processed?: number; failed?: number; errors?: string[]; releaseLease?: boolean }): Promise<void> {
+  const values = {
+    ...(patch.status ? { status: patch.status } : {}),
+    ...(patch.processed !== undefined ? { processed: patch.processed } : {}),
+    ...(patch.failed !== undefined ? { failed: patch.failed } : {}),
+    ...(patch.errors ? { errors: JSON.stringify(patch.errors) } : {}),
+    updatedAt: ${dateValue},
+  };
+  ${sqlite ? "db.update(qiyImportJobs).set(values).where(eq(qiyImportJobs.id, id)).run();" : "await db.update(qiyImportJobs).set(values).where(eq(qiyImportJobs.id, id));"}
+}
+
+export async function readImportJob(id: string): Promise<QiyImportJob | undefined> {
+  ${sqlite ? "const row = db.select().from(qiyImportJobs).where(eq(qiyImportJobs.id, id)).get();" : "const [row] = await db.select().from(qiyImportJobs).where(eq(qiyImportJobs.id, id)).limit(1);"}
+  return row ? toJob(row as QiyImportJobRow) : undefined;
+}
+
+
+/**
+ * Claims the oldest runnable job for a resource. The conditional update means two
+ * replicas racing for the same row cannot both win; the loser sees a different owner.
+ */
+export async function claimImportJob(resource: string, workerId: string, leaseUntil: Date, jobId?: string): Promise<(QiyImportJob & { payload: string }) | undefined> {
+  ${sqlite ? `const candidates = db.select().from(qiyImportJobs).where(and(eq(qiyImportJobs.resource, resource), eq(qiyImportJobs.status, "queued"))).orderBy(qiyImportJobs.createdAt).all();` : dialect === "mysql" ? `const candidates = await db.select().from(qiyImportJobs).where(and(eq(qiyImportJobs.resource, resource), eq(qiyImportJobs.status, "queued"))).orderBy(qiyImportJobs.createdAt);` : `const candidates = await db.select().from(qiyImportJobs).where(and(eq(qiyImportJobs.resource, resource), eq(qiyImportJobs.status, "queued"))).orderBy(qiyImportJobs.createdAt);`}
+  const candidate = candidates.find((row) => Boolean(row.payload) && (!jobId || row.id === jobId));
+  if (!candidate) return undefined;
+  const now = new Date();
+  ${sqlite ? `db.update(qiyImportJobs).set({ status: "running", leaseOwner: workerId, leaseUntil, updatedAt: now }).where(and(eq(qiyImportJobs.id, candidate.id), eq(qiyImportJobs.status, "queued"))).run();` : `await db.update(qiyImportJobs).set({ status: "running", leaseOwner: workerId, leaseUntil, updatedAt: now }).where(and(eq(qiyImportJobs.id, candidate.id), eq(qiyImportJobs.status, "queued")));`}
+  ${sqlite ? `const claimed = db.select().from(qiyImportJobs).where(eq(qiyImportJobs.id, candidate.id)).get();` : `const [claimed] = await db.select().from(qiyImportJobs).where(eq(qiyImportJobs.id, candidate.id)).limit(1);`}
+  if (!claimed || claimed.leaseOwner !== workerId || !claimed.payload) return undefined;
+  return { ...toJob(claimed as QiyImportJobRow), payload: claimed.payload };
+}
+
+/** Lists recent jobs for a resource so a worker can find queued work. */
+export async function listImportJobs(resource: string, limit = 50): Promise<QiyImportJob[]> {
+  ${sqlite ? `const rows = db.select().from(qiyImportJobs).where(eq(qiyImportJobs.resource, resource)).orderBy(desc(qiyImportJobs.createdAt)).all();` : `const rows = await db.select().from(qiyImportJobs).where(eq(qiyImportJobs.resource, resource)).orderBy(desc(qiyImportJobs.createdAt));`}
+  return rows.slice(0, limit).map((row) => toJob(row as QiyImportJobRow));
+}
+/** Marks a queued/running job as cancelled; finished jobs report notRunning. */
+export async function requestImportJobCancel(id: string): Promise<"cancelled" | "notRunning" | "missing"> {
+  const job = await readImportJob(id);
+  if (!job) return "missing";
+  if (job.status !== "queued" && job.status !== "running") return "notRunning";
+  ${sqlite ? `db.update(qiyImportJobs).set({ status: "cancelling", updatedAt: ${dateValue} }).where(eq(qiyImportJobs.id, id)).run();` : `await db.update(qiyImportJobs).set({ status: "cancelling", updatedAt: ${dateValue} }).where(eq(qiyImportJobs.id, id));`}
+  return "cancelled";
+}
+
+/** Cheap status probe used between rows so a cancelled import stops promptly. */
+export async function isImportJobCancelled(id: string): Promise<boolean> {
+  const job = await readImportJob(id);
+  return job?.status === "cancelling" || job?.status === "cancelled";
+}
+
+/**
+ * A crashed process leaves running jobs behind forever, so status and cancel calls
+ * first age out jobs whose progress has not moved within the stale window.
+ */
+export async function releaseStaleImportJobs(now: Date = new Date()): Promise<number> {
+  const configured = Number(Bun.env.QIY_IMPORT_JOB_STALE_MS ?? 300000);
+  const staleMs = Number.isSafeInteger(configured) && configured >= 1000 ? configured : 300000;
+  const cutoff = new Date(now.getTime() - staleMs);
+  ${sqlite ? "const candidates = db.select().from(qiyImportJobs).all();" : "const candidates = await db.select().from(qiyImportJobs);"}
+  const stale = candidates.filter((row) => (row.status === "queued" || row.status === "running") && row.updatedAt instanceof Date && row.updatedAt < cutoff);
+  for (const row of stale) {
+    ${sqlite ? `db.update(qiyImportJobs).set({ status: "failed", errors: JSON.stringify(["Stale import job timed out"]), updatedAt: ${dateValue} }).where(eq(qiyImportJobs.id, row.id)).run();` : `await db.update(qiyImportJobs).set({ status: "failed", errors: JSON.stringify(["Stale import job timed out"]), updatedAt: ${dateValue} }).where(eq(qiyImportJobs.id, row.id));`}
+  }
+  return stale.length;
+}
+`;
 }
 
 function renderRealtime(config: NonNullable<QiyProject["realtime"]>, dialect: DatabaseIR["dialect"], dataflows: NonNullable<QiyProject["dataflows"]> = []): string {
@@ -1203,11 +2333,16 @@ import { Elysia, t } from "elysia";
 import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, or } from "drizzle-orm";
 import { db } from "./db";
 import { auditEvents, realtimeOutbox } from "./schema";
+import { publishRealtimeEvent, subscribeRealtimeEvents, type QiyRealtimeRecordEvent } from "./realtime-bus";
 import type { Authenticator, Principal } from "./auth/guard";
 
 export type QiyRealtimeEvent = "created" | "updated" | "deleted";
-export const qiyRealtimeSubscriptions = ${subscriptions} as const;
-export const qiyRealtimeEventSubscriptions = ${eventSubscriptions} as const;
+export interface QiyRealtimeSubscription { resource: string; events: string[]; roles: string[]; claim?: { field: string; claim: string } }
+export interface QiyRealtimeEventSubscription { event: string; roles: string[] }
+// Declared element types: an empty capability list must still be typed, otherwise
+// an empty const array becomes readonly never[] and the generated server fails tsc.
+export const qiyRealtimeSubscriptions: readonly QiyRealtimeSubscription[] = ${subscriptions};
+export const qiyRealtimeEventSubscriptions: readonly QiyRealtimeEventSubscription[] = ${eventSubscriptions};
 
 type AblyClient = Pick<Rest, "auth" | "channels">;
 type AblyClientFactory = () => AblyClient;
@@ -1335,11 +2470,22 @@ function createAblyClient(): AblyClient {
   return new Rest({ key });
 }
 
+/** Row-scoped channels append the subscriber's claim value: qiy:orders:eu. */
+export function realtimeChannel(resource: string, claimValue?: string | number | null): string {
+  return claimValue === undefined || claimValue === null || claimValue === "" ? "qiy:" + resource : "qiy:" + resource + ":" + String(claimValue);
+}
+
 export function realtimeCapabilities(principal: Principal): Record<string, string[]> {
   return Object.fromEntries([
     ...qiyRealtimeSubscriptions
       .filter((subscription) => (subscription.roles as readonly string[]).includes(principal.role))
-      .map((subscription): [string, string[]] => ["qiy:" + subscription.resource, ["subscribe"]]),
+      // A claim-scoped resource grants only the caller's own segment; a missing claim grants nothing.
+      .flatMap((subscription): Array<[string, string[]]> => {
+        if (!subscription.claim) return [["qiy:" + subscription.resource, ["subscribe"]]];
+        const value = principal.claims?.[subscription.claim.claim];
+        if (value === undefined || value === null || value === "") return [];
+        return [[realtimeChannel(subscription.resource, value as string | number), ["subscribe"]]];
+      }),
     ...qiyRealtimeEventSubscriptions
       .filter((subscription) => (subscription.roles as readonly string[]).includes(principal.role))
       .map((subscription): [string, string[]] => ["qiy:event:" + subscription.event, ["subscribe"]]),
@@ -1350,10 +2496,13 @@ export async function publishRealtime(resource: string, type: QiyRealtimeEvent, 
   if (Bun.env.QIY_REALTIME_DISABLED === "1") return;
   const subscription = qiyRealtimeSubscriptions.find((candidate) => candidate.resource === resource);
   if (!subscription || !(subscription.events as readonly string[]).includes(type)) return;
-  await clientFactory().channels.get("qiy:" + resource).publish(type, payload);
+  const claimValue = subscription.claim ? payload[subscription.claim.field] as string | number | null | undefined : undefined;
+  // Without the claim value there is no channel to publish to, so the event stays undelivered by design.
+  if (subscription.claim && (claimValue === undefined || claimValue === null || claimValue === "")) return;
+  await clientFactory().channels.get(realtimeChannel(resource, claimValue)).publish(type, payload);
 }
 
-const databaseOutboxStore: RealtimeOutboxStore = {
+export const databaseOutboxStore: RealtimeOutboxStore = {
   async claim(limit, now, leaseOwner, leaseUntil) {
     ${dialect === "sqlite"
       ? "const records = db.select().from(realtimeOutbox).where(and(isNull(realtimeOutbox.deliveredAt), isNull(realtimeOutbox.deadLetteredAt), lte(realtimeOutbox.availableAt, now), or(isNull(realtimeOutbox.leaseUntil), lte(realtimeOutbox.leaseUntil, now)))).orderBy(asc(realtimeOutbox.createdAt)).limit(limit).all(); if (records.length) db.update(realtimeOutbox).set({ leaseOwner, leaseUntil }).where(inArray(realtimeOutbox.id, records.map((record) => record.id))).run(); return records;"
@@ -1404,6 +2553,8 @@ export async function dispatchRealtimeOutbox(limit = 100, clientFactory: AblyCli
       const payload = JSON.parse(record.payload) as Record<string, unknown>;
       await client!.channels.get(record.channel).publish(record.type, payload);
       await store.delivered(record.id, leaseOwner, new Date());
+      // Subscribers on the same instance receive the delivered, already-redacted payload.
+      publishRealtimeEvent({ id: record.id, channel: record.channel, event: record.type, record: payload });
       delivered++;
     } catch (error) {
       const attempts = record.attempts + 1;
@@ -1511,6 +2662,85 @@ export function createRealtimeRoutes(authenticate: Authenticator, clientFactory:
     const retentionDays = query.retentionDays ?? realtimeRetentionDays();
     return { deleted: await cleanupRealtimeOutbox(retentionDays, store, new Date(), principal.id), retentionDays };
   }, { query: t.Object({ retentionDays: t.Optional(t.Numeric({ minimum: 1, maximum: 3650 })) }) });
+}
+
+/**
+ * Subscription source for GraphQL. The in-process bus keeps latency low on the
+ * instance that delivered the event, and the outbox tail makes events delivered by
+ * any other replica visible too, so subscriptions work with several API instances.
+ */
+export function realtimeChannelIterator(channel: string): AsyncIterableIterator<QiyRealtimeRecordEvent> & { close: () => void } {
+  const queue: QiyRealtimeRecordEvent[] = [];
+  const seen = new Set<string>();
+  let pending: ((result: IteratorResult<QiyRealtimeRecordEvent>) => void) | undefined;
+  let closed = false;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let cursor: { createdAt: Date; id: string } | undefined;
+  const pollMs = Math.max(100, Number(Bun.env.QIY_REALTIME_SUBSCRIBE_POLL_MS ?? 1000));
+  const emit = (event: QiyRealtimeRecordEvent) => {
+    if (closed || seen.has(event.id)) return;
+    seen.add(event.id);
+    if (seen.size > 5000) seen.clear();
+    const resolve = pending;
+    if (resolve) { pending = undefined; resolve({ value: event, done: false }); }
+    else queue.push(event);
+  };
+  const unsubscribe = subscribeRealtimeEvents((event) => {
+    if (event.channel === channel) emit({ id: event.id, channel: event.channel, event: event.event, record: event.record });
+  });
+  const stop = () => {
+    if (closed) return;
+    closed = true;
+    if (timer) clearInterval(timer);
+    unsubscribe();
+    const resolve = pending;
+    pending = undefined;
+    resolve?.({ value: undefined as never, done: true });
+  };
+  const advance = (row: { id: string; createdAt: Date | number }) => { cursor = { createdAt: new Date(row.createdAt), id: row.id }; };
+  const tail = async () => {
+    if (closed) return;
+    try {
+      const after = cursor
+        ? or(gt(realtimeOutbox.createdAt, cursor.createdAt), and(eq(realtimeOutbox.createdAt, cursor.createdAt), gt(realtimeOutbox.id, cursor.id)))
+        : undefined;
+      const rows = await db.select().from(realtimeOutbox)
+        .where(and(eq(realtimeOutbox.channel, channel), isNotNull(realtimeOutbox.deliveredAt), after))
+        .orderBy(asc(realtimeOutbox.createdAt), asc(realtimeOutbox.id))
+        .limit(100);
+      for (const row of rows) {
+        advance(row);
+        let payload: Record<string, unknown> = {};
+        try { payload = JSON.parse(row.payload) as Record<string, unknown>; } catch { payload = {}; }
+        emit({ id: row.id, channel: row.channel, event: row.type, record: payload });
+      }
+    } catch { /* a transient read must not kill an active subscription */ }
+  };
+  const start = async () => {
+    try {
+      const latest = await db.select({ id: realtimeOutbox.id, createdAt: realtimeOutbox.createdAt }).from(realtimeOutbox)
+        .where(and(eq(realtimeOutbox.channel, channel), isNotNull(realtimeOutbox.deliveredAt)))
+        .orderBy(desc(realtimeOutbox.createdAt), desc(realtimeOutbox.id))
+        .limit(1);
+      if (latest[0]) advance(latest[0]);
+    } catch { /* start from the beginning of the outbox */ }
+    if (closed) return;
+    timer = setInterval(() => { void tail(); }, pollMs);
+    await tail();
+  };
+  void start();
+  const iterator = {
+    close: stop,
+    [Symbol.asyncIterator]() { return iterator; },
+    next() {
+      if (closed) return Promise.resolve({ value: undefined as never, done: true });
+      const queued = queue.shift();
+      if (queued) return Promise.resolve({ value: queued, done: false });
+      return new Promise<IteratorResult<QiyRealtimeRecordEvent>>((resolve) => { pending = resolve; });
+    },
+    return() { stop(); return Promise.resolve({ value: undefined as never, done: true }); },
+  };
+  return iterator;
 }
 `;
 }
@@ -2039,6 +3269,7 @@ function dataflowFixtureValue(field: FieldIR, requires: Array<{ field: string; o
   if (requirement) return JSON.stringify(requirement.operator === "==" ? requirement.right : `${requirement.right}-before`);
   if (field.primaryKey || field.type === "UUID") return '"00000000-0000-4000-8000-000000000001"';
   if (field.enumName || field.type === "Text" || field.type === "File") return '"Qiy fixture"';
+  if (field.type === "Files") return '["uploads/sample.pdf"]';
   if (field.type === "Integer") return "1";
   if (field.type === "Decimal" || field.type === "Money") return "1";
   if (field.type === "DateTime") return "new Date(0)";
@@ -2516,7 +3747,7 @@ ${scenarios}
 `;
 }
 
-export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "storageProvider" | "auth" | "scopes" | "corsOrigins" | "elysiaPlugins" | "workflows" | "dataflows" | "actions" | "realtime"> & { testSuite?: QiyTestSuite } = {}): Record<string, string> {
+export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "storageProvider" | "auth" | "scopes" | "restrictions" | "pages" | "corsOrigins" | "elysiaPlugins" | "workflows" | "dataflows" | "actions" | "realtime"> & { testSuite?: QiyTestSuite } = {}): Record<string, string> {
   if (options.realtime && !options.auth) throw new Error("Realtime requires generated authentication");
   const errors = validateDatabaseIR(database);
   if (errors.length) throw new Error(errors.join("\n"));
@@ -2584,6 +3815,18 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
     else realtimeResources.add(entity.tableName);
     if (!subscription.events.length || new Set(subscription.events).size !== subscription.events.length) errors.push(`Realtime ${subscription.resource}: events must be unique and non-empty`);
     if (!subscription.roles.length || new Set(subscription.roles).size !== subscription.roles.length) errors.push(`Realtime ${subscription.resource}: roles must be unique and non-empty`);
+    // Row predicates cannot be evaluated per subscriber on one shared channel, so
+    // publishing would hand every subscriber records they cannot read over HTTP.
+    const restrictedRows = (options.restrictions ?? []).find((restriction) => restriction.resource === entity?.name)?.rows ?? [];
+    if (restrictedRows.length) errors.push(`Realtime ${subscription.resource}: restrict row predicates cannot be enforced on a shared channel; remove the realtime events or the row predicates`);
+    if (subscription.claim) {
+      const field = entity?.fields.find((candidate) => candidate.name === subscription.claim!.field);
+      // The segmented channel name is built from the value, so it must always exist.
+      if (!field) errors.push(`Realtime ${subscription.resource}: unknown claim field ${subscription.claim.field}`);
+      else if (field.nullable) errors.push(`Realtime ${subscription.resource}: claim field ${field.name} must be non-nullable`);
+      else if (!["Text", "Integer"].includes(field.type)) errors.push(`Realtime ${subscription.resource}: claim field ${field.name} must be Text or Integer`);
+      if (restrictedRows.length) errors.push(`Realtime ${subscription.resource}: a claim-scoped channel already isolates rows; remove the restrict row predicates`);
+    }
   }
   const cronNames = new Set<string>();
   for (const job of options.elysiaPlugins?.cron ?? []) {
@@ -2611,6 +3854,135 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
     if (!field) errors.push(`Scope ${scope.resource}.${scope.field}: unknown field`);
     if (field && !["UUID", "Text"].includes(field.type)) errors.push(`Scope ${scope.resource}.${scope.field}: field must be UUID or Text`);
     if (!/^[a-zA-Z_][a-zA-Z0-9_.-]*$/.test(scope.claim)) errors.push(`Scope ${scope.resource}.${scope.field}: invalid claim`);
+    if (scope.tree) {
+      const treeEntity = database.entities.find((item) => item.name === scope.tree!.entity || item.tableName === scope.tree!.entity);
+      if (!treeEntity) errors.push(`Scope ${scope.resource}.${scope.field}: unknown tree entity ${scope.tree.entity}`);
+      else {
+        const parentField = treeEntity.fields.find((item) => item.name === scope.tree!.parentField);
+        if (!parentField) errors.push(`Scope ${scope.resource}.${scope.field}: tree entity ${treeEntity.name} has no field ${scope.tree.parentField}`);
+        else if (!["UUID", "Text"].includes(parentField.type)) errors.push(`Scope ${scope.resource}.${scope.field}: tree parent field ${parentField.name} must be UUID or Text`);
+        const treeId = treeEntity.fields.find((item) => item.primaryKey);
+        // The claim value, the tree id and the scoped column must be comparable text.
+        if (field && treeId && field.type !== treeId.type) errors.push(`Scope ${scope.resource}.${scope.field}: field ${field.name} (${field.type}) must match tree id ${treeEntity.name}.${treeId.name} (${treeId.type})`);
+        if (field && parentField && field.type !== parentField.type) errors.push(`Scope ${scope.resource}.${scope.field}: field ${field.name} (${field.type}) must match tree parent ${treeEntity.name}.${parentField.name} (${parentField.type})`);
+      }
+    }
+  }
+  const restrictedResources = new Set<string>();
+  const normalizedRestrictions: QiyResourceRestriction[] = [];
+  for (const restriction of options.restrictions ?? []) {
+    const entity = database.entities.find((item) => item.tableName === restriction.resource || item.name === restriction.resource);
+    if (!entity) {
+      errors.push(`Restrict: unknown resource ${restriction.resource}`);
+      continue;
+    }
+    if (restrictedResources.has(entity.name)) errors.push(`Restrict: duplicate resource ${entity.name}`);
+    restrictedResources.add(entity.name);
+    if (restriction.roles && (new Set(restriction.roles).size !== restriction.roles.length || !restriction.roles.length)) {
+      errors.push(`Restrict ${entity.name}: roles must be unique and non-empty`);
+    }
+    for (const role of restriction.roles ?? []) {
+      if (!["admin", "operator", "viewer"].includes(role)) errors.push(`Restrict ${entity.name}: unsupported role ${role}`);
+    }
+    const rows: QiyRowPredicate[] = [];
+    const groups: QiyRowPredicate[][] = [];
+    /** Validates one row predicate; the flag keeps group duplicates local to their group. */
+    const normalizeRow = (row: QiyRowPredicate, siblings: QiyRowPredicate[]) => {
+      const field = entity.fields.find((item) => item.name === row.field);
+      if (!field) { errors.push(`Restrict ${entity.name}: unknown row condition field ${row.field}`); return; }
+      if (field.primaryKey) errors.push(`Restrict ${entity.name}: row conditions cannot target primary key ${row.field}`);
+      if (siblings.some((candidate) => candidate.field === row.field)) errors.push(`Restrict ${entity.name}: duplicate row condition on ${row.field}`);
+      if (row.source === "claim") {
+        if (!row.claim || !/^[a-zA-Z_][a-zA-Z0-9_.-]*$/.test(row.claim)) errors.push(`Restrict ${entity.name}: invalid claim ${row.claim ?? "<missing>"}`);
+        if (row.operator !== "==") errors.push(`Restrict ${entity.name}: claim row conditions support == only`);
+        if (field.nullable) errors.push(`Restrict ${entity.name}: row condition on nullable field ${row.field} is not supported`);
+      } else {
+        if (!row.values?.length) errors.push(`Restrict ${entity.name}: row condition on ${row.field} requires at least one value`);
+        if (new Set(row.values ?? []).size !== (row.values ?? []).length) errors.push(`Restrict ${entity.name}: duplicate row value on ${row.field}`);
+        if (!["==", "!=", "in", "notIn"].includes(row.operator)) errors.push(`Restrict ${entity.name}: unsupported row operator ${row.operator}`);
+        if ((row.operator === "==" || row.operator === "!=") && (row.values ?? []).length !== 1) errors.push(`Restrict ${entity.name}: ${row.operator} on ${row.field} requires exactly one value`);
+        const comparable = ["Text", "Integer", "Decimal", "Money", "DateTime"].includes(field.type) || Boolean(field.enumName);
+        if (!comparable) errors.push(`Restrict ${entity.name}: value comparisons require Text, enum, Integer, Decimal, Money or DateTime field ${row.field}`);
+        if (row.operator === "in" || row.operator === "notIn") {
+          if ((row.values ?? []).length > 64) errors.push(`Restrict ${entity.name}: ${row.operator} on ${row.field} accepts at most 64 values`);
+        }
+        if (field.enumName) {
+          const known = database.enums?.find((enumeration) => enumeration.name === field.enumName)?.values.map((value) => value.name) ?? [];
+          for (const value of row.values ?? []) {
+            if (!known.includes(value)) errors.push(`Restrict ${entity.name}: unknown enum value ${field.enumName}.${value}`);
+          }
+        }
+        if (field.type === "Integer") {
+          for (const value of row.values ?? []) {
+            if (!/^-?\d+$/.test(value) || !Number.isSafeInteger(Number(value))) errors.push(`Restrict ${entity.name}: ${row.field} requires integer values`);
+          }
+        }
+      }
+      siblings.push(row);
+    };
+    for (const row of restriction.rows ?? []) normalizeRow(row, rows);
+    for (const group of restriction.groups ?? []) {
+      if (group.length < 2) errors.push(`Restrict ${entity.name}: a when group needs at least two conditions`);
+      const normalized: QiyRowPredicate[] = [];
+      for (const row of group) normalizeRow(row, normalized);
+      groups.push(normalized);
+    }
+    /** Expression leaves go through the same checks as a standalone row predicate. */
+    const normalizeExpression = (node: QiyPolicyExpression): void => {
+      if (node.kind === "predicate") { normalizeRow(node.predicate, []); return; }
+      if (node.kind === "cross") {
+        const left = entity.fields.find((field) => field.name === node.field);
+        const right = entity.fields.find((field) => field.name === node.otherField);
+        if (!left) errors.push(`Restrict ${entity.name}: unknown row condition field ${node.field}`);
+        if (!right) errors.push(`Restrict ${entity.name}: unknown cross-field ${node.otherField}`);
+        if (left?.primaryKey || right?.primaryKey) errors.push(`Restrict ${entity.name}: cross-field comparisons cannot target a primary key`);
+        return;
+      }
+      if (node.kind === "not") { normalizeExpression(node.expression); return; }
+      for (const child of node.children) normalizeExpression(child);
+    };
+    for (const expression of restriction.expressions ?? []) normalizeExpression(expression);
+    const masks: QiyFieldMask[] = [];
+    for (const mask of restriction.masks ?? []) {
+      const field = entity.fields.find((item) => item.name === mask.field);
+      if (!field) { errors.push(`Restrict ${entity.name}: unknown mask field ${mask.field}`); continue; }
+      if (field.primaryKey) errors.push(`Restrict ${entity.name}: primary key ${mask.field} cannot be masked`);
+      if (field.type === "Vector") errors.push(`Restrict ${entity.name}: Vector field ${mask.field} cannot be masked`);
+      if (masks.some((candidate) => candidate.field === mask.field)) errors.push(`Restrict ${entity.name}: duplicate mask for ${mask.field}`);
+      if (mask.roles && (new Set(mask.roles).size !== mask.roles.length || !mask.roles.length)) errors.push(`Restrict ${entity.name}: mask roles for ${mask.field} must be unique and non-empty`);
+      for (const role of mask.roles ?? []) {
+        if (!["admin", "operator", "viewer"].includes(role)) errors.push(`Restrict ${entity.name}: unsupported mask role ${role}`);
+      }
+      if (!["omit", "null", "redact"].includes(mask.mode)) errors.push(`Restrict ${entity.name}: unsupported mask mode ${mask.mode}`);
+      if (mask.mode === "redact" && typeof mask.replacement !== "string") errors.push(`Restrict ${entity.name}: mask mode redact for ${mask.field} requires a replacement string`);
+      if (mask.mode !== "redact" && mask.replacement !== undefined) errors.push(`Restrict ${entity.name}: mask replacement for ${mask.field} requires mode redact`);
+      if (mask.claim && !/^[a-zA-Z_][a-zA-Z0-9_.-]*$/.test(mask.claim)) errors.push(`Restrict ${entity.name}: invalid mask claim ${mask.claim}`);
+      if (mask.claim && mask.claimState !== "present" && mask.claimState !== "absent") errors.push(`Restrict ${entity.name}: mask claim for ${mask.field} must state present or absent`);
+      if (!mask.claim && mask.claimState !== undefined) errors.push(`Restrict ${entity.name}: mask claimState for ${mask.field} requires a claim`);
+      masks.push(mask);
+    }
+    normalizedRestrictions.push({
+      resource: entity.name,
+      ...(restriction.roles ? { roles: [...restriction.roles] } : {}),
+      ...(rows.length ? { rows } : {}),
+      ...(groups.length ? { groups } : {}),
+      ...(restriction.expressions?.length ? { expressions: restriction.expressions } : {}),
+      ...(masks.length ? { masks } : {}),
+    });
+  }
+  for (const flow of options.dataflows ?? []) {
+    const used = new Set(flow.context.map((binding) => binding.entity));
+    for (const step of flow.steps) for (const action of step.actions) {
+      if (action.kind === "create") used.add(action.entity);
+    }
+    for (const resource of used) {
+      if (restrictedResources.has(resource)) errors.push(`Restrict ${resource}: dataflow ${flow.name} cannot use a restricted resource until command authorization applies the same row policy`);
+    }
+  }
+  if (options.workflows?.includes("orderInventory")) {
+    for (const resource of ["orders", "orderItems", "inventoryItems"]) {
+      if (restrictedResources.has(resource)) errors.push(`Restrict ${resource}: orderInventory does not apply row policy yet`);
+    }
   }
   if (auth) {
     const user = database.entities.find((entity) => entity.name === auth.userEntity);
@@ -2632,7 +4004,7 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
     if (!role || !roleValues || !["admin", "operator", "viewer"].every((value) => roleValues.includes(value)) || roleValues.some((value) => !["admin", "operator", "viewer"].includes(value))) errors.push("Auth: roleField must be an enum with admin, operator and viewer values");
   }
   if (errors.length) throw new Error(errors.join("\n"));
-  const scopedDatabase = { ...database, scopes: (options.scopes ?? []).map((scope) => ({ ...scope, resource: database.entities.find((entity) => entity.name === scope.resource || entity.tableName === scope.resource)!.name })) };
+  const scopedDatabase = { ...database, scopes: (options.scopes ?? []).map((scope) => ({ ...scope, resource: database.entities.find((entity) => entity.name === scope.resource || entity.tableName === scope.resource)!.name })), restrictions: normalizedRestrictions };
   const testClaims = JSON.stringify(Object.fromEntries((options.scopes ?? []).map((scope) => [scope.claim, database.entities.find((item) => item.name === scope.resource || item.tableName === scope.resource)?.fields.find((field) => field.name === scope.field)?.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : "Example"])));
 
   const imports = database.entities.map((entity) => `import { ${modelName(entity)}Routes } from "./modules/${entity.name}/${entity.name}.routes";`).join("\n");
@@ -2649,6 +4021,8 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
       return (options.actions ?? []).some((action) => action.batch && action.target.kind === "dataflow" && action.target.dataflow === flow.name) ? [operation, `${operation}Batch`] : [operation];
     }) }] : []),
   ]);
+  // Page-level rules are handed to the guard so REST and GraphQL share one decision.
+  const pageRules = JSON.stringify(Object.fromEntries((options.pages ?? []).map((page) => [page.resource, Object.fromEntries(page.actions.map((entry) => [entry.action, entry.roles]))])));
   const postgresSchema = database.dialect === "postgresql" ? generateDrizzlePostgres(database) : "";
   const baseSchema = database.dialect === "postgresql" ? postgresSchema.replace("import { ", orderWorkflow && !postgresSchema.includes("uniqueIndex") ? "import { uniqueIndex, " : "import { ") + (orderWorkflow ? `
 export const orderReservations = pgTable("order_reservations", {
@@ -2691,22 +4065,572 @@ export const orderIdempotency = pgTable("order_idempotency", {
   if (options.realtime) pluginDependencies.ably = "2.29.0";
   const files: Record<string, string> = {
     ...renderAppTemplate("server", "api"),
+    ...(normalizedRestrictions.length ? { "api/src/security/policy.ts": renderPolicyModule(normalizedRestrictions, database) } : {}),
+    "api/src/import-jobs.ts": renderImportJobsModule(database.dialect),
+    "api/src/saved-views.ts": renderSavedViewsModule(database.dialect, database.entities.map((entity) => entity.tableName)),
+    "api/src/export-jobs.ts": renderExportJobsModule(database.dialect),
     "api/src/db.ts": database.dialect === "postgresql" ? `import { SQL } from "bun";\nimport { drizzle } from "drizzle-orm/bun-sql";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = new SQL(url);\nexport const db = drizzle({ client, schema });\n` : database.dialect === "sqlite" ? `import { Database } from "bun:sqlite";\nimport { drizzle } from "drizzle-orm/bun-sqlite";\nimport * as schema from "./schema";\n\nconst filename = Bun.env.DATABASE_URL ?? "./qiy.sqlite";\nexport const client = new Database(filename);\nexport const db = drizzle(client, { schema });\n` : `import mysql from "mysql2/promise";\nimport { drizzle } from "drizzle-orm/mysql2";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = mysql.createPool({ uri: url, timezone: "Z" });\nexport const db = drizzle({ client, schema, mode: "default" });\n`,
-    ...(database.dialect === "sqlite" ? {
-      "api/src/migrate.ts": `import { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { migrate } from "drizzle-orm/bun-sqlite/migrator";
-import { resolve } from "node:path";
+    "api/src/schema-drift.ts": `import { isTable } from "drizzle-orm";
+import { getTableConfig } from "drizzle-orm/${database.dialect === "postgresql" ? "pg-core" : database.dialect === "mysql" ? "mysql-core" : "sqlite-core"}";
 import * as schema from "./schema";
+import { client } from "./db";
 
-const client = new Database(Bun.env.DATABASE_URL ?? "./qiy.sqlite");
-try {
-  migrate(drizzle(client, { schema }), { migrationsFolder: resolve(import.meta.dir, "../drizzle") });
-} finally {
-  client.close();
+export const DIALECT: string = ${JSON.stringify(database.dialect)};
+export { client };
+
+export interface DriftColumn { name: string; nullable: boolean; type: string; primary: boolean }
+export interface DriftTable { name: string; columns: DriftColumn[] }
+export interface DriftReport { ok: boolean; errors: string[]; warnings: string[]; unverified: string[] }
+
+/** Maps a Drizzle column type onto a portable category. Unknown stays unknown, never a guess. */
+export function canonicalFromDrizzle(columnType: string, dataType: string): string {
+  const type = (columnType || "").toLowerCase();
+  if (type.includes("uuid")) return "uuid";
+  if (type.includes("vector")) return "vector";
+  if (type.includes("json")) return "json";
+  if (type.includes("bytea") || type.includes("blob") || type.includes("binary") || type.includes("buffer")) return "binary";
+  if (type.includes("bool")) return "boolean";
+  if (type.includes("timestamp") || type.includes("datetime")) return "timestamp";
+  if (type.includes("date")) return "date";
+  if (type.includes("time")) return "time";
+  if (type.includes("bigint") || type.includes("bigserial")) return "bigint";
+  if (type.includes("int") || type.includes("serial")) return "integer";
+  if (type.includes("numeric") || type.includes("decimal") || type.includes("money") || type.includes("real") || type.includes("double") || type.includes("float")) return "decimal";
+  if (type.includes("char") || type.includes("text") || type.includes("clob")) return "text";
+  if (dataType === "string") return "text";
+  if (dataType === "number") return "decimal";
+  if (dataType === "boolean") return "boolean";
+  if (dataType === "date") return "timestamp";
+  if (dataType === "json") return "json";
+  if (dataType === "bigint") return "bigint";
+  return "unknown";
+}
+
+/** Maps a live database type onto the same categories. Second argument carries the full column type when available. */
+export function canonicalFromLive(dataType: string, columnType?: string): string {
+  const type = (dataType || "").toLowerCase();
+  const full = (columnType || "").toLowerCase();
+  if (DIALECT === "postgresql") {
+    if (type === "uuid") return "uuid";
+    if (type === "vector") return "vector";
+    if (type === "json" || type === "jsonb") return "json";
+    if (type === "bytea") return "binary";
+    if (type === "bool") return "boolean";
+    if (type === "timestamptz" || type === "timestamp") return "timestamp";
+    if (type === "date") return "date";
+    if (type === "timetz" || type === "time") return "time";
+    if (type === "int8" || type === "bigserial" || type === "serial8") return "bigint";
+    if (type === "int2" || type === "int4" || type === "serial" || type === "serial4") return "integer";
+    if (type === "numeric" || type === "money" || type === "float4" || type === "float8") return "decimal";
+    if (type === "text" || type === "varchar" || type === "bpchar" || type === "char" || type === "citext" || type === "name") return "text";
+    if (type.startsWith("_")) return "array";
+    return "unknown";
+  }
+  if (DIALECT === "mysql") {
+    if (type === "char" || type === "varchar" || type === "text" || type === "tinytext" || type === "mediumtext" || type === "longtext" || type === "enum" || type === "set") return "text";
+    if (type === "tinyint" && full.startsWith("tinyint(1)")) return "boolean";
+    if (type === "tinyint" || type === "smallint" || type === "mediumint" || type === "int" || type === "integer") return "integer";
+    if (type === "bigint") return "bigint";
+    if (type === "decimal" || type === "numeric" || type === "float" || type === "double" || type === "real") return "decimal";
+    if (type === "datetime" || type === "timestamp") return "timestamp";
+    if (type === "date") return "date";
+    if (type === "time") return "time";
+    if (type === "json") return "json";
+    if (type === "binary" || type === "varbinary" || type === "blob" || type === "tinyblob" || type === "mediumblob" || type === "longblob") return "binary";
+    return "unknown";
+  }
+  if (type === "") return "unknown";
+  if (type.includes("int")) return "integer";
+  if (type.includes("char") || type.includes("clob") || type.includes("text")) return "text";
+  if (type.includes("blob")) return "binary";
+  if (type.includes("bool")) return "boolean";
+  if (type.includes("real") || type.includes("floa") || type.includes("doub") || type.includes("dec") || type.includes("num")) return "decimal";
+  if (type.includes("date") || type.includes("time")) return "timestamp";
+  return "unknown";
+}
+
+/** Only documented storage equivalences are tolerated; everything else is reported. */
+function compatible(expected: string, found: string): boolean {
+  if (expected === found) return true;
+  if (DIALECT === "sqlite") {
+    const affinity = (type: string) => type === "boolean" || type === "bigint" || type === "timestamp" || type === "date" || type === "time" ? "integer" : type === "json" ? "text" : type === "vector" ? "binary" : type;
+    return affinity(expected) === affinity(found);
+  }
+  if (DIALECT === "mysql") return (expected === "boolean" && found === "integer") || (expected === "integer" && found === "boolean");
+  return false;
+}
+
+export function compareSchema(expected: DriftTable[], live: DriftTable[]): DriftReport {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const unverified: string[] = [];
+  const liveByName = new Map(live.map((table) => [table.name, table]));
+  for (const table of expected) {
+    const actual = liveByName.get(table.name);
+    if (!actual) { errors.push("missing table " + table.name); continue; }
+    const actualColumns = new Map(actual.columns.map((column) => [column.name, column]));
+    for (const column of table.columns) {
+      const found = actualColumns.get(column.name);
+      if (!found) { errors.push(table.name + "." + column.name + ": missing column"); continue; }
+      actualColumns.delete(column.name);
+      if (found.nullable !== column.nullable) errors.push(table.name + "." + column.name + ": expected " + (column.nullable ? "NULL" : "NOT NULL") + " but the database has " + (found.nullable ? "NULL" : "NOT NULL"));
+      if (found.primary !== column.primary) errors.push(table.name + "." + column.name + ": " + (column.primary ? "expected a primary key column" : "column is not expected to be a primary key"));
+      if (column.type === "unknown" || found.type === "unknown") unverified.push(table.name + "." + column.name + ": type not compared (" + column.type + " / " + found.type + ")");
+      else if (!compatible(column.type, found.type)) errors.push(table.name + "." + column.name + ": expected " + column.type + " but the database has " + found.type);
+    }
+    for (const extra of actualColumns.values()) warnings.push(table.name + "." + extra.name + ": column exists in the database but not in the schema");
+  }
+  for (const table of live) if (!expected.some((item) => item.name === table.name)) warnings.push("unexpected table " + table.name);
+  return { ok: errors.length === 0, errors, warnings, unverified };
+}
+
+export function expectedTables(): DriftTable[] {
+  return (Object.values(schema) as unknown[]).filter(isTable).map((table) => {
+    const config = getTableConfig(table as never) as unknown as { name: string; columns: Array<{ name: string; notNull: boolean; primary: boolean; dataType: string; columnType: string }> };
+    return {
+      name: config.name,
+      columns: config.columns.map((column) => ({ name: column.name, nullable: !column.notNull, type: canonicalFromDrizzle(column.columnType ?? "", column.dataType ?? ""), primary: Boolean(column.primary) })),
+    };
+  });
+}
+${database.dialect === "postgresql" ? `
+export async function introspect(): Promise<DriftTable[]> {
+  const columns = await client.unsafe("select table_name, column_name, is_nullable, coalesce(udt_name, data_type) as type from information_schema.columns where table_schema = current_schema() and table_name <> '__drizzle_migrations'") as Array<{ table_name: string; column_name: string; is_nullable: string; type: string }>;
+  const keys = await client.unsafe("select tc.table_name, kcu.column_name from information_schema.table_constraints tc join information_schema.key_column_usage kcu on tc.constraint_name = kcu.constraint_name and tc.table_schema = kcu.table_schema where tc.constraint_type = 'PRIMARY KEY' and tc.table_schema = current_schema()") as Array<{ table_name: string; column_name: string }>;
+  const primary = new Set(keys.map((row) => row.table_name + "." + row.column_name));
+  const tables = new Map<string, DriftTable>();
+  for (const row of columns) {
+    const table = tables.get(row.table_name) ?? { name: row.table_name, columns: [] };
+    table.columns.push({ name: row.column_name, nullable: row.is_nullable === "YES", type: canonicalFromLive(row.type), primary: primary.has(row.table_name + "." + row.column_name) });
+    tables.set(row.table_name, table);
+  }
+  return [...tables.values()];
+}
+
+export async function appliedMigrations(): Promise<number | null> {
+  try {
+    const rows = await client.unsafe("select count(*)::int as count from drizzle.__drizzle_migrations") as Array<{ count: number }>;
+    return Number(rows[0]?.count ?? 0);
+  } catch { return 0; }
+}
+` : database.dialect === "mysql" ? `
+export async function introspect(): Promise<DriftTable[]> {
+  // MySQL returns information_schema column names in uppercase, so every field is
+  // aliased to an explicit lowercase name instead of relying on the driver keys.
+  const [rows] = await client.query("select table_name as tbl, column_name as col, is_nullable as nullable, data_type as dtype, column_type as ctype, column_key as ckey from information_schema.columns where table_schema = database() and table_name <> '__drizzle_migrations'") as unknown as [Array<{ tbl: string; col: string; nullable: string; dtype: string; ctype: string; ckey: string }>, unknown];
+  const tables = new Map<string, DriftTable>();
+  for (const row of rows) {
+    const table = tables.get(row.tbl) ?? { name: row.tbl, columns: [] };
+    table.columns.push({ name: row.col, nullable: row.nullable === "YES", type: canonicalFromLive(row.dtype, row.ctype), primary: row.ckey === "PRI" });
+    tables.set(row.tbl, table);
+  }
+  return [...tables.values()];
+}
+
+export async function appliedMigrations(): Promise<number | null> {
+  try {
+    const [rows] = await client.query("select count(*) as count from __drizzle_migrations") as unknown as [Array<{ count: number | string }>, unknown];
+    return Number(rows[0]?.count ?? 0);
+  } catch { return 0; }
+}
+` : `
+export async function introspect(): Promise<DriftTable[]> {
+  const names = client.query("select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name <> '__drizzle_migrations'").all() as Array<{ name: string }>;
+  const tables: DriftTable[] = [];
+  for (const { name } of names) {
+    const info = client.query("pragma table_info(" + JSON.stringify(name) + ")").all() as Array<{ name: string; type: string; notnull: number; pk: number }>;
+    tables.push({ name, columns: info.map((column) => ({ name: column.name, nullable: column.notnull === 0, type: canonicalFromLive(column.type), primary: column.pk > 0 })) });
+  }
+  return tables;
+}
+
+export function appliedMigrations(): Promise<number | null> {
+  try {
+    const rows = client.query("select count(*) as count from __drizzle_migrations").all() as Array<{ count: number }>;
+    return Promise.resolve(Number(rows[0]?.count ?? 0));
+  } catch { return Promise.resolve(0); }
+}
+`}
+`,
+    "api/src/db-check.ts": `import { appliedMigrations, client, compareSchema, DIALECT, expectedTables, introspect } from "./schema-drift";
+
+const expected = expectedTables();
+const report = compareSchema(expected, await introspect());
+const journalFile = Bun.file(new URL("../drizzle/meta/_journal.json", import.meta.url));
+const journal = await journalFile.exists() ? (await journalFile.json() as { entries?: unknown[] }).entries?.length ?? 0 : 0;
+const applied = await appliedMigrations();
+if (applied !== null && applied < journal) report.errors.push("pending migrations: " + (journal - applied) + " of " + journal + " not applied");
+if (applied !== null && applied > journal) report.warnings.push("database has " + applied + " applied migrations but this checkout only declares " + journal);
+for (const error of report.errors) console.error("drift: " + error);
+for (const warning of report.warnings) console.warn("warning: " + warning);
+for (const item of report.unverified) console.log("unverified: " + item);
+console.log("qiy db:check (" + DIALECT + ") checked " + expected.length + " tables, migrations applied " + (applied ?? "unknown") + "/" + journal + ", " + report.errors.length + " error(s), " + report.warnings.length + " warning(s)");
+${database.dialect === "mysql" ? "await client.end();" : database.dialect === "sqlite" ? "client.close();" : ""}
+process.exit(report.errors.length ? 1 : 0);
+`,
+    "api/tests/schema-drift.test.ts": `import { expect, test } from "bun:test";
+import { canonicalFromDrizzle, canonicalFromLive, compareSchema, expectedTables, type DriftTable } from "../src/schema-drift";
+
+test("treats the generated schema as its own expectation", () => {
+  const expected = expectedTables();
+  expect(expected.length).toBeGreaterThan(0);
+  const live: DriftTable[] = expected.map((table) => ({ name: table.name, columns: table.columns.map((column) => ({ ...column })) }));
+  expect(compareSchema(expected, live).errors).toEqual([]);
+});
+
+test("reports missing tables, missing columns, nullability, primary key and type drift", () => {
+  const expected: DriftTable[] = [{ name: "orders", columns: [{ name: "id", nullable: false, type: "text", primary: true }, { name: "amount", nullable: true, type: "decimal", primary: false }] }];
+  const live: DriftTable[] = [{ name: "orders", columns: [{ name: "id", nullable: true, type: "integer", primary: false }, { name: "extra", nullable: true, type: "text", primary: false }] }];
+  const report = compareSchema(expected, live);
+  expect(report.ok).toBe(false);
+  expect(report.errors).toContain("orders.amount: missing column");
+  expect(report.errors).toContain("orders.id: expected NOT NULL but the database has NULL");
+  expect(report.errors).toContain("orders.id: expected a primary key column");
+  expect(report.warnings).toContain("orders.extra: column exists in the database but not in the schema");
+  expect(compareSchema(expected, []).errors).toContain("missing table orders");
+  expect(compareSchema([], live).warnings).toContain("unexpected table orders");
+});
+
+test("does not report drift for documented storage equivalences or unknown types", () => {
+  const equivalentPairs: Array<[string, string]> = ${JSON.stringify(database.dialect === "sqlite" ? [["boolean", "integer"], ["bigint", "integer"], ["timestamp", "integer"], ["date", "integer"], ["json", "text"], ["vector", "binary"]] : database.dialect === "mysql" ? [["boolean", "integer"], ["integer", "boolean"]] : [])};
+  for (const [expectedType, foundType] of equivalentPairs) {
+    const report = compareSchema([{ name: "t", columns: [{ name: "a", nullable: true, type: expectedType, primary: false }] }], [{ name: "t", columns: [{ name: "a", nullable: true, type: foundType, primary: false }] }]);
+    expect(report.errors).toEqual([]);
+  }
+  const unknown = compareSchema([{ name: "t", columns: [{ name: "a", nullable: true, type: "unknown", primary: false }] }], [{ name: "t", columns: [{ name: "a", nullable: true, type: "text", primary: false }] }]);
+  expect(unknown.errors).toEqual([]);
+  expect(unknown.unverified).toHaveLength(1);
+  expect(canonicalFromDrizzle("PgUUID", "string")).toBe("uuid");
+  expect(canonicalFromDrizzle("SQLiteTimestamp", "date")).toBe("timestamp");
+  expect(canonicalFromDrizzle("MySqlDecimal", "string")).toBe("decimal");
+  expect(canonicalFromLive("nonsense")).toBe("unknown");
+});
+`,
+    "api/src/backup-codec.ts": `/** Portable logical backup document written by db:backup and read by db:restore. */
+export interface QiyBackupDocument {
+  version: 1;
+  dialect: string;
+  createdAt: string;
+  tables: Record<string, Array<Record<string, unknown>>>;
+}
+
+/** Values that JSON cannot carry faithfully are tagged so restore can rebuild them. */
+export function encodeValue(value: unknown): unknown {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) return { $qiy: "date", value: value.toISOString() };
+  if (value instanceof Uint8Array) return { $qiy: "bytes", value: Buffer.from(value).toString("base64") };
+  if (typeof value === "bigint") return { $qiy: "bigint", value: value.toString() };
+  if (Array.isArray(value)) return value.map((item) => encodeValue(item));
+  if (typeof value === "object") return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, encodeValue(item)]));
+  return value;
+}
+
+export function decodeValue(value: unknown, dataType: string): unknown {
+  if (value && typeof value === "object" && !Array.isArray(value) && "$qiy" in (value as Record<string, unknown>)) {
+    const tagged = value as { $qiy: string; value: string };
+    if (tagged.$qiy === "date") return new Date(tagged.value);
+    if (tagged.$qiy === "bytes") return Buffer.from(tagged.value, "base64");
+    if (tagged.$qiy === "bigint") return BigInt(tagged.value);
+    return value;
+  }
+  if (Array.isArray(value)) return value.map((item) => decodeValue(item, dataType));
+  // A driver that returns timestamps as strings still has to satisfy a date column.
+  if (dataType === "date" && typeof value === "string") { const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? value : parsed; }
+  return value;
+}
+
+export function encodeRow(row: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(row).map(([key, value]) => [key, encodeValue(value)]));
+}
+
+export function decodeRow(row: Record<string, unknown>, columnTypes: Record<string, string>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(row).map(([key, value]) => [key, decodeValue(value, columnTypes[key] ?? "unknown")]));
 }
 `,
-    } : {}),
+    "api/src/schema-tables.ts": `import { isTable } from "drizzle-orm";
+import { getTableConfig } from "drizzle-orm/${database.dialect === "postgresql" ? "pg-core" : database.dialect === "mysql" ? "mysql-core" : "sqlite-core"}";
+import * as schema from "./schema";
+
+export interface QiySchemaTable {
+  name: string;
+  table: unknown;
+  columns: Array<{ name: string; dataType: string }>;
+  /** The table objects this table references, used to order writes safely. */
+  references: unknown[];
+}
+
+export function qiySchemaTables(): QiySchemaTable[] {
+  return (Object.values(schema) as unknown[]).filter(isTable).map((table) => {
+    const config = getTableConfig(table as never) as unknown as {
+      name: string;
+      columns: Array<{ name: string; dataType: string }>;
+      foreignKeys: Array<{ reference: () => { foreignTable: unknown } }>;
+    };
+    // Foreign keys are matched by table identity, not by name: a dialect may
+    // qualify or wrap names, and an identity match cannot silently miss.
+    const references = config.foreignKeys.map((key) => key.reference().foreignTable).filter((referenced) => referenced !== table);
+    return { name: config.name, table, columns: config.columns.map((column) => ({ name: column.name, dataType: column.dataType ?? "unknown" })), references };
+  });
+}
+
+/**
+ * Tables ordered so that a referenced table is written before the table that
+ * references it. Cyclic references are reported instead of guessed.
+ */
+export function qiyWriteOrder(tables: QiySchemaTable[] = qiySchemaTables()): string[] {
+  const ordered: string[] = [];
+  const visiting = new Set<unknown>();
+  const done = new Set<unknown>();
+  const visit = (entry: QiySchemaTable, path: string[]): void => {
+    if (done.has(entry.table)) return;
+    if (visiting.has(entry.table)) throw new Error("Cyclic foreign keys are not supported by db:backup/db:restore: " + [...path, entry.name].join(" -> "));
+    visiting.add(entry.table);
+    for (const reference of entry.references) {
+      const target = tables.find((candidate) => candidate.table === reference);
+      if (target) visit(target, [...path, entry.name]);
+    }
+    visiting.delete(entry.table);
+    done.add(entry.table);
+    ordered.push(entry.name);
+  };
+  for (const table of tables) visit(table, []);
+  return ordered;
+}
+`,
+    "api/src/db-backup.ts": `import { mkdir, readdir, rm, stat } from "node:fs/promises";
+import { resolve } from "node:path";
+import { db${database.dialect === "postgresql" ? "" : ", client"} } from "./db";
+import { encodeRow, type QiyBackupDocument } from "./backup-codec";
+import { qiySchemaTables, qiyWriteOrder } from "./schema-tables";
+import { DIALECT } from "./schema-drift";
+
+const argument = (name: string): string | undefined => {
+  const index = Bun.argv.indexOf(name);
+  return index >= 0 ? Bun.argv[index + 1] : undefined;
+};
+const retention = (() => {
+  const raw = Bun.env.QIY_BACKUP_RETENTION;
+  if (raw === undefined || raw === "") return 7;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) throw new Error("QIY_BACKUP_RETENTION must be a non-negative integer");
+  return value;
+})();
+
+const directory = resolve(import.meta.dir, "..", argument("--out-dir") ?? "backups");
+await mkdir(directory, { recursive: true });
+const tables = qiySchemaTables();
+const order = qiyWriteOrder(tables);
+const document: QiyBackupDocument = { version: 1, dialect: DIALECT, createdAt: new Date().toISOString(), tables: {} };
+let total = 0;
+for (const name of order) {
+  const table = tables.find((candidate) => candidate.name === name)!;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = await db.select().from(table.table as never) as Array<Record<string, unknown>>;
+  document.tables[name] = rows.map((row) => encodeRow(row));
+  total += rows.length;
+  console.log("qiy db:backup: " + name + " " + rows.length + " row(s)");
+}
+const stamp = document.createdAt.replace(/[:.]/g, "-");
+const file = resolve(directory, argument("--out") ?? ("qiy-" + stamp + ".json"));
+await Bun.write(file, JSON.stringify(document));
+console.log("qiy db:backup (" + DIALECT + "): wrote " + total + " row(s) from " + order.length + " table(s) to " + file);
+
+let removed = 0;
+if (retention > 0) {
+  const entries = (await readdir(directory)).filter((name) => name.startsWith("qiy-") && name.endsWith(".json"));
+  const sorted: Array<{ name: string; modified: number }> = [];
+  for (const name of entries) sorted.push({ name, modified: (await stat(resolve(directory, name))).mtimeMs });
+  sorted.sort((first, second) => second.modified - first.modified || second.name.localeCompare(first.name));
+  for (const stale of sorted.slice(retention)) { await rm(resolve(directory, stale.name)); removed++; }
+  if (removed) console.log("qiy db:backup: retention " + retention + " removed " + removed + " older backup(s)");
+}
+${database.dialect === "sqlite" ? "client.close();" : database.dialect === "mysql" ? "await client.end();" : ""}
+process.exit(0);
+`,
+    "api/src/db-restore.ts": `import { resolve } from "node:path";
+import { db${database.dialect === "postgresql" ? "" : ", client"} } from "./db";
+import { decodeRow, type QiyBackupDocument } from "./backup-codec";
+import { qiySchemaTables, qiyWriteOrder } from "./schema-tables";
+import { DIALECT } from "./schema-drift";
+
+const argument = (name: string): string | undefined => {
+  const index = Bun.argv.indexOf(name);
+  return index >= 0 ? Bun.argv[index + 1] : undefined;
+};
+if (!Bun.argv.includes("--confirm")) {
+  console.error("qiy db:restore replaces every row in this database. Re-run with --confirm to proceed.");
+  process.exit(1);
+}
+const target = argument("--file");
+if (!target) { console.error("qiy db:restore: --file <backup.json> is required"); process.exit(1); }
+const source = Bun.file(resolve(target));
+if (!await source.exists()) { console.error("qiy db:restore: backup file not found: " + resolve(target)); process.exit(1); }
+const document = JSON.parse(await source.text()) as QiyBackupDocument;
+if (document.version !== 1) { console.error("qiy db:restore: unsupported backup version " + String(document.version)); process.exit(1); }
+if (document.dialect !== DIALECT) { console.error("qiy db:restore: backup was written for " + document.dialect + " but this project targets " + DIALECT); process.exit(1); }
+
+const tables = qiySchemaTables();
+const order = qiyWriteOrder(tables);
+const known = new Set(order);
+const missing = order.filter((name) => !(name in document.tables));
+const unexpected = Object.keys(document.tables).filter((name) => !known.has(name));
+if (missing.length || unexpected.length) {
+  console.error("qiy db:restore: the backup does not match src/schema.ts" + (missing.length ? " (missing: " + missing.join(", ") + ")" : "") + (unexpected.length ? " (unknown: " + unexpected.join(", ") + ")" : ""));
+  process.exit(1);
+}
+
+const rowsFor = (name: string): Array<Record<string, unknown>> => {
+  const table = tables.find((candidate) => candidate.name === name)!;
+  const types = Object.fromEntries(table.columns.map((column) => [column.name, column.dataType]));
+  return (document.tables[name] ?? []).map((row) => decodeRow(row, types));
+};
+
+let total = 0;
+${database.dialect === "sqlite" ? `db.transaction((tx) => {
+  for (const name of [...order].reverse()) (tx.delete(tables.find((candidate) => candidate.name === name)!.table as never) as any).run();
+  for (const name of order) {
+    const rows = rowsFor(name);
+    for (const values of rows) (tx.insert(tables.find((candidate) => candidate.name === name)!.table as never).values(values as never) as any).run();
+    total += rows.length;
+  }
+});
+` : `await db.transaction(async (tx) => {
+  for (const name of [...order].reverse()) await (tx.delete(tables.find((candidate) => candidate.name === name)!.table as never) as any);
+  for (const name of order) {
+    const rows = rowsFor(name);
+    for (const values of rows) await (tx.insert(tables.find((candidate) => candidate.name === name)!.table as never).values(values as never) as any);
+    total += rows.length;
+  }
+});
+`}console.log("qiy db:restore (" + DIALECT + "): restored " + total + " row(s) into " + order.length + " table(s) from " + resolve(target));
+${database.dialect === "sqlite" ? "client.close();" : database.dialect === "mysql" ? "await client.end();" : ""}
+process.exit(0);
+`,
+    "api/tests/backup-codec.test.ts": `import { expect, test } from "bun:test";
+import { decodeRow, decodeValue, encodeRow, encodeValue } from "../src/backup-codec";
+
+test("round-trips values that JSON cannot carry faithfully", () => {
+  const when = new Date("2026-02-03T04:05:06.789Z");
+  const bytes = new Uint8Array([0, 1, 250, 255]);
+  expect(encodeValue(when)).toEqual({ $qiy: "date", value: "2026-02-03T04:05:06.789Z" });
+  expect(decodeValue(encodeValue(when), "date")).toEqual(when);
+  expect(encodeValue(bytes)).toEqual({ $qiy: "bytes", value: Buffer.from(bytes).toString("base64") });
+  expect(Array.from(decodeValue(encodeValue(bytes), "buffer") as Uint8Array)).toEqual([0, 1, 250, 255]);
+  expect(encodeValue(9007199254740993n)).toEqual({ $qiy: "bigint", value: "9007199254740993" });
+  expect(decodeValue(encodeValue(9007199254740993n), "bigint")).toBe(9007199254740993n);
+  expect(encodeValue(null)).toBeNull();
+  expect(encodeValue(undefined)).toBeNull();
+  expect(encodeValue("text")).toBe("text");
+  expect(encodeValue(12.5)).toBe(12.5);
+  expect(encodeValue({ nested: when })).toEqual({ nested: { $qiy: "date", value: "2026-02-03T04:05:06.789Z" } });
+  for (const value of [when, bytes, 9007199254740993n, { nested: when }]) expect(() => JSON.stringify(encodeValue(value))).not.toThrow();
+});
+
+test("decodes rows using the declared column types", () => {
+  const row = { id: "one", placedAt: { $qiy: "date", value: "2026-02-03T04:05:06.789Z" }, amount: "10.50", note: null };
+  const decoded = decodeRow(row, { id: "string", placedAt: "date", amount: "string", note: "string" });
+  expect(decoded.id).toBe("one");
+  expect(decoded.placedAt).toEqual(new Date("2026-02-03T04:05:06.789Z"));
+  expect(decoded.amount).toBe("10.50");
+  expect(decoded.note).toBeNull();
+  // A string timestamp for a date column is coerced, an unparsable one is kept as-is.
+  expect(decodeValue("2026-02-03T04:05:06.789Z", "date")).toEqual(new Date("2026-02-03T04:05:06.789Z"));
+  expect(decodeValue("not-a-date", "date")).toBe("not-a-date");
+  expect(decodeRow(encodeRow({ when: new Date("2026-02-03T04:05:06.789Z") }), { when: "date" }).when).toEqual(new Date("2026-02-03T04:05:06.789Z"));
+});
+`,
+    "api/src/db-migrate.ts": `import { migrate } from "drizzle-orm/${database.dialect === "postgresql" ? "bun-sql" : database.dialect === "mysql" ? "mysql2" : "bun-sqlite"}/migrator";
+import { resolve } from "node:path";
+import { db${database.dialect === "postgresql" ? "" : ", client"} } from "./db";
+import { appliedMigrations, compareSchema, DIALECT, expectedTables, introspect } from "./schema-drift";
+
+const migrationsFolder = resolve(import.meta.dir, "../drizzle");
+${database.dialect === "postgresql" ? `// A dedicated single-connection session holds the advisory lock for the whole run.
+const { SQL } = await import("bun");
+const session = new SQL(Bun.env.DATABASE_URL!, { max: 1 });
+const lockKey = 4815162342;
+await session.unsafe("select pg_advisory_lock(" + lockKey + ")");
+console.log("qiy db:migrate: acquired advisory lock " + lockKey);
+` : database.dialect === "mysql" ? `// GET_LOCK is per session, so use one dedicated pooled connection.
+const session = await client.getConnection();
+const [lockRows] = await session.query("select get_lock('qiy_migrate', 60) as acquired") as unknown as [Array<{ acquired: number | null }>, unknown];
+if (Number(lockRows[0]?.acquired ?? 0) !== 1) throw new Error("Could not acquire the qiy_migrate lock within 60s");
+console.log("qiy db:migrate: acquired the qiy_migrate lock");
+` : `// SQLite is a single-writer file database; concurrent migrations are documented as unsupported.
+console.log("qiy db:migrate: SQLite has no cross-process lock; run migrations from one process");
+`}const before = await appliedMigrations();
+try {
+  await migrate(db, { migrationsFolder });
+} finally {
+${database.dialect === "postgresql" ? `  await session.unsafe("select pg_advisory_unlock(" + lockKey + ")");
+  await session.close();
+` : database.dialect === "mysql" ? `  await session.query("select release_lock('qiy_migrate')");
+  session.release();
+` : ""}}
+const after = await appliedMigrations();
+console.log("qiy db:migrate (" + DIALECT + "): applied " + (after === null ? "unknown" : after) + " migration(s), previously " + (before ?? "unknown"));
+
+// Migrating is not the same as matching the code: verify the live structure now.
+const report = compareSchema(expectedTables(), await introspect());
+for (const error of report.errors) console.error("drift: " + error);
+for (const warning of report.warnings) console.warn("warning: " + warning);
+${database.dialect === "sqlite" ? "client.close();" : database.dialect === "mysql" ? "await client.end();" : ""}
+if (report.errors.length) {
+  console.error("qiy db:migrate (" + DIALECT + "): migrations ran but the database still does not match src/schema.ts");
+  process.exit(1);
+}
+console.log("qiy db:migrate (" + DIALECT + "): database matches src/schema.ts");
+process.exit(0);
+`,
+    "api/src/db-rollback.ts": `import { resolve } from "node:path";
+import { appliedMigrations, client } from "./schema-drift";
+
+// Rolling back is a reviewed operation: Qiy applies a reverse migration that a
+// human wrote for a specific migration tag, then removes its bookkeeping row.
+if (!Bun.argv.includes("--confirm")) {
+  console.error("qiy db:rollback reverts the most recent applied migration. Re-run with --confirm to proceed.");
+  process.exit(1);
+}
+const journalFile = Bun.file(new URL("../drizzle/meta/_journal.json", import.meta.url));
+if (!await journalFile.exists()) { console.error("qiy db:rollback: drizzle/meta/_journal.json is missing; run db:generate first"); process.exit(1); }
+const entries = (await journalFile.json() as { entries?: Array<{ tag?: string }> }).entries ?? [];
+const applied = (await appliedMigrations()) ?? 0;
+if (applied < 1) { console.error("qiy db:rollback: this database has no applied migration to revert"); process.exit(1); }
+const last = entries[applied - 1];
+if (!last?.tag) { console.error("qiy db:rollback: could not resolve the tag of applied migration " + applied + "; the journal and the database are out of sync"); process.exit(1); }
+const reverseFile = resolve(import.meta.dir, "../drizzle/down/" + last.tag + ".sql");
+const reverse = Bun.file(reverseFile);
+if (!await reverse.exists()) {
+  console.error("qiy db:rollback: no reviewed reverse migration for " + last.tag);
+  console.error("Author " + reverseFile + " with the statements that undo that migration, review them, and run this command again.");
+  process.exit(1);
+}
+const statements = (await reverse.text()).split("--> statement-breakpoint").map((statement) => statement.trim()).filter(Boolean);
+if (!statements.length) { console.error("qiy db:rollback: " + reverseFile + " contains no statements"); process.exit(1); }
+${database.dialect === "postgresql" ? `const { SQL } = await import("bun");
+const session = new SQL(Bun.env.DATABASE_URL!, { max: 1 });
+const run = (statement: string) => session.unsafe(statement);
+const close = async () => { await session.close(); };
+` : database.dialect === "mysql" ? `const session = await client.getConnection();
+const run = (statement: string) => session.query(statement);
+const close = async () => { session.release(); await client.end(); };
+` : `const run = (statement: string) => { client.exec(statement); return Promise.resolve(); };
+const close = async () => { client.close(); };
+`}try {
+  await run("BEGIN");
+  for (const statement of statements) await run(statement);
+  await run(${database.dialect === "postgresql" ? '"delete from drizzle.__drizzle_migrations where id = (select max(id) from drizzle.__drizzle_migrations)"' : database.dialect === "mysql" ? '"delete from __drizzle_migrations order by id desc limit 1"' : '"delete from __drizzle_migrations where rowid = (select max(rowid) from __drizzle_migrations)"'});
+  await run("COMMIT");
+  console.log("qiy db:rollback: reverted " + last.tag + " and removed its migration record");
+  console.log("qiy db:rollback: revert the matching change in src/schema.ts and any generated code, then re-run db:check");
+} catch (error) {
+  await run("ROLLBACK").catch(() => undefined);
+  console.error("qiy db:rollback: rolled back the reverse migration because it failed");
+  throw error;
+} finally {
+  await close();
+}
+`,
     "api/src/pagination.ts": `export function withPaginationLimit<T extends object>(service: T): T {
   return new Proxy(service, {
     get(target, property, receiver) {
@@ -2753,7 +4677,7 @@ export async function createApp(repositories: Repositories, authenticate: Authen
    const configuredOrigins = ${JSON.stringify(options.corsOrigins ?? [])} as string[];
    const environmentOrigins = Bun.env.QIY_CORS_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean) ?? [];
    const allowedOrigins = normalizeCorsOrigins(corsOrigins ?? (environmentOrigins.length > 0 ? environmentOrigins : configuredOrigins));
-   const guard = createAuthorizationGuard(authenticate, ${protectedResources});
+   const guard = createAuthorizationGuard(authenticate, ${protectedResources}, ${pageRules});
   const routes = (new Elysia({ prefix: "/api/v1" }) as any)
     .get("/health", () => ({ ok: true }))
     .get("/auth/me", async ({ request }: { request: Request }) => authenticate(request))
@@ -2770,14 +4694,72 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     ${dataflowRoutes ? "composed = dataflows ? composed.use(dataflows) : composed;" : ""}
     ${options.realtime ? "composed = composed.use(realtime);" : ""}
     composed = storage ? composed.use(storage) : composed;
+    composed = composed.use((await import("./saved-views")).createSavedViewsRoutes(authenticate));
     ${auth ? 'composed = composed.use((await import("./audit/routes")).createAuditRoutes(authenticate));' : ""}
     return registerPlugins(composed, { repositories, authenticate });
 }
 `,
     "api/src/modules/index.ts": database.entities.map((entity) => `export { ${modelName(entity)}Routes } from "./${entity.name}/${entity.name}.routes";`).join("\n") + "\n",
-    "api/src/graphql.ts": renderGraphQL(scopedDatabase, options.auth?.provider === "local" ? { [options.auth.userEntity]: [options.auth.passwordField!] } : {}, options.dataflows ?? [], options.actions ?? []),
+    "api/src/graphql.ts": renderGraphQL(scopedDatabase, options.auth?.provider === "local" ? { [options.auth.userEntity]: [options.auth.passwordField!] } : {}, options.dataflows ?? [], options.actions ?? [], (options.realtime?.resources ?? []).flatMap((resource) => {
+      const entity = scopedDatabase.entities.find((candidate) => candidate.name === resource.resource || candidate.tableName === resource.resource);
+      return entity ? [entity] : [];
+    })),
     "api/src/graphql-adapter.ts": renderGraphQLAdapter(scopedDatabase, options.dataflows ?? [], options.actions ?? []),
     ...(options.realtime ? {
+      "api/src/realtime-bus.ts": `export interface QiyRealtimeBusEvent { id: string; channel: string; event: string; record: Record<string, unknown> }
+
+export type QiyRealtimeRecordEvent = { id: string; channel: string; event: string; record: Record<string, unknown> };
+
+type Listener = (event: QiyRealtimeBusEvent) => void;
+const listeners = new Set<Listener>();
+
+/** In-process fan-out for delivered realtime events. Cross-replica delivery still uses Ably. */
+export function publishRealtimeEvent(event: QiyRealtimeBusEvent): void {
+  for (const listener of [...listeners]) {
+    try { listener(event); } catch { /* one slow subscriber must not break delivery */ }
+  }
+}
+
+export function subscribeRealtimeEvents(listener: Listener): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+
+export type QiyRealtimeIterator = AsyncIterableIterator<QiyRealtimeBusEvent> & { close: () => void };
+
+/** Bridges the bus into the async iterator graphql-js subscriptions consume. */
+export function realtimeEventIterator(channel: string): QiyRealtimeIterator {
+  const queue: QiyRealtimeBusEvent[] = [];
+  let pending: ((result: IteratorResult<QiyRealtimeBusEvent>) => void) | undefined;
+  let closed = false;
+  const stop = () => {
+    if (closed) return;
+    closed = true;
+    unsubscribe();
+    const resolve = pending;
+    pending = undefined;
+    resolve?.({ value: undefined as never, done: true });
+  };
+  const unsubscribe = subscribeRealtimeEvents((event) => {
+    if (closed || event.channel !== channel) return;
+    const resolve = pending;
+    if (resolve) { pending = undefined; resolve({ value: event, done: false }); }
+    else queue.push(event);
+  });
+  const iterator: QiyRealtimeIterator = {
+    close: stop,
+    [Symbol.asyncIterator]() { return iterator; },
+    next() {
+      if (closed) return Promise.resolve({ value: undefined as never, done: true });
+      const queued = queue.shift();
+      if (queued) return Promise.resolve({ value: queued, done: false });
+      return new Promise<IteratorResult<QiyRealtimeBusEvent>>((resolve) => { pending = resolve; });
+    },
+    return() { stop(); return Promise.resolve({ value: undefined as never, done: true }); },
+  };
+  return iterator;
+}
+`,
       "api/src/realtime.ts": renderRealtime(options.realtime, database.dialect, options.dataflows ?? []),
       "api/src/realtime-admin.ts": renderRealtimeAdminCli(),
       "api/tests/realtime-admin.test.ts": renderRealtimeAdminCliTest(),
@@ -3471,7 +5453,7 @@ test("rejects shortages and invalid quantities instead of partially reserving", 
 `;
   }
   files["api/src/storage/index.ts"] = files["api/src/storage/index.ts"]!.replaceAll("__QIY_STORAGE_PROVIDER__", options.storageProvider ?? "local");
-  files["api/src/storage/routes.ts"] = files["api/src/storage/routes.ts"]!.replace("__QIY_UPLOAD_POLICIES__", JSON.stringify(Object.fromEntries(database.entities.flatMap((entity) => entity.fields.filter((field) => field.type === "File").map((field) => [`${entity.tableName}.${field.name}`, { mode: field.uploadMode ?? "binary", maxBytes: field.maxBytes ?? 25 * 1024 * 1024, mimeTypes: field.mimeTypes ?? ["*/*"], maxFiles: 1 }]))), null, 2));
+  files["api/src/storage/routes.ts"] = files["api/src/storage/routes.ts"]!.replace("__QIY_UPLOAD_POLICIES__", JSON.stringify(Object.fromEntries(database.entities.flatMap((entity) => entity.fields.filter((field) => field.type === "File" || field.type === "Files").map((field) => [`${entity.tableName}.${field.name}`, { mode: field.uploadMode ?? "binary", maxBytes: field.maxBytes ?? 25 * 1024 * 1024, mimeTypes: field.mimeTypes ?? ["*/*"], maxFiles: field.type === "Files" ? field.maxFiles ?? 6 : 1 }]))), null, 2));
   files["api/tests/storage.test.ts"] = files["api/tests/storage.test.ts"]!
     .replace("__QIY_STORAGE_TEST_FUNCTION__", uploadField ? "test" : "test.skip")
     .replace("__QIY_STORAGE_TEST_RESOURCE__", uploadField?.entity.tableName ?? "missing")
@@ -3536,6 +5518,22 @@ const dryRun = !Bun.argv.includes("--apply");
 const result = await cleanupMissingAttachmentObjects({ dryRun, limit: Number(Bun.env.QIY_ATTACHMENT_CLEANUP_LIMIT ?? 1000) });
 console.log(JSON.stringify(result));
 `;
+  files["api/src/storage/orphans.ts"] = `import { scanOrphanAttachmentObjects } from "./routes";
+
+const dryRun = !Bun.argv.includes("--apply");
+const limit = Number(Bun.env.QIY_ATTACHMENT_ORPHAN_LIMIT ?? 1000);
+try {
+  const result = await scanOrphanAttachmentObjects({ dryRun, limit });
+  console.log(JSON.stringify(result));
+  if (result.orphans.length) console.log("orphan objects: " + result.orphans.join(", "));
+  if (result.truncated) console.log("more orphans exist than the --limit/retention window; re-run after applying");
+  if (result.missingObjects) console.log("metadata rows without an object: " + result.missingObjects + " (run attachments:cleanup to remove them)");
+  if (dryRun && result.orphans.length) console.log("dry run: nothing was deleted. Re-run with --apply after reviewing the list.");
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+}
+`;
   if (auth) {
     if (auth.provider !== "local" && auth.provider !== "otp") files["api/src/auth/oidc.ts"] = `import { createRemoteJWKSet } from "jose";
 import { eq } from "drizzle-orm";
@@ -3549,7 +5547,20 @@ export function createProductionAuthenticator() {
   const jwksUrl = Bun.env.QIY_OIDC_JWKS_URL;
   if (!issuer || !audience || !jwksUrl) throw new Error("OIDC issuer, audience and JWKS URL are required");
   if (new URL(issuer).protocol !== "https:" || new URL(jwksUrl).protocol !== "https:") throw new Error("OIDC endpoints must use HTTPS");
-  return createOidcAuthenticator({ issuer, audience, keySet: createRemoteJWKSet(new URL(jwksUrl)), roleField: ${JSON.stringify(auth.roleField)},
+  // Rotation and revocation windows are operator decisions: without these knobs the
+  // generated defaults would silently pin a 5s fetch timeout, a 30s missing-key
+  // cooldown and a 10min key cache, which is untunable per identity provider.
+  const positiveInteger = (name: string, fallback: number, minimum: number): number => {
+    const raw = Bun.env[name];
+    if (raw === undefined || raw === "") return fallback;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < minimum) throw new Error(name + " must be an integer of at least " + minimum);
+    return value;
+  };
+  const timeoutDuration = positiveInteger("QIY_OIDC_JWKS_TIMEOUT_MS", 5000, 1);
+  const cooldownDuration = positiveInteger("QIY_OIDC_JWKS_COOLDOWN_MS", 30000, 0);
+  const cacheMaxAge = positiveInteger("QIY_OIDC_JWKS_CACHE_MAX_AGE_MS", 600000, 1);
+  return createOidcAuthenticator({ issuer, audience, keySet: createRemoteJWKSet(new URL(jwksUrl), { timeoutDuration, cooldownDuration, cacheMaxAge }), roleField: ${JSON.stringify(auth.roleField)},
     async findUser(externalSubject) {
       const rows = await db.select().from(${auth.userEntity}).where(eq(${auth.userEntity}.${auth.subjectField}, externalSubject)).limit(2);
       return rows.length === 1 ? rows[0]! : null;
@@ -3631,7 +5642,7 @@ async function findUserById(id: string): Promise<Principal | null> {
   const rows = await db.select().from(${auth.userEntity}).where(eq(${auth.userEntity}.id, id)).limit(1);
   const row = rows[0];
   if (!row || typeof row.id !== "string" || !isRole(row.${auth.roleField})) return null;
-  return { id: row.id, name: String(row.displayName ?? row.email ?? row.id), role: row.${auth.roleField} };
+  return { id: row.id, name: ${principalNameExpression(userEntity, "displayName", auth.usernameField)}, role: row.${auth.roleField} };
 }
 
 export function createProductionAuthenticator(): Authenticator {
@@ -3663,7 +5674,7 @@ export function createLocalAuthRoutes(findUser: UserLookup = async (username) =>
       }
       if (!isRole(row.${auth.roleField}) || !await verifyPassword(row.${passwordField}, body.password)) return status(401, { error: "Invalid username or password" });
       const token = await signAccessToken({ id: row.id, role: row.${auth.roleField} }, key, ISSUER);
-      return { accessToken: token, tokenType: "Bearer", expiresIn: 43200, id: row.id, name: String(row.displayName ?? row.email ?? row.id), role: row.${auth.roleField} };
+      return { accessToken: token, tokenType: "Bearer", expiresIn: 43200, id: row.id, name: ${principalNameExpression(userEntity, "displayName", auth.usernameField)}, role: row.${auth.roleField} };
     }, { body: t.Object({ username: t.String({ minLength: 1, maxLength: 190 }), password: t.String({ minLength: 1, maxLength: 200 }) }) });
 }
 `;
@@ -3745,6 +5756,7 @@ test("local login route issues a bearer token and rejects invalid credentials", 
     }
     if (auth.provider === "otp") {
       const usernameField = auth.usernameField!;
+      const userEntity = database.entities.find((entity) => entity.name === auth.userEntity)!;
       files["api/src/auth/otp.ts"] = `import { createHmac, timingSafeEqual } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { eq } from "drizzle-orm";
@@ -3760,14 +5772,41 @@ function otpHash(identifier: string, code: string, key: string): string { return
 function matchesHash(left: string, right: string): boolean { const a = Buffer.from(left, "hex"); const b = Buffer.from(right, "hex"); return a.length === b.length && timingSafeEqual(a, b); }
 function randomCode(): string { return String(crypto.getRandomValues(new Uint32Array(1))[0]! % 1_000_000).padStart(6, "0"); }
 async function findUser(identifier: string) { const rows = await db.select().from(${auth.userEntity}).where(eq(${auth.userEntity}.${usernameField}, identifier)).limit(2); return rows.length === 1 ? rows[0]! : null; }
-async function findPrincipal(id: string): Promise<Principal | null> { const rows = await db.select().from(${auth.userEntity}).where(eq(${auth.userEntity}.id, id)).limit(1); const row = rows[0]; if (!row || typeof row.id !== "string" || !roles.has(String(row.${auth.roleField}))) return null; return { id: row.id, name: String(row.displayName ?? row.${usernameField} ?? row.id), role: row.${auth.roleField} as Principal["role"] }; }
-async function deliver(identifier: string, code: string): Promise<void> { const endpoint = Bun.env.QIY_OTP_DELIVERY_URL; if (!endpoint) { if (Bun.env.QIY_DEV_MODE === "1" && Bun.env.QIY_OTP_DEV_CODE) return; throw new Error("QIY_OTP_DELIVERY_URL is required outside explicit development OTP mode"); } if (new URL(endpoint).protocol !== "https:") throw new Error("QIY_OTP_DELIVERY_URL must use HTTPS"); const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json", ...(Bun.env.QIY_OTP_DELIVERY_TOKEN ? { Authorization: "Bearer " + Bun.env.QIY_OTP_DELIVERY_TOKEN } : {}) }, body: JSON.stringify({ recipient: identifier, code, expiresIn: 300 }) }); if (!response.ok) throw new Error("OTP delivery adapter rejected the request"); }
+async function findPrincipal(id: string): Promise<Principal | null> { const rows = await db.select().from(${auth.userEntity}).where(eq(${auth.userEntity}.id, id)).limit(1); const row = rows[0]; if (!row || typeof row.id !== "string" || !roles.has(String(row.${auth.roleField}))) return null; return { id: row.id, name: ${principalNameExpression(userEntity, "displayName", usernameField)}, role: row.${auth.roleField} as Principal["role"] }; }
+class OtpDeliveryError extends Error {}
+async function deliver(identifier: string, code: string): Promise<void> {
+  const endpoint = Bun.env.QIY_OTP_DELIVERY_URL;
+  if (!endpoint) {
+    if (Bun.env.QIY_DEV_MODE === "1" && Bun.env.QIY_OTP_DEV_CODE) return;
+    throw new OtpDeliveryError("QIY_OTP_DELIVERY_URL is required outside explicit development OTP mode");
+  }
+  if (new URL(endpoint).protocol !== "https:") throw new OtpDeliveryError("QIY_OTP_DELIVERY_URL must use HTTPS");
+  const timeout = Number(Bun.env.QIY_OTP_DELIVERY_TIMEOUT_MS ?? "10000");
+  if (!Number.isInteger(timeout) || timeout < 100 || timeout > 60000) throw new OtpDeliveryError("QIY_OTP_DELIVERY_TIMEOUT_MS must be an integer between 100 and 60000");
+  let response: Response;
+  try {
+    response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json", ...(Bun.env.QIY_OTP_DELIVERY_TOKEN ? { Authorization: "Bearer " + Bun.env.QIY_OTP_DELIVERY_TOKEN } : {}) }, body: JSON.stringify({ recipient: identifier, code, expiresIn: 300 }), signal: AbortSignal.timeout(timeout) });
+  } catch (error) {
+    throw new OtpDeliveryError(error instanceof Error && error.name === "TimeoutError" ? "OTP delivery adapter timed out" : "OTP delivery adapter is unreachable");
+  }
+  if (!response.ok) throw new OtpDeliveryError("OTP delivery adapter rejected the request");
+}
 async function signAccessToken(user: { id: string; role: string }, key: string): Promise<string> { return new SignJWT({ role: user.role, typ: "qiy-otp" }).setProtectedHeader({ alg: "HS256" }).setSubject(user.id).setIssuer(ISSUER).setAudience(ISSUER).setIssuedAt().setExpirationTime("12h").sign(new TextEncoder().encode(key)); }
 
 export function createProductionAuthenticator(): Authenticator { const key = secret(); return async (request) => { const match = /^Bearer ([^\\s]+)$/.exec(request.headers.get("authorization") ?? ""); if (!match) return null; try { const { payload } = await jwtVerify(match[1]!, new TextEncoder().encode(key), { issuer: ISSUER, audience: ISSUER, algorithms: ["HS256"] }); if (payload.typ !== "qiy-otp" || typeof payload.sub !== "string" || !roles.has(String(payload.role))) return null; return await findPrincipal(payload.sub); } catch { return null; } }; }
 
 export function createOtpAuthRoutes(lookup = findUser, send = deliver, resolvePrincipal = findPrincipal) { return new Elysia({ prefix: "/api/v1/auth/otp" })
-  .post("/request", async ({ body, status }) => { const identifier = body.identifier.trim(); if (!identifier) return status(400, { error: "Login identifier is required" }); const key = secret(); const row = await lookup(identifier); const role = row && roles.has(String(row.${auth.roleField})) ? String(row.${auth.roleField}) : "viewer"; const code = Bun.env.QIY_DEV_MODE === "1" && Bun.env.QIY_OTP_DEV_CODE ? Bun.env.QIY_OTP_DEV_CODE : randomCode(); const valid = Boolean(row && typeof row.id === "string" && roles.has(role)); if (valid) await send(identifier, code); const challengeToken = await new SignJWT({ typ: "qiy-otp-challenge", identifier, otpHash: otpHash(identifier, code, key), role, valid }).setProtectedHeader({ alg: "HS256" }).setSubject(valid ? row!.id : "unknown").setIssuer(ISSUER).setAudience(ISSUER).setIssuedAt().setExpirationTime("5m").sign(new TextEncoder().encode(key)); return { challengeToken, expiresIn: 300, ...(Bun.env.QIY_DEV_MODE === "1" && Bun.env.QIY_OTP_DEV_CODE ? { devCode: code } : {}) }; }, { body: t.Object({ identifier: t.String({ minLength: 1, maxLength: 190 }) }) })
+  .post("/request", async ({ body, status }) => { const identifier = body.identifier.trim(); if (!identifier) return status(400, { error: "Login identifier is required" }); const key = secret(); const row = await lookup(identifier); const role = row && roles.has(String(row.${auth.roleField})) ? String(row.${auth.roleField}) : "viewer"; const code = Bun.env.QIY_DEV_MODE === "1" && Bun.env.QIY_OTP_DEV_CODE ? Bun.env.QIY_OTP_DEV_CODE : randomCode(); const valid = Boolean(row && typeof row.id === "string" && roles.has(role));
+    if (valid) {
+      try { await send(identifier, code); }
+      catch (error) {
+        // Never log or return the one-time code, and never mint a challenge whose
+        // code the provider did not accept.
+        console.error("OTP delivery failed", { provider: Bun.env.QIY_OTP_DELIVERY_URL, error });
+        return status(502, { error: Bun.env.QIY_DEV_MODE === "1" && error instanceof Error ? error.message : "Could not send the one-time password", errorKey: "auth.otpDeliveryFailed" });
+      }
+    }
+    const challengeToken = await new SignJWT({ typ: "qiy-otp-challenge", identifier, otpHash: otpHash(identifier, code, key), role, valid }).setProtectedHeader({ alg: "HS256" }).setSubject(valid ? row!.id : "unknown").setIssuer(ISSUER).setAudience(ISSUER).setIssuedAt().setExpirationTime("5m").sign(new TextEncoder().encode(key)); return { challengeToken, expiresIn: 300, ...(Bun.env.QIY_DEV_MODE === "1" && Bun.env.QIY_OTP_DEV_CODE ? { devCode: code } : {}) }; }, { body: t.Object({ identifier: t.String({ minLength: 1, maxLength: 190 }) }) })
   .post("/verify", async ({ body, status }) => { const key = secret(); try { const { payload } = await jwtVerify(body.challengeToken, new TextEncoder().encode(key), { issuer: ISSUER, audience: ISSUER, algorithms: ["HS256"] }); if (payload.typ !== "qiy-otp-challenge" || payload.valid !== true || payload.identifier !== body.identifier || typeof payload.otpHash !== "string" || typeof payload.sub !== "string" || !roles.has(String(payload.role)) || !matchesHash(payload.otpHash, otpHash(body.identifier, body.code, key))) return status(401, { error: "Invalid or expired one-time password" }); const principal = await resolvePrincipal(payload.sub); if (!principal) return status(401, { error: "Invalid or expired one-time password" }); return { accessToken: await signAccessToken({ id: principal.id, role: principal.role }, key), tokenType: "Bearer", expiresIn: 43200, ...principal }; } catch { return status(401, { error: "Invalid or expired one-time password" }); } }, { body: t.Object({ identifier: t.String({ minLength: 1, maxLength: 190 }), challengeToken: t.String({ minLength: 1, maxLength: 4096 }), code: t.String({ minLength: 4, maxLength: 12 }) }) }); }
 `;
       files["api/tests/otp-auth.test.ts"] = `import { expect, test } from "bun:test";
@@ -3805,40 +5844,52 @@ test("verifies issuer, audience and rotating JWKS keys before resolving subject"
     const moduleRoot = `api/src/modules/${entity.name}`;
     const realtimeSubscription = options.realtime?.resources.find((subscription) => subscription.resource === entity.name || subscription.resource === entity.tableName);
     const realtimeEvents = new Set(realtimeSubscription?.events ?? []);
+    const realtimeMasked = realtimeSubscription ? maskedRealtimeFields(normalizedRestrictions.find((restriction) => restriction.resource === entity.name), realtimeSubscription.roles) : [];
+    const realtimeClaim = realtimeSubscription?.claim;
     const hiddenFields = options.auth?.provider === "local" && entity.name === options.auth.userEntity ? [options.auth.passwordField!] : [];
     const publicEntity = hiddenFields.length ? { ...entity, fields: entity.fields.filter((field) => !hiddenFields.includes(field.name)) } : entity;
-    files[`${moduleRoot}/${entity.name}.repository.ts`] = `import { and, asc, count, desc, eq, gt, gte, lt, lte, sql, ${database.dialect === "postgresql" ? "ilike" : "like"}, inArray, or } from "drizzle-orm";
+    const entityRestricted = normalizedRestrictions.some((restriction) => restriction.resource === entity.name);
+    files[`${moduleRoot}/${entity.name}.repository.ts`] = `import { and, asc, avg, count, desc, eq, gt, gte, lt, lte, max, min, sql, sum, ${database.dialect === "postgresql" ? "ilike" : "like"}, inArray, or } from "drizzle-orm";
 import { db } from "../../db";
- import { ${entity.name}, auditEvents${realtimeSubscription ? ", realtimeOutbox" : ""} } from "../../schema";
-import type { ${modelName(entity)}Repository as ${modelName(entity)}RepositoryContract } from "./${entity.name}.contract";
-
-export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = {
-${renderRepositoryMethods(publicEntity, scopedDatabase, realtimeEvents)}
+ import { ${entity.name}, auditEvents${realtimeSubscription ? ", realtimeOutbox" : ""}${resolveScopeTree(scopedDatabase, publicEntity) && resolveScopeTree(scopedDatabase, publicEntity)!.table.name !== entity.name ? `, ${resolveScopeTree(scopedDatabase, publicEntity)!.table.name}` : ""} } from "../../schema";
+import type { FilterClause, FilterExpression, ${modelName(entity)}Repository as ${modelName(entity)}RepositoryContract } from "./${entity.name}.contract";
+${entityRestricted ? 'import { QiyPolicyError, type QiyPolicy } from "../../security/policy";' : ""}
+${realtimeMasked.length ? `\n// Every role that may subscribe has one of these fields masked, so the shared\n// channel must not carry them.\nfunction qiyRealtimePayload(record: Record<string, unknown>): Record<string, unknown> {\n  const safe = { ...record };\n  for (const field of ${JSON.stringify(realtimeMasked)}) delete safe[field];\n  return safe;\n}\n` : ""}
+${renderScopeTreeHelper(scopedDatabase, publicEntity)}export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = {
+${renderRepositoryMethods(publicEntity, scopedDatabase, realtimeEvents, entityRestricted, realtimeMasked, realtimeClaim)}
 };
 `;
-    files[`${moduleRoot}/${entity.name}.contract.ts`] = `${generatedDocumentation(entity)}export interface ${modelName(entity)}Repository {
-  distribution(field: string, scope?: { field: string; value: string }): Promise<Array<{ value: string | null; count: number }>>;
-  trend(field: string, days: number, scope?: { field: string; value: string }): Promise<Array<{ day: string; count: number }>>;
+    files[`${moduleRoot}/${entity.name}.contract.ts`] = `${generatedDocumentation(entity)}${entityRestricted ? 'import type { QiyPolicy } from "../../security/policy";\n' : ""}export interface ${modelName(entity)}Repository {
+  distribution(field: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<{ value: string | null; count: number }>>;
+  /** Optional so generated test doubles and hand-written repositories keep compiling. */
+  aggregate?(field: string, operator: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<{ value: number | null; operator: string }>;
+  trend(field: string, days: number, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<{ day: string; count: number }>>;
   list(page: number, pageSize: number, options?: ListQuery): Promise<{ data: Array<Record<string, unknown>>; total: number }>;
-  one(id: string, scope?: { field: string; value: string }): Promise<Record<string, unknown> | undefined>;
-  create(values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }): Promise<Record<string, unknown>>;
-  update(id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }): Promise<Record<string, unknown> | undefined>;
-  delete(id: string, actorId?: string, scope?: { field: string; value: string }): Promise<Record<string, unknown> | undefined>;
-  deleteMany(ids: string[], actorId?: string, scope?: { field: string; value: string }): Promise<Array<Record<string, unknown>>>;
+  one(id: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Record<string, unknown> | undefined>;
+  create(values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Record<string, unknown>>;
+  update(id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Record<string, unknown> | undefined>;
+  delete(id: string, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Record<string, unknown> | undefined>;
+  deleteMany(ids: string[], actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<Record<string, unknown>>>;
+  /** Optional so test doubles and hand-written repositories keep working. */
+  recordExportAudit?(input: { rows: number; filters: number; principalId?: string }): Promise<void>;
+  recordImportAudit?(input: { rows: number; principalId?: string }): Promise<void>;
 }
 
 export type FilterOperator = "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in";
 export interface FilterClause { field: string; operator: FilterOperator; value: string; }
+export interface FilterGroup { operator: "and" | "or"; filters: FilterExpression[]; }
+export type FilterExpression = FilterClause | FilterGroup;
 
 export interface ListQuery {
   search?: string;
   sort?: string;
   order?: "asc" | "desc";
-  filters?: Record<string, string> | FilterClause[];
+  filters?: Record<string, string> | FilterExpression[];
   scope?: { field: string; value: string };
+${entityRestricted ? "  policy?: QiyPolicy;" : ""}
 }
 `;
-    files[`${moduleRoot}/${entity.name}.service.ts`] = `import type { ${modelName(entity)}Repository, ListQuery } from "./${entity.name}.contract";
+    files[`${moduleRoot}/${entity.name}.service.ts`] = `${entityRestricted ? 'import type { QiyPolicy } from "../../security/policy";\n' : ""}import type { ${modelName(entity)}Repository, ListQuery } from "./${entity.name}.contract";
  ${realtimeSubscription ? 'import { dispatchRealtimeOutbox } from "../../realtime";' : ""}
 const dateFields = ${JSON.stringify(entity.fields.filter((field) => field.type === "DateTime").map((field) => field.name))} as string[];
 function normalizeDates(values: Record<string, unknown>): Record<string, unknown> {
@@ -3850,27 +5901,30 @@ function normalizeDates(values: Record<string, unknown>): Record<string, unknown
 }` : ""}
 ${generatedDocumentation(entity)}export function create${modelName(entity)}Service(repository: ${modelName(entity)}Repository) {
   return {
-    distribution: (field: string, scope?: { field: string; value: string }) => repository.distribution(field, scope),
-    trend: (field: string, days: number, scope?: { field: string; value: string }) => repository.trend(field, days, scope),
+  aggregate: (field: string, operator: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.aggregate ? repository.aggregate(field, operator, scope${entityRestricted ? ", policy" : ""}) : Promise.resolve({ value: null, operator }),
+    distribution: (field: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.distribution(field, scope${entityRestricted ? ", policy" : ""}),
+    trend: (field: string, days: number, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.trend(field, days, scope${entityRestricted ? ", policy" : ""}),
     list: (page: number, pageSize: number, options?: ListQuery) => repository.list(page, pageSize, options),
-    one: (id: string, scope?: { field: string; value: string }) => repository.one(id, scope),
-    create: ${realtimeEvents.has("created") ? `async (values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => { const record = await repository.create(normalizeDates(values), actorId, scope); await dispatchCommitted(); return record; }` : `(values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => repository.create(normalizeDates(values), actorId, scope)`},
-    update: ${realtimeEvents.has("updated") ? `async (id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => { const record = await repository.update(id, normalizeDates(values), actorId, scope); if (record) await dispatchCommitted(); return record; }` : `(id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => repository.update(id, normalizeDates(values), actorId, scope)`},
-    delete: ${realtimeEvents.has("deleted") ? `async (id: string, actorId?: string, scope?: { field: string; value: string }) => { const record = await repository.delete(id, actorId, scope); if (record) await dispatchCommitted(); return record; }` : `(id: string, actorId?: string, scope?: { field: string; value: string }) => repository.delete(id, actorId, scope)`},
-    deleteMany: ${realtimeEvents.has("deleted") ? `async (ids: string[], actorId?: string, scope?: { field: string; value: string }) => { const records = await repository.deleteMany(ids, actorId, scope); if (records.length) await dispatchCommitted(); return records; }` : `(ids: string[], actorId?: string, scope?: { field: string; value: string }) => repository.deleteMany(ids, actorId, scope)`},
+    one: (id: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.one(id, scope${entityRestricted ? ", policy" : ""}),
+    create: ${realtimeEvents.has("created") ? `async (values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const record = await repository.create(normalizeDates(values), actorId, scope${entityRestricted ? ", policy" : ""}); await dispatchCommitted(); return record; }` : `(values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.create(normalizeDates(values), actorId, scope${entityRestricted ? ", policy" : ""})`},
+    update: ${realtimeEvents.has("updated") ? `async (id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const record = await repository.update(id, normalizeDates(values), actorId, scope${entityRestricted ? ", policy" : ""}); if (record) await dispatchCommitted(); return record; }` : `(id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.update(id, normalizeDates(values), actorId, scope${entityRestricted ? ", policy" : ""})`},
+    delete: ${realtimeEvents.has("deleted") ? `async (id: string, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const record = await repository.delete(id, actorId, scope${entityRestricted ? ", policy" : ""}); if (record) await dispatchCommitted(); return record; }` : `(id: string, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.delete(id, actorId, scope${entityRestricted ? ", policy" : ""})`},
+    deleteMany: ${realtimeEvents.has("deleted") ? `async (ids: string[], actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const records = await repository.deleteMany(ids, actorId, scope${entityRestricted ? ", policy" : ""}); if (records.length) await dispatchCommitted(); return records; }` : `(ids: string[], actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.deleteMany(ids, actorId, scope${entityRestricted ? ", policy" : ""})`},
   };
 }
 `;
     files[`${moduleRoot}/${entity.name}.routes.ts`] = `import { Elysia, t } from "elysia";
 import type { Authenticator } from "../../auth/guard";
 import { create${modelName(entity)}Service } from "./${entity.name}.service";
+import { claimImportJob, createImportJob, isImportJobCancelled, listImportJobs, readImportJob, releaseStaleImportJobs, requestImportJobCancel, updateImportJob } from "../../import-jobs";
+import { createExportJob, readExportJob, updateExportJob } from "../../export-jobs";
 import type { ${modelName(entity)}Repository as ${modelName(entity)}RepositoryPort } from "./${entity.name}.contract";
-
-${renderRoutes(publicEntity, database, options.scopes, hiddenFields).replace(`repository: ${modelName(entity)}Repository`, `repository: ${modelName(entity)}RepositoryPort`).replace("  return new Elysia({", `  const service = create${modelName(entity)}Service(repository);\n  return new Elysia({`).replaceAll("repository.list(", "service.list(").replaceAll("repository.one(", "service.one(").replaceAll("repository.create(", "service.create(").replaceAll("repository.update(", "service.update(").replaceAll("repository.delete(", "service.delete(")}`;
+${entityRestricted ? 'import { QiyPolicyError, resolvePolicy, type QiyPolicy } from "../../security/policy";\nimport { ' + entity.name + ' } from "../../schema";\nimport type { Principal } from "../../auth/guard";\n' : ""}
+${renderRoutes(publicEntity, database, options.scopes, hiddenFields, entityRestricted).replace(`repository: ${modelName(entity)}Repository`, `repository: ${modelName(entity)}RepositoryPort`).replace("  return new Elysia({", `  const service = create${modelName(entity)}Service(repository);\n  return new Elysia({`).replaceAll("repository.list(", "service.list(").replaceAll("repository.one(", "service.one(").replaceAll("repository.create(", "service.create(").replaceAll("repository.update(", "service.update(").replaceAll("repository.delete(", "service.delete(")}`;
     files[`api/src/routes/${entity.name}.ts`] = `export { ${modelName(entity)}Routes } from "../modules/${entity.name}/${entity.name}.routes";\nexport type { ${modelName(entity)}Repository } from "../modules/${entity.name}/${entity.name}.contract";\n`;
     files[`api/tests/${entity.name}.test.ts`] = renderRouteTest(publicEntity, database, options.scopes ?? [], hiddenFields);
   }
-  files["api/tests/graphql.test.ts"] = renderGraphQLTest(scopedDatabase);
+  files["api/tests/graphql.test.ts"] = renderGraphQLTest(scopedDatabase, options.auth?.provider === "local" && database.entities[0]!.name === options.auth.userEntity ? [options.auth.passwordField!] : []);
   files["api/tests/graphql-schema.test.ts"] = `import { expect, test } from "bun:test";
 import { buildSchema, isObjectType, isInputObjectType, validateSchema } from "graphql";
 import { graphqlTypeDefs } from "../src/graphql";
@@ -3912,6 +5966,7 @@ ${database.entities.map((entity) => {
             : field.type === "DateTime" ? "2026-10-06T00:00:00.000Z"
                 : field.type === "UUID" ? "00000000-0000-4000-8000-000000000002"
                   : field.type === "Vector" ? Array(field.dimension).fill(0)
+                  : field.type === "Files" ? ["uploads/sample.pdf"]
                     : "Example";
       return [field.name, value];
     }));
@@ -4130,7 +6185,7 @@ ${scope ? `  const missing = await createApp(repositories, async () => ({ id: "a
   if (database.dialect === "sqlite") {
     const entity = database.entities[0]!;
     const columns = entity.fields.map((field) => `"${field.name}" ${field.type === "Integer" || field.type === "DateTime" ? "integer" : field.type === "Decimal" || field.type === "Money" ? "real" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
-    const values = entity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => `${JSON.stringify(field.name)}: ${field.enumName ? JSON.stringify(database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name) : field.type === "Integer" ? "1" : field.type === "Decimal" || field.type === "Money" ? '"1.00"' : field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"' : '"Example"'}`).join(", ");
+    const values = entity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => `${JSON.stringify(field.name)}: ${field.enumName ? JSON.stringify(database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name) : field.type === "Integer" ? "1" : field.type === "Decimal" || field.type === "Money" ? '"1.00"' : field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"' : field.type === "Files" ? '["uploads/sample.pdf"]' : '"Example"'}`).join(", ");
     files["api/tests/audit.test.ts"] = `import { expect, test } from "bun:test";
 
 test("SQLite CRUD audit rolls back the mutation when the audit insert fails", async () => {

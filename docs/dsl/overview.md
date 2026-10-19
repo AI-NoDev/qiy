@@ -28,7 +28,8 @@ application qiy-erp-admin @comment("Operations administration") {
 | `enum` | 有限枚举与配色、icon |
 | `entity` | 实体、字段与索引 |
 | `relation` | 实体关系与外键策略 |
-| `scope` | 数据范围策略 |
+| `scope` | 单字段租户数据范围 |
+| `restrict` | 记录级条件与字段脱敏；与 `scope` 叠加，不替代它 |
 | `menu` | 菜单分组与层级 |
 | `dashboard` | 概览页指标 |
 | `dataflow` | 声明式服务端业务命令；当前可执行受限的加载、条件校验与事务更新 |
