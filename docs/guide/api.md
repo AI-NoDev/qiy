@@ -94,7 +94,7 @@ GET    /api/v1/graphql/subscribe   GraphQL 订阅（SSE，仅 GraphQL 客户端 
 - `DELETE /api/v1/saved-views/:id` → `204`；只有创建者能删除（他人 `403 views.forbidden`），不存在 `404`。
 - 校验：未知资源 `400 views.unknownResource`；每人每资源最多 100 个视图（`400 views.limit`）；未认证 `401`。
 - 持久化在生成的 `qiy_saved_views` 表（三方言 schema 都包含），不依赖进程内存。
-- Web：列表页打开时通过 `web/app/views-api.ts` 的 `fetchServerViews()` 拉取并合并进 `Saved views` 下拉（共享视图显示为 `名称 (shared)`，可直接应用）；本地视图仍是即时保存，发布共享视图目前通过上述 API。
+- Web：列表页打开时通过 `web/app/views-api.ts` 的 `fetchServerViews()` 拉取并合并进 `Saved views` 下拉（共享视图显示为 `名称 (shared)`，可直接应用）；本地视图仍是即时保存。选中视图后点 **Publish view** → **Save to server**（个人服务端视图）或 **Share with everyone**（共享视图），成功后下拉立即刷新。
 
 ## GraphQL Subscription（SSE 与 graphql-ws）
 

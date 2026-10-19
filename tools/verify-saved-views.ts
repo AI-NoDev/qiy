@@ -123,7 +123,10 @@ try {
   await must(["bun", "install"], admin);
   await must(["bun", "run", "db:generate"], server, { DATABASE_URL: databaseUrl });
   await must(["bun", "run", "db:migrate"], server, { DATABASE_URL: databaseUrl });
+  const web = join(admin, "apps/web");
   console.log(await must(["bun", "run", "typecheck"], server, { DATABASE_URL: databaseUrl }));
+  console.log(await must(["bun", "run", "typecheck"], web, { DATABASE_URL: databaseUrl }));
+  console.log(await must(["bun", "test"], web, { DATABASE_URL: databaseUrl }));
   console.log(await must(["bun", "test", "--preload", "./tests/setup.ts", "views.acceptance.test.ts"], server, { DATABASE_URL: databaseUrl }));
   console.log(`saved views acceptance passed: ${root}`);
 } finally {

@@ -36,6 +36,16 @@
 
 执行原则：每项都必须带**真实验收脚本**与 `v3-status` 证据目录；不把"生成源码契约"当作运行时验收。本轮先执行 #1。
 
+## 共享视图发布 UI（2026-10-17，已完成）
+
+此前共享视图只有服务端 API 与合并展示，没有"把当前视图发布出去"的界面入口（边界债）。本轮补齐：
+
+- 列表页 Saved views 区新增 **Publish view** 弹层：**Save to server**（个人服务端视图）与 **Share with everyone**（共享视图）；成功/失败有通知，成功后立即刷新服务端视图下拉。
+- 复用现有 `publishServerView` / `fetchServerViews`；生成 web 测试新增"发布请求体 → 列表返回共享视图"契约。
+- 验收 `verify-saved-views` 现在同时跑 server（3 pass）与 web（typecheck + **27 tests**），全绿。证据 `%TEMP%/qiy-saved-views-lKIzcc`。
+
+**边界**：发布后不能在同一界面编辑共享视图内容（需重新保存）；没有"取消共享"操作；权限仍由服务端 owner/shared 规则决定。
+
 ## 分片 / 断点续传上传（2026-10-17，已完成）
 
 P1 文件能力中此前缺失的分片/续传已补齐（服务端 + 真实验收）：
