@@ -79,8 +79,11 @@ export const qiyExportJobs = sqliteTable("qiy_export_jobs", {
   total: integer("total").notNull(),
   processed: integer("processed").notNull(),
   payload: text("payload"),
+  result: text("result"),
   errors: text("errors"),
   actorId: text("actorId"),
+  leaseOwner: text("leaseOwner"),
+  leaseUntil: integer("leaseUntil", { mode: "timestamp_ms" }),
   createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updatedAt", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => [index("qiy_export_jobs_resource_idx").on(table.resource, table.createdAt)]);\n`;

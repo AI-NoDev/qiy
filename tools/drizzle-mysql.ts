@@ -80,8 +80,11 @@ export const qiyExportJobs = mysqlTable("qiy_export_jobs", {
   total: int("total").notNull(),
   processed: int("processed").notNull(),
   payload: mediumtext("payload"),
+  result: mediumtext("result"),
   errors: text("errors"),
   actorId: varchar("actorId", { length: 36 }),
+  leaseOwner: varchar("leaseOwner", { length: 80 }),
+  leaseUntil: datetime("leaseUntil", { mode: "date", fsp: 3 }),
   createdAt: datetime("createdAt", { mode: "date", fsp: 3 }).notNull().$defaultFn(() => new Date()),
   updatedAt: datetime("updatedAt", { mode: "date", fsp: 3 }).notNull().$defaultFn(() => new Date()),
 }, (table) => [index("qiy_export_jobs_resource_idx").on(table.resource, table.createdAt)]);\n`;

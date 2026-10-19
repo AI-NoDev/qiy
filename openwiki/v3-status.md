@@ -44,6 +44,8 @@
 
 **边界**：**导出任务**还没有 worker（导出仍由请求内后台构建，见上一节）；worker 只能通过 HTTP 端点被驱动，没有进程内定时轮询；`queued` 任务的租约过期后需要再次 `run`（没有自动重新入队）；租约列暂未用于导出任务。
 
+**导出 worker 的进展（未完成）**：`qiy_export_jobs` 已补 `leaseOwner` / `leaseUntil` / `result` 列，`api/src/export-jobs.ts` 已提供 `claimExportJob` / `listExportJobs` 与 `result` 写入能力，导出任务请求规格（payload）也已在创建时预留；但把请求内后台构建改造成"任意副本 claim + 重建 CSV"的接线与实际验收**尚未完成**，文档不把它算作已完成。
+
 ## 后台导出任务（2026-10-17，已完成）
 
 计划 #7：导出已有"仅选中行 / 列选择 / 流式分批"，但没有后台任务。本轮补齐：

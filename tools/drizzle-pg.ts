@@ -95,8 +95,11 @@ export const qiyExportJobs = pgTable("qiy_export_jobs", {
   total: integer("total").notNull(),
   processed: integer("processed").notNull(),
   payload: text("payload"),
+  result: text("result"),
   errors: text("errors"),
   actorId: text("actorId"),
+  leaseOwner: text("leaseOwner"),
+  leaseUntil: timestamp("leaseUntil", { withTimezone: true }),
   createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [index("qiy_export_jobs_resource_idx").on(table.resource, table.createdAt)]);\n`;

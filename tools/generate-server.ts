@@ -1987,7 +1987,7 @@ function renderRealtimeOutboxSchema(dialect: DatabaseIR["dialect"]): string {  c
 function renderExportJobsModule(dialect: DatabaseIR["dialect"]): string {
   const sqlite = dialect === "sqlite";
   const now = "new Date()";
-  return `import { eq } from "drizzle-orm";
+  return `import { and, desc, eq } from "drizzle-orm";
 import { db } from "./db";
 import { qiyExportJobs } from "./schema";
 
@@ -2022,14 +2022,14 @@ function toJob(row: QiyExportJobRow): QiyExportJob {
   };
 }
 
-export async function createExportJob(input: { resource: string; total: number; actorId: string | null }): Promise<string> {
+export async function createExportJob(input: { resource: string; total: number; actorId: string | null; payload?: string }): Promise<string> {
   const id = crypto.randomUUID();
-  const values = { id, resource: input.resource, status: "queued", total: input.total, processed: 0, payload: null, errors: null, actorId: input.actorId, createdAt: ${now}, updatedAt: ${now} };
+  const values = { id, resource: input.resource, status: "queued", total: input.total, processed: 0, payload: input.payload ?? null, errors: null, actorId: input.actorId, leaseOwner: null, leaseUntil: null, createdAt: ${now}, updatedAt: ${now} };
   ${sqlite ? "db.insert(qiyExportJobs).values(values).run();" : "await db.insert(qiyExportJobs).values(values);"}
   return id;
 }
 
-export async function updateExportJob(id: string, patch: { status?: QiyExportJobStatus; processed?: number; payload?: string; errors?: string[] }): Promise<void> {
+export async function updateExportJob(id: string, patch: { status?: QiyExportJobStatus; processed?: number; payload?: string; result?: string; errors?: string[]; releaseLease?: boolean }): Promise<void> {
   const values = {
     ...(patch.status ? { status: patch.status } : {}),
     ...(patch.processed !== undefined ? { processed: patch.processed } : {}),
@@ -2040,12 +2040,29 @@ export async function updateExportJob(id: string, patch: { status?: QiyExportJob
   ${sqlite ? "db.update(qiyExportJobs).set(values).where(eq(qiyExportJobs.id, id)).run();" : "await db.update(qiyExportJobs).set(values).where(eq(qiyExportJobs.id, id));"}
 }
 
-export async function readExportJob(id: string): Promise<(QiyExportJob & { payload?: string }) | undefined> {
+export async function readExportJob(id: string): Promise<(QiyExportJob & { payload?: string; result?: string }) | undefined> {
   ${sqlite ? "const row = db.select().from(qiyExportJobs).where(eq(qiyExportJobs.id, id)).get();" : "const [row] = await db.select().from(qiyExportJobs).where(eq(qiyExportJobs.id, id)).limit(1);"}
   if (!row) return undefined;
   const job = toJob(row as QiyExportJobRow);
   const payload = (row as QiyExportJobRow).payload;
   return payload ? { ...job, payload } : job;
+}
+
+/** Claims one export job with a conditional update so replicas cannot both run it. */
+export async function claimExportJob(resource: string, workerId: string, leaseUntil: Date, jobId?: string): Promise<(QiyExportJob & { payload: string }) | undefined> {
+  ${sqlite ? `const candidates = db.select().from(qiyExportJobs).where(and(eq(qiyExportJobs.resource, resource), eq(qiyExportJobs.status, "queued"))).orderBy(qiyExportJobs.createdAt).all();` : `const candidates = await db.select().from(qiyExportJobs).where(and(eq(qiyExportJobs.resource, resource), eq(qiyExportJobs.status, "queued"))).orderBy(qiyExportJobs.createdAt);`}
+  const candidate = candidates.find((row) => Boolean(row.payload) && (!jobId || row.id === jobId));
+  if (!candidate) return undefined;
+  ${sqlite ? `db.update(qiyExportJobs).set({ status: "running", leaseOwner: workerId, leaseUntil, updatedAt: ${now} }).where(and(eq(qiyExportJobs.id, candidate.id), eq(qiyExportJobs.status, "queued"))).run();` : `await db.update(qiyExportJobs).set({ status: "running", leaseOwner: workerId, leaseUntil, updatedAt: ${now} }).where(and(eq(qiyExportJobs.id, candidate.id), eq(qiyExportJobs.status, "queued")));`}
+  ${sqlite ? `const claimed = db.select().from(qiyExportJobs).where(eq(qiyExportJobs.id, candidate.id)).get();` : `const [claimed] = await db.select().from(qiyExportJobs).where(eq(qiyExportJobs.id, candidate.id)).limit(1);`}
+  if (!claimed || claimed.leaseOwner !== workerId || !claimed.payload) return undefined;
+  return { ...toJob(claimed as QiyExportJobRow), payload: claimed.payload };
+}
+
+/** Lists recent export jobs for a resource so a worker can find queued work. */
+export async function listExportJobs(resource: string, limit = 50): Promise<QiyExportJob[]> {
+  ${sqlite ? `const rows = db.select().from(qiyExportJobs).where(eq(qiyExportJobs.resource, resource)).orderBy(desc(qiyExportJobs.createdAt)).all();` : `const rows = await db.select().from(qiyExportJobs).where(eq(qiyExportJobs.resource, resource)).orderBy(desc(qiyExportJobs.createdAt));`}
+  return rows.slice(0, limit).map((row) => toJob(row as QiyExportJobRow));
 }
 `;
 }
