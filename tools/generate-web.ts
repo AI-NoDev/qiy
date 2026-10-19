@@ -1799,9 +1799,73 @@ export function subscribeGraphql(options: QiySubscriptionOptions): () => void {
   })();
   return () => controller.abort();
 }
+
+export interface QiyGraphqlWsOptions {
+  url?: string;
+  token?: string;
+  variables?: Record<string, unknown>;
+  operationName?: string;
+  onData: (data: Record<string, unknown>) => void;
+  onError?: (error: Error) => void;
+  onComplete?: () => void;
+  socketFactory?: (url: string) => WebSocket;
+}
+
+/** Converts the configured HTTP(S) origin into the graphql-ws URL. */
+export function graphqlWsUrl(path = "/graphql/ws"): string {
+  if (/^wss?:/.test(path)) return path;
+  if (typeof window === "undefined") return path;
+  return (window.location.protocol === "https:" ? "wss:" : "ws:") + "//" + window.location.host + path;
+}
+
+export function encodeGraphqlWsFrame(frame: Record<string, unknown>): string { return JSON.stringify(frame); }
+export function decodeGraphqlWsFrame(raw: unknown): Record<string, unknown> | undefined {
+  try { return JSON.parse(typeof raw === "string" ? raw : String(raw)) as Record<string, unknown>; } catch { return undefined; }
+}
+
+/**
+ * graphql-ws client over a native WebSocket: init, subscribe, stream next frames
+ * and stop cleanly. Authentication rides the connection_init payload token.
+ */
+export function subscribeGraphqlWs(query: string, options: QiyGraphqlWsOptions): () => void {
+  const token = options.token ?? (typeof window === "undefined" ? undefined : window.localStorage.getItem("qiy.access_token") ?? undefined);
+  const socket = (options.socketFactory ?? ((url: string) => new WebSocket(url)))(graphqlWsUrl(options.url));
+  const id = "qiy-" + Math.random().toString(36).slice(2);
+  let stopped = false;
+  socket.addEventListener("message", (event) => {
+    const frame = decodeGraphqlWsFrame(event.data);
+    if (!frame?.type) return;
+    if (frame.type === "connection_ack") {
+      socket.send(encodeGraphqlWsFrame({ id, type: "subscribe", payload: { query, variables: options.variables, operationName: options.operationName } }));
+      return;
+    }
+    if (frame.type === "next" && frame.id === id) {
+      const payload = frame.payload as { data?: Record<string, unknown>; errors?: Array<{ message: string }> } | undefined;
+      if (payload?.errors?.length) options.onError?.(new Error(payload.errors[0]!.message));
+      else if (payload?.data) options.onData(payload.data);
+      return;
+    }
+    if (frame.type === "error" && frame.id === id) {
+      const payload = frame.payload as Array<{ message?: string }> | undefined;
+      options.onError?.(new Error(payload?.[0]?.message ?? "Subscription failed"));
+      return;
+    }
+    if (frame.type === "complete" && frame.id === id) options.onComplete?.();
+  });
+  const send = () => { if (socket.readyState === 1) socket.send(encodeGraphqlWsFrame({ type: "connection_init", payload: token ? { token } : {} })); };
+  if (socket.readyState === 1) send(); else socket.addEventListener("open", send);
+  socket.addEventListener("error", () => options.onError?.(new Error("Subscription socket failed")));
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    if (socket.readyState === 1) socket.send(encodeGraphqlWsFrame({ id, type: "complete" }));
+    socket.close();
+  };
+}
+
 `;
       generated["web/tests/subscriptions.test.ts"] = `import { expect, test } from "bun:test";
-import { subscribeGraphql } from "../app/subscriptions";
+import { decodeGraphqlWsFrame, encodeGraphqlWsFrame, graphqlWsUrl, subscribeGraphql, subscribeGraphqlWs } from "../app/subscriptions";
 
 function streamResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();
@@ -1851,6 +1915,57 @@ test("aborting stops further callbacks", async () => {
   await Bun.sleep(10);
   expect(received).toEqual([{ a: 1 }]);
 });
+test("graphql-ws client initializes, subscribes and streams frames", () => {
+  const sent: Array<Record<string, unknown>> = [];
+  const listeners = new Map<string, Array<(event: { data?: unknown }) => void>>();
+  let closed = false;
+  const socket = {
+    readyState: 1,
+    send: (frame: string) => sent.push(JSON.parse(frame) as Record<string, unknown>),
+    close: () => { closed = true; },
+    addEventListener: (type: string, listener: (event: { data?: unknown }) => void) => {
+      const list = listeners.get(type) ?? [];
+      list.push(listener);
+      listeners.set(type, list);
+    },
+  } as unknown as WebSocket;
+  const emit = (frame: Record<string, unknown>) => { for (const listener of listeners.get("message") ?? []) listener({ data: JSON.stringify(frame) }); };
+  const received: Array<Record<string, unknown>> = [];
+  const errors: Error[] = [];
+  let completed = 0;
+  const stop = subscribeGraphqlWs("subscription { ordersChanged { event } }", {
+    token: "token-1",
+    socketFactory: () => socket,
+    onData: (data) => received.push(data),
+    onError: (error) => errors.push(error),
+    onComplete: () => { completed += 1; },
+  });
+  // connection_init carries the bearer token from the caller.
+  expect(sent[0]).toEqual({ type: "connection_init", payload: { token: "token-1" } });
+  emit({ type: "connection_ack" });
+  const subscribe = sent[1] as { id: string; type: string; payload: { query: string } };
+  expect(subscribe.type).toBe("subscribe");
+  expect(subscribe.payload.query).toContain("ordersChanged");
+  emit({ id: subscribe.id, type: "next", payload: { data: { ordersChanged: { event: "created" } } } });
+  expect(received).toHaveLength(1);
+  expect(received[0]).toEqual({ ordersChanged: { event: "created" } });
+  emit({ id: subscribe.id, type: "error", payload: [{ message: "Realtime subscription is not permitted" }] });
+  expect(errors[0]?.message).toContain("not permitted");
+  emit({ id: subscribe.id, type: "complete" });
+  expect(completed).toBe(1);
+  // Stopping acknowledges the subscription and closes the socket.
+  stop();
+  expect(sent.some((frame) => frame.type === "complete" && frame.id === subscribe.id)).toBe(true);
+  expect(closed).toBe(true);
+});
+
+test("graphql-ws helpers build the URL and tolerate bad frames", () => {
+  expect(graphqlWsUrl("ws://example.test/graphql/ws")).toBe("ws://example.test/graphql/ws");
+  expect(decodeGraphqlWsFrame("not json")).toBeUndefined();
+  expect(decodeGraphqlWsFrame(JSON.stringify({ type: "pong" }))).toEqual({ type: "pong" });
+  expect(encodeGraphqlWsFrame({ type: "ping" })).toBe('{"type":"ping"}');
+});
+
 `;
     }
   }

@@ -104,7 +104,7 @@ GET    /api/v1/graphql/subscribe   GraphQL 订阅（SSE，仅 GraphQL 客户端 
   - `connection_ack` 后可发 `{ id, type: "subscribe", payload: { query, variables, operationName } }`；
   - 每个事件返回 `{ id, type: "next", payload }`，错误 `type: "error"`，结束 `type: "complete"`（客户端 `complete` 会被立即确认）；
   - 支持 `ping/pong` 与 `connection_terminate`；订阅权限仍走 capability（agent 分段 channel 同样生效）。
-- 浏览器端：生成的 `web/app/subscriptions.ts` 目前提供 SSE 客户端 `subscribeGraphql()`；graphql-ws 的浏览器客户端 helper 尚未生成，页面默认仍用 SSE。
+- 浏览器端：生成的 `web/app/subscriptions.ts` 同时提供 SSE 客户端 `subscribeGraphql()` 与 graphql-ws 客户端 `subscribeGraphqlWs(query, { onData, onError, onComplete, token })`（原生 WebSocket，无新增依赖；`socketFactory` 可注入以便测试）。页面默认仍用 SSE，订阅组件可以按偏好选择 WS。
 
 ## CSV 导入
 `POST /api/v1/:resources/import` 接收 `text/csv` 请求体（首行为表头），逐行调用与创建相同的一条写入路径，因此同样受 `restrict` 行谓词与脱敏规则约束：
