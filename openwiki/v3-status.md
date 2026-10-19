@@ -36,6 +36,16 @@
 
 执行原则：每项都必须带**真实验收脚本**与 `v3-status` 证据目录；不把"生成源码契约"当作运行时验收。本轮先执行 #1。
 
+## 多副本部署验收（2026-10-17，已完成）
+
+计划表里"多副本部署"此前只有单进程内两个 `createApp` 实例的证据，本轮补真实**多进程 + HTTP** 验收：
+
+- 新增 `tools/verify-multi-replica.ts`：生成 SQLite REST 应用 → 迁移 → 启动**两个独立服务进程**（不同端口、同一 `DATABASE_URL`、`QIY_IMPORT_INLINE=off`）→ 通过真实 `fetch` 调用 worker 端点。
+- 11 项断言全部通过：A 入队后任务保持 queued；B 能列出并 claim/执行 A 的任务；跨副本完成且行只写一次；重复 run 409；两副本**并发** run 同一任务恰好一成一败且只导入一次；匿名导入 401；非 admin worker 端点 403。
+- 证据 `%TEMP%/qiy-multi-replica-vScRdW`。
+
+**边界**：共享的是 SQLite（WAL 下多进程可用，但不是生产推荐的多副本数据库）；PostgreSQL/MySQL 多副本仍受 Docker 环境阻塞；没有验证滚动升级期间的迁移时序与租约过期后的自动重入队（需外部 worker 再次调用 run）。
+
 ## tree scope 与 restrict 组合（2026-10-17，已完成）
 
 计划 #3：此前 `scope` 是仓储层的隐式过滤，`restrict` 只能再 AND 一层，无法表达"我的子树 **或** 我本人的记录"。现在：

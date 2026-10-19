@@ -138,4 +138,5 @@ GET    /api/v1/graphql/subscribe   GraphQL 订阅（SSE，仅 GraphQL 客户端 
 - 任意副本都能接管任务：`GET /api/v1/:resources/import/jobs`（admin）列出该资源的最近任务，`POST /api/v1/:resources/import/jobs/:id/run`（admin）抢占并执行一条 queued 任务。
 - 抢占是条件更新（`status = queued` 才能改），所以两个副本同时 run 同一个任务只有一个成功，另一个得到 `409 import.claimed`；已结束的任务返回 `409 import.notQueued`，未知/跨资源 `404`，非 admin `403`。
 - 设 `QIY_IMPORT_INLINE=off` 可以关闭就地执行，让外部 worker/另一个副本统一 drain 队列（适合把导入放到独立进程）。失败仍补偿删除本次已创建的行，并把行号写进任务 `errors`。
+- **多副本部署**：任务领取是数据库条件更新，两个副本服务同一数据库时天然互斥；`verify-multi-replica.ts` 用两个独立服务进程 + 同一 SQLite + 真实 HTTP 验证了“A 入队、B 领取执行、并发抢同一任务只成功一个、完成/拒绝/鉴权”全链路。
 
