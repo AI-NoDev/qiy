@@ -36,6 +36,28 @@
 
 执行原则：每项都必须带**真实验收脚本**与 `v3-status` 证据目录；不把"生成源码契约"当作运行时验收。本轮先执行 #1。
 
+## tree scope 与 restrict 组合（2026-10-17，已完成）
+
+计划 #3：此前 `scope` 是仓储层的隐式过滤，`restrict` 只能再 AND 一层，无法表达"我的子树 **或** 我本人的记录"。现在：
+
+- `restrict` 表达式中新增 **`scope` 原子**（可嵌套在 and/or/not 里）；生成期校验它必须有同资源 `scope` 声明，否则报错。
+- 生成策略模块按请求 scope 求值该原子：普通 scope 用 `eq(scopeField, value)`，tree scope 用独立的递归 CTE helper（`qiyPolicyScopeSubtree_N`）。
+- `QiyPolicy` 新增 `usesScope`；表达式含 `scope` 时仓储的 list/one/aggregate/distribution/trend 跳过隐式 scope 过滤，避免把 OR 语义变回 AND。写操作（update/delete/deleteMany）仍保留自身 scope 过滤，`create` 仍写入自身节点。
+- 路由把请求 scope 传入策略解析（`resolveResourcePolicy(principal, request, scopeOverride?)`）；导入/导出 worker 用任务里保存的 scope 快照重建同一策略。
+
+**真实验收** — 新增 `tools/verify-scope-policy.ts`（SQLite + 两角色 + tree scope），**2 pass / 20 断言**：
+
+| 场景 | 结果 |
+| --- | --- |
+| operator(region=eu) 看到 eu 子树两行 + 自己名下 us-east 行；us-east 他人的行不可见（列表 + byId 404） | 通过 |
+| 聚合 sum 按并集计算（10+20+5=35），不含范围外的他人行 | 通过 |
+| 无 claim principal → 403 fail-closed；seed principal 只看子树两行 | 通过 |
+| PATCH 范围外他人行 → 404 且数据未变；POST 自动写入调用者自身 scope 节点 | 通过 |
+
+根测试补充 `tests/resource-policy.test.ts` 的解析/序列化/生成/校验断言；证据 `%TEMP%/qiy-scope-policy-xM77LU`。
+
+**边界**：写路径仍以自身 scope 为准；表达式里的 `scope` 只作用于当前资源（没有跨资源策略）。
+
 ## graphql-ws WebSocket 传输（2026-10-17，服务端完成）
 
 计划 #9 的服务端部分：GraphQL 订阅除了 SSE，现在也支持标准 **graphql-ws** WebSocket：

@@ -98,6 +98,7 @@ export type QiyCrossOperator = "==" | "!=" | "<" | "<=" | ">" | ">=";
 export type QiyPolicyExpression =
   | { kind: "predicate"; predicate: QiyRowPredicate }
   | { kind: "cross"; field: string; operator: QiyCrossOperator; otherField: string }
+  | { kind: "scope" }
   | { kind: "not"; expression: QiyPolicyExpression }
   | { kind: "and"; children: QiyPolicyExpression[] }
   | { kind: "or"; children: QiyPolicyExpression[] };
@@ -827,6 +828,10 @@ export function parseQiyProject(input: string): QiyProject {
     expect("{");
     /** Atom: a claim/value predicate, or a cross-field comparison (`amount > field cost`). */
     const expressionAtom = (): QiyPolicyExpression => {
+      if (peek() === "scope") {
+        expect("scope");
+        return { kind: "scope" };
+      }
       const field = identifier();
       const comparison = (): QiyCrossOperator | "in" | "notIn" | undefined => {
         if (peek() === "==") { expect("=="); return "=="; }
@@ -1750,6 +1755,7 @@ export function parseQiyProject(input: string): QiyProject {
         if ((node.operator === "<" || node.operator === "<=" || node.operator === ">" || node.operator === ">=") && leftClass === "text" && left.type === "UUID") throw new Error(`Restrict ${entity.name}: UUID fields only support == and !=`);
         return;
       }
+      if (node.kind === "scope") return;
       if (node.kind === "not") { validateExpression(node.expression); return; }
       for (const child of node.children) validateExpression(child);
     };
@@ -2248,6 +2254,7 @@ export function serializeQiyProject(project: QiyProject): string {
     const expressionText = (node: QiyPolicyExpression): string => {
       if (node.kind === "predicate") return predicateText(node.predicate);
       if (node.kind === "cross") return `${qiyIdentifier(node.field, "Restrict field")} ${node.operator} field ${qiyIdentifier(node.otherField, "Restrict cross field")}`;
+      if (node.kind === "scope") return "scope";
       if (node.kind === "not") {
         const inner = expressionText(node.expression);
         const needsParens = node.expression.kind === "and" || node.expression.kind === "or";

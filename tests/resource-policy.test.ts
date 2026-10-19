@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+﻿import { expect, test } from "bun:test";
 import { generateProject } from "../tools/generate-project";
 import { generateServer } from "../tools/generate-server";
 import { generateWeb } from "../tools/generate-web";
@@ -240,4 +240,34 @@ application policy-demo {
   expect(web).toContain("Resource access is restricted");
   const unrestricted = parseQiyProject(source.replace(/restrict records \{[\s\S]*?\n  \}/, ""));
   expect(generateWeb(unrestricted.database, { auth: unrestricted.auth })["web/app/auth.ts"]).not.toContain("resourcePolicies");
+});
+
+test("parses the scope atom and unions it with other policy branches", () => {
+  const source = `qiy v0;
+application scope-atom {
+  database sqlite {}
+  entity orgs { field id UUID @id; field name Text; field parentId UUID @nullable; }
+  entity records { field id UUID @id; field orgId UUID; field ownerId UUID; }
+  scope records orgId claim tenant.orgId tree orgs parentId;
+  restrict records {
+    allow roles admin, operator;
+    when ( scope or ownerId claim user.id );
+  }
+}`;
+  const project = parseQiyProject(source);
+  const expression = project.restrictions?.[0]?.expressions?.[0];
+  expect(expression).toEqual({ kind: "or", children: [{ kind: "scope" }, { kind: "predicate", predicate: { field: "ownerId", source: "claim", operator: "==", claim: "user.id", missing: "deny" } }] });
+  // Serialisation round-trips to the same tree.
+  const serialized = serializeQiyProject(project);
+  expect(serialized).toContain("when scope or ownerId claim user.id;");
+  expect(parseQiyProject(serialized).restrictions?.[0]?.expressions).toEqual(project.restrictions?.[0]?.expressions);
+  // The generated policy resolves the scope atom against the request scope.
+  const files = generateProject(project.database, project.name, project);
+  const policy = files["apps/server/src/security/policy.ts"]!;
+  expect(policy).toContain('| { kind: "scope" }');
+  expect(policy).toContain("usesScope: boolean");
+  expect(policy).toContain("qiyPolicyScopeSubtree_0");
+  // A scope atom without a scope declaration is rejected.
+  const withoutScope = source.replace(/  scope records[^\n]*\n/, "");
+  expect(() => generateServer(parseQiyProject(withoutScope).database, parseQiyProject(withoutScope))).toThrow(/when scope requires a matching scope declaration/);
 });

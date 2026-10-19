@@ -265,6 +265,25 @@ restrict orders {
 - 缺 claim 的语义与析取组一致：只丢弃该分支；`not` 作用于不可用分支时**不会**变成"放行全部"——整个表达式无法求值时请求返回 403 `policy.missingClaim`。
 - 生成的 SQL 用 `and(...)`/`or(...)`/`not(...)` 与 `eq/ne/lt/lte/gt/gte` 拼装，REST / GraphQL / 导出 / 写入可见性检查共用同一 predicate。
 
+### `scope` 原子：把数据范围写进布尔表达式
+
+`when` 里可以直接写 **`scope`**，表示"该行落在当前调用者的数据范围内"（即 `scope <resource> <field> claim <claim> [tree ...]` 解析出的范围；tree scope 时按子树展开）。它让 restrict 从"范围 AND 条件"升级为"范围 OR 其它条件"：
+
+```qiy
+scope orders region claim region tree regions parentId;
+restrict orders {
+  allow roles admin, operator;
+  when ( scope or ownerId claim user.id );
+}
+```
+
+- 语义：列表/详情/聚合/导出等**读路径**按表达式求值——在子树内 **或** 满足其它分支（例如本人记录）都可见。写入仍落在调用者自己的 scope 节点（原有 `scope` 写入强制不变），因此不能借表达式把数据写到范围外。
+- 缺 claim 时 `scope` 分支被丢弃（与其它叶子一致）；如果整个表达式都无法求值，请求 fail-closed 返回 403。
+- `scope` 只在声明了同资源 `scope` 时合法，否则生成期报错 `when scope requires a matching scope declaration`。
+- 表达式里一旦出现 `scope`，生成代码会跳过仓储层原有的隐式 scope 过滤（否则会变成 AND 而覆盖 OR 语义）；没有 `scope` 原子的模型生成结果完全不变。
+
+边界：聚合/分页/详情都已按并集语义处理；写操作仍以自身 scope 为准。
+
 析取组的补充语义：组内 claim 缺失时**只丢弃该分支**（其它分支照常生效）；如果组内所有分支都因缺 claim 无法成立，请求返回 403 `policy.missingClaim`，不会退化成空条件。组至少需要两个条件，且不能与块内的其它行条件重复字段。生成 SQL 时使用 `or(...)`。
 
 策略只从已认证 principal 推导，不接受请求体里的角色或 claim。GraphQL 使用同一套行条件和 mask，不能绕过 REST。**CSV 导出**（`GET /api/v1/:resources/export`）与列表共用同一条查询路径，因此同样受行谓词约束，且 `mode omit` 的字段整列不导出；写入落在自身行谓词之外时返回 403 `policy.outsideScope`。

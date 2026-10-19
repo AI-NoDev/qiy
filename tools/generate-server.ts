@@ -16,15 +16,16 @@ function resolveScopeTree(database: DatabaseIR, entity: EntityIR): { scope: QiyS
 }
 
 /** Emits the recursive CTE used to turn one claim value into the allowed subtree ids. */
-function renderScopeTreeHelper(database: DatabaseIR, entity: EntityIR): string {
+function renderScopeTreeHelper(database: DatabaseIR, entity: EntityIR, name = "qiyScopeSubtree"): string {
   const tree = resolveScopeTree(database, entity);
   if (!tree) return "";
   const cast = JSON.stringify(database.dialect === "mysql" ? "CHAR" : "TEXT");
   const table = tree.table.name;
-  return `const qiyScopeCast = ${cast};
+  const castName = `${name}Cast`;
+  return `const ${castName} = ${cast};
 /** Subtree ids are structural metadata: the recursive CTE does not re-apply the row policy. */
-function qiyScopeSubtree(column: any, value: string) {
-  return sql\`CAST(\${column} AS \${sql.raw(qiyScopeCast)}) IN (WITH RECURSIVE qiy_scope(id, depth) AS (SELECT CAST(\${${table}.${tree.idField.name}} AS \${sql.raw(qiyScopeCast)}), 0 FROM \${${table}} WHERE CAST(\${${table}.${tree.idField.name}} AS \${sql.raw(qiyScopeCast)}) = \${value} UNION ALL SELECT CAST(child.${tree.idField.name} AS \${sql.raw(qiyScopeCast)}), qiy_scope.depth + 1 FROM \${${table}} AS child JOIN qiy_scope ON CAST(child.${tree.parentField.name} AS \${sql.raw(qiyScopeCast)}) = qiy_scope.id WHERE qiy_scope.depth < 64) SELECT id FROM qiy_scope)\`;
+function ` + name + `(column: any, value: string) {
+  return sql\`CAST(\${column} AS \${sql.raw(${castName})}) IN (WITH RECURSIVE qiy_scope(id, depth) AS (SELECT CAST(\${${table}.${tree.idField.name}} AS \${sql.raw(${castName})}), 0 FROM \${${table}} WHERE CAST(\${${table}.${tree.idField.name}} AS \${sql.raw(${castName})}) = \${value} UNION ALL SELECT CAST(child.${tree.idField.name} AS \${sql.raw(${castName})}), qiy_scope.depth + 1 FROM \${${table}} AS child JOIN qiy_scope ON CAST(child.${tree.parentField.name} AS \${sql.raw(${castName})}) = qiy_scope.id WHERE qiy_scope.depth < 64) SELECT id FROM qiy_scope)\`;
 }
 `;
 }
@@ -721,7 +722,39 @@ function previewRepository(entity: EntityIR, database: DatabaseIR, scopes: NonNu
  * projection. Both are derived from the authenticated principal, never from the
  * request body, so a client cannot widen its own scope.
  */
-function renderPolicyModule(restrictions: QiyResourceRestriction[], database: DatabaseIR): string {
+function renderPolicyModule(restrictions: QiyResourceRestriction[], database: DatabaseIR, scopes: QiyScope[] = []): string {
+  const configuredScopes = scopes.length ? scopes : ((database as DatabaseIR & { scopes?: QiyScope[] }).scopes ?? []);
+  /** True when a restrict expression mentions the caller's data scope. */
+  const mentionsScope = (node: QiyPolicyExpression): boolean =>
+    node.kind === "scope" ? true
+      : node.kind === "not" ? mentionsScope(node.expression)
+        : node.kind === "and" || node.kind === "or" ? node.children.some(mentionsScope)
+          : false;
+  // resolveScopeTree reads scopes off the database IR, so mirror them onto a copy.
+  const scopedDatabase = scopes.length ? ({ ...database, scopes } as DatabaseIR & { scopes: QiyScope[] }) : database;
+  const scopeResources: Record<string, { field: string; helper?: string }> = {};
+  const treeHelpers: string[] = [];
+  for (const restriction of restrictions) {
+    if (!(restriction.expressions ?? []).some(mentionsScope)) continue;
+    const entity = database.entities.find((candidate) => candidate.name === restriction.resource)!;
+    const scope = configuredScopes.find((candidate) => candidate.resource === entity.name || candidate.resource === entity.tableName);
+    if (!scope) continue;
+    let helper: string | undefined;
+    if (resolveScopeTree(scopedDatabase, entity) && !treeHelpers.some((item) => item === entity.name)) {
+      const name = `qiyPolicyScopeSubtree_${treeHelpers.length}`;
+      const rendered = renderScopeTreeHelper(scopedDatabase, entity, name);
+      if (rendered) {
+        treeHelpers.push(rendered);
+        helper = name;
+      }
+    }
+    scopeResources[entity.name] = { field: scope.field, ...(helper ? { helper } : {}) };
+  }
+  const scopeLiteral = JSON.stringify(scopeResources);
+  const helperNames = treeHelpers.map((code) => /function (qiyPolicyScopeSubtree_\d+)/.exec(code)?.[1]).filter((name): name is string => Boolean(name));
+  const helperMapLiteral = `{ ${helperNames.map((name) => `${JSON.stringify(name)}: ${name}`).join(", ")} }`;
+  const scopeHelperCode = treeHelpers.length ? `\n${treeHelpers.join("\n")}` : "";
+  const treeImport = treeHelpers.length ? `\nimport { ${[...new Set(scopes.map((scope) => database.entities.find((candidate) => candidate.name === scope.tree?.entity || candidate.tableName === scope.tree?.entity)?.name).filter((name): name is string => Boolean(name)))].join(", ")} } from "../schema";` : "";
   const rowsLiteral = JSON.stringify(Object.fromEntries(restrictions.map((restriction) => {
     const entity = database.entities.find((candidate) => candidate.name === restriction.resource)!;
     const numericFields = [...(restriction.rows ?? []), ...(restriction.groups ?? []).flat()]
@@ -730,7 +763,7 @@ function renderPolicyModule(restrictions: QiyResourceRestriction[], database: Da
     return [restriction.resource, { rows: restriction.rows ?? [], groups: restriction.groups ?? [], expressions: restriction.expressions ?? [], masks: restriction.masks ?? [], roles: restriction.roles ?? [], numericFields }];
   })));
   const roleLiteral = JSON.stringify(Object.fromEntries(restrictions.filter((restriction) => restriction.roles?.length).map((restriction) => [restriction.resource, restriction.roles!])));
-  return `import { and, eq, gt, gte, inArray, lt, lte, ne, not, notInArray, or } from "drizzle-orm";
+  return `import { and, eq, gt, gte, inArray, lt, lte, ne, not, notInArray, or${treeHelpers.length ? ", sql" : ""} } from "drizzle-orm";
 import type { Principal } from "../auth/guard";
 
 export type QiyRole = "admin" | "operator" | "viewer";
@@ -749,6 +782,7 @@ export type QiyCrossOperator = "==" | "!=" | "<" | "<=" | ">" | ">=";
 export type QiyPolicyExpression =
   | { kind: "predicate"; predicate: QiyRowPredicate }
   | { kind: "cross"; field: string; operator: QiyCrossOperator; otherField: string }
+  | { kind: "scope" }
   | { kind: "not"; expression: QiyPolicyExpression }
   | { kind: "and"; children: QiyPolicyExpression[] }
   | { kind: "or"; children: QiyPolicyExpression[] };
@@ -778,6 +812,8 @@ export interface QiyResourcePolicy {
 export interface QiyPolicy {
   /** Drizzle row conditions that must all hold for a row to be visible. */
   conditions: unknown[];
+  /** True when an expression mentions the scope atom, so the repository must not also apply its implicit scope filter. */
+  usesScope: boolean;
   /** Fields the current principal must not read or write. */
   maskedFields: string[];
   /** Applies role and claim based field masking to a response record. */
@@ -785,6 +821,8 @@ export interface QiyPolicy {
 }
 
 const policies = ${rowsLiteral} as Record<string, QiyResourcePolicy>;
+const scopeResources = ${scopeLiteral} as Record<string, { field: string; helper?: string }>;
+const scopeHelpers: Record<string, (column: unknown, value: string) => unknown> = ${helperMapLiteral};${treeImport}${scopeHelperCode}
 const resourceRoles = ${roleLiteral} as Record<string, QiyRole[]>;
 
 export class QiyPolicyError extends Error {
@@ -816,9 +854,9 @@ function claimValue(principal: Principal | null, claim: string): string | undefi
  * has no recorded policy the result is inert, so generated behaviour for models
  * without \`restrict\` blocks is unchanged.
  */
-export function resolvePolicy(resource: string, principal: Principal | null, columns: Record<string, unknown>): QiyPolicy {
+export function resolvePolicy(resource: string, principal: Principal | null, columns: Record<string, unknown>, scope?: { field: string; value: string }): QiyPolicy {
   const policy = policies[resource];
-  if (!policy) return { conditions: [], maskedFields: [], mask: (record) => record };
+  if (!policy) return { conditions: [], maskedFields: [], mask: (record) => record, usesScope: false };
   if (!mayUseResource(resource, principal)) throw new QiyPolicyError("Permission denied for resource " + resource, 403, "policy.resourceDenied");
   const conditions: unknown[] = [];
   /** Returns the condition for one predicate, or undefined when it must be hidden. */
@@ -852,6 +890,15 @@ export function resolvePolicy(resource: string, principal: Principal | null, col
   /** Builds one boolean expression; undefined means "cannot be satisfied for this principal". */
   const buildExpression = (node: QiyPolicyExpression): unknown | undefined => {
     if (node.kind === "predicate") return buildCondition(node.predicate, true);
+    if (node.kind === "scope") {
+      const config = scopeResources[resource];
+      if (!scope || !scope.value || !config) return undefined;
+      const column = columns[scope.field] ?? columns[config.field];
+      if (!column) throw new QiyPolicyError("Unknown scope column " + scope.field, 500, "policy.misconfigured");
+      const helper = config.helper ? scopeHelpers[config.helper] : undefined;
+      if (helper) return helper(column, scope.value);
+      return eq(column as never, scope.value as never);
+    }
     if (node.kind === "cross") {
       const left = columns[node.field];
       const right = columns[node.otherField];
@@ -897,7 +944,15 @@ export function resolvePolicy(resource: string, principal: Principal | null, col
     }
     return safe;
   };
-  return { conditions, maskedFields: activeMasks.map((item) => item.field), mask };
+  const usesScope = (policy.expressions ?? []).some((expression) => {
+    const visit = (node: QiyPolicyExpression): boolean =>
+      node.kind === "scope" ? true
+        : node.kind === "not" ? visit(node.expression)
+          : node.kind === "and" || node.kind === "or" ? node.children.some(visit)
+            : false;
+    return visit(expression);
+  });
+  return { conditions, maskedFields: activeMasks.map((item) => item.field), mask, usesScope };
 }
 `;
 }
@@ -928,13 +983,13 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
       try { values = await request.clone().json(); } catch { return; }
       if (!values || typeof values !== "object" || Array.isArray(values)) return;
       const principal = await authenticate(request);
-      const policy = resolveResourcePolicy(principal);
+      const policy = await resolveResourcePolicy(principal, request);
       if (policy.maskedFields.some((field) => Object.hasOwn(values, field))) return status(400, { error: "Masked fields cannot be written", errorKey: "policy.maskedField" });
     })` : "";
   const policyColumnEntries = entity.fields.map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
   const policyPlumbing = restricted ? `
   const policyColumns: Record<string, any> = { ${policyColumnEntries} };
-  const resolveResourcePolicy = (principal: Principal | null) => resolvePolicy(${JSON.stringify(entity.name)}, principal, policyColumns);` : "";
+  const resolveResourcePolicy = async (principal: Principal | null, request?: Request | null, scope?: { field: string; value: string }) => resolvePolicy(${JSON.stringify(entity.name)}, principal, policyColumns, scope ?? (request ? await resolveScope(request) : undefined));` : "";
   const policyErrorHandler = restricted
     ? ".onError(({ error, status }) => error instanceof QiyPolicyError ? status(error.status as 403, { error: error.message, errorKey: error.errorKey }) : undefined)"
     : "";
@@ -949,7 +1004,7 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
   const oneHandler = restricted
     ? `.get("/:id", async ({ params, status, request }) => {
       const principal = await authenticate(request);
-      const policy = resolveResourcePolicy(principal);
+      const policy = await resolveResourcePolicy(principal, request);
       const record = await repository.one(params.id, await resolveScope(request), policy);
       return record ? redactRecord(record, policy) : status(404, { error: "Not found" });
     }, { params: t.Object({ id: t.String({ format: "uuid" }) }) })`
@@ -960,7 +1015,7 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
   const createHandler = restricted
     ? `.post("/", async ({ body, status, request }) => {
       const principal = await authenticate(request);
-      const policy = resolveResourcePolicy(principal);
+      const policy = await resolveResourcePolicy(principal, request);
       return status(201, redactRecord(await repository.create(body, principal?.id, await resolveScope(request), policy), policy));
     }, { body: create${name} })`
     : `.post("/", async ({ body, status, request }) => status(201, redactRecord(await repository.create(body, (await authenticate(request))?.id, await resolveScope(request)))), { body: create${name} })`;
@@ -968,7 +1023,7 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
     ? `.patch("/:id", async ({ params, body, status, request }) => {
       if (Object.keys(body).length === 0) return status(400, { error: "Empty update" });
       const principal = await authenticate(request);
-      const policy = resolveResourcePolicy(principal);
+      const policy = await resolveResourcePolicy(principal, request);
       const record = await repository.update(params.id, body, principal?.id, await resolveScope(request), policy);
       return record ? redactRecord(record, policy) : status(404, { error: "Not found" });
     }, { params: t.Object({ id: t.String({ format: "uuid" }) }), body: patch${name} })`
@@ -981,7 +1036,7 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
   const deleteManyHandler = restricted
     ? `.delete("/", async ({ query, request }) => {
       const principal = await authenticate(request);
-      const policy = resolveResourcePolicy(principal);
+      const policy = await resolveResourcePolicy(principal, request);
       const records = await repository.deleteMany(query.ids.split(","), principal?.id, await resolveScope(request), policy);
       return records.map((record) => redactRecord(record, policy));
     }, {
@@ -993,7 +1048,7 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
   const deleteHandler = restricted
     ? `.delete("/:id", async ({ params, status, request }) => {
       const principal = await authenticate(request);
-      const policy = resolveResourcePolicy(principal);
+      const policy = await resolveResourcePolicy(principal, request);
       const record = await repository.delete(params.id, principal?.id, await resolveScope(request), policy);
       return record ? redactRecord(record, policy) : status(404, { error: "Not found" });
     }, { params: t.Object({ id: t.String({ format: "uuid" }) }) });`
@@ -1153,7 +1208,7 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
     catch { await updateImportJob(claimed.id, { status: "failed", errors: ["Import job payload is invalid"], releaseLease: true }).catch(() => undefined); return claimed.id; }
     const payloadPrincipal = { id: payload.principal.id, name: payload.principal.name ?? "", role: (payload.principal.role ?? "viewer") as "admin" | "operator" | "viewer", claims: payload.principal.claims ?? {} };
     const payloadScope = payload.scope;
-    ${restricted ? "const payloadPolicy = resolveResourcePolicy(payloadPrincipal as never);" : ""}
+    ${restricted ? "const payloadPolicy = await resolveResourcePolicy(payloadPrincipal as never, null, payloadScope);" : ""}
     const createdKeys: string[] = [];
     const jobErrors: string[] = [];
     let processed = 0;
@@ -1218,20 +1273,20 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
     if (clauses.some((filter) => !filterModes[filter.field]?.includes(filter.operator))) return { status: 400, error: "Unsupported filter operator" };
     const scope = workerContext ? workerContext.scope : await resolveScope(request);
     const principal = workerContext ? (workerContext.principal as Principal | null) : await authenticate(request);
-    const policy = ${restricted ? "resolveResourcePolicy(principal)" : "undefined"};
+    const policy = ${restricted ? "await resolveResourcePolicy(principal, request, workerContext ? workerContext.scope : undefined)" : "undefined"};
     const result = await repository.list(query.page ?? 1, query.pageSize ?? 20, { ...query, filters, scope${restricted ? ", policy" : ""} });
     return { result, clauses: clauses.length, policy };
   };
   return new Elysia({ prefix: ${route} })${privateInputGuard}${maskWriteGuard}\n    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)${policyErrorHandler}\n    .get("/aggregate", async ({ query, status, request }) => {
-      ${restricted ? "const principal = await authenticate(request);\n      const policy = resolveResourcePolicy(principal);\n      if (policy.maskedFields.includes(query.field)) return status(403, { error: \"Aggregating a masked field is not permitted\", errorKey: \"policy.maskedField\" });\n      " : ""}if (!["sum", "avg", "min", "max"].includes(query.op)) return status(400, { error: "Unsupported aggregate operator" });
+      ${restricted ? "const principal = await authenticate(request);\n      const policy = await resolveResourcePolicy(principal, request);\n      if (policy.maskedFields.includes(query.field)) return status(403, { error: \"Aggregating a masked field is not permitted\", errorKey: \"policy.maskedField\" });\n      " : ""}if (!["sum", "avg", "min", "max"].includes(query.op)) return status(400, { error: "Unsupported aggregate operator" });
       if (!(${JSON.stringify(entity.fields.filter((field) => ["Integer", "Decimal", "Money"].includes(field.type)).map((field) => field.name))} as string[]).includes(query.field)) return status(400, { error: "Unsupported aggregate field" });
       return repository.aggregate ? repository.aggregate(query.field, query.op as "sum" | "avg" | "min" | "max", await resolveScope(request)${restricted ? ", policy" : ""}) : { value: null, operator: query.op };
     }, { query: t.Object({ field: t.String({ minLength: 1 }), op: t.String({ minLength: 3 }) }) })
     .get("/distribution", async ({ query, status, request }) => {
-      ${restricted ? "const principal = await authenticate(request);\n      const policy = resolveResourcePolicy(principal);\n      " : ""}return (${JSON.stringify(entity.fields.filter((field) => field.enumName).map((field) => field.name))} as string[]).includes(query.field) ? repository.distribution(query.field, await resolveScope(request)${restricted ? ", policy" : ""}) : status(400, { error: "Unsupported distribution field" });
+      ${restricted ? "const principal = await authenticate(request);\n      const policy = await resolveResourcePolicy(principal, request);\n      " : ""}return (${JSON.stringify(entity.fields.filter((field) => field.enumName).map((field) => field.name))} as string[]).includes(query.field) ? repository.distribution(query.field, await resolveScope(request)${restricted ? ", policy" : ""}) : status(400, { error: "Unsupported distribution field" });
     }, { query: t.Object({ field: t.String() }) })
     .get("/trend", async ({ query, status, request }) => {
-      ${restricted ? "const principal = await authenticate(request);\n      const policy = resolveResourcePolicy(principal);\n      " : ""}return (${JSON.stringify(entity.fields.filter((field) => field.type === "DateTime").map((field) => field.name))} as string[]).includes(query.field) ? repository.trend(query.field, query.days, await resolveScope(request)${restricted ? ", policy" : ""}) : status(400, { error: "Unsupported trend field" });
+      ${restricted ? "const principal = await authenticate(request);\n      const policy = await resolveResourcePolicy(principal, request);\n      " : ""}return (${JSON.stringify(entity.fields.filter((field) => field.type === "DateTime").map((field) => field.name))} as string[]).includes(query.field) ? repository.trend(query.field, query.days, await resolveScope(request)${restricted ? ", policy" : ""}) : status(400, { error: "Unsupported trend field" });
     }, { query: t.Object({ field: t.String(), days: t.Numeric({ minimum: 1, maximum: 365 }) }) })
     .get("/", async ({ query, status, request }) => {
       const outcome = await runListQuery(query, request);
@@ -1329,7 +1384,7 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
     .post("/import", async ({ request, status, query }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
-      ${restricted ? "const policy = resolveResourcePolicy(principal);" : ""}
+      ${restricted ? "const policy = await resolveResourcePolicy(principal, request);" : ""}
       const rows = parseCsv(await request.text());
       if (rows.length < 2) return status(400, { error: "CSV must include a header and at least one data row", errorKey: "import.empty" });
       const header = rows[0]!.map((name) => name.trim());
@@ -1668,7 +1723,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
     const column = columns[field];
     if (!column) throw new Error("Unsupported aggregate field");
     const scopeColumns: Record<string, any> = { ${scopeColumns} };
-    const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+    const scopeCondition = scope && ${restricted ? "!(policy && policy.usesScope) && " : ""}scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
     ${policyCondition}
     const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
     const [row] = await db.select({ value: expression }).from(${entity.name}).where(and(scopeCondition${policyArg}));
@@ -1680,7 +1735,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
     const column = columns[field];
     if (!column) throw new Error("Unsupported distribution field");
     const scopeColumns: Record<string, any> = { ${scopeColumns} };
-    const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+    const scopeCondition = scope && ${restricted ? "!(policy && policy.usesScope) && " : ""}scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
     ${policyCondition}
     return db.select({ value: column, count: count() }).from(${entity.name}).where(and(scopeCondition${policyArg})).groupBy(column);
   },
@@ -1689,7 +1744,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
     const column = columns[field];
     if (!column || !Number.isInteger(days) || days < 1 || days > 365) throw new Error("Invalid trend query");
     const scopeColumns: Record<string, any> = { ${scopeColumns} };
-    const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+    const scopeCondition = scope && ${restricted ? "!(policy && policy.usesScope) && " : ""}scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
     ${policyCondition}
     const now = new Date();
     const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
@@ -1738,7 +1793,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       ? filterCondition(filter)
       : filter.operator === "and" ? and(...filter.filters.map(filterExpression)) : or(...filter.filters.map(filterExpression));
     const scopeColumns: Record<string, any> = { ${scopeColumns} };
-    const scopeCondition = options.scope && scopeColumns[options.scope.field] ? ${scopeColumnConditionFor("options.scope")} : undefined;
+    const scopeCondition = options.scope && ${restricted ? "!(options.policy && options.policy.usesScope) && " : ""}scopeColumns[options.scope.field] ? ${scopeColumnConditionFor("options.scope")} : undefined;
     ${policyCondition.replace("policy && policy.conditions.length", "options.policy && options.policy.conditions.length").replace("(policy.conditions as any[])", "(options.policy.conditions as any[])")}
     const whereCondition = and(searchCondition, scopeCondition${policyArg}, ...(filters as FilterExpression[]).map(filterExpression));
     const [data, totalRows] = await Promise.all([
@@ -1753,7 +1808,7 @@ ${entity.name}
   },
   async one(id, scope${restricted ? ", policy" : ""}) {
     const scopeColumns: Record<string, any> = { ${filterFields} };
-    const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+    const scopeCondition = scope && ${restricted ? "!(policy && policy.usesScope) && " : ""}scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
     ${policyCondition}
     const [record] = await db.select().from(
 ${entity.name}
@@ -4069,9 +4124,19 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
         if (left?.primaryKey || right?.primaryKey) errors.push(`Restrict ${entity.name}: cross-field comparisons cannot target a primary key`);
         return;
       }
+      if (node.kind === "scope") return;
       if (node.kind === "not") { normalizeExpression(node.expression); return; }
       for (const child of node.children) normalizeExpression(child);
     };
+    const expressionMentionsScope = (node: QiyPolicyExpression): boolean =>
+      node.kind === "scope" ? true
+        : node.kind === "not" ? expressionMentionsScope(node.expression)
+          : node.kind === "and" || node.kind === "or" ? node.children.some(expressionMentionsScope)
+            : false;
+    if ((restriction.expressions ?? []).some(expressionMentionsScope)
+      && !(options.scopes ?? []).some((scope) => scope.resource === entity.name || scope.resource === entity.tableName)) {
+      errors.push(`Restrict ${entity.name}: when scope requires a matching scope declaration`);
+    }
     for (const expression of restriction.expressions ?? []) normalizeExpression(expression);
     const masks: QiyFieldMask[] = [];
     for (const mask of restriction.masks ?? []) {
@@ -4196,7 +4261,7 @@ export const orderIdempotency = pgTable("order_idempotency", {
   if (options.realtime) pluginDependencies.ably = "2.29.0";
   const files: Record<string, string> = {
     ...renderAppTemplate("server", "api"),
-    ...(normalizedRestrictions.length ? { "api/src/security/policy.ts": renderPolicyModule(normalizedRestrictions, database) } : {}),
+    ...(normalizedRestrictions.length ? { "api/src/security/policy.ts": renderPolicyModule(normalizedRestrictions, database, options.scopes ?? []) } : {}),
     "api/src/import-jobs.ts": renderImportJobsModule(database.dialect),
     "api/src/saved-views.ts": renderSavedViewsModule(database.dialect, database.entities.map((entity) => entity.tableName)),
     "api/src/export-jobs.ts": renderExportJobsModule(database.dialect),
