@@ -1033,6 +1033,56 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
     return value;
   };
   const importWorkerId = crypto.randomUUID();
+  const exportWorkerId = crypto.randomUUID();
+  /**
+   * Claims one export job (by id inline, otherwise the oldest queued one) and
+   * rebuilds its CSV from the stored request spec, so any replica can finish it.
+   */
+  const claimAndProcessExportJob = async (jobId?: string): Promise<string | undefined> => {
+    const claimed = await claimExportJob(${JSON.stringify(entity.tableName)}, exportWorkerId, new Date(Date.now() + 120000), jobId);
+    if (!claimed) return undefined;
+    type ExportSpec = { search?: string; sort?: string; order?: "asc" | "desc"; filters?: string; ids?: string; columns?: string; principal: { id: string; name?: string; role?: string; claims?: Record<string, string | number | boolean | null> }; scope?: { field: string; value: string } };
+    let spec: ExportSpec;
+    try { spec = JSON.parse(claimed.payload) as ExportSpec; }
+    catch { await updateExportJob(claimed.id, { status: "failed", errors: ["Export job payload is invalid"], releaseLease: true }).catch(() => undefined); return claimed.id; }
+    const principal = { id: spec.principal.id, name: spec.principal.name ?? "", role: (spec.principal.role ?? "viewer") as "admin" | "operator" | "viewer", claims: spec.principal.claims ?? {} };
+    const requestedIds = spec.ids ? spec.ids.split(",").map((id) => id.trim()).filter(Boolean) : [];
+    const requestedColumns = spec.columns ? [...new Set(spec.columns.split(",").map((column) => column.trim()).filter(Boolean))] : [];
+    const pageSize = Math.min(EXPORT_PAGE_SIZE, exportMaxRows());
+    const csvCell = (value: unknown) => {
+      if (value === null || value === undefined) return "";
+      const text = value instanceof Date ? value.toISOString() : typeof value === "object" ? JSON.stringify(value) : String(value);
+      return /[",\\r\\n]/.test(text) ? '"' + text.replaceAll('"', '""') + '"' : text;
+    };
+    try {
+      const firstPage = await runListQuery({ search: spec.search, sort: spec.sort, order: spec.order, filters: spec.filters, page: 1, pageSize: requestedIds.length ? exportMaxRows() : pageSize }, new Request("http://worker/export"), { principal, scope: spec.scope });
+      if ("error" in firstPage) throw new Error(firstPage.error);
+      ${restricted ? "const policy = firstPage.policy;" : ""}
+      const project = (record: Record<string, unknown>) => redactRecord(record${restricted ? ", policy" : ""}) as Record<string, unknown>;
+      let rows = firstPage.result.data.map(project);
+      if (requestedIds.length) rows = rows.filter((row) => requestedIds.includes(String(row.id)));
+      const visibleColumns = exportColumns.filter((column) => rows.some((row) => Object.hasOwn(row, column)));
+      const columns = requestedColumns.length ? visibleColumns.filter((column) => requestedColumns.includes(column)) : visibleColumns;
+      if (requestedColumns.length && !columns.length) throw new Error("None of the requested columns can be exported");
+      const lines = [columns.join(",") + "\\r\\n"];
+      let written = 0;
+      const push = (row: Record<string, unknown>) => { lines.push(columns.map((column) => csvCell(row[column])).join(",") + "\\r\\n"); written++; };
+      for (const row of rows) push(row);
+      rows = [];
+      const totalPages = requestedIds.length ? 1 : Math.ceil(firstPage.result.total / pageSize);
+      for (let page = 2; page <= totalPages; page++) {
+        const next = await runListQuery({ search: spec.search, sort: spec.sort, order: spec.order, filters: spec.filters, page, pageSize }, new Request("http://worker/export"), { principal, scope: spec.scope });
+        if ("error" in next) throw new Error(next.error);
+        for (const record of next.result.data.map(project)) push(record);
+        if (written % 500 === 0) await updateExportJob(claimed.id, { processed: written });
+      }
+      await repository.recordExportAudit?.({ rows: written, filters: firstPage.clauses, principalId: principal.id });
+      await updateExportJob(claimed.id, { status: "completed", processed: written, result: lines.join(""), releaseLease: true });
+    } catch (error) {
+      await updateExportJob(claimed.id, { status: "failed", errors: [error instanceof Error ? error.message : String(error)], releaseLease: true }).catch(() => undefined);
+    }
+    return claimed.id;
+  };
   /**
    * Claims one import job (by id when running inline, otherwise the oldest queued one)
    * and writes its stored payload. Any replica can run this; the lease decides who wins.
@@ -1086,7 +1136,7 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
   };
   // The list and export routes share one query path so export cannot diverge from
   // the list's filter validation, scope handling or row policy.
-  const runListQuery = async (query: { page?: number; pageSize?: number; search?: string; sort?: string; order?: "asc" | "desc"; filters?: string }, request: Request): Promise<{ status: number; error: string } | { result: { data: Array<Record<string, unknown>>; total: number }; clauses: number; policy: ${restricted ? "QiyPolicy" : "undefined"} }> => {
+  const runListQuery = async (query: { page?: number; pageSize?: number; search?: string; sort?: string; order?: "asc" | "desc"; filters?: string }, request: Request, workerContext?: { principal: { id: string; name?: string; role?: string; claims?: Record<string, string | number | boolean | null> }; scope?: { field: string; value: string } }): Promise<{ status: number; error: string } | { result: { data: Array<Record<string, unknown>>; total: number }; clauses: number; policy: ${restricted ? "QiyPolicy" : "undefined"} }> => {
     let filters: Record<string, string> | FilterExpression[] | undefined;
     if (query.filters) {
       try {
@@ -1109,8 +1159,8 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
     if (clauses.length > 50) return { status: 400, error: "Too many filters" };
     if (clauses.some((filter) => !filterableFields.includes(filter.field))) return { status: 400, error: "Unsupported filter field" };
     if (clauses.some((filter) => !filterModes[filter.field]?.includes(filter.operator))) return { status: 400, error: "Unsupported filter operator" };
-    const scope = await resolveScope(request);
-    const principal = await authenticate(request);
+    const scope = workerContext ? workerContext.scope : await resolveScope(request);
+    const principal = workerContext ? (workerContext.principal as Principal | null) : await authenticate(request);
     const policy = ${restricted ? "resolveResourcePolicy(principal)" : "undefined"};
     const result = await repository.list(query.page ?? 1, query.pageSize ?? 20, { ...query, filters, scope${restricted ? ", policy" : ""} });
     return { result, clauses: clauses.length, policy };
@@ -1174,28 +1224,15 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
       const line = (row: Record<string, unknown>) => columns.map((column) => csvCell(row[column])).join(",") + "\\r\\n";
       const totalPages = selectedIds.length ? 1 : Math.ceil(firstPage.result.total / pageSize);
       let exported = firstRows.length;
-      // Background export: the worker builds the CSV and stores it on the job row.
+      // Background export: store the request spec and let the worker build the CSV.
       if (query.async === "1") {
-        const jobId = await createExportJob({ resource: ${JSON.stringify(entity.tableName)}, total: firstPage.result.total, actorId: principal.id });
-        void (async () => {
-          try {
-            await updateExportJob(jobId, { status: "running" });
-            const lines = [columns.join(",") + "\\r\\n"];
-            let written = 0;
-            for (const row of firstRows) { lines.push(line(row)); written++; }
-            firstRows = [];
-            for (let page = 2; page <= totalPages; page++) {
-              const next = await runListQuery({ ...query, page, pageSize }, request);
-              if ("error" in next) throw new Error(next.error);
-              for (const record of next.result.data.map(project)) { lines.push(line(record)); written++; }
-              if (written % 500 === 0) await updateExportJob(jobId, { processed: written });
-            }
-            await repository.recordExportAudit?.({ rows: written, filters: firstPage.clauses, principalId: principal.id });
-            await updateExportJob(jobId, { status: "completed", processed: written, payload: lines.join("") });
-          } catch (error) {
-            await updateExportJob(jobId, { status: "failed", errors: [error instanceof Error ? error.message : String(error)] }).catch(() => undefined);
-          }
-        })();
+        const jobId = await createExportJob({
+          resource: ${JSON.stringify(entity.tableName)},
+          total: firstPage.result.total,
+          actorId: principal.id,
+          payload: JSON.stringify({ search: query.search, sort: query.sort, order: query.order, filters: query.filters, ids: query.ids, columns: query.columns, principal: { id: principal.id, name: principal.name, role: principal.role, claims: principal.claims ?? {} }, scope: await resolveScope(request) }),
+        });
+        if (Bun.env.QIY_EXPORT_INLINE !== "off") void claimAndProcessExportJob(jobId);
         return status(202, { jobId, total: firstPage.result.total });
       }
       // Rows stream page by page, so a large export never materializes the whole table.
@@ -1289,9 +1326,9 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
       const job = await readExportJob(params.id);
-      if (!job || job.resource !== ${JSON.stringify(entity.tableName)} || !job.payload) return status(404, { error: "Export job not found" });
+      if (!job || job.resource !== ${JSON.stringify(entity.tableName)} || !job.result) return status(404, { error: "Export job not found" });
       if (job.status !== "completed") return status(409, { error: "Export job is not finished", errorKey: "export.notReady" });
-      return new Response(job.payload, { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": 'attachment; filename="' + job.resource + '.csv"' } });
+      return new Response(job.result, { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": 'attachment; filename="' + job.resource + '.csv"' } });
     })
     // Cross-replica worker: an admin can list work and drive one job from any replica.
     .get("/import/jobs", async ({ request, status }) => {
@@ -1309,6 +1346,24 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
       if (job.status !== "queued") return status(409, { error: "Import job is not queued", errorKey: "import.notQueued" });
       const ran = await claimAndProcessImportJob(params.id);
       if (!ran) return status(409, { error: "Import job was claimed by another worker", errorKey: "import.claimed" });
+      return status(202, { jobId: ran });
+    })
+    // Cross-replica export worker: list work and run one job from any replica.
+    .get("/export/jobs", async ({ request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      if (principal.role !== "admin") return status(403, { error: "Worker dispatch requires the admin role", errorKey: "export.forbidden" });
+      return { items: await listExportJobs(${JSON.stringify(entity.tableName)}) };
+    })
+    .post("/export/jobs/:id/run", async ({ params, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      if (principal.role !== "admin") return status(403, { error: "Worker dispatch requires the admin role", errorKey: "export.forbidden" });
+      const job = await readExportJob(params.id);
+      if (!job || job.resource !== ${JSON.stringify(entity.tableName)}) return status(404, { error: "Export job not found" });
+      if (job.status !== "queued") return status(409, { error: "Export job is not queued", errorKey: "export.notQueued" });
+      const ran = await claimAndProcessExportJob(params.id);
+      if (!ran) return status(409, { error: "Export job was claimed by another worker", errorKey: "export.claimed" });
       return status(202, { jobId: ran });
     })
     // Background import progress: the caller polls this job id.
@@ -2034,6 +2089,7 @@ export async function updateExportJob(id: string, patch: { status?: QiyExportJob
     ...(patch.status ? { status: patch.status } : {}),
     ...(patch.processed !== undefined ? { processed: patch.processed } : {}),
     ...(patch.payload !== undefined ? { payload: patch.payload } : {}),
+    ...(patch.result !== undefined ? { result: patch.result } : {}),
     ...(patch.errors ? { errors: JSON.stringify(patch.errors) } : {}),
     updatedAt: ${now},
   };
@@ -2045,7 +2101,8 @@ export async function readExportJob(id: string): Promise<(QiyExportJob & { paylo
   if (!row) return undefined;
   const job = toJob(row as QiyExportJobRow);
   const payload = (row as QiyExportJobRow).payload;
-  return payload ? { ...job, payload } : job;
+  const result = (row as QiyExportJobRow).result;
+  return { ...job, ...(payload ? { payload } : {}), ...(result ? { result } : {}) };
 }
 
 /** Claims one export job with a conditional update so replicas cannot both run it. */
@@ -5931,10 +5988,10 @@ ${generatedDocumentation(entity)}export function create${modelName(entity)}Servi
 }
 `;
     files[`${moduleRoot}/${entity.name}.routes.ts`] = `import { Elysia, t } from "elysia";
-import type { Authenticator } from "../../auth/guard";
+import type { Authenticator${entityRestricted ? "" : ", Principal"} } from "../../auth/guard";
 import { create${modelName(entity)}Service } from "./${entity.name}.service";
 import { claimImportJob, createImportJob, isImportJobCancelled, listImportJobs, readImportJob, releaseStaleImportJobs, requestImportJobCancel, updateImportJob } from "../../import-jobs";
-import { createExportJob, readExportJob, updateExportJob } from "../../export-jobs";
+import { claimExportJob, createExportJob, listExportJobs, readExportJob, updateExportJob } from "../../export-jobs";
 import type { ${modelName(entity)}Repository as ${modelName(entity)}RepositoryPort } from "./${entity.name}.contract";
 ${entityRestricted ? 'import { QiyPolicyError, resolvePolicy, type QiyPolicy } from "../../security/policy";\nimport { ' + entity.name + ' } from "../../schema";\nimport type { Principal } from "../../auth/guard";\n' : ""}
 ${renderRoutes(publicEntity, database, options.scopes, hiddenFields, entityRestricted).replace(`repository: ${modelName(entity)}Repository`, `repository: ${modelName(entity)}RepositoryPort`).replace("  return new Elysia({", `  const service = create${modelName(entity)}Service(repository);\n  return new Elysia({`).replaceAll("repository.list(", "service.list(").replaceAll("repository.one(", "service.one(").replaceAll("repository.create(", "service.create(").replaceAll("repository.update(", "service.update(").replaceAll("repository.delete(", "service.delete(")}`;

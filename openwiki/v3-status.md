@@ -28,7 +28,7 @@
 | 5 | **服务端共享视图** ✅ 已完成（见下节） | 新表 `qiy_saved_views`（三方言） | `verify-saved-views`：3 pass / 21 断言 | 中 |
 | 6 | **组织树管理界面** ✅ 已完成（见下节） | 无新表（复用 `scope ... tree`） | `verify-org-scope` Web 阶段：26 pass / 0 fail | 中 |
 | 7 | **后台导出任务** ✅ 已完成（见下节） | 复用 #1 的任务表骨架 | `verify-export-async`：2 pass / 19 断言 | 中 |
-| 8 | **跨副本导入 worker** ✅ 已完成（见下节；导出 worker 未做） | `leaseOwner/leaseUntil` + payload 列 | `verify-import-worker`：3 pass / 20 断言 | 大 |
+| 8 | **跨副本导入 + 导出 worker** ✅ 已完成（见下节） | `leaseOwner/leaseUntil` + payload/result 列 | worker 验收：import 3 pass、export 3 pass | 大 |
 | 9 | **`graphql-ws` WebSocket 传输** | 依赖 `graphql-ws` 客户端与服务端协议 | 客户端连接 + 重订阅 + 断线重连（无真实 Ably） | 大 |
 | 10 | **其他 UI 库（P2）** | MUI/Chakra 等第二套生成模板 | 每个库独立生成 + 构建 + 关键页面截图 | 很大 |
 | — | **真实 Ably 租户 + 浏览器重连** | 外部 Ably 账号 | 需要真实 key 与浏览器；当前仅有本地 fake 传输验收 | 阻塞（外部） |
@@ -57,7 +57,9 @@
 
 证据 `%TEMP%/qiy-import-worker-RZI4Qz`；重构后 #1/#1b 的 `verify-import-async` 复跑仍 **5 pass**（取消、过期恢复、补偿均未回退）。
 
-**边界**：**导出任务**还没有 worker（导出仍由请求内后台构建，见上一节）；worker 只能通过 HTTP 端点被驱动，没有进程内定时轮询；`queued` 任务的租约过期后需要再次 `run`（没有自动重新入队）；租约列暂未用于导出任务。
+**边界**：worker 只能通过 HTTP 端点被驱动，没有进程内定时轮询；`queued` 任务的租约过期后需要再次 `run`（没有自动重新入队）；CSV 以创建时 principal 为准（不可切换视角重新生成）。
+
+**导出 worker（已完成）**：`qiy_export_jobs` 增加 `leaseOwner/leaseUntil/result` 列；`/export?async=1` 保存请求规格（filter/sort/ids/columns/principal/scope），默认就地执行，`QIY_EXPORT_INLINE=off` 时留在队列；`GET /export/jobs`（admin）与 `POST /export/jobs/:id/run`（admin）让任意副本 claim 执行，`claimExportJob` 条件更新保证并发只成功一次；CSV 写入 `result`，下载端点读 `result`。验收见 `verify-export-async` 的 worker 用例：operator 创建 → admin 副本 run → 下载仍按创建者脱敏（salary 缺席）、重复 run 409、operator 访问 worker 端点 403。
 
 **导出 worker 的进展（未完成）**：`qiy_export_jobs` 已补 `leaseOwner` / `leaseUntil` / `result` 列，`api/src/export-jobs.ts` 已提供 `claimExportJob` / `listExportJobs` 与 `result` 写入能力，导出任务请求规格（payload）也已在创建时预留；但把请求内后台构建改造成"任意副本 claim + 重建 CSV"的接线与实际验收**尚未完成**，文档不把它算作已完成。
 

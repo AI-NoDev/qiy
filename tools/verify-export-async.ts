@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+﻿import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateApp } from "./commands/generate-app";
@@ -63,6 +63,7 @@ import { UsersRepository } from "./src/modules/users/users.repository";
 
 const as = (role: "admin" | "operator", region: string) => async () => ({ id: "00000000-0000-4000-8000-000000000001", name: role, role, claims: { region } });
 const app = (role: "admin" | "operator", region: string) => createApp({ users: UsersRepository, orders: OrdersRepository }, as(role, region) as never);
+const replica = async (role: "admin" | "operator", region: string) => app(role, region);
 const request = async (role: "admin" | "operator", region: string, path: string, init?: RequestInit) => (await app(role, region)).handle(new Request("http://localhost" + path, init));
 const start = (role: "admin" | "operator", region: string, query = "") => request(role, region, "/api/v1/orders/export?async=1" + query);
 type ExportJob = { id: string; resource: string; status: string; total: number; processed: number; errors: string[] };
@@ -115,6 +116,33 @@ test("refuses anonymous, oversized and unknown export jobs", async () => {
   } finally { delete Bun.env.QIY_EXPORT_MAX_ROWS; }
   expect((await request("admin", "eu", "/api/v1/orders/export/jobs/missing")).status).toBe(404);
   expect((await request("admin", "eu", "/api/v1/orders/export/jobs/missing/download")).status).toBe(404);
+});
+
+test("a queued export can be finished by another replica", async () => {
+  Bun.env.QIY_EXPORT_INLINE = "off";
+  try {
+    const first = await replica("operator", "eu");
+    const second = await replica("admin", "eu");
+    const started = (await (await first.handle(new Request("http://localhost/api/v1/orders/export?async=1"))).json()) as { jobId: string };
+    // Inline execution is off, so the job stays queued with its request spec stored.
+    const queued = (await (await second.handle(new Request("http://localhost/api/v1/orders/export/jobs/" + started.jobId))).json()) as { status: string };
+    expect(queued.status).toBe("queued");
+    const listed = (await (await second.handle(new Request("http://localhost/api/v1/orders/export/jobs"))).json()) as { items: Array<{ id: string }> };
+    expect(listed.items.map((job) => job.id)).toContain(started.jobId);
+    const run = await second.handle(new Request("http://localhost/api/v1/orders/export/jobs/" + started.jobId + "/run", { method: "POST" }));
+    expect(run.status).toBe(202);
+    const done = (await (await second.handle(new Request("http://localhost/api/v1/orders/export/jobs/" + started.jobId))).json()) as { status: string; processed: number };
+    expect(done.status).toBe("completed");
+    const operatorView = await replica("operator", "eu");\n    const download = await operatorView.handle(new Request("http://localhost/api/v1/orders/export/jobs/" + started.jobId + "/download"));
+    expect(download.status).toBe(200);
+    const lines = (await download.text()).trimEnd().split("\\r\\n");
+    expect(lines[0]!.split(",")).not.toContain("salary");
+    expect(lines.length).toBe(done.processed + 1);
+    // The same job cannot run twice, and non-admins cannot drive the worker.
+    expect((await second.handle(new Request("http://localhost/api/v1/orders/export/jobs/" + started.jobId + "/run", { method: "POST" }))).status).toBe(409);
+    const operatorApp = await replica("operator", "eu");
+    expect((await operatorApp.handle(new Request("http://localhost/api/v1/orders/export/jobs"))).status).toBe(403);
+  } finally { delete Bun.env.QIY_EXPORT_INLINE; }
 });
 `);
 

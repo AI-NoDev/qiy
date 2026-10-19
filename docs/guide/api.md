@@ -75,7 +75,10 @@ GET    /api/v1/graphql/subscribe   GraphQL 订阅（SSE，仅 GraphQL 客户端 
 - **仅选中行**：`ids=<id1>,<id2>` 只导出这些行（上限 500，非法 id 400 `export.invalidId`，超量 400 `export.tooManyIds`）。选中导出不受行数上限约束，但**仍然经过行谓词与脱敏**——调用者看不到的 id 会被丢弃，不会泄漏。Web 列表在有勾选时按钮变为 `Export selected (n)` 并带上 ids。
 - **流式分批**：导出按 250 行的页循环读取并写入 `ReadableStream`，不再把整个结果集拼成字符串，因此大导出不会随行数增长内存；响应没有 `Content-Length`（分块传输）。表头与列集合在第一页确定（脱敏 `omit` 的列整列不导出），行谓词、排序与过滤对每一页都重新应用。审计记录在流结束时写入，包含实际导出的行数。
 - **列选择**：`columns=title,region` 只导出指定列（最多 100，未知列 400 `export.invalidColumn`）。列顺序仍按实体声明顺序；与脱敏取交集——请求只包含被 `omit` 脱敏的列时返回 400 `export.noColumns`，不会退化成导出行 id。Web 列表按**当前可见列**导出（列显隐下拉的结果）。
-- **后台导出**：`GET /api/v1/:resources/export?async=1` 立即返回 `202 { jobId, total }`，后台按同样的分页/行谓词/脱敏构建 CSV 并**存到任务行**（`qiy_export_jobs.payload`，MySQL 用 MEDIUMTEXT）；`GET /api/v1/:resources/export/jobs/:id` 查询进度（未完成 200 带状态，未知/跨资源 404），`GET /api/v1/:resources/export/jobs/:id/download` 在完成后一次性下载（未完成 409 `export.notReady`）。任务行持久化，跨请求/重连后可继续取结果。
+- **后台导出与跨副本 worker**：`GET /api/v1/:resources/export?async=1` 立即返回 `202 { jobId, total }`，任务行（`qiy_export_jobs`）保存**请求规格**（filter/sort/ids/columns/principal 快照/scope），CSV 由 worker 重建后写入 `result`（MySQL 用 MEDIUMTEXT）。默认当前副本就地执行；`QIY_EXPORT_INLINE=off` 时任务留在队列。
+  - `GET /api/v1/:resources/export/jobs`（admin）列出最近任务；`POST /api/v1/:resources/export/jobs/:id/run`（admin）让任意副本 claim 并执行（并发时只有一个成功，另一个 `409 export.claimed`；已结束 `409 export.notQueued`；非 admin `403`）。
+  - `GET /api/v1/:resources/export/jobs/:id` 查询进度；`GET .../jobs/:id/download` 在完成后一次性下载（未完成 `409 export.notReady`；未知/跨资源 404）。
+  - **CSV 以创建任务时的 principal 为准**（行谓词与脱敏按创建者），所以同一任务由别的 admin 执行也不会放宽数据范围。
 - 规模：默认上限 1000 行，可用 `QIY_EXPORT_MAX_ROWS` 调整（1–100000）。超过上限时返回 **400 `export.tooLarge`**，而不是静默导出部分数据；请先收窄过滤条件。
 - 审计：每次导出写入一条 `<resource>.exported` 审计事件（行数、过滤条数、操作者），便于追溯数据外带。
 - Web：列表页头部有 **Export CSV** 按钮（`web/app/export.ts`），它把当前表格的过滤/排序状态（`useTable` 的 `filters`/`sorters`）编码成同一套参数，因此导出范围与屏幕上看到的行一致；服务端拒绝（401 / 400 `export.tooLarge`）以通知形式显示，不会下载残缺文件。

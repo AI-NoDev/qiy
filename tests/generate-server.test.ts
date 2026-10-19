@@ -352,7 +352,11 @@ describe("V0 Elysia API generation", () => {
     expect(route).toContain("await repository.recordExportAudit?.(");
     // Background exports materialize the CSV on a durable job and serve it later.
     expect(route).toContain('if (query.async === "1")');
-    expect(route).toContain("await createExportJob({ resource:");
+    expect(route).toContain("const jobId = await createExportJob({");
+    expect(route).toContain("QIY_EXPORT_INLINE");
+    expect(route).toContain("claimAndProcessExportJob");
+    expect(route).toContain('.post("/export/jobs/:id/run"');
+    expect(route).toContain('.get("/export/jobs"');
     expect(route).toContain('.get("/export/jobs/:id"');
     expect(route).toContain('.get("/export/jobs/:id/download"');
     expect(route).toContain('errorKey: "export.notReady"');
