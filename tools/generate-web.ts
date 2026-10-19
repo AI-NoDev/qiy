@@ -1809,6 +1809,10 @@ export interface QiyGraphqlWsOptions {
   onError?: (error: Error) => void;
   onComplete?: () => void;
   socketFactory?: (url: string) => WebSocket;
+  /** Called before each reconnect attempt; backoff doubles up to maxReconnectDelayMs. */
+  onReconnect?: (info: { attempt: number; delayMs: number }) => void;
+  reconnectDelayMs?: number;
+  maxReconnectDelayMs?: number;
 }
 
 /** Converts the configured HTTP(S) origin into the graphql-ws URL. */
@@ -1829,37 +1833,55 @@ export function decodeGraphqlWsFrame(raw: unknown): Record<string, unknown> | un
  */
 export function subscribeGraphqlWs(query: string, options: QiyGraphqlWsOptions): () => void {
   const token = options.token ?? (typeof window === "undefined" ? undefined : window.localStorage.getItem("qiy.access_token") ?? undefined);
-  const socket = (options.socketFactory ?? ((url: string) => new WebSocket(url)))(graphqlWsUrl(options.url));
+  const createSocket = options.socketFactory ?? ((url: string) => new WebSocket(url));
   const id = "qiy-" + Math.random().toString(36).slice(2);
   let stopped = false;
-  socket.addEventListener("message", (event) => {
-    const frame = decodeGraphqlWsFrame(event.data);
-    if (!frame?.type) return;
-    if (frame.type === "connection_ack") {
-      socket.send(encodeGraphqlWsFrame({ id, type: "subscribe", payload: { query, variables: options.variables, operationName: options.operationName } }));
-      return;
-    }
-    if (frame.type === "next" && frame.id === id) {
-      const payload = frame.payload as { data?: Record<string, unknown>; errors?: Array<{ message: string }> } | undefined;
-      if (payload?.errors?.length) options.onError?.(new Error(payload.errors[0]!.message));
-      else if (payload?.data) options.onData(payload.data);
-      return;
-    }
-    if (frame.type === "error" && frame.id === id) {
-      const payload = frame.payload as Array<{ message?: string }> | undefined;
-      options.onError?.(new Error(payload?.[0]?.message ?? "Subscription failed"));
-      return;
-    }
-    if (frame.type === "complete" && frame.id === id) options.onComplete?.();
-  });
-  const send = () => { if (socket.readyState === 1) socket.send(encodeGraphqlWsFrame({ type: "connection_init", payload: token ? { token } : {} })); };
-  if (socket.readyState === 1) send(); else socket.addEventListener("open", send);
-  socket.addEventListener("error", () => options.onError?.(new Error("Subscription socket failed")));
+  let socket: WebSocket | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let attempt = 0;
+  const connect = () => {
+    socket = createSocket(graphqlWsUrl(options.url));
+    const current = socket;
+    current.addEventListener("message", (event) => {
+      const frame = decodeGraphqlWsFrame(event.data);
+      if (!frame?.type) return;
+      if (frame.type === "connection_ack") {
+        attempt = 0;
+        current.send(encodeGraphqlWsFrame({ id, type: "subscribe", payload: { query, variables: options.variables, operationName: options.operationName } }));
+        return;
+      }
+      if (frame.type === "next" && frame.id === id) {
+        const payload = frame.payload as { data?: Record<string, unknown>; errors?: Array<{ message: string }> } | undefined;
+        if (payload?.errors?.length) options.onError?.(new Error(payload.errors[0]!.message));
+        else if (payload?.data) options.onData(payload.data);
+        return;
+      }
+      if (frame.type === "error" && frame.id === id) {
+        const payload = frame.payload as Array<{ message?: string }> | undefined;
+        options.onError?.(new Error(payload?.[0]?.message ?? "Subscription failed"));
+        return;
+      }
+      if (frame.type === "complete" && frame.id === id) options.onComplete?.();
+    });
+    const init = () => { if (current.readyState === 1) current.send(encodeGraphqlWsFrame({ type: "connection_init", payload: token ? { token } : {} })); };
+    if (current.readyState === 1) init(); else current.addEventListener("open", init);
+    current.addEventListener("error", () => options.onError?.(new Error("Subscription socket failed")));
+    // Reconnect with capped exponential backoff until the caller stops the subscription.
+    current.addEventListener("close", () => {
+      if (stopped) return;
+      const delay = Math.min(options.reconnectDelayMs ?? 1000, options.maxReconnectDelayMs ?? 30000) * Math.pow(2, Math.min(attempt, 5));
+      attempt += 1;
+      options.onReconnect?.({ attempt, delayMs: delay });
+      timer = setTimeout(connect, delay);
+    });
+  };
+  connect();
   return () => {
     if (stopped) return;
     stopped = true;
-    if (socket.readyState === 1) socket.send(encodeGraphqlWsFrame({ id, type: "complete" }));
-    socket.close();
+    if (timer) clearTimeout(timer);
+    if (socket && socket.readyState === 1) socket.send(encodeGraphqlWsFrame({ id, type: "complete" }));
+    socket?.close();
   };
 }
 
@@ -1964,6 +1986,68 @@ test("graphql-ws helpers build the URL and tolerate bad frames", () => {
   expect(decodeGraphqlWsFrame("not json")).toBeUndefined();
   expect(decodeGraphqlWsFrame(JSON.stringify({ type: "pong" }))).toEqual({ type: "pong" });
   expect(encodeGraphqlWsFrame({ type: "ping" })).toBe('{"type":"ping"}');
+});
+
+test("graphql-ws client reconnects and resubscribes after a drop", async () => {
+  type FakeSocket = {
+    sent: Array<Record<string, unknown>>;
+    listeners: Map<string, Array<(event: { data?: unknown }) => void>>;
+    readyState: number;
+    send: (frame: string) => void;
+    close: () => void;
+    addEventListener: (type: string, listener: (event: { data?: unknown }) => void) => void;
+  };
+  const sockets: FakeSocket[] = [];
+  const factory = (): WebSocket => {
+    const socket: FakeSocket = {
+      sent: [],
+      listeners: new Map(),
+      readyState: 1,
+      send: (frame) => socket.sent.push(JSON.parse(frame) as Record<string, unknown>),
+      close: () => { socket.readyState = 3; },
+      addEventListener: (type, listener) => {
+        const list = socket.listeners.get(type) ?? [];
+        list.push(listener as (event: { data?: unknown }) => void);
+        socket.listeners.set(type, list);
+      },
+    };
+    sockets.push(socket);
+    return socket as unknown as WebSocket;
+  };
+  const emit = (socket: FakeSocket, type: string, event: { data?: unknown } = {}) => {
+    for (const listener of socket.listeners.get(type) ?? []) listener(event);
+  };
+  const received: Array<Record<string, unknown>> = [];
+  const reconnects: number[] = [];
+  const stop = subscribeGraphqlWs("subscription { ordersChanged { event } }", {
+    token: "token-1",
+    socketFactory: factory,
+    reconnectDelayMs: 5,
+    onReconnect: (info) => reconnects.push(info.delayMs),
+    onData: (data) => received.push(data),
+  });
+  expect(sockets).toHaveLength(1);
+  emit(sockets[0]!, "message", { data: JSON.stringify({ type: "connection_ack" }) });
+  const first = sockets[0]!.sent[1] as { id: string };
+  emit(sockets[0]!, "message", { data: JSON.stringify({ id: first.id, type: "next", payload: { data: { ordersChanged: { event: "created" } } } }) });
+  expect(received).toHaveLength(1);
+  // Dropping the socket schedules a reconnect and a fresh connection_init.
+  emit(sockets[0]!, "close");
+  await Bun.sleep(25);
+  expect(sockets).toHaveLength(2);
+  expect(reconnects[0]).toBe(5);
+  emit(sockets[1]!, "message", { data: JSON.stringify({ type: "connection_ack" }) });
+  const second = sockets[1]!.sent[0] as { type: string };
+  expect(second.type).toBe("connection_init");
+  const resubscribe = sockets[1]!.sent[1] as { id: string; type: string };
+  expect(resubscribe.type).toBe("subscribe");
+  emit(sockets[1]!, "message", { data: JSON.stringify({ id: resubscribe.id, type: "next", payload: { data: { ordersChanged: { event: "updated" } } } }) });
+  expect(received).toHaveLength(2);
+  // Stopping clears the retry timer and closes the active socket.
+  stop();
+  emit(sockets[1]!, "close");
+  await Bun.sleep(20);
+  expect(sockets).toHaveLength(2);
 });
 
 `;

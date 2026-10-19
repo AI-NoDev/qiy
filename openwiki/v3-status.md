@@ -70,7 +70,9 @@
 
 **浏览器端（已完成）**：`web/app/subscriptions.ts` 增加 `subscribeGraphqlWs`（原生 WebSocket，`connection_init` 带 token、`ack` 后订阅、`next/error/complete`、停止时发 `complete` 并关闭，`socketFactory` 可注入）+ `graphqlWsUrl`/`encodeGraphqlWsFrame`/`decodeGraphqlWsFrame`；生成 web 测试覆盖 init/订阅/收帧/错误/完成/停止（web 侧 35 tests 全绿）。
 
-**边界**：页面默认仍用 SSE（可显式改用 WS）；没有自动重连/重订阅策略；没有旧 `graphql-transport-ws` 协议兼容。
+**断线重连（已完成）**：`subscribeGraphqlWs` 关闭后按 `reconnectDelayMs`→`maxReconnectDelayMs` 指数退避重连，重新 init + subscribe；`onReconnect` 报告 attempt/delay，`stop()` 清理定时器。生成 web 测试覆盖“断开→重连→重新订阅→再次收帧”全链路（web 36 tests 全绿）。
+
+**边界**：页面默认仍用 SSE（SSE 客户端本身尚无自动重连；实时页面走 Ably 时由 SDK 负责重连）；没有旧 `graphql-transport-ws` 协议兼容；真实 Ably 租户验收仍受环境阻塞。
 
 ## 跨副本导入 worker（2026-10-17，已完成）
 
