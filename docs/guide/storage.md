@@ -49,6 +49,20 @@ base64 会增加约三分之一传输体积，不适合大文件；大文件优�
 
 S3 使用 `Bun.S3Client`，不额外安装 AWS SDK。运行时读取 `QIY_S3_BUCKET`、`QIY_S3_REGION`、`QIY_S3_ENDPOINT`、`QIY_S3_ACCESS_KEY_ID`、`QIY_S3_SECRET_ACCESS_KEY`；临时凭据可提供 `QIY_S3_SESSION_TOKEN`。
 
+## 分片 / 断点续传上传
+
+大文件可以用**会话式分片上传**（服务端按块缓冲后一次性写入 storage；local 与 s3 provider 同一套 API）：
+
+| 端点 | 作用 |
+| --- | --- |
+| `POST /api/v1/files/upload-sessions` | 开一个上传会话：`{ key, resource, field, fileName?, contentType?, resourceId? }` → `{ id, receivedBytes: 0, maxBytes }`；key 已存在返回 409 |
+| `GET /api/v1/files/upload-sessions/:id` | 查询已接收字节数（断点续传据此决定 offset），只能由会话创建者访问 |
+| `PUT /api/v1/files/upload-sessions/:id?offset=<n>` | 追加一块原始字节；`offset` 必须等于已接收字节数（否则 409），超过字段 `@maxBytes` 返回 413 |
+| `POST /api/v1/files/upload-sessions/:id/complete` | 合并分片、校验 MIME 与上传模式、写入存储并登记 attachment 元数据；空会话 400 |
+| `DELETE /api/v1/files/upload-sessions/:id` | 放弃会话（不产生对象） |
+
+边界：会话存在**进程内存**里（TTL 1 小时），多副本部署需要粘性会话或共享会话表；S3 的 **presigned PUT / 原生 multipart** 尚未实现（仍经服务端中转）；分片大小由客户端决定。
+
 ## 清理任务
 
 ```ts

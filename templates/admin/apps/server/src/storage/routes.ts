@@ -101,6 +101,22 @@ function decodeBase64(value: string, contentType: string): Blob {
 }
 
 export function createStorageRoutes(authenticate: Authenticator) {
+  type UploadSession = { id: string; key: string; fileName: string | null; contentType: string; resource: string; resourceId: string | null; field: string; ownerId: string; chunks: Uint8Array[]; size: number; expiresAt: number };
+  const uploadSessions = new Map<string, UploadSession>();
+  const UPLOAD_SESSION_TTL_MS = 60 * 60 * 1000;
+
+  /** Drops sessions that were never completed or aborted. */
+  const pruneUploadSessions = (now = Date.now()): void => {
+    for (const [id, session] of uploadSessions) if (session.expiresAt <= now) uploadSessions.delete(id);
+  };
+
+  /** Resumable uploads buffer chunks in memory; multi-replica deployments need sticky sessions. */
+  const findUploadSession = (principal: { id: string }, id: string): UploadSession => {
+    pruneUploadSessions();
+    const session = uploadSessions.get(id);
+    if (!session || session.ownerId !== principal.id) throw new UploadFailure(404, "Upload session not found");
+    return session;
+  };
   const storage = createStorageFromEnv();
   const saveUpload = async (principal: { id: string }, query: { key: string; fileName?: string; contentType?: string; resource: string; resourceId?: string; field: string }, content: Blob, encoding: "binary" | "base64") => {
     const key = storageKey(query.key);
@@ -168,5 +184,64 @@ export function createStorageRoutes(authenticate: Authenticator) {
       if (!principal || principal.role !== "admin") return failure(status, 403, "Permission denied");
       try { const key = storageKey(query.key); await storage.delete(key); await removeMetadata(key); return { deleted: true }; }
       catch { return failure(status, 400, "Invalid storage key"); }
-    }, { query: t.Object({ key: t.String({ minLength: 1, maxLength: 240 }) }) });
+    }, { query: t.Object({ key: t.String({ minLength: 1, maxLength: 240 }) }) })
+    .post("/upload-sessions", async ({ body, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal || (principal.role !== "admin" && principal.role !== "operator")) return failure(status, 403, "Permission denied");
+      try {
+        const key = storageKey(body.key);
+        const policy = uploadPolicy(body.resource, body.field);
+        if (await readMetadata(key) || await storage.exists(key)) return failure(status, 409, "Storage key already exists");
+        const id = crypto.randomUUID();
+        uploadSessions.set(id, { id, key, fileName: body.fileName ?? null, contentType: (body.contentType ?? "application/octet-stream").toLowerCase(), resource: body.resource, resourceId: body.resourceId ?? null, field: body.field, ownerId: principal.id, chunks: [], size: 0, expiresAt: Date.now() + UPLOAD_SESSION_TTL_MS });
+        return { id, key, receivedBytes: 0, maxBytes: policy.maxBytes };
+      } catch (error) { return failure(status, error instanceof UploadFailure ? error.status : 400, error instanceof Error ? error.message : "Invalid upload session"); }
+    }, { body: t.Object({ key: t.String({ minLength: 1, maxLength: 240 }), resource: t.String({ minLength: 1, maxLength: 120 }), field: t.String({ minLength: 1, maxLength: 120 }), fileName: t.Optional(t.String({ maxLength: 255 })), contentType: t.Optional(t.String({ maxLength: 255 })), resourceId: t.Optional(t.String({ maxLength: 240 })) }) })
+    .get("/upload-sessions/:id", async ({ params, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return failure(status, 401, "Authentication required");
+      try { const session = findUploadSession(principal, params.id); return { id: session.id, key: session.key, receivedBytes: session.size, expiresAt: new Date(session.expiresAt).toISOString() }; }
+      catch (error) { return failure(status, error instanceof UploadFailure ? error.status : 400, error instanceof Error ? error.message : "Invalid upload session"); }
+    }, { params: t.Object({ id: t.String({ format: "uuid" }) }) })
+    .put("/upload-sessions/:id", async ({ params, request, status, query }) => {
+      const principal = await authenticate(request);
+      if (!principal) return failure(status, 401, "Authentication required");
+      try {
+        const session = findUploadSession(principal, params.id);
+        const policy = uploadPolicy(session.resource, session.field);
+        const chunk = new Uint8Array(await request.arrayBuffer());
+        const offset = query?.offset === undefined ? session.size : Number(query.offset);
+        if (!Number.isSafeInteger(offset) || offset !== session.size) return failure(status, 409, "Chunk offset does not match the received bytes");
+        if (session.size + chunk.length > policy.maxBytes) return failure(status, 413, "File is too large");
+        session.chunks.push(chunk);
+        session.size += chunk.length;
+        return { id: session.id, receivedBytes: session.size };
+      } catch (error) { return failure(status, error instanceof UploadFailure ? error.status : 400, error instanceof Error ? error.message : "Invalid upload session"); }
+    }, { params: t.Object({ id: t.String({ format: "uuid" }) }), query: t.Optional(t.Object({ offset: t.Optional(t.String({ maxLength: 20 })) })) })
+    .post("/upload-sessions/:id/complete", async ({ params, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return failure(status, 401, "Authentication required");
+      try {
+        const session = findUploadSession(principal, params.id);
+        const policy = uploadPolicy(session.resource, session.field);
+        if (session.size === 0) return failure(status, 400, "Upload session has no data");
+        if (!acceptsMime(policy, session.contentType)) return failure(status, 415, "File MIME type is not allowed");
+        if (policy.mode !== "both" && policy.mode !== "binary") return failure(status, 415, "File field does not accept binary uploads");
+        const combined = new Uint8Array(session.size);
+        let position = 0;
+        for (const chunk of session.chunks) { combined.set(chunk, position); position += chunk.length; }
+        await storage.save(session.key, new Blob([combined], { type: session.contentType }));
+        const metadata: AttachmentMetadata = { id: crypto.randomUUID(), storageKey: session.key, fileName: session.fileName, contentType: session.contentType, size: session.size, ownerId: session.ownerId, resource: session.resource, resourceId: session.resourceId, createdAt: new Date().toISOString() };
+        try { await saveMetadata(metadata); }
+        catch (error) { await storage.delete(session.key); throw error; }
+        uploadSessions.delete(session.id);
+        return { ...metadata };
+      } catch (error) { return failure(status, error instanceof UploadFailure ? error.status : 400, error instanceof Error ? error.message : "Invalid upload session"); }
+    }, { params: t.Object({ id: t.String({ format: "uuid" }) }) })
+    .delete("/upload-sessions/:id", async ({ params, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return failure(status, 401, "Authentication required");
+      try { const session = findUploadSession(principal, params.id); uploadSessions.delete(session.id); return { aborted: true }; }
+      catch (error) { return failure(status, error instanceof UploadFailure ? error.status : 400, error instanceof Error ? error.message : "Invalid upload session"); }
+    }, { params: t.Object({ id: t.String({ format: "uuid" }) }) });
 }

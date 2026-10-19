@@ -36,6 +36,16 @@
 
 执行原则：每项都必须带**真实验收脚本**与 `v3-status` 证据目录；不把"生成源码契约"当作运行时验收。本轮先执行 #1。
 
+## 分片 / 断点续传上传（2026-10-17，已完成）
+
+P1 文件能力中此前缺失的分片/续传已补齐（服务端 + 真实验收）：
+
+- 会话式端点：开会话 / 查询已接收字节 / 按 offset 追加分片（offset 不符 409）/ 合并完成（校验 MIME、上传模式、@maxBytes）/ 放弃会话；会话绑定创建者，他人访问 404。
+- 完成时合并分片写入 storage 并登记 attachment 元数据；空会话 400，超限 413，key 冲突 409。
+- 验收 `tools/verify-resumable-upload.ts`（local provider）：**3 pass / 28 断言**——分块“hello-”+“world”→续传 offset→合并→下载得到 `hello-world`、metadata 可查、重复 key 409；他人读写完成均 404；abort 后无对象；超 maxBytes 413；空会话 400。证据 `%TEMP%/qiy-resumable-v1bXpF`；文件回归（multi-file、orphan-cleanup）仍 exit 0。
+
+**边界**：会话在进程内存（TTL 1h），多副本需粘性会话；S3 presigned 直传与原生 multipart 未实现；分片大小无固定约束。
+
 ## 多副本部署验收（2026-10-17，已完成）
 
 计划表里"多副本部署"此前只有单进程内两个 `createApp` 实例的证据，本轮补真实**多进程 + HTTP** 验收：
