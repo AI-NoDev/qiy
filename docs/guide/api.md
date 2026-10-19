@@ -96,6 +96,16 @@ GET    /api/v1/graphql/subscribe   GraphQL 订阅（SSE，仅 GraphQL 客户端 
 - 持久化在生成的 `qiy_saved_views` 表（三方言 schema 都包含），不依赖进程内存。
 - Web：列表页打开时通过 `web/app/views-api.ts` 的 `fetchServerViews()` 拉取并合并进 `Saved views` 下拉（共享视图显示为 `名称 (shared)`，可直接应用）；本地视图仍是即时保存，发布共享视图目前通过上述 API。
 
+## GraphQL Subscription（SSE 与 graphql-ws）
+
+- SSE：`GET /api/v1/graphql/subscribe?query=...`，每个事件一帧 `data: {...}`（见 realtime 文档）。
+- **graphql-ws（WebSocket）**：`ws(s)://<host>/graphql/ws`，标准 graphql-ws 帧：
+  - `connection_init` 的 `payload.token` 携带 Bearer token（也可用 `Authorization` 头），失败以 `4401` 关闭；
+  - `connection_ack` 后可发 `{ id, type: "subscribe", payload: { query, variables, operationName } }`；
+  - 每个事件返回 `{ id, type: "next", payload }`，错误 `type: "error"`，结束 `type: "complete"`（客户端 `complete` 会被立即确认）；
+  - 支持 `ping/pong` 与 `connection_terminate`；订阅权限仍走 capability（agent 分段 channel 同样生效）。
+- 浏览器端：生成的 `web/app/subscriptions.ts` 目前提供 SSE 客户端 `subscribeGraphql()`；graphql-ws 的浏览器客户端 helper 尚未生成，页面默认仍用 SSE。
+
 ## CSV 导入
 `POST /api/v1/:resources/import` 接收 `text/csv` 请求体（首行为表头），逐行调用与创建相同的一条写入路径，因此同样受 `restrict` 行谓词与脱敏规则约束：
 

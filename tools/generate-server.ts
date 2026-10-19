@@ -314,6 +314,63 @@ function renderGraphQL(database: DatabaseIR, hiddenFields: Record<string, string
     }, { query: t.Object({ query: t.String({ minLength: 1, maxLength: 20000 }), variables: t.Optional(t.String({ maxLength: 20000 })), operationName: t.Optional(t.String({ maxLength: 200 })) }) })`
     : "";
 
+  // graphql-ws (WebSocket) transport: the same subscriptions as SSE, so browsers can
+  // use the standard protocol without a separate server. Auth rides connection_init.
+  const websocketRoute = realtimeEntities.length
+    ? `
+    .ws("/ws", {
+      async message(socket, raw) {
+        const ws = socket as any;
+        let frame: { type?: string; id?: string; payload?: { token?: string; query?: string; variables?: Record<string, unknown>; operationName?: string } };
+        try {
+          // Elysia may hand the message over parsed, as text, or as a binary frame.
+          frame = typeof raw === "object" && raw !== null && !(raw instanceof Uint8Array)
+            ? raw as typeof frame
+            : JSON.parse(typeof raw === "string" ? raw : new TextDecoder().decode(raw as Uint8Array));
+        } catch { return ws.send(JSON.stringify({ type: "error", payload: [{ message: "Invalid message" }] })); }
+        if (frame.type === "connection_init") {
+          const token = frame.payload?.token ?? "";
+          const headers: Record<string, string> = token ? { Authorization: /^Bearer\s/.test(token) ? token : "Bearer " + token } : {};
+          const principal = await authenticate(new Request("http://realtime/ws", { headers }));
+          if (!principal) { ws.close(4401, "Unauthorized"); return; }
+          ws.data.principal = principal;
+          ws.data.requestHeaders = headers;
+          return ws.send(JSON.stringify({ type: "connection_ack" }));
+        }
+        if (frame.type === "ping") return ws.send(JSON.stringify({ type: "pong" }));
+        if (frame.type === "connection_terminate") return ws.close(1000, "Terminated");
+        const principal = ws.data.principal as Principal | undefined;
+        if (!principal) { ws.close(4401, "Unauthorized"); return; }
+        if (frame.type === "complete") { const iterator = ws.data.subscriptions?.get(frame.id); if (iterator) { void iterator.return?.(); ws.data.subscriptions.delete(frame.id); ws.send(JSON.stringify({ id: frame.id, type: "complete" })); } return; }
+        if (frame.type !== "subscribe" || !frame.id) return ws.send(JSON.stringify({ type: "error", id: frame.id, payload: [{ message: "Unsupported message" }] }));
+        let document;
+        try { document = parse(frame.payload?.query ?? ""); } catch { return ws.send(JSON.stringify({ id: frame.id, type: "error", payload: [{ message: "Invalid GraphQL document" }] })); }
+        const capabilities = realtimeCapabilities(principal);
+        const contextValue = {
+          request: new Request("http://realtime/ws", { headers: ws.data.requestHeaders ?? {} }),
+          actorId: principal.id,
+          channelFor: (prefix: string) => Object.keys(capabilities).find((channel) => (channel === prefix || channel.startsWith(prefix + ":")) && capabilities[channel]?.includes("subscribe")),
+          scopeFor: () => undefined,
+        };
+        let result: any;
+        try { result = await subscribe({ schema, document, rootValue: resolvers(services${commandArgument}, { channelFor: contextValue.channelFor }), contextValue, variableValues: frame.payload?.variables, operationName: frame.payload?.operationName }); }
+        catch (error) { return ws.send(JSON.stringify({ id: frame.id, type: "error", payload: [{ message: error instanceof Error ? error.message : "Unsupported subscription" }] })); }
+        if (!result || !(Symbol.asyncIterator in result)) {
+          const failures = (result as { errors?: Array<{ message: string }> } | undefined)?.errors ?? [{ message: "Unsupported subscription" }];
+          return ws.send(JSON.stringify({ id: frame.id, type: "error", payload: failures }));
+        }
+        const iterator = result as AsyncIterableIterator<Record<string, unknown>>;
+        ws.data.subscriptions = ws.data.subscriptions ?? new Map();
+        ws.data.subscriptions.set(frame.id, iterator);
+        void (async () => {
+          try { for await (const payload of iterator) { if (ws.readyState !== 1) break; ws.send(JSON.stringify({ id: frame.id, type: "next", payload })); } }
+          catch (error) { if (ws.readyState === 1) ws.send(JSON.stringify({ id: frame.id, type: "error", payload: [{ message: error instanceof Error ? error.message : String(error) }] })); }
+          finally { if (ws.readyState === 1) ws.send(JSON.stringify({ id: frame.id, type: "complete" })); ws.data.subscriptions?.delete(frame.id); }
+        })();
+      },
+      close(socket) { const ws = socket as any; for (const iterator of ws.data.subscriptions?.values?.() ?? []) void iterator.return?.(); ws.data.subscriptions?.clear?.(); },
+    })`
+    : "";
   const commandParameter = dataflows.length ? ", commandRoutes: ReturnType<typeof createDataflowRoutes>" : "";
   // Subscription roots are lazy top-level getters: graphql-js reads rootValue[field]
   // when the operation is executed, so queries never evaluate them. The emitted value
@@ -343,7 +400,7 @@ function renderGraphQL(database: DatabaseIR, hiddenFields: Record<string, string
   return `import { Elysia, t } from "elysia";
 import { buildSchema, graphql, parse, subscribe, getOperationAST, Kind, GraphQLError } from "graphql";
 import type { Repositories } from "./app";
-import type { Authenticator } from "./auth/guard";
+import type { Authenticator, Principal } from "./auth/guard";
 ${policyImports}${commandImport}${serviceImports}${realtimeEntities.length ? '\nimport { realtimeChannelIterator } from "./realtime";\nimport { realtimeCapabilities } from "./realtime";\n' : ""}
 
 export const graphqlTypeDefs = ${schema};
@@ -391,7 +448,7 @@ ${commandSetup}  return new Elysia({ prefix: "/graphql" })
       try { fields = requestedFields(operation.query, operation.operationName); } catch { fields = new Set(); }
       if (scopeDefinitions.some(({ resource }) => [resource, resource + "ById", resource + "Distribution", resource + "Trend", "create" + resource[0]!.toUpperCase() + resource.slice(1), "update" + resource[0]!.toUpperCase() + resource.slice(1), "delete" + resource[0]!.toUpperCase() + resource.slice(1), "delete" + resource[0]!.toUpperCase() + resource.slice(1) + "Many"].some((name) => fields.has(name)) && !scopes[resource]?.value)) return status(403, { error: "Missing required data scope claim" });
       return graphql({ schema, rootValue: resolvers(services${commandArgument}), contextValue: { request, actorId: principal?.id, scopeFor: (resource: string) => { const scope = scopes[resource]; if (scope && !scope.value) throw new Error("Missing required data scope claim"); return scope; }${policyContext} }, source: operation.query, variableValues: operation.variables, operationName: operation.operationName });
-    }, { body: t.Object({ query: t.String({ minLength: 1 }), variables: t.Optional(t.Record(t.String(), t.Any())), operationName: t.Optional(t.String()) }) })${subscriptionRoute};
+    }, { body: t.Object({ query: t.String({ minLength: 1 }), variables: t.Optional(t.Record(t.String(), t.Any())), operationName: t.Optional(t.String()) }) })${subscriptionRoute}${websocketRoute};
 }
 
 function resolvers(services: {

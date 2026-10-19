@@ -29,12 +29,24 @@
 | 6 | **组织树管理界面** ✅ 已完成（见下节） | 无新表（复用 `scope ... tree`） | `verify-org-scope` Web 阶段：26 pass / 0 fail | 中 |
 | 7 | **后台导出任务** ✅ 已完成（见下节） | 复用 #1 的任务表骨架 | `verify-export-async`：2 pass / 19 断言 | 中 |
 | 8 | **跨副本导入 + 导出 worker** ✅ 已完成（见下节） | `leaseOwner/leaseUntil` + payload/result 列 | worker 验收：import 3 pass、export 3 pass | 大 |
-| 9 | **`graphql-ws` WebSocket 传输** | 依赖 `graphql-ws` 客户端与服务端协议 | 客户端连接 + 重订阅 + 断线重连（无真实 Ably） | 大 |
+| 9 | **`graphql-ws` WebSocket 传输** ✅ 服务端完成（浏览器 client helper 待做） | 无新增依赖 | `verify-graphql-ws`：2 pass / 12 断言 | 大 |
 | 10 | **其他 UI 库（P2）** | MUI/Chakra 等第二套生成模板 | 每个库独立生成 + 构建 + 关键页面截图 | 很大 |
 | — | **真实 Ably 租户 + 浏览器重连** | 外部 Ably 账号 | 需要真实 key 与浏览器；当前仅有本地 fake 传输验收 | 阻塞（外部） |
 | — | **Docker 依赖验收** | Docker Desktop Linux 引擎 | `Files` MySQL/PG、MySQL outbox、MySQL/PG 上全部策略/任务验收 | 阻塞（环境） |
 
 执行原则：每项都必须带**真实验收脚本**与 `v3-status` 证据目录；不把"生成源码契约"当作运行时验收。本轮先执行 #1。
+
+## graphql-ws WebSocket 传输（2026-10-17，服务端完成）
+
+计划 #9 的服务端部分：GraphQL 订阅除了 SSE，现在也支持标准 **graphql-ws** WebSocket：
+
+- 端点 `/graphql/ws`（生成于 `createGraphQLRoutes`，仅在有 realtime 订阅时出现）：`connection_init`（token 在 payload 或 Authorization 头）→ `connection_ack`；`subscribe` → 逐事件 `next`；`error`/`complete`；`ping/pong` 与 `connection_terminate`；未认证以 4401 关闭。
+- 复用与 SSE 相同的 `subscribe()`、capability（含 claim 分段 channel）与 realtime iterator，因此权限语义不变；`complete` 立即确认，避免 iterator 未唤醒导致挂起。
+- 传输在生成 app 的测试里用**真实 WebSocket** 验收（`app.listen(0)` + Bun WebSocket client）。
+
+**验收** — 新增 `tools/verify-graphql-ws.ts`（SQLite，真实端口）：**2 pass / 12 断言**——init/ack → subscribe → 发事件 → 收到 `next`（event=created 且记录正确）→ `complete`；未认证连接收到 4401 且无 ack；未知订阅字段返回 `error`；普通 query 不能当订阅执行。证据 `%TEMP%/qiy-graphql-ws-yYkbVG`。
+
+**边界**：浏览器端 `web/app/subscriptions.ts` 仍只有 SSE 客户端（graphql-ws 浏览器 helper 未生成，页面默认 SSE）；没有自动重连/重订阅策略；没有 `graphql-transport-ws` 旧协议兼容。
 
 ## 跨副本导入 worker（2026-10-17，已完成）
 
