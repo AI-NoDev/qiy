@@ -1,5 +1,20 @@
 # V3 实施状态与验收规划
 
+## 当前环境阻塞（2026-10-17 会话末）
+
+本会话后续尝试运行新的真实验收时，生成工作区的 `bun install` 稳定卡在 **Resolving dependencies**（注册表可达，但元数据解析挂起；直接 curl registry 返回 200）。已确认不是仓库状态问题：`bun run check`、`bun test`（221 项 / 2471 断言）、`docs:build` 全部通过，已提交并推送（`7cfdf11`、`f68c04f`）。
+
+因此以下剩余项**没有**在本会话继续实现/验收（按既定纪律，不把未跑真实验收的功能标为完成）：
+
+- **#3 tree scope 与 restrict 组合（子树 OR 本人）**：设计已定——把 scope 谓词从仓储层下沉到 policy 模块（`resolvePolicy(resource, principal, columns, scopeCondition?)`，仓储导出 `scopeConditionFor(scope)` 供路由组装），在 `restrict` 表达式里引入 `scope` 原子；需覆盖 list / byId / aggregate / distribution / trend / export / import 的全部读取路径并跑 SQLite 验收（子树行 ∪ 本人行，缺 claim fail-closed）。
+- **#9 `graphql-ws` WebSocket 传输**：服务端在现有 graphql subscribe 之上实现 graphql-ws 协议帧（`connection_init/ack`、`subscribe/next/error/complete`、`ping/pong`），复用 `realtimeChannelIterator` 与 capability；客户端用原生 WebSocket（不引入新依赖）实现 `subscribeGraphqlWs(query, onNext, onError)`，验收需要一个监听端口的生成服务 + 两条订阅（本会话被 install 阻塞）。
+- **#10 其他 UI 库（P2）**：需要第二套生成模板与逐库构建验收，未开始。
+- **导出 worker 接线**：`qiy_export_jobs` 的 lease/result 列与 `claimExportJob/listExportJobs` 已就绪，但把请求内后台构建改成"任意副本 claim + 重建 CSV"以及对应验收未完成。
+
+下一会话恢复后建议顺序：先修复/绕过 install（换 registry 或预热缓存），再按 #3 → #9 → 导出 worker → #10 执行。
+
+
+
 ## 剩余功能目标计划（2026-10-17 排期）
 
 按"能否在本地环境完成真实验收"排序，Docker/真实 IdP/runner 依赖项统一后置：
