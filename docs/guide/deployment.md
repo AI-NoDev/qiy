@@ -149,3 +149,14 @@ bun run tools/verify-saved-views.ts
 ```
 
 Linux 产物可以直接在 Docker 里执行：`docker run --rm -v dist:/dist debian:bookworm-slim /dist/qiy-<version>-linux-x64 --version`；OIDC 可用 `bun run tools/verify-oidc-docker.ts --isolated` 在 Docker 网络内完成 HTTPS JWKS 验收。
+
+## 容器化部署验收（Docker）
+
+`bun run tools/verify-docker-deploy.ts` 会生成一个 PostgreSQL 应用并完成真实容器部署：
+
+1. `docker build` 一个 `oven/bun:1.3.13` 镜像（镜像内先 `bun run db:generate` 生成迁移）；
+2. 起 `postgres:16-alpine` 容器；
+3. 应用容器启动命令：`bun src/db-migrate.ts && bun src/server.ts`；
+4. 用同网络探针容器验证 `/api/v1/health` 200、匿名 401、错误凭据 4xx。
+
+关键环境变量：`DATABASE_URL`、`HOST=0.0.0.0`、`PORT`、`QIY_STORAGE_METADATA=database`、`QIY_AUTH_SECRET`（生产模式下缺少会直接退出）。

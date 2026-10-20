@@ -83,6 +83,16 @@ docker run --rm -v dist:/dist -v <work>:/work -w /work debian:bookworm-slim /dis
 
 这补上了"Linux 只有格式/架构校验、没有执行证据"的空白；macOS 产物仍无 runner（无法在 Linux 容器运行），真实 Ably/厂商 IdP 租户仍需凭据。
 
+**容器化部署验收**
+
+```powershell
+bun run tools/verify-docker-deploy.ts
+```
+
+从当前源码生成一个 PostgreSQL 应用 → 构建 Docker 镜像（`oven/bun:1.3.13`）→ 起一个 `postgres:16-alpine` 容器 → 应用容器启动时执行迁移并监听 3000 → 通过同网络探针容器验证：**健康检查 200、匿名 REST 401、错误凭据 4xx、日志确认迁移执行**（4 项断言全过）。证据 `%TEMP%/qiy-docker-deploy-PBEvjS`。
+
+注意：生产模式要求 `QIY_STORAGE_METADATA=database`、`QIY_AUTH_SECRET` 与 `HOST=0.0.0.0`（否则容器内只监听回环），镜像内先跑 `db:generate` 生成迁移再在启动命令里执行 migrate。
+
 **边界**：OIDC fixture 是自建 HTTPS IdP（不是 Okta/Auth0/Keycloak 租户）；MinIO 的 S3 验收也已在 Docker 通过（`verify-s3-acceptance`，adapter + API 共 2 组验收），但 AWS S3 的 IAM/KMS/版本化仍不在覆盖范围；MySQL/PG 只验证了迁移与上述功能验收，没有 K8s 多副本滚动升级。
 
 ## 共享视图发布 UI（2026-10-17，已完成）
