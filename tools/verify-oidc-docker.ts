@@ -1,4 +1,4 @@
-import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+﻿import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { connect } from "node:tls";
@@ -13,7 +13,7 @@ const fixtureNetwork = fixtureContainer + "-net";
 const root = mkdtempSync(join(tmpdir(), "qiy-oidc-acceptance-"));
 async function run(command: string[]): Promise<string> {
   const child = Bun.spawn(command, { stdout: "pipe", stderr: "pipe" });
-  const timer = setTimeout(() => child.kill(), 180_000);
+  const timer = setTimeout(() => child.kill(), 600_000);
   try {
     const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     if (code !== 0) throw new Error(`OIDC acceptance command failed (${code}): ${command[0]}\n${stdout}\n${stderr}`);

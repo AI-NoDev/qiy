@@ -21,11 +21,16 @@ function renderScopeTreeHelper(database: DatabaseIR, entity: EntityIR, name = "q
   if (!tree) return "";
   const cast = JSON.stringify(database.dialect === "mysql" ? "CHAR" : "TEXT");
   const table = tree.table.name;
+  // PostgreSQL folds unquoted camelCase identifiers, so alias-qualified CTE columns
+  // are emitted through sql.raw (backticks for MySQL, double quotes elsewhere).
+  const rawIdentifier = (identifier: string) => database.dialect === "mysql" ? "`" + identifier + "`" : '"' + identifier + '"';
+  const childIdRaw = JSON.stringify("child." + rawIdentifier(tree.idField.name));
+  const childParentRaw = JSON.stringify("child." + rawIdentifier(tree.parentField.name));
   const castName = `${name}Cast`;
   return `const ${castName} = ${cast};
 /** Subtree ids are structural metadata: the recursive CTE does not re-apply the row policy. */
 function ` + name + `(column: any, value: string) {
-  return sql\`CAST(\${column} AS \${sql.raw(${castName})}) IN (WITH RECURSIVE qiy_scope(id, depth) AS (SELECT CAST(\${${table}.${tree.idField.name}} AS \${sql.raw(${castName})}), 0 FROM \${${table}} WHERE CAST(\${${table}.${tree.idField.name}} AS \${sql.raw(${castName})}) = \${value} UNION ALL SELECT CAST(child.${tree.idField.name} AS \${sql.raw(${castName})}), qiy_scope.depth + 1 FROM \${${table}} AS child JOIN qiy_scope ON CAST(child.${tree.parentField.name} AS \${sql.raw(${castName})}) = qiy_scope.id WHERE qiy_scope.depth < 64) SELECT id FROM qiy_scope)\`;
+  return sql\`CAST(\${column} AS \${sql.raw(${castName})}) IN (WITH RECURSIVE qiy_scope(id, depth) AS (SELECT CAST(\${${table}.${tree.idField.name}} AS \${sql.raw(${castName})}), 0 FROM \${${table}} WHERE CAST(\${${table}.${tree.idField.name}} AS \${sql.raw(${castName})}) = \${value} UNION ALL SELECT CAST(\${sql.raw(${childIdRaw})} AS \${sql.raw(${castName})}), qiy_scope.depth + 1 FROM \${${table}} AS child JOIN qiy_scope ON CAST(\${sql.raw(${childParentRaw})} AS \${sql.raw(${castName})}) = qiy_scope.id WHERE qiy_scope.depth < 64) SELECT id FROM qiy_scope)\`;
 }
 `;
 }

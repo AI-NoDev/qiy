@@ -11,7 +11,8 @@ import { generateApp } from "./commands/generate-app";
 const root = mkdtempSync(join(tmpdir(), "qiy-export-async-"));
 const admin = join(root, "admin");
 const server = join(admin, "apps/server");
-const databaseUrl = join(root, "export-async.sqlite");
+const dialect = Bun.env.QIY_ACCEPTANCE_DIALECT ?? "sqlite";
+const databaseUrl = Bun.env.QIY_ACCEPTANCE_DATABASE_URL ?? join(root, "export-async.sqlite");
 
 async function run(command: string[], cwd: string, env: Record<string, string> = {}): Promise<{ code: number; output: string }> {
   const [executable = "bun", ...args] = command;
@@ -27,7 +28,7 @@ async function must(command: string[], cwd: string, env: Record<string, string> 
 
 writeFileSync(join(root, "app.qiy"), `qiy v0;
 application export-async {
-  database sqlite {}
+  database ${dialect} {}
   api { client rest; }
   auth { provider local; user users; roleField role; usernameField email; passwordField passwordHash; }
   enum userRole { value admin; value operator; value viewer; }

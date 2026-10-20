@@ -36,6 +36,55 @@
 
 执行原则：每项都必须带**真实验收脚本**与 `v3-status` 证据目录；不把"生成源码契约"当作运行时验收。本轮先执行 #1。
 
+## Docker 真实环境验收（2026-10-17，已完成）
+
+Docker Linux 引擎恢复后，补齐了此前只有"格式/架构校验"或"本地 fixture"的外部验收：
+
+**数据库（真实 PostgreSQL 16 / MySQL 8.4 容器）**
+
+```powershell
+docker run -d --name qiy-erp-pg -e POSTGRES_PASSWORD=qiyacceptance -p 55432:5432 postgres:16-alpine
+docker run -d --name qiy-dataflow-mysql -e MYSQL_ROOT_PASSWORD=qiyacceptance -p 53306:3306 mysql:8.4
+bun run tools/verify-postgres-dataflow.ts qiy-erp-pg postgresql   # 28 pass
+bun run tools/verify-mysql-dataflow.ts qiy-dataflow-mysql         # 28 pass
+bun run tools/verify-postgres-erp.ts qiy-erp-pg                   # 6 pass
+```
+
+四个新功能验收已参数化（`QIY_ACCEPTANCE_DIALECT` + `QIY_ACCEPTANCE_DATABASE_URL`），并在真库上跑通：
+
+| 验收 | SQLite | PostgreSQL | MySQL |
+| --- | --- | --- | --- |
+| saved-views（server 3 + web 27） | ✅ | ✅ | ✅ |
+| import-worker（3 tests） | ✅ | ✅ | ✅ |
+| export-async（3 tests） | ✅ | ✅ | ✅ |
+| scope-policy（2 tests，tree scope × restrict） | ✅ | ✅ | ✅ |
+
+真库验收抓到并修复了两个生成器 bug：
+
+1. **PG schema 缺 `boolean` 导入**：`qiy_saved_views.shared` 用 `boolean()` 但 `drizzle-orm/pg-core` 的导入集合没包含它 —— 只有 PG 实库迁移/查询才暴露。
+2. **tree CTE 未引用 camelCase 列**：递归 CTE 里 `child.parentId` 在 PostgreSQL 会被折叠成 `parentid`（42703），MySQL/SQLite 却正常。修复为按方言通过 `sql.raw` 生成 `child."parentId"`/`child.\`parentId\``。
+
+**OIDC（真实 HTTPS + JWKS，Docker 内运行）**
+
+```powershell
+bun run tools/verify-oidc-docker.ts --isolated
+```
+
+在 Docker 网络里起一个 HTTPS OIDC fixture（discovery/JWKS/token），把生成的 server 放进 `oven/bun:1.3.13` 容器，跑 HTTP 验签 + 数据库身份映射验收：**1 pass / 12 断言**（证书链、JWKS 轮换端点、issuer/audience 校验、SQLite 用户映射、HTTP 授权）。fixture 命令的 180s 超时上调到 600s（容器内 `bun install` 更慢）。
+
+**Linux 产物真实执行（Docker）**
+
+```powershell
+bun run build:exe -- --all
+docker run --rm -v dist:/dist debian:bookworm-slim /dist/qiy-0.1.5-linux-x64 --version   # 0.1.5
+docker run --rm -v dist:/dist -v <work>:/work -w /work debian:bookworm-slim /dist/qiy-0.1.5-linux-x64 generate app.qiy out
+# 生成 147 文件；再在 oven/bun:1.3.13 里 bun install + server typecheck + bun test → 29 pass / 3 skip / 0 fail
+```
+
+这补上了"Linux 只有格式/架构校验、没有执行证据"的空白；macOS 产物仍无 runner（无法在 Linux 容器运行），真实 Ably/厂商 IdP 租户仍需凭据。
+
+**边界**：OIDC fixture 是自建 HTTPS IdP（不是 Okta/Auth0/Keycloak 租户）；MinIO 的 S3 验收也已在 Docker 通过（`verify-s3-acceptance`，adapter + API 共 2 组验收），但 AWS S3 的 IAM/KMS/版本化仍不在覆盖范围；MySQL/PG 只验证了迁移与上述功能验收，没有 K8s 多副本滚动升级。
+
 ## 共享视图发布 UI（2026-10-17，已完成）
 
 此前共享视图只有服务端 API 与合并展示，没有"把当前视图发布出去"的界面入口（边界债）。本轮补齐：

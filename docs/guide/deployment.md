@@ -132,3 +132,20 @@ location /         { try_files $uri $uri/ /index.html; }
 `bun run preview` 只绑定本机回环并使用内存仓库，它用于本地验收，不可公开部署。
 
 :::
+
+## 真实数据库验收（Docker）
+
+本地有 Docker 时，可以用真实 PostgreSQL/MySQL 跑生成结果验收（迁移、Dataflow 事务、导入导出 worker、共享视图、tree scope 策略）：
+
+```powershell
+docker run -d --name qiy-erp-pg -e POSTGRES_PASSWORD=qiyacceptance -p 55432:5432 postgres:16-alpine
+docker run -d --name qiy-dataflow-mysql -e MYSQL_ROOT_PASSWORD=qiyacceptance -p 53306:3306 mysql:8.4
+bun run tools/verify-postgres-dataflow.ts qiy-erp-pg postgresql
+bun run tools/verify-mysql-dataflow.ts qiy-dataflow-mysql
+# 新功能验收按方言复用同一脚本：
+$env:QIY_ACCEPTANCE_DIALECT="postgresql"
+$env:QIY_ACCEPTANCE_DATABASE_URL="postgres://postgres:qiyacceptance@127.0.0.1:55432/qiy_views"
+bun run tools/verify-saved-views.ts
+```
+
+Linux 产物可以直接在 Docker 里执行：`docker run --rm -v dist:/dist debian:bookworm-slim /dist/qiy-<version>-linux-x64 --version`；OIDC 可用 `bun run tools/verify-oidc-docker.ts --isolated` 在 Docker 网络内完成 HTTPS JWKS 验收。

@@ -49,7 +49,7 @@ export function generateDrizzlePostgres(database: DatabaseIR): string {
   if (database.dialect !== "postgresql") errors.unshift("This Drizzle adapter only supports PostgreSQL");
   if (errors.length) throw new Error(errors.join("\n"));
 
-  const imports = new Set(["pgTable", "index", "uniqueIndex", "jsonb", "timestamp", "uuid", "text", "integer"]);
+  const imports = new Set(["pgTable", "index", "uniqueIndex", "jsonb", "timestamp", "uuid", "text", "integer", "boolean"]);
   for (const entity of database.entities) {
     for (const field of entity.fields) {
       imports.add(({ UUID: "uuid", Text: "text", Integer: "integer", Decimal: "numeric", Money: "numeric", DateTime: "timestamp", File: "text", Files: "jsonb", Vector: "vector" } as const)[field.type]);
