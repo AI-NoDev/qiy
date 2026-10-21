@@ -160,3 +160,13 @@ Linux 产物可以直接在 Docker 里执行：`docker run --rm -v dist:/dist de
 4. 用同网络探针容器验证 `/api/v1/health` 200、匿名 401、错误凭据 4xx。
 
 关键环境变量：`DATABASE_URL`、`HOST=0.0.0.0`、`PORT`、`QIY_STORAGE_METADATA=database`、`QIY_AUTH_SECRET`（生产模式下缺少会直接退出）。
+
+## Kubernetes 部署验收（k3s in Docker）
+
+`bun run tools/verify-k8s-deploy.ts` 在 Docker 里起单节点 k3s，部署生成器的 `deploy/kubernetes` 清单并做真实探针：
+
+- k3s 容器无法直连 Docker Hub 时，宿主机先 `docker pull` 系统镜像（pause / coredns / local-path-provisioner / busybox），再 `docker save` + `docker cp` + `/bin/ctr -n k8s.io images import`；
+- 生成的 PVC 使用 **ReadWriteOnce**（默认存储类可满足），Deployment 带 **`HOST=0.0.0.0`**；
+- 断言：Pod Running、PVC Bound、Pod 内 `/api/v1/health` 200、匿名 401、日志确认迁移、Service 存在、可用副本 > 0。
+
+部署到真实集群时，把 Deployment 的 `image` 换成你的镜像仓库地址，并按 `secret.example.yaml` 创建同名 Secret（`DATABASE_URL`、`QIY_AUTH_SECRET` 至少 32 字符、`QIY_STORAGE_*`）。

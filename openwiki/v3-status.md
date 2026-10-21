@@ -83,6 +83,21 @@ docker run --rm -v dist:/dist -v <work>:/work -w /work debian:bookworm-slim /dis
 
 这补上了"Linux 只有格式/架构校验、没有执行证据"的空白；macOS 产物仍无 runner（无法在 Linux 容器运行），真实 Ably/厂商 IdP 租户仍需凭据。
 
+**Kubernetes 验收（k3s in Docker）**
+
+```powershell
+bun run tools/verify-k8s-deploy.ts
+```
+
+生成 PostgreSQL 应用并构建镜像 → 在 Docker 里起单节点 `rancher/k3s:v1.31.4-k3s1`（容器不能直连 Docker Hub，宿主机先拉系统镜像 pause/coredns/local-path/busybox，再通过 `/bin/ctr -n k8s.io images import` 导入）→ 应用数据库放在宿主机容器（`host.docker.internal`）→ 用生成器自带的 `deploy/kubernetes/*.yaml` 部署（仅替换本地镜像）：
+
+**9 项断言全过**：node Ready、host DB Ready、Pod Running、PVC **Bound**、`/api/v1/health` 200（在 Pod 内探针）、匿名 REST 401、Pod 日志确认迁移、Service 存在、可用副本 > 0。证据 `%TEMP%/qiy-k8s-dFgvCT`。
+
+K8s 验收又抓到两个生成器 manifest bug：
+
+1. **PVC 用 ReadWriteMany**：默认存储类（local-path/大多数云盘）只支持 ReadWriteOnce，PVC 永远 Pending；改为 **ReadWriteOnce**（单节点多副本仍可挂载，跨节点需共享存储时自行改回 RWX）。
+2. **Deployment 缺 `HOST=0.0.0.0`**：服务只监听 `localhost`，kubelet 探针连 Pod IP 被拒（liveness/readiness 全挂）；生成清单补上 HOST。
+
 **容器化部署验收**
 
 ```powershell

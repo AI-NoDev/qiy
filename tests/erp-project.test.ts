@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+﻿import { describe, expect, test } from "bun:test";
 import { parseQiyProject } from "../tools/qiy-project";
 import { generateProject } from "../tools/generate-project";
 
@@ -38,7 +38,7 @@ describe("ERP Admin project", () => {
     expect(files["apps/server/src/storage/cleanup.ts"]).toContain("--apply");
     expect(files["apps/server/package.json"]).toContain('"attachments:cleanup"');
     expect(files["deploy/kubernetes/deployment.yaml"]).toContain("persistentVolumeClaim:");
-    expect(files["deploy/kubernetes/persistent-volume-claim.yaml"]).toContain("ReadWriteMany");
+    expect(files["deploy/kubernetes/persistent-volume-claim.yaml"]).toContain("ReadWriteOnce");
     expect(files["docker-compose.yml"]).toContain("./apps/server/.env.production");
     expect(files["apps/server/.env.production"]).toContain("QIY_STORAGE_METADATA=database");
     expect(files["apps/server/package.json"]).toContain('"attachments:cleanup"');

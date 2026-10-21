@@ -84,8 +84,6 @@ try {
   console.log("application image built");
 
   console.log(await must(["docker", "run", "-d", "--name", appContainer, "--network", network, "-e", `DATABASE_URL=${databaseUrl}`, "-e", "PORT=3000", "-e", "HOST=0.0.0.0", "-e", "QIY_STORAGE_METADATA=database", "-e", "QIY_STORAGE_PROVIDER=local", "-e", "QIY_STORAGE_ROOT=./storage", image]));
-  await Bun.sleep(4000);
-  console.log("container logs:\n" + (await run(["docker", "logs", appContainer])).output.slice(-1500));
   // The entrypoint migrates before serving, so wait for readiness with a probe container.
   const probe = [
     "docker", "run", "--rm", "--network", network, probeImage, "bun", "-e",
@@ -104,7 +102,6 @@ try {
     "docker", "run", "--rm", "--network", network, probeImage, "bun", "-e",
     `const response = await fetch("http://${appContainer}:3000/api/v1/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "nobody@example.com", password: "wrong" }) }); console.log("status", response.status);`,
   ], { timeoutMs: 120_000 });
-  console.log("login probe: " + login.trim());
   check("login rejects unknown credentials", /status 4\d\d/.test(login));
 
   const logs = await run(["docker", "logs", appContainer]);
