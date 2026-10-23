@@ -179,6 +179,59 @@ Okta 配置步骤：
 
 脚本用 password grant 从 `/v1/token` 取真实 token，写入 `iss|sub` 用户映射后验证：合法 token 通过并映射 admin；伪造签名被拒。
 
+## 3f. Azure AD B2C / Microsoft Entra External ID 创建与验收
+
+> 微软已把新建 B2C 租户的入口逐步迁移到 **Microsoft Entra External ID**（`ciamlogin.com`）。新订阅里如果找不到 "Azure AD B2C" 创建入口，请直接用下面的 External ID 步骤；已存在的 B2C 租户仍按 B2C 步骤测试。两种都能用 `provider azure-ad-b2c`。
+
+### A. 传统 Azure AD B2C（b2clogin.com）
+
+1. Azure Portal → Create a resource → **Azure AD B2C**（或 Microsoft Entra ID → External Identities 里的 B2C 租户），创建后记下 **租户域名** `contoso.onmicrosoft.com` 与 **租户 ID**。
+2. **App registrations → New registration**：
+   - Supported account types 选 B2C 的 "Accounts in any identity provider or organizational directory"；
+   - Redirect URI 选 **SPA** 或 **Web**，填生成 Web 的登录回调（本地可用 `http://localhost:3000/login`）；
+   - 记下 **Application (client) ID**；Web 类型再生成一个 **client secret**。
+3. （可选）**Expose an API** 添加 scope（如 `https://contoso.onmicrosoft.com/api/read`），用于 access token 的 API audience。
+4. **User flows → New user flow**：
+   - 浏览器登录测试：**Sign up and sign in**（名如 `B2C_1_signupsignin`）；
+   - 无人值守测试：**Resource Owner Password**（名如 `B2C_1_ropc`，Local accounts only）——只有它能让脚本直接换到真实 token，不依赖浏览器。
+5. **Users → New user** 建一个本地账号（`user@contoso.onmicrosoft.com` + 密码），并在 user flow / app 中允许本地账号登录。
+6. B2C 的 OIDC 元数据**按 user flow 区分**：
+   - discovery：`https://contoso.b2clogin.com/contoso.onmicrosoft.com/v2.0/.well-known/openid-configuration?p=B2C_1_ropc`
+   - JWKS：`https://contoso.b2clogin.com/contoso.onmicrosoft.com/discovery/v2.0/keys?p=B2C_1_ropc`
+   - issuer：`https://contoso.b2clogin.com/<tenant-id>/v2.0/`
+7. 运行验收：
+
+```powershell
+$env:QIY_AZURE_TENANT_DOMAIN="contoso.onmicrosoft.com"
+$env:QIY_AZURE_POLICY="B2C_1_ropc"                 # 浏览器登录测试时填 signupsignin 的流程名
+$env:QIY_AZURE_CLIENT_ID="<application client id>"
+$env:QIY_AZURE_CLIENT_SECRET="<client secret，SPA 可省略>"
+$env:QIY_AZURE_USERNAME="user@contoso.onmicrosoft.com"
+$env:QIY_AZURE_PASSWORD="<password>"
+bun run tools/verify-azure-b2c.ts
+```
+
+脚本验证：按 policy 拉取真实 discovery 与 JWKS（RS256）→ 生成 `provider azure-ad-b2c` 服务用真实 JWKS 拒绝伪造 token → 若提供用户则走 **ROPC** 取真实 id_token，按 `iss|sub` 写入 users 映射并验证角色。没有用户凭据时 Phase A 仍会跑（只需 tenant domain + policy + client id）。
+
+B2C ROPC 限制：只支持本地账号；MFA/密码过期/需同意/被锁定的账号会失败（错误会原样打印）。不想用 ROPC 时跳过用户变量即可，Phase B 改用浏览器。
+
+### B. Microsoft Entra External ID（ciamlogin.com，新租户推荐）
+
+1. Azure Portal → **Microsoft Entra External ID** → **External tenants** → Create；记下 `<tenant>.ciamlogin.com` 与 tenant id。
+2. **App registrations** 创建应用（同上，Redirect URI 用 `http://localhost:3000/login`）。
+3. **User flows → New user flow**：Sign up and sign in（External ID 目前不提供 ROPC，Phase B 需浏览器）。
+4. 直接用脚本（脚本根据域名是否含 `.ciamlogin.com` 自动选择 discovery）：
+
+```powershell
+$env:QIY_AZURE_TENANT_DOMAIN="myexternal.ciamlogin.com"
+$env:QIY_AZURE_TENANT_ID="<tenant id>"
+$env:QIY_AZURE_CLIENT_ID="<application client id>"
+bun run tools/verify-azure-b2c.ts
+# 也可用 QIY_AZURE_ISSUER / QIY_AZURE_JWKS_URL 显式覆盖
+```
+
+Phase A 会校验 discovery（issuer/JWKS/token）、真实 JWKS 与生成服务对该租户的验签；Phase B 需浏览器登录拿到真实 id_token（可粘贴到 `QIY_AZURE_ID_TOKEN` 后由脚本校验，若需要我可加上该开关）。
+
 ## 4. 真实 Ably（需要 API Key）
 
 Ably 没有本地服务器，必须用真实账号：
