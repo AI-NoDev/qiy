@@ -68,6 +68,34 @@ HOST=0.0.0.0
 - **浏览器 PKCE / 静默续期**：在真实浏览器完成登录 → 刷新页面 → 打开多个标签页；若要自动化，可用 Playwright 驱动真实 IdP 登录页（Qiy 不内置浏览器自动化，脚本需要自备）。
 - **错误场景**：换一个没有该 audience 的 client 取 token，应 401；删除 `users` 中的 subject 映射后，应 401。
 
+## 3b. 真实 Auth0 租户（Phase A 已跑通）
+
+```powershell
+$env:QIY_AUTH0_DOMAIN="dev-3c3eq3j5rm4meg4p.us.auth0.com"
+bun run tools/verify-auth0.ts
+```
+
+Phase A（只需要租户域名，不需要客户端密钥）已经跑通：
+
+- 拉取真实 `.well-known/openid-configuration`：issuer/JWKS/token 端点、RS256；
+- 拉取真实 `.well-known/jwks.json`：断言包含当前与下一把轮换 key（`0FJCjD5IW4jOsvAUyuqYq`、`hLvPykYxvTS831IEJ1qaJ`）；
+- 生成 OIDC 应用并把 issuer/JWKS 指向该租户：用**伪造但 kid 正确**的 token 触发验签失败（证明真实 JWKS 已被拉取并参与校验），缺 token/畸形 token 也被拒绝。
+
+Phase B（真实 token 登录）需要 Auth0 侧凭据：
+
+```powershell
+$env:QIY_AUTH0_CLIENT_ID="<application client id>"
+$env:QIY_AUTH0_CLIENT_SECRET="<client secret, 仅 confidential 应用需要>"
+$env:QIY_AUTH0_AUDIENCE="<API identifier，例如 https://qiy-api>"
+$env:QIY_AUTH0_USERNAME="<Username-Password-Authentication 连接里的用户邮箱>"
+$env:QIY_AUTH0_PASSWORD="<该用户密码>"
+bun run tools/verify-auth0.ts
+```
+
+设置后脚本会用 password grant 从 `/oauth/token` 取真实 token（带 API audience），在 `users` 表写入 `iss|sub` 映射后验证：合法 token 通过并映射 admin；不带 audience 的 token 被拒；篡改签名被拒。
+
+> Auth0 默认应用类型是 SPA（无 client_secret，不能 password grant）。要跑 Phase B，请在 Auth0 控制台创建一个 **Regular Web Application 或 Machine-to-Machine** 并启用 Password Grant，或在 Application → Advanced → Grant Types 勾选 Password；同时确保该应用被授权 API（audience）。
+
 ## 4. 真实 Ably（需要 API Key）
 
 Ably 没有本地服务器，必须用真实账号：
