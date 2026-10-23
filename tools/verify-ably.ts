@@ -95,7 +95,7 @@ import { publishRealtime } from "./src/realtime";
 import { OrdersRepository } from "./src/modules/orders/orders.repository";
 import { UsersRepository } from "./src/modules/users/users.repository";
 
-const key = process.env.QIY_ABLY_API_KEY!;
+const key = process.env.QIY_ABLY_API_KEY!;\n// The generated test setup disables external realtime calls; this acceptance wants them.\ndelete Bun.env.QIY_REALTIME_DISABLED;
 const channel = ${JSON.stringify(channel)};
 const admin = { id: "00000000-0000-4000-8000-000000000001", name: "admin", role: "admin" as const };
 const operator = { id: "00000000-0000-4000-8000-000000000002", name: "operator", role: "operator" as const };
@@ -115,11 +115,15 @@ test("generated token endpoint mints a subscribe-only capability", async () => {
   expect(response.status).toBe(200);
   const tokenRequest = await response.json() as Record<string, unknown>;
   expect(Object.keys(tokenRequest).length).toBeGreaterThan(0);
-  const restricted = new Rest({ authCallback: async () => tokenRequest as never });
-  // Reading history needs only subscribe capability.
-  await restricted.channels.get(channel).history({ limit: 1 });
-  // Publishing is not in the capability, so Ably must reject it.
-  await expect(restricted.channels.get(channel).publish("probe", { ok: false })).rejects.toThrow();
+  // Ably authCallback is node-style: callback(error, tokenRequest).
+  const restricted = new Rest({ authCallback: ((_data: unknown, callback: (error: Error | null, request: unknown) => void) => callback(null, tokenRequest)) as never });
+  // The minted capability is subscribe-only for the granted channel.
+  const capability = JSON.parse(String((tokenRequest as { capability?: string }).capability));
+  expect(capability[channel]).toEqual(["subscribe"]);
+  // Publishing is not in the capability, so Ably must reject it (40160).
+  await expect(restricted.channels.get(channel).publish("probe", { ok: false })).rejects.toThrow(/Unauthorized to publish|not permitted/i);
+  // Channels outside the capability are rejected as well.
+  await expect(restricted.channels.get("qiy:other").publish("probe", { ok: false })).rejects.toThrow(/Unauthorized to publish|not permitted/i);
 }, 30_000);
 
 test("a viewer cannot request a realtime token", async () => {

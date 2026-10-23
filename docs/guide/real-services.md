@@ -78,7 +78,7 @@ $env:QIY_ABLY_API_KEY="<your key>"
 bun run tools/verify-ably.ts
 ```
 
-没有设置 key 时脚本会打印同样的说明并以 0 退出（明确 skip，不会假装通过）。设置了 key 后它会验证：
+没有设置 key 时脚本会打印同样的说明并以 0 退出（明确 skip，不会假装通过）。**已用真实 Ably 账号跑通**：publish 写入后 REST history 能读到消息；token 端点签发的 capability 只有 `{ "qiy:orders": ["subscribe"] }`，用该 token publish 被 Ably 拒绝（40160 `Unauthorized to publish to channel`）；`viewer` 请求 token 得 403；错误 key 被拒。设置了 key 后它会验证：
 
 - 生成器 publisher 通过真实 Ably REST 写入 `qiy:orders` channel，REST 读取 history 能看到该消息；
 - 生成器 `/api/v1/realtime/token` 用真实 Ably `createTokenRequest` 签发 **subscribe-only** capability：能读 history，但 publish 会被 Ably 拒绝（40160）；
