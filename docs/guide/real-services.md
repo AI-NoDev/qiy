@@ -230,7 +230,23 @@ bun run tools/verify-azure-b2c.ts
 # 也可用 QIY_AZURE_ISSUER / QIY_AZURE_JWKS_URL 显式覆盖
 ```
 
-Phase A 会校验 discovery（issuer/JWKS/token）、真实 JWKS 与生成服务对该租户的验签；Phase B 需浏览器登录拿到真实 id_token（可粘贴到 `QIY_AZURE_ID_TOKEN` 后由脚本校验，若需要我可加上该开关）。
+Phase A 会校验 discovery（issuer/JWKS/token）、真实 JWKS 与生成服务对该租户的验签；Phase B 需浏览器登录拿到真实 id_token。
+
+**已用真实外部租户跑通（Phase A）**：`windshage.ciamlogin.com` / tenant `735c33e3-…` / client `5e655d7c-…`。注意 External ID 的 issuer 形如 `https://<tenant-id>.ciamlogin.com/<tenant-id>/v2.0`（host 也带 tenant-id），授权与 token 端点在 `https://<tenant>.ciamlogin.com/<tenant-id>/oauth2/v2.0/*`，JWKS 在 `…/discovery/v2.0/keys`。
+
+**用户流在哪里**：外部租户创建后**必须先切换目录**（右上角设置/目录切换 → 选中外部租户）。在"默认目录"里看到的"外部标识 | 用户流"是 B2B 来宾自助注册，列表必然是空的。切到外部租户后：**Entra ID → 外部标识 → 用户流 → 新建用户流 → 注册并登录**（名称如 `signupsignin1`），再在该用户流 → **应用程序** 里把 `qiy` 应用加进去，并建一个测试用户。
+
+**Phase B 全自动浏览器验收**（本机起回调服务，你只需在浏览器登录一次）：
+
+```powershell
+$env:QIY_AZURE_TENANT_DOMAIN="windshage.ciamlogin.com"
+$env:QIY_AZURE_TENANT_ID="735c33e3-df58-4e0c-bd9f-f6bee7eb865b"
+$env:QIY_AZURE_CLIENT_ID="5e655d7c-6d74-4cb0-8686-897e95cc2818"
+$env:QIY_AZURE_POLICY="signupsignin1"       # 你创建的用户流名称
+bun run tools/verify-azure-b2c-browser.ts
+```
+
+脚本会打印授权 URL 并在 `http://localhost:3000/login` 等待回调，用 PKCE 换真实 `id_token`，再交给 `verify-azure-b2c.ts` 完成生成服务验签、`iss|sub` 用户映射与角色断言。若 3000 端口被占用，用 `QIY_AZURE_REDIRECT_URI` + `QIY_AZURE_BROWSER_PORT`（并在应用里登记同一 redirect URI）。
 
 ## 4. 真实 Ably（需要 API Key）
 
