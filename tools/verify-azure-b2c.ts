@@ -41,9 +41,19 @@ if (!tenantDomain) {
 // Azure AD B2C (legacy) uses b2clogin.com with one discovery document per policy;
 // Microsoft Entra External ID tenants use ciamlogin.com with a single document.
 const legacy = !tenantDomain.includes(".ciamlogin.com");
-const discoveryUrl = legacy
-  ? `https://${tenantDomain}.b2clogin.com/${tenantIdOrDomain}/v2.0/.well-known/openid-configuration?p=${encodeURIComponent(policy)}`
-  : `https://${tenantDomain}/v2.0/.well-known/openid-configuration`;
+const explicitDiscovery = Bun.env.QIY_AZURE_DISCOVERY_URL;
+const discoveryCandidates = explicitDiscovery
+  ? [explicitDiscovery]
+  : legacy
+    ? [`https://${tenantDomain}.b2clogin.com/${tenantIdOrDomain}/v2.0/.well-known/openid-configuration?p=${encodeURIComponent(policy)}`]
+    : [
+      // Microsoft Entra External ID: <tenant>.ciamlogin.com/<tenant-id>/v2.0/
+      `https://${tenantDomain}/${tenantIdOrDomain}/v2.0/.well-known/openid-configuration`,
+      // ... or the onmicrosoft domain segment ...
+      `https://${tenantDomain}/${tenantDomain.replace(/\.ciamlogin\.com$/, ".onmicrosoft.com")}/v2.0/.well-known/openid-configuration`,
+      // ... or no extra segment (legacy ciamlogin layout).
+      `https://${tenantDomain}/v2.0/.well-known/openid-configuration`,
+    ];
 
 const root = mkdtempSync(join(tmpdir(), "qiy-azure-b2c-"));
 const admin = join(root, "admin");
@@ -72,9 +82,13 @@ const check = (label: string, condition: boolean) => {
 };
 
 try {
-  const discoveryResponse = await fetch(discoveryUrl);
-  check("Azure AD B2C discovery is reachable for the user flow", discoveryResponse.ok);
-  if (!discoveryResponse.ok) throw new Error("discovery failed: " + discoveryResponse.status + " " + (await discoveryResponse.text()));
+  let discoveryResponse: Response | undefined;
+  for (const candidate of discoveryCandidates) {
+    const response = await fetch(candidate).catch(() => undefined);
+    if (response?.ok) { discoveryResponse = response; console.log("  info discovery: " + candidate); break; }
+  }
+  check("Azure AD B2C / External ID discovery is reachable", Boolean(discoveryResponse));
+  if (!discoveryResponse) throw new Error("discovery failed for all candidates: " + discoveryCandidates.join(", "));
   const discovery = (await discoveryResponse.json()) as { issuer: string; jwks_uri: string; authorization_endpoint: string; token_endpoint: string; id_token_signing_alg_values_supported?: string[] };
   check("discovery exposes an issuer", Boolean(discovery.issuer));
   check("discovery exposes the signing keys endpoint", Boolean(discovery.jwks_uri));
@@ -88,9 +102,13 @@ try {
   const issuer = Bun.env.QIY_AZURE_ISSUER ?? discovery.issuer;
 
   // Phase B: ROPC user flow token (local account), no browser needed.
-  let realToken: string | undefined;
+  let realToken: string | undefined = Bun.env.QIY_AZURE_ID_TOKEN;
   let realClaims: Record<string, unknown> | undefined;
-  if (phaseB) {
+  if (realToken) {
+    realClaims = JSON.parse(Buffer.from(realToken.split(".")[1]!, "base64url").toString()) as Record<string, unknown>;
+    check("provided External ID token has an issuer", typeof realClaims.iss === "string");
+    check("provided External ID token has a subject", typeof realClaims.sub === "string");
+  } else if (phaseB) {
     const tokenUrl = new URL(discovery.token_endpoint);
     if (legacy) tokenUrl.searchParams.set("p", policy);
     const scope = legacy ? `openid offline_access ${clientId}` : `openid offline_access ${audience}`;
@@ -109,7 +127,7 @@ try {
     realClaims = JSON.parse(Buffer.from(jwt.split(".")[1]!, "base64url").toString()) as Record<string, unknown>;
     check("B2C ROPC minted a real token", true);
   } else {
-    console.log("  skip B2C ROPC login (set QIY_AZURE_CLIENT_ID/USERNAME/PASSWORD and a Resource Owner Password user flow).");
+    console.log("  skip real-token verification (External ID has no ROPC): set QIY_AZURE_ID_TOKEN from a browser login, or use a legacy B2C Resource Owner Password flow via QIY_AZURE_USERNAME/PASSWORD.");
   }
 
   writeFileSync(join(root, "app.qiy"), `qiy v0;
