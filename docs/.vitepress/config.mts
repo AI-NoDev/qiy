@@ -147,6 +147,7 @@ export default defineConfig({
             { text: "业务工作流", link: "/guide/workflow" },
             { text: "文件存储", link: "/guide/storage" },
             { text: "部署", link: "/guide/deployment" },
+            { text: "真实外部服务验收", link: "/guide/real-services" },
             { text: "Android 分发", link: "/guide/android-distribution" },
           ],
         },

@@ -1,0 +1,88 @@
+# 真实外部服务验收（Ably / 厂商 IdP）
+
+本地开发默认用生成器内置的本地认证与实时实现。要证明"接真实外部服务也能跑"，Qiy 提供了三个可执行的验收路径；前两个**不需要任何外部凭据**，第三个需要在服务商侧创建应用。
+
+## 1. 真实 IdP 协议链路（Docker fixture，无需凭据）
+
+```powershell
+bun run tools/verify-oidc-docker.ts --isolated
+```
+
+在 Docker 网络里起一个 HTTPS OIDC fixture（discovery / JWKS / token 端点），把生成的 server 放进 `oven/bun` 容器，验证：HTTPS 验签、issuer/audience、JWKS 拉取、`iss|sub` 身份映射、HTTP 授权。这是**协议级**验收，覆盖 OIDC 接入代码路径。
+
+## 2. 真实 OIDC Provider：Dex（Docker，无需外部凭据）
+
+```powershell
+docker pull ghcr.io/dexidp/dex:v2.41.1
+bun run tools/verify-dex.ts
+```
+
+Dex 是 CNCF 的 OIDC 身份提供方，脚本用它做**真实 IdP** 验收（不是自建 fixture）：
+
+1. 用本地镜像里的 openssl 生成 HTTPS 证书（Dex 以非 root 运行，脚本把 key 改为 644）；
+2. 以内存存储启动 Dex，导入两个 public client（`qiy-acceptance` 与不带 audience 的 `qiy-other`）和两个静态用户（bcrypt 口令）；
+3. 通过 Dex 的 **password grant** token 端点取真实 JWT，校验 `aud` 与 `email` claim；
+4. 生成 `auth { provider oidc; ... }` 应用，用真实 issuer/JWKS 构造 `createProductionAuthenticator()`；
+5. 断言：合法 token 通过并映射角色；错误 audience 的 token 401；数据库没有 `iss|sub` 映射的 token 401；匿名 401。
+
+成功输出 `Dex real-IdP acceptance passed`（证据在工作区临时目录）。
+
+## 2b. 真实 Keycloak（Docker，可选）
+
+```powershell
+docker pull keycloak/keycloak:26.0.5
+bun run tools/verify-keycloak.ts
+```
+
+与 Dex 版本等价的 Keycloak 验收：realm 导入（audience mapper + tenant attribute mapper）、token 端点密码模式、`tenant.customerId` 自定义 claim、生成 server 验签与身份映射。Keycloak 镜像较大，拉取慢时不影响 Dex 路径。
+
+## 3. 真实厂商租户（Okta / Auth0 / Azure AD B2C / Google / Kinde）
+
+在厂商控制台创建：
+
+| 配置 | 要求 |
+| --- | --- |
+| 应用类型 | SPA / Public client（浏览器 PKCE），或 confidential client + BFF |
+| 回调地址 | 生成 Web 的登录回调（`/login` 后由 Refine auth provider 处理），本地调试加 `http://localhost:5173/**` |
+| API / Audience | 与 `QIY_OIDC_AUDIENCE` 一致；Web 端必须请求该 audience 的 token |
+| Claims | 角色 claim（映射到生成器的 `roleField`，值为 `admin`/`operator`/`viewer`）与租户 claim（用于 `scope ... claim tenant.customerId`） |
+| 用户映射 | 生成器用 `issuer + "|" + sub` 作为 `subjectField`，需要在 `users` 表为用户预置该 subject |
+
+然后把真实值写到生成项目的 `.env.production`：
+
+```env
+QIY_OIDC_ISSUER=https://<tenant>/
+QIY_OIDC_AUDIENCE=<api audience>
+QIY_OIDC_JWKS_URL=https://<tenant>/.well-known/jwks.json
+QIY_AUTH_SECRET=<32+ characters>
+QIY_STORAGE_METADATA=database
+HOST=0.0.0.0
+```
+
+验收方式：
+
+- **服务端 token 验签**：把真实 token 放进 `curl -H "Authorization: Bearer <token>" https://<app>/api/v1/auth/me`，应返回映射后的 principal（role + claims）。
+- **JWKS 轮换**：在厂商控制台轮换签名密钥后，旧 token 应逐步失效、新 token 立即可用（生成器默认缓存 10 分钟，可用 `QIY_OIDC_JWKS_CACHE_MAX_AGE_MS` 调小）。
+- **浏览器 PKCE / 静默续期**：在真实浏览器完成登录 → 刷新页面 → 打开多个标签页；若要自动化，可用 Playwright 驱动真实 IdP 登录页（Qiy 不内置浏览器自动化，脚本需要自备）。
+- **错误场景**：换一个没有该 audience 的 client 取 token，应 401；删除 `users` 中的 subject 映射后，应 401。
+
+## 4. 真实 Ably（需要 API Key）
+
+Ably 没有本地服务器，必须用真实账号：
+
+1. 在 <https://ably.com> 创建免费 app，复制 API key（`<appId>.<keyId>:<secret>`）；
+2. 运行：
+
+```powershell
+$env:QIY_ABLY_API_KEY="<your key>"
+bun run tools/verify-ably.ts
+```
+
+没有设置 key 时脚本会打印同样的说明并以 0 退出（明确 skip，不会假装通过）。设置了 key 后它会验证：
+
+- 生成器 publisher 通过真实 Ably REST 写入 `qiy:orders` channel，REST 读取 history 能看到该消息；
+- 生成器 `/api/v1/realtime/token` 用真实 Ably `createTokenRequest` 签发 **subscribe-only** capability：能读 history，但 publish 会被 Ably 拒绝（40160）；
+- `viewer` 角色请求 token 得到 403；
+- 错误 key 会被 Ably 拒绝。
+
+浏览器端重连：生成 Web 使用 Ably JS SDK 2.x，SDK 自带断线重连；GraphQL Subscription 的 SSE / graphql-ws 客户端有 Qiy 自己的指数退避重连（见 `docs/guide/api.md`）。
