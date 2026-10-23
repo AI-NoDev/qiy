@@ -1,0 +1,140 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Outbox health",
+      "targets": [
+        {
+          "expr": "qiy_realtime_outbox_health"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Pending and leased",
+      "targets": [
+        {
+          "expr": "qiy_realtime_outbox_pending",
+          "legendFormat": "pending"
+        },
+        {
+          "expr": "qiy_realtime_outbox_leased",
+          "legendFormat": "leased"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 9,
+        "x": 6,
+        "y": 0
+      },
+      "id": 2,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Dead letters",
+      "targets": [
+        {
+          "expr": "qiy_realtime_outbox_dead_lettered",
+          "legendFormat": "dead-lettered"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 9,
+        "x": 15,
+        "y": 0
+      },
+      "id": 3,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Oldest pending age",
+      "targets": [
+        {
+          "expr": "qiy_realtime_outbox_oldest_pending_age_seconds",
+          "legendFormat": "seconds"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 4,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Delivered retained",
+      "targets": [
+        {
+          "expr": "qiy_realtime_outbox_delivered",
+          "legendFormat": "delivered"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 5,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": [
+    "qiy",
+    "realtime"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "title": "Qiy Realtime Outbox",
+  "uid": "qiy-supply-chain-erp-wms-realtime",
+  "version": 1
+}

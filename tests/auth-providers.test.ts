@@ -55,7 +55,7 @@ describe("Refine command palette and identity providers", () => {
     expect(files["apps/web/tests/oidc-client.test.ts"]).toContain("renews silently once per redirect cycle");
     expect(files["apps/web/app/routes.ts"]).toContain('route("auth/callback", "./routes/auth-callback.tsx")');
     expect(files["apps/web/app/root.tsx"]).toContain('location.pathname.startsWith("/auth/")');
-    expect(files["apps/web/app/routes/login.tsx"]).not.toContain("粘贴");
+    expect(files["apps/web/app/routes/login.tsx"]).not.toContain("绮樿创");
     expect(files["apps/web/.env.example"]).toContain("VITE_QIY_AUTHORIZATION_URL=");
     expect(files["apps/web/.env.example"]).toContain("VITE_QIY_CLIENT_ID=qiy-admin-spa");
     expect(files["apps/web/.env.example"]).not.toContain("CLIENT_SECRET");
@@ -111,5 +111,66 @@ describe("Refine command palette and identity providers", () => {
     expect(otpSource).toContain("name: String(row.email ?? row.id)");
     expect(otpSource).not.toContain("row.displayName");
     expect(() => parseQiyProject(`qiy v0; application invalid-otp { database sqlite {} auth { provider otp; user users; roleField role; } enum role { value admin; value operator; value viewer; } entity users { field id UUID @id; field email Text @unique; field role role; } }`)).toThrow("requires usernameField");
+  });
+});
+
+
+describe("multi-provider authentication", () => {
+  const multiModel = `qiy v0; application qiy-multi-provider {
+    database sqlite {}
+    auth {
+      providers oidc, google, okta, auth0, azure-ad-b2c, keycloak, kinde;
+      user users;
+      subjectField subject;
+      roleField role;
+      provider google { subjectField googleSubject; }
+      provider oidc { subjectField openidField; claim openid; }
+    }
+    enum role { value admin; value operator; value viewer; }
+    entity users {
+      field id UUID @id;
+      field subject Text @unique;
+      field googleSubject Text @nullable;
+      field openidField Text @nullable;
+      field role role;
+    }
+    entity notes { field id UUID @id; field title Text; }
+  }`;
+
+  test("parses and round-trips the provider list with per-provider mappings", () => {
+    const project = parseQiyProject(multiModel);
+    expect(project.auth?.providers).toEqual(["oidc", "google", "okta", "auth0", "azure-ad-b2c", "keycloak", "kinde"]);
+    expect(project.auth?.provider).toBe("oidc");
+    expect(project.auth?.providerMappings).toEqual([
+      { provider: "google", subjectField: "googleSubject" },
+      { provider: "oidc", subjectField: "openidField", claim: "openid" },
+    ]);
+    const serialized = serializeQiyProject(project);
+    expect(serialized).toContain("providers oidc, google, okta, auth0, azure-ad-b2c, keycloak, kinde;");
+    expect(serialized).toContain("provider oidc { subjectField openidField; claim openid; }");
+    expect(parseQiyProject(serialized).auth).toEqual(project.auth);
+  });
+
+  test("rejects provider lists that mix local or unknown providers", () => {
+    expect(() => parseQiyProject(multiModel.replace("providers oidc, google", "providers local, google"))).toThrow("OIDC providers only");
+    expect(() => parseQiyProject(multiModel.replace("providers oidc, google", "providers oidc, unknown"))).toThrow("Unsupported auth provider unknown");
+    expect(() => parseQiyProject(multiModel.replace("providers oidc, google", "providers oidc, google, oidc"))).toThrow("must be unique");
+  });
+
+  test("generates a per-provider verifier and a public provider list endpoint", () => {
+    const project = parseQiyProject(multiModel);
+    const files = generateProject(project.database, project.name, { auth: project.auth });
+    const oidc = files["apps/server/src/auth/oidc.ts"] ?? "";
+    expect(oidc).toContain("providerConfigs");
+    expect(oidc).toContain("QIY_OIDC_");
+    expect(oidc).toContain("providerMappings");
+    expect(oidc).toContain('"oidc":{"subjectField":"openidField","claim":"openid"}');
+    expect(oidc).toContain("createAuthProviderRoutes");
+    expect(oidc).toContain("subject: (payload");
+    expect(files["apps/server/src/app.ts"]).toContain("createAuthProviderRoutes");
+    const login = files["apps/web/app/routes/login.tsx"] ?? "";
+    expect(login).toContain("beginProviderLogin");
+    expect(login).toContain("fetchAuthProviders");
+    expect(files["apps/web/app/auth/oidc-multi.ts"]).toContain("completeProviderLogin");
   });
 });

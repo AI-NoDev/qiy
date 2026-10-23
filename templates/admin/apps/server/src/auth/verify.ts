@@ -7,6 +7,8 @@ export interface OidcOptions {
   keySet: JWTVerifyGetKey;
   findUser(externalSubject: string): Promise<Record<string, unknown> | null>;
   roleField: string;
+  /** Optional resolver for providers whose identity claim is not sub (for example openid). */
+  subject?(payload: Record<string, unknown>): string | null;
 }
 
 export function createOidcAuthenticator(options: OidcOptions): Authenticator {
@@ -18,8 +20,13 @@ export function createOidcAuthenticator(options: OidcOptions): Authenticator {
       audience: options.audience,
       algorithms: ["RS256", "ES256"],
     });
-    if (!payload.sub || !payload.iss) return null;
-    const user = await options.findUser(payload.iss + "|" + payload.sub);
+    const externalSubject = options.subject
+      ? options.subject(payload as Record<string, unknown>)
+      : payload.sub && payload.iss
+        ? payload.iss + "|" + payload.sub
+        : null;
+    if (!externalSubject) return null;
+    const user = await options.findUser(externalSubject);
     if (!user) return null;
     const role = user[options.roleField];
     if (role !== "admin" && role !== "operator" && role !== "viewer") return null;

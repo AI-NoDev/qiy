@@ -1,0 +1,34 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: qiy-supply-chain-erp-wms-realtime
+  labels:
+    app: qiy-supply-chain-erp-wms
+spec:
+  groups:
+    - name: qiy-supply-chain-erp-wms.realtime
+      rules:
+        - alert: QiyRealtimeOutboxDegraded
+          expr: qiy_realtime_outbox_health{service="qiy-supply-chain-erp-wms"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Qiy realtime outbox is degraded
+            description: Pending, dead-lettered, or oldest-event thresholds are exceeded.
+        - alert: QiyRealtimeDeadLetters
+          expr: qiy_realtime_outbox_dead_lettered{service="qiy-supply-chain-erp-wms"} > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: Qiy realtime outbox has dead letters
+            description: Inspect and replay failed events through the authenticated realtime administration API.
+        - alert: QiyRealtimeMetricsAbsent
+          expr: absent(qiy_realtime_outbox_health{service="qiy-supply-chain-erp-wms"})
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Qiy realtime metrics are unavailable
+            description: Verify the ServiceMonitor selector, service port, and metrics token secret.

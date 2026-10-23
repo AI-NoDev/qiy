@@ -131,7 +131,7 @@ test("writes Integer inputs with portable bounds and generates a late rollback f
   expect(files["apps/server/src/dataflows/index.ts"]).toContain("minimum: -2147483648, maximum: 2147483647");
   expect(files["apps/server/tests/dataflow.test.ts"]).toContain('"quantity": 7');
   expect(files["apps/server/tests/fixtures/dataflow-failure.ts"]).toContain('["id"] != "00000000-0000-4000-8000-000000000001"');
-  expect(() => parseQiyProject(text.replace("field quantity Integer @required", "field quantity Text @required"))).toThrow("matching Text or Integer fields");
+  expect(() => parseQiyProject(text.replace("field quantity Integer @required", "field quantity Text @required"))).toThrow("matching Text, Integer or UUID fields");
   expect(() => parseQiyProject(text.replace("quantity = input.quantity", 'quantity = "7"'))).toThrow("literal updates");
 });
 
@@ -179,7 +179,7 @@ test("rejects unknown, optional, incompatible and executable input update values
   const reference = source.replace('revokedReason = "policy violation"', 'revokedReason = input.reason');
   expect(() => parseQiyProject(reference.replace('input.reason;', 'input.missing;'))).toThrow("unknown input field");
   expect(() => parseQiyProject(reference.replace('field reason Text @required', 'field reason Text'))).toThrow("update requires input.reason to be @required");
-  expect(() => parseQiyProject(reference.replace('field reason Text', 'field reason Integer'))).toThrow("matching Text or Integer fields");
+  expect(() => parseQiyProject(reference.replace('field reason Text', 'field reason Integer'))).toThrow("matching Text, Integer or UUID fields");
   expect(() => parseQiyProject(reference.replace('input.reason;', 'input.reason.nested;'))).toThrow();
   expect(() => parseQiyProject(reference.replace('input.reason;', 'input.reason();'))).toThrow();
   expect(() => parseQiyProject(reference.replace('input.reason;', 'input.reason + "unsafe";'))).toThrow();

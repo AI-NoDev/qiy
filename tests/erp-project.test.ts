@@ -1,4 +1,4 @@
-﻿import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { parseQiyProject } from "../tools/qiy-project";
 import { generateProject } from "../tools/generate-project";
 

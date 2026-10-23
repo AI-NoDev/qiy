@@ -1,0 +1,17 @@
+export { UsersRoutes } from "./users/users.routes";
+export { OrgsRoutes } from "./orgs/orgs.routes";
+export { SuppliersRoutes } from "./suppliers/suppliers.routes";
+export { CustomersRoutes } from "./customers/customers.routes";
+export { ProductsRoutes } from "./products/products.routes";
+export { BomsRoutes } from "./boms/boms.routes";
+export { WarehousesRoutes } from "./warehouses/warehouses.routes";
+export { BinsRoutes } from "./bins/bins.routes";
+export { InventoryRoutes } from "./inventory/inventory.routes";
+export { Stock_movementsRoutes } from "./stock_movements/stock_movements.routes";
+export { Purchase_ordersRoutes } from "./purchase_orders/purchase_orders.routes";
+export { Purchase_order_linesRoutes } from "./purchase_order_lines/purchase_order_lines.routes";
+export { ReceiptsRoutes } from "./receipts/receipts.routes";
+export { Sales_ordersRoutes } from "./sales_orders/sales_orders.routes";
+export { Sales_order_linesRoutes } from "./sales_order_lines/sales_order_lines.routes";
+export { ShipmentsRoutes } from "./shipments/shipments.routes";
+export { Work_ordersRoutes } from "./work_orders/work_orders.routes";

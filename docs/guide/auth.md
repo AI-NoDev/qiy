@@ -137,6 +137,38 @@ Qiy 会向 `QIY_OTP_DELIVERY_URL` POST `{ recipient, code, expiresIn: 300 }`，�
 
 受保护的生产 API 请求必须携带通过验证的 Bearer JWT。生产应保持 `QIY_DEV_MODE=0` 并配置所选认证 provider；没有认证配置的生成应用会拒绝生产启动，开发 preview 不能替代生产认证。
 
+## 多 Provider 登录（多选 + 每 Provider 身份字段）
+
+一个应用可以同时启用多个 OIDC Provider，登录页会列出所有已配置的 Provider 供用户选择；服务端按 token 的 `iss` 选择对应 JWKS 验签，并允许每个 Provider 映射到用户表里不同的身份字段（例如 Google 用 `sub`、OpenID 类 Provider 用 `openid` 列）。
+
+```text
+auth {
+  providers oidc, oauth2, sso, okta, auth0, azure-ad-b2c, keycloak, google, kinde;
+  user users;
+  subjectField subject;          # 默认：{<iss>}|<sub> 写入该列
+  roleField role;
+  provider google { subjectField googleSubject; }          # 用 sub 写入 googleSubject
+  provider oidc { subjectField openidField; claim openid; } # 用 openid claim 写入 openidField
+}
+```
+
+- `providers` 与单个 `provider` 互斥；列表只接受 OIDC 家族 Provider（不能混入 local/otp），且不能重复；
+- `provider <id> { subjectField <field>; [claim <claim>;] }` 为该 Provider 指定用户表列与身份 claim（默认 claim 是 `sub`）；映射的 Provider 必须出现在 `providers` 中；
+- 未配置 `ISSUER/AUDIENCE/JWKS_URL` 的 Provider 会在运行时自动禁用，不会阻塞其它 Provider；
+- 生成器额外提供 `GET /api/v1/auth/providers`（只含公开字段：authorize/token URL、client id、scope、redirect URI），生成 Web 的登录页用它渲染 Provider 按钮（PKCE），回调按 Provider 完成 token 交换。
+
+每个 Provider 的环境变量（`<ID>` 为 Provider 名大写、非字母数字换成下划线，例如 `AZURE_AD_B2C`）：
+
+| 变量 | 必填 | 说明 |
+| --- | --- | --- |
+| `QIY_OIDC_<ID>_ISSUER` | 是 | 该 Provider 的 issuer（按 token `iss` 精确匹配，忽略尾部斜杠） |
+| `QIY_OIDC_<ID>_AUDIENCE` | 是 | 该 Provider 的 audience |
+| `QIY_OIDC_<ID>_JWKS_URL` | 是 | 该 Provider 的 JWKS 地址（便于 Keycloak/B2C 等按 policy 区分） |
+| `QIY_OIDC_<ID>_AUTHORIZATION_URL` / `_TOKEN_URL` / `_CLIENT_ID` | 登录页需要 | 公开客户端 PKCE 配置 |
+| `QIY_OIDC_<ID>_SCOPE` / `_REDIRECT_URI` / `_LOGOUT_URL` | 否 | 默认 `openid profile email`，redirect 可用全局 `QIY_OIDC_REDIRECT_URI` |
+
+离线验收：`bun run tools/verify-multi-provider.ts` 会生成一个多 Provider 应用、用本地 JWKS 服务签真实 RS256 token，验证：按 issuer 路由、默认 `iss|sub` 映射、`openid` 非 sub claim 映射到专用列、未知 issuer/伪造签名拒绝、公开 Provider 列表只包含已配置项。
+
 ## 源码仓库认证验收
 
 ```sh

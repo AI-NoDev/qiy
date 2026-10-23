@@ -4888,9 +4888,11 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     ${options.realtime ? "const realtime = createRealtimeRoutes(authenticate);" : ""}
     const storage = includeStorage ? (await import("./storage/routes")).createStorageRoutes(authenticate) : undefined;
     ${auth?.provider === "local" ? 'const authRoutes = (await import("./auth/local")).createLocalAuthRoutes();' : auth?.provider === "otp" ? 'const authRoutes = (await import("./auth/otp")).createOtpAuthRoutes();' : ''}
+    ${auth?.providers && auth.providers.length > 1 ? 'const authProviderRoutes = (await import("./auth/oidc")).createAuthProviderRoutes();' : ''}
     const application = new Elysia().use(allowedOrigins.length > 0 ? cors({ origin: allowedOrigins, credentials: false, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key"] }) : new Elysia()).onRequest(({ request }) => guard(request)).use(openapi({ path: "/api/v1/openapi", documentation: { info: { title: "Qiy Admin API", version: "1.0.0" } } })).use(routes)${options.elysiaPlugins?.graphqlAdapter && options.elysiaPlugins.graphqlAdapter !== "native" ? '' : '.use(createGraphQLRoutes(repositories, authenticate))'};
     let composed = application;
     ${auth?.provider === "local" || auth?.provider === "otp" ? "composed = composed.use(authRoutes);" : ""}
+    ${auth?.providers && auth.providers.length > 1 ? "composed = composed.use(authProviderRoutes);" : ""}
     ${orderWorkflow ? "composed = workflow ? composed.use(workflow) : composed;" : ""}
     ${dataflowRoutes ? "composed = dataflows ? composed.use(dataflows) : composed;" : ""}
     ${options.realtime ? "composed = composed.use(realtime);" : ""}
@@ -5736,7 +5738,9 @@ try {
 }
 `;
   if (auth) {
-    if (auth.provider !== "local" && auth.provider !== "otp") files["api/src/auth/oidc.ts"] = `import { createRemoteJWKSet } from "jose";
+    if (auth.providers && auth.providers.length > 1) {
+      files["api/src/auth/oidc.ts"] = renderMultiProviderOidcModule(auth);
+    } else if (auth.provider !== "local" && auth.provider !== "otp") files["api/src/auth/oidc.ts"] = `import { createRemoteJWKSet } from "jose";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { ${auth.userEntity} } from "../schema";
@@ -6454,3 +6458,104 @@ test("publishes model descriptions in the actual OpenAPI request schemas", async
 
 
 
+
+
+function renderMultiProviderOidcModule(auth: NonNullable<QiyProject["auth"]>): string {
+  const providerIds = JSON.stringify(auth.providers ?? [auth.provider]);
+  const labels = JSON.stringify({
+    oidc: "OpenID Connect", oauth2: "OAuth2", sso: "SSO", okta: "Okta", auth0: "Auth0",
+    "azure-ad-b2c": "Azure AD B2C", keycloak: "Keycloak", google: "Google", kinde: "Kinde",
+  });
+  const mappings = JSON.stringify(Object.fromEntries((auth.providerMappings ?? []).map((mapping) => [mapping.provider, { subjectField: mapping.subjectField, ...(mapping.claim ? { claim: mapping.claim } : {}) }])));
+  const roleField = JSON.stringify(auth.roleField);
+  const defaultSubjectField = JSON.stringify(auth.subjectField);
+  const userEntity = auth.userEntity;
+  const lines: string[] = [];
+  lines.push("import { createRemoteJWKSet } from \"jose\";");
+  lines.push("import { eq } from \"drizzle-orm\";");
+  lines.push("import { Elysia } from \"elysia\";");
+  lines.push("import { db } from \"../db\";");
+  lines.push("import { " + userEntity + " } from \"../schema\";");
+  lines.push("import { createOidcAuthenticator } from \"./verify\";");
+  lines.push("import type { Authenticator } from \"./guard\";");
+  lines.push("");
+  lines.push("export interface QiyOidcProviderConfig {");
+  lines.push("  id: string; label: string; issuer: string; audience: string; jwksUrl: string;");
+  lines.push("  authorizationUrl?: string; tokenUrl?: string; clientId?: string; scope: string; redirectUri?: string; logoutUrl?: string;");
+  lines.push("  subjectField?: string; claim?: string;");
+  lines.push("}");
+  lines.push("");
+  lines.push("const providerIds = " + providerIds + " as const;");
+  lines.push("const providerLabels: Record<string, string> = " + labels + ";");
+  lines.push("const providerMappings: Record<string, { subjectField: string; claim?: string }> = " + mappings + ";");
+  lines.push("const defaultSubjectField: string = " + defaultSubjectField + ";");
+  lines.push("function envSuffix(id: string): string { return id.toUpperCase().replace(/[^A-Z0-9]/g, \"_\"); }");
+  lines.push("function readEnv(name: string): string | undefined { const value = Bun.env[name]; return value && value.trim() !== \"\" ? value.trim() : undefined; }");
+  lines.push("function providerEnv(id: string, suffix: string): string | undefined { return readEnv(\"QIY_OIDC_\" + envSuffix(id) + \"_\" + suffix); }");
+  lines.push("");
+  lines.push("export function providerConfigs(): QiyOidcProviderConfig[] {");
+  lines.push("  return providerIds.flatMap((id) => {");
+  lines.push("    const issuer = providerEnv(id, \"ISSUER\");");
+  lines.push("    const audience = providerEnv(id, \"AUDIENCE\");");
+  lines.push("    const jwksUrl = providerEnv(id, \"JWKS_URL\");");
+  lines.push("    if (!issuer || !audience || !jwksUrl) return [];");
+  lines.push("    const mapping = providerMappings[id];");
+  lines.push("    return [{ id, label: providerLabels[id] ?? id, issuer, audience, jwksUrl,");
+  lines.push("      authorizationUrl: providerEnv(id, \"AUTHORIZATION_URL\"), tokenUrl: providerEnv(id, \"TOKEN_URL\"),");
+  lines.push("      clientId: providerEnv(id, \"CLIENT_ID\"), scope: providerEnv(id, \"SCOPE\") ?? \"openid profile email\",");
+  lines.push("      redirectUri: providerEnv(id, \"REDIRECT_URI\") ?? readEnv(\"QIY_OIDC_REDIRECT_URI\"), logoutUrl: providerEnv(id, \"LOGOUT_URL\"),");
+  lines.push("      ...(mapping ? { subjectField: mapping.subjectField, ...(mapping.claim ? { claim: mapping.claim } : {}) } : {}) }];");
+  lines.push("  });");
+  lines.push("}");
+  lines.push("");
+  lines.push("export function publicAuthProviders() {");
+  lines.push("  return providerConfigs().filter((config) => config.authorizationUrl && config.clientId).map((config) => ({");
+  lines.push("    id: config.id, label: config.label, authorizationUrl: config.authorizationUrl!, clientId: config.clientId!,");
+  lines.push("    tokenUrl: config.tokenUrl, scope: config.scope, redirectUri: config.redirectUri, ...(config.logoutUrl ? { logoutUrl: config.logoutUrl } : {}),");
+  lines.push("  }));");
+  lines.push("}");
+  lines.push("");
+  lines.push("export function createAuthProviderRoutes() { return new Elysia({ prefix: \"/api/v1/auth\" }).get(\"/providers\", () => ({ providers: publicAuthProviders() })); }");
+  lines.push("");
+  lines.push("function positiveInteger(name: string, fallback: number, minimum: number): number {");
+  lines.push("  const raw = Bun.env[name];");
+  lines.push("  if (raw === undefined || raw === \"\") return fallback;");
+  lines.push("  const value = Number(raw);");
+  lines.push("  if (!Number.isInteger(value) || value < minimum) throw new Error(name + \" must be an integer of at least \" + minimum);");
+  lines.push("  return value;");
+  lines.push("}");
+  lines.push("");
+  lines.push("export function createProductionAuthenticator(): Authenticator {");
+  lines.push("  const configs = providerConfigs();");
+  lines.push("  if (configs.length === 0) throw new Error(\"No OIDC provider is configured: set QIY_OIDC_<PROVIDER>_ISSUER, _AUDIENCE and _JWKS_URL (for example QIY_OIDC_GOOGLE_ISSUER)\");");
+  lines.push("  const timeoutDuration = positiveInteger(\"QIY_OIDC_JWKS_TIMEOUT_MS\", 5000, 1);");
+  lines.push("  const cooldownDuration = positiveInteger(\"QIY_OIDC_JWKS_COOLDOWN_MS\", 30000, 0);");
+  lines.push("  const cacheMaxAge = positiveInteger(\"QIY_OIDC_JWKS_CACHE_MAX_AGE_MS\", 600000, 1);");
+  lines.push("  const subjectColumns = " + userEntity + " as unknown as Record<string, Parameters<typeof eq>[0]>;");
+  lines.push("  const authenticators = configs.map((config) => ({");
+  lines.push("    issuer: config.issuer.replace(/\\/+$/, \"\"),");
+  lines.push("    authenticate: createOidcAuthenticator({ issuer: config.issuer, audience: config.audience,");
+  lines.push("      keySet: createRemoteJWKSet(new URL(config.jwksUrl), { timeoutDuration, cooldownDuration, cacheMaxAge }), roleField: " + roleField + ",");
+  lines.push("      ...(config.claim ? { subject: (payload: Record<string, unknown>) => typeof payload[config.claim!] === \"string\" && payload[config.claim!] !== \"\" ? String(payload[config.claim!]) : null } : config.subjectField ? { subject: (payload: Record<string, unknown>) => typeof payload.sub === \"string\" && payload.sub !== \"\" ? String(payload.sub) : null } : {}),");
+  lines.push("      async findUser(externalSubject) {");
+  lines.push("        const column = subjectColumns[config.subjectField ?? defaultSubjectField];");
+  lines.push("        const rows = await db.select().from(" + userEntity + ").where(eq(column!, externalSubject)).limit(2);");
+  lines.push("        return rows.length === 1 ? rows[0]! : null;");
+  lines.push("      },");
+  lines.push("    }),");
+  lines.push("  }));");
+  lines.push("  // Route by the unverified issuer first, then verify only against that provider's JWKS.");
+  lines.push("  return async (request) => {");
+  lines.push("    const match = /^Bearer ([^\\s]+)$/.exec(request.headers.get(\"authorization\") ?? \"\");");
+  lines.push("    if (!match) return null;");
+  lines.push("    let issuer: string | undefined;");
+  lines.push("    try { const payload = JSON.parse(Buffer.from(match[1]!.split(\".\")[1] ?? \"\", \"base64url\").toString()) as { iss?: string }; issuer = payload.iss; } catch { return null; }");
+  lines.push("    if (!issuer) return null;");
+  lines.push("    const normalized = issuer.replace(/\\/+$/, \"\");");
+  lines.push("    const selected = authenticators.find((candidate) => candidate.issuer === normalized);");
+  lines.push("    if (!selected) return null;");
+  lines.push("    return selected.authenticate(request);");
+  lines.push("  };");
+  lines.push("}");
+  return lines.join("\n") + "\n";
+}

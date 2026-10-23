@@ -1,0 +1,89 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qiy-supply-chain-erp-wms
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: qiy-supply-chain-erp-wms
+  template:
+    metadata:
+      labels:
+        app: qiy-supply-chain-erp-wms
+    spec:
+      containers:
+        - name: qiy
+          image: qiy-supply-chain-erp-wms:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "3000"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: qiy-supply-chain-erp-wms
+                  key: DATABASE_URL
+            - name: QIY_STORAGE_METADATA
+              value: "database"
+            - name: QIY_STORAGE_PROVIDER
+              valueFrom:
+                secretKeyRef:
+                  name: qiy-supply-chain-erp-wms
+                  key: QIY_STORAGE_PROVIDER
+            - name: QIY_STORAGE_ROOT
+              value: "/var/lib/qiy/storage"
+            - name: QIY_DEV_MODE
+              value: "0"
+            - name: QIY_ABLY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: qiy-supply-chain-erp-wms
+                  key: QIY_ABLY_API_KEY
+            - name: QIY_REALTIME_METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: qiy-supply-chain-erp-wms
+                  key: QIY_REALTIME_METRICS_TOKEN
+            - name: QIY_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: qiy-supply-chain-erp-wms
+                  key: QIY_AUTH_SECRET
+            - name: QIY_OIDC_ISSUER
+              valueFrom:
+                secretKeyRef:
+                  name: qiy-supply-chain-erp-wms
+                  key: QIY_OIDC_ISSUER
+            - name: QIY_OIDC_AUDIENCE
+              valueFrom:
+                secretKeyRef:
+                  name: qiy-supply-chain-erp-wms
+                  key: QIY_OIDC_AUDIENCE
+            - name: QIY_OIDC_JWKS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: qiy-supply-chain-erp-wms
+                  key: QIY_OIDC_JWKS_URL
+            - name: QIY_CORS_ORIGINS
+              value: ""
+            - name: QIY_CRON_ENABLED
+              value: "0"
+          volumeMounts:
+            - name: qiy-storage
+              mountPath: /var/lib/qiy/storage
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 3000
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 3000
+      volumes:
+        - name: qiy-storage
+          persistentVolumeClaim:
+            claimName: qiy-supply-chain-erp-wms-storage

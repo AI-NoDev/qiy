@@ -41,7 +41,7 @@ export interface QiyProject {
     drizzle?: boolean;
   };
   storageProvider?: "local" | "s3";
-  auth?: { provider: QiyAuthProvider; userEntity: string; subjectField: string; roleField: string; usernameField?: string; passwordField?: string };
+  auth?: { provider: QiyAuthProvider; providers?: QiyAuthProvider[]; userEntity: string; subjectField: string; providerMappings?: QiyAuthProviderMapping[]; roleField: string; usernameField?: string; passwordField?: string };
   environment?: QiyEnvironmentVariable[];
   messages?: { defaultLocale: string; locales: Record<string, Record<string, string>> };
   menuGroups?: Array<{ name: string; label: string; icon?: string; parent?: string; comment?: string; commentKey?: string; resources: string[] }>;
@@ -166,6 +166,13 @@ export interface QiyUiConfig {
 const qiyThemeKeys = new Set<QiyThemeKey>(["blue", "purple", "green", "orange", "red"]);
 
 export type QiyAuthProvider = "local" | "oidc" | "oauth2" | "sso" | "okta" | "auth0" | "azure-ad-b2c" | "keycloak" | "google" | "kinde" | "otp";
+
+/** Per-provider identity mapping: which user-table field stores the provider identifier and which claim carries it. */
+export interface QiyAuthProviderMapping {
+  provider: QiyAuthProvider;
+  subjectField: string;
+  claim?: string;
+}
 
 const qiyAuthProviders = new Set<QiyAuthProvider>(["local", "oidc", "oauth2", "sso", "okta", "auth0", "azure-ad-b2c", "keycloak", "google", "kinde", "otp"]);
 
@@ -1531,15 +1538,64 @@ export function parseQiyProject(input: string): QiyProject {
   if (peek() === "auth") {
     expect("auth"); expect("{");
     const attributes: Record<string, string> = {};
+    const providerMappings: QiyAuthProviderMapping[] = [];
     while (peek() !== "}") {
       const key = identifier();
-      if (!["provider", "user", "subjectField", "roleField", "usernameField", "passwordField"].includes(key)) throw new Error(`Unsupported auth attribute ${key}`);
+      if (!["provider", "providers", "user", "subjectField", "roleField", "usernameField", "passwordField"].includes(key)) throw new Error(`Unsupported auth attribute ${key}`);
+      if (key === "provider") {
+        const providerId = identifier();
+        if (peek() === "{") {
+          expect("{");
+          const mapping: QiyAuthProviderMapping = { provider: providerId as QiyAuthProvider, subjectField: "" };
+          const mappingOptions = new Set<string>();
+          while (peek() !== "}") {
+            const option = identifier();
+            if (mappingOptions.has(option)) throw new Error(`Duplicate provider mapping option ${option}`);
+            mappingOptions.add(option);
+            const optionValue = identifier();
+            if (option === "subjectField") mapping.subjectField = optionValue;
+            else if (option === "claim") mapping.claim = optionValue;
+            else throw new Error(`Unsupported provider mapping option ${option}`);
+            expect(";");
+          }
+          expect("}");
+          if (!mapping.subjectField) throw new Error("Provider mapping requires subjectField");
+          if (!qiyAuthProviders.has(mapping.provider)) throw new Error(`Unsupported auth provider ${mapping.provider}`);
+          if (mapping.claim && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(mapping.claim)) throw new Error(`Provider mapping claim must be a plain claim name: ${mapping.claim}`);
+          providerMappings.push(mapping);
+          continue;
+        }
+        if (Object.hasOwn(attributes, "provider")) throw new Error("Duplicate auth attribute provider");
+        attributes.provider = providerId;
+        expect(";");
+        continue;
+      }
       if (Object.hasOwn(attributes, key)) throw new Error(`Duplicate auth attribute ${key}`);
+      if (Object.hasOwn(attributes, key)) throw new Error(`Duplicate auth attribute ${key}`);
+      if (key === "providers") {
+        const list = [identifier()];
+        while (peek() === ",") { expect(","); list.push(identifier()); }
+        attributes.providers = list.join(",");
+        expect(";");
+        continue;
+      }
       attributes[key] = identifier();
       expect(";");
     }
     expect("}");
-    const provider = attributes.provider ?? "";
+    const providerList = attributes.providers ? attributes.providers.split(",") : undefined;
+    if (providerList && attributes.provider) throw new Error("Auth accepts either provider or providers, not both");
+    for (const candidate of providerList ?? []) {
+      if (!qiyAuthProviders.has(candidate as QiyAuthProvider)) throw new Error(`Unsupported auth provider ${candidate}`);
+    }
+    if (providerList && new Set(providerList).size !== providerList.length) throw new Error("Auth providers must be unique");
+    if (providerList?.some((candidate) => candidate === "local" || candidate === "otp")) throw new Error("Auth providers lists OIDC providers only (local/otp cannot be combined)");
+    const provider = attributes.provider ?? providerList?.[0] ?? "";
+    for (const mapping of providerMappings) {
+      const configured = providerList ? providerList.includes(mapping.provider) : mapping.provider === provider;
+      if (!configured) throw new Error(`Provider mapping ${mapping.provider} is not part of the configured providers`);
+    }
+    if (new Set(providerMappings.map((mapping) => mapping.provider)).size !== providerMappings.length) throw new Error("Provider mappings must be unique per provider");
     if (!qiyAuthProviders.has(provider as QiyAuthProvider)) throw new Error(`Unsupported auth provider ${provider || "(missing)"}`);
     if (!attributes.user) throw new Error("Auth requires a user entity");
     if (!attributes.roleField) throw new Error("Auth requires roleField");
@@ -1553,9 +1609,11 @@ export function parseQiyProject(input: string): QiyProject {
     if (provider !== "local" && provider !== "otp" && (usernameField || passwordField)) throw new Error(`Auth provider ${provider} does not accept usernameField or passwordField`);
     auth = {
       provider: provider as QiyAuthProvider,
+      ...(providerList && providerList.length > 1 ? { providers: providerList as QiyAuthProvider[] } : {}),
       userEntity: attributes.user,
       subjectField,
       roleField: attributes.roleField,
+      ...(providerMappings.length ? { providerMappings } : {}),
       ...(usernameField && { usernameField }),
       ...(passwordField && { passwordField }),
     };
@@ -1836,7 +1894,7 @@ export function parseQiyProject(input: string): QiyProject {
             const input = flow.input.find((candidate) => candidate.name === value.value);
             if (!input) throw new Error(`Dataflow ${flow.name}: unknown input field input.${value.value}`);
             if (!input.required) throw new Error(`Dataflow ${flow.name}: update requires input.${value.value} to be @required`);
-            if (field.enumName ? input.type !== field.enumName : !["Text", "Integer"].includes(field.type) || input.type !== field.type) throw new Error(`Dataflow ${flow.name}: input updates require matching Text or Integer fields, or the same declared enum (${binding.entity}.${value.field})`);
+            if (field.enumName ? input.type !== field.enumName : !["Text", "Integer", "UUID"].includes(field.type) || input.type !== field.type) throw new Error(`Dataflow ${flow.name}: input updates require matching Text, Integer or UUID fields, or the same declared enum (${binding.entity}.${value.field})`);
           } else {
             if (field.type !== "Text" && !field.enumName) throw new Error(`Dataflow ${flow.name}: literal updates currently support Text and enum fields only (${binding.entity}.${value.field})`);
             if (field.enumName && !enums.find((enumeration) => enumeration.name === field.enumName)?.values.some((candidate) => candidate.name === value.value)) throw new Error(`Dataflow ${flow.name}: unknown enum value ${field.enumName}.${value.value}`);
@@ -2144,7 +2202,9 @@ export function serializeQiyProject(project: QiyProject): string {
   }  if (project.storageProvider) lines.push(`  storage { provider ${project.storageProvider}; }`);
   if (project.auth) {
     lines.push("  auth {");
-    lines.push(`    provider ${project.auth.provider};`);
+  if (project.auth.providers && project.auth.providers.length > 1) lines.push(`    providers ${project.auth.providers.join(", ")};`);
+  else lines.push(`    provider ${project.auth.provider};`);
+  for (const mapping of project.auth.providerMappings ?? []) lines.push(`    provider ${mapping.provider} { subjectField ${mapping.subjectField};${mapping.claim ? ` claim ${mapping.claim};` : ""} }`);
     lines.push(`    user ${qiyIdentifier(project.auth.userEntity, "Auth user entity")};`);
     if (project.auth.subjectField) lines.push(`    subjectField ${qiyIdentifier(project.auth.subjectField, "Auth subject field")};`);
     lines.push(`    roleField ${qiyIdentifier(project.auth.roleField, "Auth role field")};`);

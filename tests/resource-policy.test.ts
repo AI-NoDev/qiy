@@ -1,4 +1,4 @@
-﻿import { expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { generateProject } from "../tools/generate-project";
 import { generateServer } from "../tools/generate-server";
 import { generateWeb } from "../tools/generate-web";

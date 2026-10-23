@@ -1,0 +1,17 @@
+services:
+  qiy:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./apps/server/.env.production
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3000"
+      QIY_STORAGE_ROOT: /var/lib/qiy/storage
+    restart: unless-stopped
+    volumes:
+      - qiy-storage:/var/lib/qiy/storage
+
+volumes:
+  qiy-storage:

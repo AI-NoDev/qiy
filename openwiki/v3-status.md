@@ -1,5 +1,23 @@
 # V3 实施状态与验收规划
 
+## 多 Provider 认证 + 供应链/ERP/WMS 一体化（2026-10-24 完成）
+
+**多 Provider 登录（多选 + 每 Provider 身份字段）已实现并验收：**
+
+- DSL：`auth { providers oidc, oauth2, sso, okta, auth0, azure-ad-b2c, keycloak, google, kinde; user users; subjectField subject; roleField role; provider google { subjectField googleSubject; } provider oidc { subjectField openidField; claim openid; } }`（`provider`/`providers` 互斥、重复/本地 Provider 拒绝、映射必须属于配置列表）；
+- 生成器：`createProductionAuthenticator()` 按 token `iss` 路由到对应 `QIY_OIDC_<ID>_ISSUER/AUDIENCE/JWKS_URL` 验签；未配置的 Provider 自动禁用；`claim` 非 `sub` 的标识按映射列查用户；新增 `GET /api/v1/auth/providers` 公开列表；
+- Web：登录页按 `/api/v1/auth/providers` 渲染多 Provider 选择按钮（PKCE、state 校验、按 Provider 交换 token），回调页复用该配置；
+- 校验：`bun run tools/verify-multi-provider.ts` 用本地 JWKS 签真实 RS256 token，验证按 issuer 路由、默认 `iss|sub`、`openid` → 专用列、未知 issuer/伪造签名拒绝、公开列表过滤未配置 Provider（4 tests / 0 fail，workspace `qiy-multi-provider-AVwaiA`）；
+- 单测：`tests/auth-providers.test.ts` 增加多 Provider 解析/序列化/生成断言（15 pass）。
+
+**供应链 + ERP + WMS 一体化示例 `examples/self/app.qiy`（已生成并通过质量门）：**
+
+- 25 个实体：组织、供应商、客户、产品、BOM、仓库、库位、库存（在手/预留/批次）、库存流水、采购单/明细/收货、销售单/明细/发运、工作单、用户；
+- 7 个 dataflow 命令：收货、上架、预留、盘点调整、发运、调拨、工单完工（幂等 + 审计 + 事务回滚 + realtime outbox）；
+- pages 页面级角色、products 字段 mask、仓库 scope 按 claim 过滤、realtime 3 个资源、dashboard 分布/趋势指标；
+- 多 Provider 登录 + Google/oidc/Keycloak 三套身份列映射；
+- 生成 260 文件；`bun run typecheck` / `bun run build` 通过；生成工程 dataflow 测试 **52 pass / 0 fail**、realtime **9 pass / 0 fail**（单文件运行）。
+
 ## 当前环境阻塞（2026-10-17 会话末）
 
 本会话后续尝试运行新的真实验收时，生成工作区的 `bun install` 稳定卡在 **Resolving dependencies**（注册表可达，但元数据解析挂起；直接 curl registry 返回 200）。已确认不是仓库状态问题：`bun run check`、`bun test`（221 项 / 2471 断言）、`docs:build` 全部通过，已提交并推送（`7cfdf11`、`f68c04f`）。

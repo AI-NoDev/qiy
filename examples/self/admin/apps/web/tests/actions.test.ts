@@ -1,0 +1,6 @@
+import { expect, test } from "bun:test";
+import { actionMatchesRecord, qiyActions } from "../app/actions";
+import { createDataProvider, createGraphQLDataProvider } from "../app/data-provider";
+
+test("declared actions preserve placement and targets", () => { expect(qiyActions.find((action) => action.name === "receiveInventory")?.placements).toEqual(["list","show"]); });
+for (const [name, createProvider] of [["REST", createDataProvider], ["GraphQL", createGraphQLDataProvider]] as const) test(name + " dataflow command sends JSON values and rejects undeclared commands", async () => { const requests: Array<{ url: string; init?: RequestInit }> = []; const provider = createProvider(async (url, init) => { requests.push({ url: String(url), init }); return Response.json({ id: "record-1" }); }); await provider.custom?.({ url: "/api/v1/commands/receiveInventory", method: "post", payload: {"inventoryId":"record-1"} }); expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({"inventoryId":"record-1"}); expect((requests[0]?.init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json"); await expect(provider.custom?.({ url: "/api/v1/commands/not-declared", method: "post", payload: {} })).rejects.toThrow("Unknown workflow command"); });

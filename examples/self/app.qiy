@@ -1,0 +1,615 @@
+﻿qiy v0;
+
+# Supply chain + ERP + WMS in one generated Qiy application.
+#
+# The login page lets the operator choose among every configured OIDC provider
+# (multi-select). Each provider may map its own identifier into a dedicated user
+# column: Google by `sub`, an OpenID-style provider by `openid`.
+application qiy-supply-chain-erp-wms {
+  database sqlite {}
+  api { client rest; }
+
+  realtime {
+    mode auto;
+    resource inventory {
+      events created, updated, deleted;
+      roles admin, operator;
+    }
+    resource stock_movements {
+      events created;
+      roles admin, operator;
+    }
+    resource shipments {
+      events created, updated;
+      roles admin, operator;
+    }
+  }
+
+  auth {
+    providers oidc, oauth2, sso, okta, auth0, azure-ad-b2c, keycloak, google, kinde;
+    user users;
+    subjectField subject;
+    roleField role;
+    provider google { subjectField googleSubject; }
+    provider oidc { subjectField openidField; claim openid; }
+    provider keycloak { subjectField keycloakSubject; }
+  }
+
+  enum userRole {
+    value admin label "Administrator" color red icon SafetyOutlined;
+    value operator label "Operator" color blue icon UserOutlined;
+    value viewer label "Viewer" color default icon EyeOutlined;
+  }
+
+  enum purchaseStatus {
+    value draft;
+    value approved;
+    value received;
+    value closed;
+    value cancelled;
+  }
+
+  enum salesStatus {
+    value draft;
+    value confirmed;
+    value allocated;
+    value shipped;
+    value closed;
+    value cancelled;
+  }
+
+  enum workStatus {
+    value planned;
+    value released;
+    value in_progress;
+    value completed;
+    value cancelled;
+  }
+
+  enum activeState {
+    value active;
+    value inactive;
+  }
+
+  enum movementType {
+    value receipt;
+    value issue;
+    value transfer;
+    value adjust;
+    value production;
+    value consumption;
+  }
+
+  entity users @label("Users") @icon(UserOutlined) {
+    field id UUID @id;
+    field subject Text @unique;
+    field googleSubject Text @nullable;
+    field openidField Text @nullable;
+    field keycloakSubject Text @nullable;
+    field email Text;
+    field displayName Text @nullable;
+    field role userRole;
+    field orgId UUID @nullable;
+  }
+
+  entity orgs @label("Organizations") @icon(ClusterOutlined) {
+    field id UUID @id;
+    field code Text @unique;
+    field name Text;
+    field parentId UUID @nullable;
+  }
+
+  entity suppliers @label("Suppliers") @icon(ShopOutlined) {
+    field id UUID @id;
+    field code Text @unique;
+    field name Text;
+    field email Text @nullable;
+    field leadTimeDays Integer;
+  }
+
+  entity customers @label("Customers") @icon(TeamOutlined) {
+    field id UUID @id;
+    field code Text @unique;
+    field name Text;
+    field email Text @nullable;
+    field creditLimit Decimal(12,2);
+  }
+
+  entity products @label("Products") @icon(ShoppingOutlined) {
+    field id UUID @id;
+    field sku Text @unique;
+    field name Text;
+    field uom Text;
+    field unitCost Decimal(12,2);
+    field price Decimal(12,2);
+    field reorderPoint Integer;
+    field active activeState;
+  }
+
+  entity boms @label("Bill of materials") @icon(ApartmentOutlined) {
+    field id UUID @id;
+    field productId UUID;
+    field componentId UUID;
+    field quantity Integer;
+  }
+
+  entity warehouses @label("Warehouses") @icon(HomeOutlined) {
+    field id UUID @id;
+    field orgId UUID;
+    field code Text @unique;
+    field name Text;
+    field active activeState;
+  }
+
+  entity bins @label("Storage bins") @icon(AppstoreOutlined) {
+    field id UUID @id;
+    field warehouseId UUID;
+    field code Text @unique;
+    field capacity Integer;
+  }
+
+  entity inventory @label("Inventory") @icon(DatabaseOutlined) {
+    field id UUID @id;
+    field inventoryKey Text @unique;
+    field warehouseId UUID;
+    field binId UUID;
+    field productId UUID;
+    field quantity Integer;
+    field reserved Integer;
+    field lotCode Text @nullable;
+    field updatedAt DateTime @nullable;
+  }
+
+  entity stock_movements @label("Stock movements") @icon(SwapOutlined) {
+    field id UUID @id;
+    field productId UUID;
+    field warehouseId UUID;
+    field binId UUID;
+    field type movementType;
+    field quantity Integer;
+    field reference Text @nullable;
+    field occurredAt DateTime @nullable;
+  }
+
+  entity purchase_orders @label("Purchase orders") @icon(FileTextOutlined) {
+    field id UUID @id;
+    field number Text @unique;
+    field supplierId UUID;
+    field status purchaseStatus;
+    field orderedAt DateTime;
+    field total Decimal(12,2);
+  }
+
+  entity purchase_order_lines @label("Purchase order lines") @icon(UnorderedListOutlined) {
+    field id UUID @id;
+    field purchaseOrderId UUID;
+    field productId UUID;
+    field quantity Integer;
+    field unitCost Decimal(12,2);
+  }
+
+  entity receipts @label("Goods receipts") @icon(InboxOutlined) {
+    field id UUID @id;
+    field purchaseOrderId UUID;
+    field warehouseId UUID;
+    field status Text;
+    field receivedAt DateTime @nullable;
+  }
+
+  entity sales_orders @label("Sales orders") @icon(ShoppingCartOutlined) {
+    field id UUID @id;
+    field number Text @unique;
+    field customerId UUID;
+    field status salesStatus;
+    field orderedAt DateTime;
+    field total Decimal(12,2);
+  }
+
+  entity sales_order_lines @label("Sales order lines") @icon(OrderedListOutlined) {
+    field id UUID @id;
+    field salesOrderId UUID;
+    field productId UUID;
+    field quantity Integer;
+    field unitPrice Decimal(12,2);
+    field allocated Integer;
+  }
+
+  entity shipments @label("Shipments") @icon(CarOutlined) {
+    field id UUID @id;
+    field salesOrderId UUID;
+    field warehouseId UUID;
+    field status Text;
+    field shippedAt DateTime @nullable;
+  }
+
+  entity work_orders @label("Work orders") @icon(ToolOutlined) {
+    field id UUID @id;
+    field number Text @unique;
+    field productId UUID;
+    field quantity Integer;
+    field status workStatus;
+    field plannedAt DateTime;
+  }
+
+  relation userOrg users orgId orgs id one @onDelete(restrict);
+  relation warehouseOrg warehouses orgId orgs id one @onDelete(restrict);
+  relation binWarehouse bins warehouseId warehouses id one @onDelete(restrict);
+  relation inventoryWarehouse inventory warehouseId warehouses id one @onDelete(restrict);
+  relation inventoryBin inventory binId bins id one @onDelete(restrict);
+  relation inventoryProduct inventory productId products id one @onDelete(restrict);
+  relation movementProduct stock_movements productId products id one @onDelete(restrict);
+  relation movementWarehouse stock_movements warehouseId warehouses id one @onDelete(restrict);
+  relation movementBin stock_movements binId bins id one @onDelete(restrict);
+  relation purchaseSupplier purchase_orders supplierId suppliers id one @onDelete(restrict);
+  relation purchaseLineOrder purchase_order_lines purchaseOrderId purchase_orders id one @onDelete(cascade);
+  relation purchaseLineProduct purchase_order_lines productId products id one @onDelete(restrict);
+  relation receiptOrder receipts purchaseOrderId purchase_orders id one @onDelete(restrict);
+  relation receiptWarehouse receipts warehouseId warehouses id one @onDelete(restrict);
+  relation salesCustomer sales_orders customerId customers id one @onDelete(restrict);
+  relation salesLineOrder sales_order_lines salesOrderId sales_orders id one @onDelete(cascade);
+  relation salesLineProduct sales_order_lines productId products id one @onDelete(restrict);
+  relation shipmentOrder shipments salesOrderId sales_orders id one @onDelete(restrict);
+  relation workProduct work_orders productId products id one @onDelete(restrict);
+  relation bomProduct boms productId products id one @onDelete(restrict);
+  relation bomComponent boms componentId products id one @onDelete(restrict);
+
+  # Warehouses are visible to the organization subtree carried by the token claim.
+  scope warehouses orgId claim org.id;
+
+  restrict products {
+    allow roles admin, operator;
+    mask unitCost roles operator, viewer mode redact replacement "***";
+  }
+
+
+
+
+
+  pages inventory {
+    list roles admin, operator;
+    show roles admin, operator;
+    create roles admin, operator;
+    edit roles admin, operator;
+    delete roles admin;
+  }
+
+  pages stock_movements {
+    list roles admin, operator;
+    show roles admin, operator;
+    create roles admin, operator;
+    edit roles admin;
+    delete roles admin;
+  }
+
+  pages purchase_orders {
+    list roles admin, operator;
+    show roles admin, operator;
+    create roles admin, operator;
+    edit roles admin, operator;
+    delete roles admin;
+  }
+
+  pages sales_orders {
+    list roles admin, operator;
+    show roles admin, operator;
+    create roles admin, operator;
+    edit roles admin, operator;
+    delete roles admin;
+  }
+
+  dashboard {
+    metric inventoryRecords inventory @label("Inventory records") @icon(DatabaseOutlined) @span(8);
+    metric productCount products @label("Products") @icon(ShoppingOutlined) @span(8);
+    metric purchaseOrderCount purchase_orders @label("Purchase orders") @icon(FileTextOutlined) @span(8);
+    metric shipmentCount shipments @label("Shipments") @icon(CarOutlined) @span(12);
+    metric movementBreakdown stock_movements @label("Movements by type") @icon(SwapOutlined) @span(12) @type(distribution) @groupBy(type);
+    metric movementTrend stock_movements @label("Movements (30 days)") @icon(SwapOutlined) @span(24) @type(trend) @groupBy(occurredAt) @days(30);
+  }
+
+  dataflow receiveInventory @label("Receive goods") @confirm("Post this receipt into stock?") @comment("Append a receipt movement and update the on-hand quantity of the target inventory record.") {
+    allow roles admin, operator;
+    idempotency required;
+    audit "inventory.received";
+    input {
+      field purchaseOrderId UUID @required;
+      field productId UUID @required;
+      field warehouseId UUID @required;
+      field binId UUID @required;
+      field inventoryId UUID @required;
+      field quantity Integer @required @comment("Quantity received in this posting");
+      field newOnHand Integer @required @comment("Absolute on-hand quantity after the receipt");
+      field reference Text @required;
+    }
+    context {
+      purchaseOrder = entity purchase_orders by id input.purchaseOrderId @required;
+      inventoryItem = entity inventory by id input.inventoryId @required;
+    }
+    step validate {
+      require purchaseOrder.status == "approved" @error("errors.purchaseOrder.notApproved");
+      require input.quantity > 0 @error("errors.inventory.quantityPositive");
+    }
+    step postMovement {
+      create movement = entity stock_movements {
+        productId = input.productId;
+        warehouseId = input.warehouseId;
+        binId = input.binId;
+        type = "receipt";
+        quantity = input.quantity;
+        reference = input.reference;
+      }
+    }
+    step updateOnHand {
+      update inventoryItem {
+        quantity = input.newOnHand;
+        binId = input.binId;
+      }
+      update purchaseOrder {
+        status = "received";
+      }
+      emit "inventory.received" {
+        inventoryId = inventoryItem.id;
+        quantity = input.newOnHand;
+      }
+    }
+    result { return inventoryItem; }
+  }
+
+  dataflow putawayStock @label("Put away") @comment("Move an inventory record into another storage bin and record the transfer.") {
+    allow roles admin, operator;
+    idempotency required;
+    audit "inventory.putaway";
+    input {
+      field inventoryId UUID @required;
+      field targetBinId UUID @required;
+      field quantity Integer @required;
+      field productId UUID @required;
+      field warehouseId UUID @required;
+    }
+    context {
+      inventoryItem = entity inventory by id input.inventoryId @required;
+    }
+    step validate {
+      require input.quantity > 0 @error("errors.inventory.quantityPositive");
+    }
+    step move {
+      create movement = entity stock_movements {
+        productId = input.productId;
+        warehouseId = input.warehouseId;
+        binId = input.targetBinId;
+        type = "transfer";
+        quantity = input.quantity;
+      }
+      update inventoryItem {
+        binId = input.targetBinId;
+      }
+      emit "inventory.moved" {
+        inventoryId = inventoryItem.id;
+        binId = input.targetBinId;
+      }
+    }
+    result { return inventoryItem; }
+  }
+
+  dataflow reserveStock @label("Reserve stock") @comment("Reserve an absolute quantity of an inventory record for a sales order.") {
+    allow roles admin, operator;
+    idempotency required;
+    audit "inventory.reserved";
+    input {
+      field inventoryId UUID @required;
+      field reservedQuantity Integer @required @comment("Absolute reserved quantity after this operation");
+      field salesOrderId UUID @required;
+    }
+    context {
+      inventoryItem = entity inventory by id input.inventoryId @required;
+      salesOrder = entity sales_orders by id input.salesOrderId @required;
+    }
+    step reserve {
+      update inventoryItem {
+        reserved = input.reservedQuantity;
+      }
+      update salesOrder {
+        status = "allocated";
+      }
+      emit "sales.allocated" {
+        salesOrderId = salesOrder.id;
+        inventoryId = inventoryItem.id;
+        reserved = input.reservedQuantity;
+      }
+    }
+    result { return inventoryItem; }
+  }
+
+  dataflow adjustStock @label("Adjust stock") @confirm("Apply this stock count?") @comment("Record a cycle count and set the counted on-hand quantity.") {
+    allow roles admin, operator;
+    idempotency required;
+    audit "inventory.adjusted";
+    input {
+      field inventoryId UUID @required;
+      field countedQuantity Integer @required;
+      field reason Text @required;
+      field productId UUID @required;
+      field warehouseId UUID @required;
+      field binId UUID @required;
+    }
+    context {
+      inventoryItem = entity inventory by id input.inventoryId @required;
+    }
+    step apply {
+      create movement = entity stock_movements {
+        productId = input.productId;
+        warehouseId = input.warehouseId;
+        binId = input.binId;
+        type = "adjust";
+        quantity = input.countedQuantity;
+        reference = input.reason;
+      }
+      update inventoryItem {
+        quantity = input.countedQuantity;
+      }
+      emit "inventory.adjusted" {
+        inventoryId = inventoryItem.id;
+        counted = input.countedQuantity;
+      }
+    }
+    result { return inventoryItem; }
+  }
+
+  dataflow shipSalesOrder @label("Ship order") @comment("Create a shipment for a sales order and mark it shipped.") {
+    allow roles admin, operator;
+    idempotency required;
+    audit "sales.shipped";
+    input {
+      field salesOrderId UUID @required;
+      field warehouseId UUID @required;
+    }
+    context {
+      salesOrder = entity sales_orders by id input.salesOrderId @required;
+    }
+    step validate {
+      require salesOrder.status == "allocated" @error("errors.salesOrder.notAllocated");
+    }
+    step ship {
+      create shipment = entity shipments {
+        salesOrderId = input.salesOrderId;
+        warehouseId = input.warehouseId;
+        status = "shipped";
+      }
+      update salesOrder {
+        status = "shipped";
+      }
+      emit "sales.shipped" {
+        salesOrderId = salesOrder.id;
+      }
+    }
+    result { return shipment; }
+  }
+
+  dataflow transferInventory @label("Transfer inventory") @comment("Transfer stock between warehouses or bins with an audit movement.") {
+    allow roles admin, operator;
+    idempotency required;
+    audit "inventory.transferred";
+    input {
+      field inventoryId UUID @required;
+      field targetWarehouseId UUID @required;
+      field targetBinId UUID @required;
+      field quantity Integer @required;
+      field productId UUID @required;
+    }
+    context {
+      inventoryItem = entity inventory by id input.inventoryId @required;
+    }
+    step transfer {
+      create movement = entity stock_movements {
+        productId = input.productId;
+        warehouseId = input.targetWarehouseId;
+        binId = input.targetBinId;
+        type = "transfer";
+        quantity = input.quantity;
+      }
+      update inventoryItem {
+        warehouseId = input.targetWarehouseId;
+        binId = input.targetBinId;
+      }
+      emit "inventory.transferred" {
+        inventoryId = inventoryItem.id;
+        warehouseId = input.targetWarehouseId;
+      }
+    }
+    result { return inventoryItem; }
+  }
+
+  dataflow completeWorkOrder @label("Complete work order") @comment("Consume components and book the produced quantity, then close the work order.") {
+    allow roles admin, operator;
+    idempotency required;
+    audit "production.completed";
+    input {
+      field workOrderId UUID @required;
+      field componentId UUID @required;
+      field componentQuantity Integer @required;
+      field outputBinId UUID @required;
+      field outputQuantity Integer @required;
+      field warehouseId UUID @required;
+      field productId UUID @required;
+    }
+    context {
+      workOrder = entity work_orders by id input.workOrderId @required;
+    }
+    step validate {
+      require workOrder.status == "in_progress" @error("errors.workOrder.notInProgress");
+    }
+    step consume {
+      create consumption = entity stock_movements {
+        productId = input.componentId;
+        warehouseId = input.warehouseId;
+        binId = input.outputBinId;
+        type = "consumption";
+        quantity = input.componentQuantity;
+      }
+      create production = entity stock_movements {
+        productId = input.productId;
+        warehouseId = input.warehouseId;
+        binId = input.outputBinId;
+        type = "production";
+        quantity = input.outputQuantity;
+      }
+      update workOrder {
+        status = "completed";
+      }
+      emit "production.completed" {
+        workOrderId = workOrder.id;
+        produced = input.outputQuantity;
+      }
+    }
+    result { return workOrder; }
+  }
+
+  action receiveInventory {
+    resource inventory;
+    dataflow receiveInventory;
+    placement list, show;
+    label "Receive goods";
+  }
+
+  action putawayStock {
+    resource inventory;
+    dataflow putawayStock;
+    placement list;
+    label "Put away";
+  }
+
+  action reserveStock {
+    resource inventory;
+    dataflow reserveStock;
+    placement list;
+    label "Reserve stock";
+  }
+
+  action adjustStock {
+    resource inventory;
+    dataflow adjustStock;
+    placement list;
+    label "Adjust stock";
+  }
+
+  action transferInventory {
+    resource inventory;
+    dataflow transferInventory;
+    placement list;
+    label "Transfer inventory";
+  }
+
+  action shipSalesOrder {
+    resource sales_orders;
+    dataflow shipSalesOrder;
+    placement list, show;
+    label "Ship order";
+  }
+
+  action completeWorkOrder {
+    resource work_orders;
+    dataflow completeWorkOrder;
+    placement list, show;
+    label "Complete work order";
+  }
+
+}
