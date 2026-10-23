@@ -114,6 +114,35 @@ Kinde 只支持 authorization_code / client_credentials / device_code（**没有
 
 Phase B（真实用户登录）在浏览器完成：打开脚本构造的授权 URL（或生成 Web 的登录页）→ 登录 → 回调 code → 用 PKCE verifier 换 token → 打 `/api/v1/auth/me`；Kinde 也支持 device code flow 可做半自动验证。这些属于浏览器交互，Qiy 不内置浏览器自动化。
 
+## 3d. 真实 Google OpenID Connect（Phase A 已跑通）
+
+```powershell
+$env:QIY_GOOGLE_CLIENT_ID="<client id>"
+$env:QIY_GOOGLE_CLIENT_SECRET="<client secret>"
+$env:QIY_GOOGLE_REDIRECT_URI="http://localhost:8000/oauth/google"
+# 受限网络下 Bun fetch 需要代理（生成器服务端也一样）：
+$env:HTTPS_PROXY="http://127.0.0.1:10090"
+$env:HTTP_PROXY="http://127.0.0.1:10090"
+bun run tools/verify-google.ts
+```
+
+已验证（Phase A）：
+
+- 真实 discovery：issuer=accounts.google.com、JWKS（`www.googleapis.com/oauth2/v3/certs`）、authorization/token 端点、RS256；
+- 真实 JWKS 可拉取且含 RS256 签名 key；
+- **PKCE 授权请求被 Google 接受**（client_id + redirect_uri 已注册，未返回 `redirect_uri_mismatch`/`invalid_client`）；
+- **token 端点验证 client_id/secret/redirect_uri**：用伪造 code 请求返回 `invalid_grant`（而非 `invalid_client`），说明客户端凭据与重定向地址都有效；
+- 生成 OIDC 应用指向 Google：伪造 token（kid 正确、签名错误）被真实 Google JWKS 验签拒绝，缺/畸形 token 被拒。
+
+Phase B（真实用户 ID token）需要浏览器授权（Google 不支持 password grant）。可选做法：在 [Google OAuth 2.0 Playground](https://developers.google.com/oauthplayground/) 用该 client 授权后复制 `id_token`，然后：
+
+```powershell
+$env:QIY_GOOGLE_ID_TOKEN="<id_token>"
+bun run tools/verify-google.ts
+```
+
+脚本会校验 token 的 IANA/audience、按 `iss|sub` 写入 users 表映射，并验证生成 server 接受该真实 token。
+
 ## 4. 真实 Ably（需要 API Key）
 
 Ably 没有本地服务器，必须用真实账号：

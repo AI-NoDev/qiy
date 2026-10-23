@@ -92,6 +92,7 @@ docker run --rm -v dist:/dist -v <work>:/work -w /work debian:bookworm-slim /dis
 - **真实 Ably（有 key 即跑，无 key 明确 skip）**：`bun run tools/verify-ably.ts`。未设置 `QIY_ABLY_API_KEY` 时打印获取 key 的步骤并以 0 退出（不伪造通过）；**已用真实 Ably 账号跑通**（`qiy-ably-xLVCKl`）：REST 发布 + history 读取、capability 断言 \`{"qiy:orders":["subscribe"]}\`、用该 token publish 被 Ably 拒绝（40160）、viewer 403；设置 key 后验证真实 REST 发布 + history 读取、`/api/v1/realtime/token` 的 subscribe-only capability（能读 history、publish 被 Ably 拒绝 40160）、viewer 403、错误 key 被拒。
 - **Auth0 真实租户（Phase A 已跑通）**：`verify-auth0.ts` 对 `dev-3c3eq3j5rm4meg4p.us.auth0.com` 拉取真实 discovery/JWKS，断言当前+下一把轮换 key（`0FJCjD5IW4jOsvAUyuqYq`、`hLvPykYxvTS831IEJ1qaJ`）均在队列中；生成 OIDC 应用用真实 JWKS 验签（伪造 kid 正确但签名错误的 token 被拒，缺/畸形 token 被拒）。Phase B（真实 password grant token）需要 Auth0 应用 client_id 与测试用户，脚本已就绪。
 - **Kinde 真实租户（Phase A 已跑通）**：`verify-kinde.ts` 对 `windshage.kinde.com` 拉取真实 discovery/JWKS，校验 RS256 与"无 password grant"；用提供的 public client id 构造 PKCE 授权请求（含强 state），授权端点接受、未知 client id 被拒；生成 OIDC 应用用真实 Kinde JWKS 拒绝伪造 token。Phase B（真实用户登录）需浏览器完成 PKCE/device flow。
+- **Google 真实租户（Phase A 已跑通）**：`verify-google.ts` 拉取 accounts.google.com discovery/JWKS，校验 RS256；PKCE 授权请求被接受、token 端点用伪造 code 返回 `invalid_grant`（证明 client_id/secret/redirect_uri 有效）；生成 OIDC 应用用真实 Google JWKS 拒绝伪造 token。Phase B 需浏览器授权得到真实 id_token（可粘贴到 `QIY_GOOGLE_ID_TOKEN`）。受限网络需给 Bun 设置 `HTTPS_PROXY`。
 - 厂商租户（Okta/Auth0/Azure AD B2C/Google/Kinde）的接入清单写进文档：应用类型、回调、audience、role/tenant claim 映射、`iss|sub` 用户映射、JWKS 轮换与浏览器 PKCE 的验收步骤。
 
 **Kubernetes 验收（k3s in Docker）**
