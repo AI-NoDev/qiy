@@ -143,6 +143,42 @@ bun run tools/verify-google.ts
 
 脚本会校验 token 的 IANA/audience、按 `iss|sub` 写入 users 表映射，并验证生成 server 接受该真实 token。
 
+## 3e. 真实 Okta 租户（Phase A 已跑通）
+
+```powershell
+$env:QIY_OKTA_DOMAIN="https://trial-6051350.okta.com/"
+# 受限网络下 Bun fetch 需要代理（生成器服务端同理）
+$env:HTTPS_PROXY="http://127.0.0.1:10090"
+bun run tools/verify-okta.ts
+```
+
+Phase A（只需要 org 域名）已验证：
+
+- 默认授权服务器 `/oauth2/default` 的 discovery：issuer、`/v1/keys`、`/v1/authorize`、`/v1/token`、RS256；
+- 真实 JWKS 可拉取且含 RS256 签名 key；org authorization server discovery 也确认已启用；
+- 生成 OIDC 应用（`provider okta`）指向该授权服务器：伪造 token（kid 正确、签名错误）被真实 Okta JWKS 验签拒绝，缺/畸形 token 被拒。
+
+Phase B（真实用户 token，Resource Owner Password grant）需要 Okta 侧：
+
+```powershell
+$env:QIY_OKTA_CLIENT_ID="<OIDC Web Application client id>"
+$env:QIY_OKTA_CLIENT_SECRET="<client secret>"
+$env:QIY_OKTA_AUDIENCE="api://default"          # 或自定义 AS 的 audience
+$env:QIY_OKTA_USERNAME="<已 Assign 到该应用的测试用户邮箱>"
+$env:QIY_OKTA_PASSWORD="<该用户密码>"
+bun run tools/verify-okta.ts
+```
+
+Okta 配置步骤：
+
+1. Applications → Create App Integration → **OIDC - OpenID Connect** → **Web Application**；
+2. Sign-in redirect URI 填生成 Web 的登录回调（如 `http://localhost:3000/login`）；
+3. General → Grant types 勾选 **Resource Owner Password**（以及 Authorization Code）；
+4. Assignments 里把测试用户分配给该应用（未分配会返回 `access_denied`）；
+5. Security → API → Authorization Servers：用 `default`（audience `api://default`）或自定义 AS（自定义 audience）。
+
+脚本用 password grant 从 `/v1/token` 取真实 token，写入 `iss|sub` 用户映射后验证：合法 token 通过并映射 admin；伪造签名被拒。
+
 ## 4. 真实 Ably（需要 API Key）
 
 Ably 没有本地服务器，必须用真实账号：
