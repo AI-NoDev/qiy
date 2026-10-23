@@ -27,14 +27,16 @@ Dex 是 CNCF 的 OIDC 身份提供方，脚本用它做**真实 IdP** 验收（�
 
 成功输出 `Dex real-IdP acceptance passed`（证据在工作区临时目录）。
 
-## 2b. 真实 Keycloak（Docker，可选）
+## 2b. 真实 Keycloak（Docker，已跑通）
 
 ```powershell
 docker pull keycloak/keycloak:26.0.5
 bun run tools/verify-keycloak.ts
 ```
 
-与 Dex 版本等价的 Keycloak 验收：realm 导入（audience mapper + tenant attribute mapper）、token 端点密码模式、`tenant.customerId` 自定义 claim、生成 server 验签与身份映射。Keycloak 镜像较大，拉取慢时不影响 Dex 路径。
+Keycloak 26 用 HTTPS + realm 导入：`qiy-acceptance` client 带 audience mapper（`aud: qiy-api`）与 **hardcoded claim mapper**（`tenantCustomerId: customer-1`），`qiy-other` client 不带 audience；两个用户需要 `firstName`/`lastName`（否则密码模式报 `Account is not fully set up`）。验收输出 `Keycloak real-IdP acceptance passed`：发现端点、真实 token 的 `aud`、扁平 tenant claim、生成 server 的合法 token 通过 + 错误 audience 401 + 未映射 subject 401 + 匿名 401。
+
+注意：Keycloak 会把含点的 claim 名展开成**嵌套对象**（`tenant.customerId` → `tenant: { customerId }`），而生成器只投影**标量** claim（`string`/`number`/`boolean`），所以接 Keycloak 时租户/角色类自定义 claim 请用扁平名（如 `tenantCustomerId`）；Okta/Auth0 常见的命名空间扁平 claim（如 `https://example.com/roles`）可直接使用。
 
 ## 3. 真实厂商租户（Okta / Auth0 / Azure AD B2C / Google / Kinde）
 

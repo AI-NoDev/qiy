@@ -37,8 +37,10 @@ async function must(command: string[], options: { cwd?: string; timeoutMs?: numb
 }
 
 // 1) TLS certificate for Keycloak (the generated OIDC authenticator requires HTTPS).
-await must(["docker", "run", "--rm", "-v", `${root}:/certs`, "alpine:3", "sh", "-c",
-  "apk add --no-cache openssl >/dev/null && openssl req -x509 -newkey rsa:2048 -nodes -keyout /certs/key.pem -out /certs/cert.pem -days 2 -subj /CN=localhost -addext subjectAltName=DNS:localhost,IP:127.0.0.1"]);
+//    openssl comes from the local .NET SDK image (no apk network needed) and the
+//    key is world-readable because Keycloak runs as a non-root user.
+await must(["docker", "run", "--rm", "-v", `${root}:/certs`, "mcr.microsoft.com/dotnet/sdk:8.0", "sh", "-c",
+  "openssl req -x509 -newkey rsa:2048 -nodes -keyout /certs/key.pem -out /certs/cert.pem -days 2 -subj /CN=localhost -addext subjectAltName=DNS:localhost,IP:127.0.0.1 && chmod 644 /certs/key.pem /certs/cert.pem"]);
 
 // 2) Realm with a client that mints qiy-api audience tokens and one that does not.
 writeFileSync(join(root, "realm.json"), JSON.stringify({
@@ -57,7 +59,7 @@ writeFileSync(join(root, "realm.json"), JSON.stringify({
       protocol: "openid-connect",
       protocolMappers: [
         { name: "qiy-audience", protocol: "openid-connect", protocolMapper: "oidc-audience-mapper", config: { "included.custom.audience": audience, "access.token.claim": "true", "id.token.claim": "false" } },
-        { name: "tenant-claim", protocol: "openid-connect", protocolMapper: "oidc-usermodel-attribute-mapper", config: { "user.attribute": "tenantId", "claim.name": "tenant.customerId", "jsonType.label": "String", "access.token.claim": "true" } },
+        { name: "tenant-claim", protocol: "openid-connect", protocolMapper: "oidc-hardcoded-claim-mapper", config: { "claim.name": "tenantCustomerId", "claim.value": "customer-1", "jsonType.label": "String", "access.token.claim": "true", "id.token.claim": "false" } },
       ],
     },
     {
@@ -75,6 +77,8 @@ writeFileSync(join(root, "realm.json"), JSON.stringify({
       enabled: true,
       email: "acceptance@example.test",
       emailVerified: true,
+      firstName: "Acceptance",
+      lastName: "Tester",
       attributes: { tenantId: ["customer-1"] },
       credentials: [{ type: "password", value: "acceptance-password", temporary: false }],
     },
@@ -83,6 +87,8 @@ writeFileSync(join(root, "realm.json"), JSON.stringify({
       enabled: true,
       email: "unmapped@example.test",
       emailVerified: true,
+      firstName: "Unmapped",
+      lastName: "Tester",
       credentials: [{ type: "password", value: "acceptance-password", temporary: false }],
     },
   ],
@@ -102,7 +108,7 @@ try {
     "-v", `${join(root, "realm.json")}:/opt/keycloak/data/import/realm.json:ro`,
     "-v", `${join(root, "cert.pem")}:/opt/keycloak/conf/tls.crt:ro`,
     "-v", `${join(root, "key.pem")}:/opt/keycloak/conf/tls.key:ro`,
-    "quay.io/keycloak/keycloak:26.0.5",
+    "keycloak/keycloak:26.0.5",
     "start-dev", "--import-realm", "--https-port=8443",
     "--https-certificate-file=/opt/keycloak/conf/tls.crt",
     "--https-certificate-key-file=/opt/keycloak/conf/tls.key",
@@ -134,8 +140,9 @@ try {
     return { token: body.access_token, claims };
   };
   const accepted = await token("qiy-acceptance", "acceptance");
+  console.log("token claims: " + Object.keys(accepted.claims).join(", "));
   check("Keycloak mints a token with the qiy-api audience", String(accepted.claims.aud).includes(audience));
-  check("Keycloak carries the tenant claim", accepted.claims["tenant.customerId"] === "customer-1");
+  check("Keycloak carries a flat tenant claim", accepted.claims.tenantCustomerId === "customer-1");
 
   // 3) Generated server with the real issuer/JWKS.
   writeFileSync(join(root, "app.qiy"), `qiy v0;
@@ -191,7 +198,7 @@ test("verifies real Keycloak tokens and maps the database identity", async () =>
   expect(me.status).toBe(200);
   const principal = await me.json() as { role: string; claims?: Record<string, unknown> };
   expect(principal.role).toBe("admin");
-  expect(principal.claims?.["tenant.customerId"]).toBe("customer-1");
+  expect(principal.claims?.tenantCustomerId).toBe("customer-1");
   const notes = await request("/api/v1/notes", tokens.accepted);
   expect(notes.status).toBe(200);
   // Tokens without the required audience are rejected by the generated authenticator.

@@ -88,7 +88,7 @@ docker run --rm -v dist:/dist -v <work>:/work -w /work debian:bookworm-slim /dis
 为了回答"真实 Ably / 厂商 IdP 怎么测"，新增 `docs/guide/real-services.md` 与三个验收脚本：
 
 - **Dex（已跑通，无需外部凭据）**：`bun run tools/verify-dex.ts` 在 Docker 里启动 CNCF Dex（HTTPS、两个 public client、两个 bcrypt 静态用户），通过 password grant 取真实 JWT，生成 OIDC 应用后断言：合法 token 通过并映射角色/claim、错误 audience 401、无 `iss|sub` 映射 401、匿名 401；输出 "Dex real-IdP acceptance passed"。
-- **Keycloak（脚本就绪，镜像拉取慢时可选）**：`bun run tools/verify-keycloak.ts`，realm 导入含 audience mapper 与 `tenant.customerId` attribute mapper，可同时验证自定义租户 claim。
+- **Keycloak（已跑通）**：`bun run tools/verify-keycloak.ts` —— Keycloak 26.0.5 容器 + HTTPS + realm 导入（audience mapper + hardcoded `tenantCustomerId` claim）；真实 token 的 `aud`、扁平租户 claim、生成 server 的合法 token 通过 / 错误 audience 401 / 未映射 subject 401 / 匿名 401 全部通过（"Keycloak real-IdP acceptance passed"）。发现并记录：Keycloak 会把含点的 claim 名展开成嵌套对象，而生成器只投影标量 claim，接 Keycloak/厂商时应使用扁平 claim 名。
 - **真实 Ably（有 key 即跑，无 key 明确 skip）**：`bun run tools/verify-ably.ts`。未设置 `QIY_ABLY_API_KEY` 时打印获取 key 的步骤并以 0 退出（不伪造通过）；**已用真实 Ably 账号跑通**（`qiy-ably-xLVCKl`）：REST 发布 + history 读取、capability 断言 \`{"qiy:orders":["subscribe"]}\`、用该 token publish 被 Ably 拒绝（40160）、viewer 403；设置 key 后验证真实 REST 发布 + history 读取、`/api/v1/realtime/token` 的 subscribe-only capability（能读 history、publish 被 Ably 拒绝 40160）、viewer 403、错误 key 被拒。
 - 厂商租户（Okta/Auth0/Azure AD B2C/Google/Kinde）的接入清单写进文档：应用类型、回调、audience、role/tenant claim 映射、`iss|sub` 用户映射、JWKS 轮换与浏览器 PKCE 的验收步骤。
 
