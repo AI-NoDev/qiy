@@ -96,6 +96,24 @@ bun run tools/verify-auth0.ts
 
 > Auth0 默认应用类型是 SPA（无 client_secret，不能 password grant）。要跑 Phase B，请在 Auth0 控制台创建一个 **Regular Web Application 或 Machine-to-Machine** 并启用 Password Grant，或在 Application → Advanced → Grant Types 勾选 Password；同时确保该应用被授权 API（audience）。
 
+## 3c. 真实 Kinde 租户（Phase A 已跑通）
+
+```powershell
+$env:QIY_KINDE_DOMAIN="https://windshage.kinde.com"
+$env:QIY_KINDE_CLIENT_ID="84551a42d0e04c5aabcbfb04f00aa7c6"
+$env:QIY_KINDE_REDIRECT_URL="http://localhost:3000"
+bun run tools/verify-kinde.ts
+```
+
+Kinde 只支持 authorization_code / client_credentials / device_code（**没有 password grant**），所以无人值守的用户 token 必须走浏览器或 device flow。脚本验证不需要浏览器登录的部分：
+
+- 真实 discovery：issuer、JWKS（`/.well-known/jwks`）、authorization/token 端点、RS256，并确认 password grant 未开启；
+- 真实 JWKS 可拉取且包含 RS256 签名 key；
+- **提供的 public client id 被授权端点接受**（PKCE + 强 state），未知 client id 被拒绝；
+- 生成 OIDC 应用指向该租户：伪造 token（kid 正确、签名错误）被真实 JWKS 验签拒绝，缺/畸形 token 被拒。
+
+Phase B（真实用户登录）在浏览器完成：打开脚本构造的授权 URL（或生成 Web 的登录页）→ 登录 → 回调 code → 用 PKCE verifier 换 token → 打 `/api/v1/auth/me`；Kinde 也支持 device code flow 可做半自动验证。这些属于浏览器交互，Qiy 不内置浏览器自动化。
+
 ## 4. 真实 Ably（需要 API Key）
 
 Ably 没有本地服务器，必须用真实账号：
