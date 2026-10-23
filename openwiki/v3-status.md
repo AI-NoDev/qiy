@@ -83,6 +83,15 @@ docker run --rm -v dist:/dist -v <work>:/work -w /work debian:bookworm-slim /dis
 
 这补上了"Linux 只有格式/架构校验、没有执行证据"的空白；macOS 产物仍无 runner（无法在 Linux 容器运行），真实 Ably/厂商 IdP 租户仍需凭据。
 
+**真实 IdP（Dex / Keycloak）与真实 Ably**
+
+为了回答"真实 Ably / 厂商 IdP 怎么测"，新增 `docs/guide/real-services.md` 与三个验收脚本：
+
+- **Dex（已跑通，无需外部凭据）**：`bun run tools/verify-dex.ts` 在 Docker 里启动 CNCF Dex（HTTPS、两个 public client、两个 bcrypt 静态用户），通过 password grant 取真实 JWT，生成 OIDC 应用后断言：合法 token 通过并映射角色/claim、错误 audience 401、无 `iss|sub` 映射 401、匿名 401；输出 "Dex real-IdP acceptance passed"。
+- **Keycloak（脚本就绪，镜像拉取慢时可选）**：`bun run tools/verify-keycloak.ts`，realm 导入含 audience mapper 与 `tenant.customerId` attribute mapper，可同时验证自定义租户 claim。
+- **真实 Ably（有 key 即跑，无 key 明确 skip）**：`bun run tools/verify-ably.ts`。未设置 `QIY_ABLY_API_KEY` 时打印获取 key 的步骤并以 0 退出（不伪造通过）；设置后验证真实 REST 发布 + history 读取、`/api/v1/realtime/token` 的 subscribe-only capability（能读 history、publish 被 Ably 拒绝 40160）、viewer 403、错误 key 被拒。
+- 厂商租户（Okta/Auth0/Azure AD B2C/Google/Kinde）的接入清单写进文档：应用类型、回调、audience、role/tenant claim 映射、`iss|sub` 用户映射、JWKS 轮换与浏览器 PKCE 的验收步骤。
+
 **Kubernetes 验收（k3s in Docker）**
 
 ```powershell
