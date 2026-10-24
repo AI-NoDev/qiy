@@ -19,6 +19,7 @@ export const localeMessages = {
   "zh-CN": {
     new: "新建", edit: "编辑", view: "查看", back: "返回列表", delete: "删除", batchDelete: "批量删除", actions: "操作",
     visibleColumns: "显示列", confirmDelete: "确认删除选中记录？", deleted: "删除成功", unknownResource: "未知资源", detail: "详情",
+    createResource: "新建{{resource}}", editResource: "编辑{{resource}}", openDetail: "打开详情", searchRelation: "搜索…",
     language: "语言", save: "保存", cancel: "取消", deleteSuccess: "删除成功", quickAccess: "快速访问", upload: "上传文件",
     overview: "概览", overviewDescription: "从数据资源快速进入业务管理。", profile: "个人中心", filters: "筛选", search: "搜索",
     matchAll: "全部匹配", matchAny: "任一匹配", commaSeparated: "（逗号分隔）", forbidden: "没有访问该页面的权限",
@@ -58,6 +59,7 @@ export const localeMessages = {
   "en-US": {
     new: "New", edit: "Edit", view: "View", back: "Back to list", delete: "Delete", batchDelete: "Batch delete", actions: "Actions",
     visibleColumns: "Columns", confirmDelete: "Delete selected records?", deleted: "Deleted", unknownResource: "Unknown resource", detail: "Detail",
+    createResource: "Create {{resource}}", editResource: "Edit {{resource}}", openDetail: "Open details", searchRelation: "Search…",
     language: "Language", save: "Save", cancel: "Cancel", deleteSuccess: "Deleted", quickAccess: "Quick access", upload: "Upload file",
     overview: "Overview", overviewDescription: "Jump into your data resources from one place.", profile: "Profile", filters: "Filters", search: "Search",
     matchAll: "Match all", matchAny: "Match any", commaSeparated: " (comma separated)", forbidden: "You are not allowed to open this page",

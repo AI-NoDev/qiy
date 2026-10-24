@@ -45,6 +45,28 @@ field legacyCode Text @column("legacy_code");
 
 `@visible`、`@listVisible`、`@formVisible`、`@showVisible` 控制字段可见性，`@sortable` / `@filterable` 控制列表交互。
 
+## 实体显示文本与外键列
+
+外键列默认会显示目标记录的显示文本，而不是 UUID。为每个实体声明 Django 风格的显示注解即可控制这段文本：
+
+```qiy
+entity products @singular("Product") @plural("Products")
+  @display("{$.sku} · {$.name}")
+  @tableDisplay("{$.sku} · {$.name}")
+  @relationDetail("<b>{$.name}</b></br>{$.sku}") {
+  field id UUID @id;
+  field sku Text @unique;
+  field name Text;
+}
+```
+
+- `@singular` / `@plural` 用于新建/编辑/详情标题与菜单、列表标题；
+- `@display` 用于记录本身的默认显示文本（下拉选项、关联表兜底）；
+- `@tableDisplay` 用于本实体作为其他表外键列时的文本；
+- `@relationDetail` 用于点击外键链接后 Drawer 的正文。
+
+模板语法只有 `{$.field}` 占位符与 `br`、`b`、`strong`、`i`、`em`、`span`、`small`、`p`、`div` 白名单标签；所有插值都会被转义，未知字段、外键字段、`File` / `Vector` 字段、非法标签都会在生成前报错。详情见 [entity 与 field](/dsl/entity#实体显示注解-django-风格)。单数/复数名可用 `qiy.resources.<resource>.singular` / `.plural` 翻译键做多语言。
+
 ## 索引与关系
 
 ```ts

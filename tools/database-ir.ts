@@ -83,6 +83,16 @@ export interface EntityIR {
   indexes?: IndexIR[];
   label?: string;
   icon?: string;
+  /** Human singular name (create/edit titles, drawer titles); defaults to `label`. */
+  singular?: string;
+  /** Human plural name (menu label, list title); defaults to `label`. */
+  plural?: string;
+  /** Default record display template, e.g. `{$.name}`; used for select options and titles. */
+  display?: string;
+  /** Template used when this entity is rendered as another table's foreign-key cell. */
+  tableDisplay?: string;
+  /** HTML body of the foreign-key detail drawer for a related record. */
+  relationDetail?: string;
 }
 
 export interface DatabaseIR {
@@ -103,6 +113,116 @@ const reservedNames = new Set([
   "import", "in", "instanceof", "let", "new", "null", "return", "super", "switch", "this",
   "throw", "true", "try", "typeof", "var", "void", "while", "with", "yield",
 ]);
+
+/**
+ * Tags a display template may contain. Attributes, event handlers, scripts and
+ * every other tag are rejected during validation and dropped again at render
+ * time, so a template can never inject markup the model did not whitelist.
+ */
+export const DISPLAY_TEMPLATE_TAGS = ["br", "b", "strong", "i", "em", "span", "small", "p", "div"] as const;
+/** Scalar field types a display template may interpolate; relations are rendered by the FK cell itself. */
+export const DISPLAY_TEMPLATE_FIELD_TYPES: ReadonlySet<FieldType> = new Set<FieldType>(["UUID", "Text", "Integer", "Decimal", "Money", "DateTime"]);
+const displayTemplateTagSet = new Set<string>(DISPLAY_TEMPLATE_TAGS);
+const displayPlaceholder = /^\{\$\.([a-zA-Z_][a-zA-Z0-9_]*)\}/;
+const displayTag = /^<(\/?)([a-zA-Z][a-zA-Z0-9]*)(\/?)>/;
+
+export interface DisplayTemplateValidationOptions {
+  /** Foreign-key source fields (`fromEntity.fromField`) that a template must not interpolate directly. */
+  relationFields?: ReadonlySet<string>;
+}
+
+/**
+ * Validates one entity display template. The template language is intentionally
+ * tiny: literal text, `{$.field}` placeholders and a fixed tag whitelist. This
+ * function is used by the parser (grammar and field references) and by
+ * `validateDatabaseIR` (relation-aware checks) so bad templates fail before any
+ * generated code is written.
+ */
+export function validateDisplayTemplate(template: string, entity: Pick<EntityIR, "name" | "fields">, purpose: string, options: DisplayTemplateValidationOptions = {}): string[] {
+  const errors: string[] = [];
+  const prefix = `${entity.name}: @${purpose} template`;
+  if (typeof template !== "string" || !template.trim()) {
+    return [`${prefix} must be a non-empty string`];
+  }
+  const stack: string[] = [];
+  let index = 0;
+  while (index < template.length) {
+    const rest = template.slice(index);
+    const char = rest[0]!;
+    if (char === "{") {
+      const placeholder = displayPlaceholder.exec(rest);
+      if (!placeholder) {
+        errors.push(`${prefix} has a malformed placeholder at offset ${index}; write {$.fieldName} or remove the brace`);
+        index += 1;
+        continue;
+      }
+      const fieldName = placeholder[1]!;
+      const field = entity.fields.find((candidate) => candidate.name === fieldName);
+      if (!field) {
+        errors.push(`${prefix} references unknown field ${fieldName}`);
+      } else if (field.type === "File" || field.type === "Files") {
+        errors.push(`${prefix} cannot interpolate ${field.type} field ${fieldName}; use Text, enum, UUID, Integer, Decimal, Money or DateTime`);
+      } else if (field.type === "Vector") {
+        errors.push(`${prefix} cannot interpolate Vector field ${fieldName}; use Text, enum, UUID, Integer, Decimal, Money or DateTime`);
+      } else if (options.relationFields?.has(`${entity.name}.${fieldName}`)) {
+        errors.push(`${prefix} cannot interpolate foreign key field ${fieldName}; reference a scalar field instead`);
+      }
+      index += placeholder[0].length;
+      continue;
+    }
+    if (char === "<") {
+      const tag = displayTag.exec(rest);
+      if (!tag) {
+        errors.push(`${prefix} has an unterminated tag at offset ${index}; only ${DISPLAY_TEMPLATE_TAGS.join(", ")} are allowed`);
+        index += 1;
+        continue;
+      }
+      const [raw, closing, rawName, selfClosing] = tag;
+      const name = rawName!.toLowerCase();
+      const closingTag = closing === "/";
+      if (rawName !== name) {
+        errors.push(`${prefix} tag <${rawName}> must be lowercase`);
+      } else if (name === "br") {
+        // `<br>`, `<br/>` and the Django-style `</br>` all normalize to one line break.
+      } else if (!displayTemplateTagSet.has(name)) {
+        errors.push(`${prefix} contains unsupported tag <${closingTag ? "/" : ""}${rawName}>; allowed tags: ${DISPLAY_TEMPLATE_TAGS.join(", ")}`);
+      } else if (selfClosing) {
+        errors.push(`${prefix} does not support self-closing <${name}/>; write <${name}>…</${name}>`);
+      } else if (closingTag) {
+        const open = stack[stack.length - 1];
+        if (open === name) stack.pop();
+        else if (open) errors.push(`${prefix} closing tag </${name}> does not match <${open}>`);
+        else errors.push(`${prefix} closing tag </${name}> has no matching opening tag`);
+      } else {
+        stack.push(name);
+      }
+      index += raw!.length;
+      continue;
+    }
+    if (char === ">") {
+      errors.push(`${prefix} contains a stray ">" at offset ${index}`);
+      index += 1;
+      continue;
+    }
+    index += 1;
+  }
+  if (stack.length) errors.push(`${prefix} has an unclosed <${stack[stack.length - 1]}> tag`);
+  return errors;
+}
+
+/** Validates every display annotation on one entity (grammar and field references only). */
+export function validateEntityDisplayTemplates(entity: EntityIR, options: DisplayTemplateValidationOptions = {}): string[] {
+  const errors: string[] = [];
+  for (const [purpose, template] of [
+    ["display", entity.display],
+    ["tableDisplay", entity.tableDisplay],
+    ["relationDetail", entity.relationDetail],
+  ] as const) {
+    if (template === undefined) continue;
+    errors.push(...validateDisplayTemplate(template, entity, purpose, options));
+  }
+  return errors;
+}
 
 export function validateDatabaseIR(database: DatabaseIR): string[] {
   const errors: string[] = [];
@@ -150,6 +270,13 @@ export function validateDatabaseIR(database: DatabaseIR): string[] {
 
   if (database.dialect !== "postgresql" && (extensions.has("pgvector") || extensions.has("postgis"))) {
     errors.push("pgvector and postgis require PostgreSQL");
+  }
+
+  // Foreign-key source fields are rendered by the generated relation cell, so a
+  // display template must not interpolate the raw id UUID.
+  const foreignKeyFields = new Set<string>();
+  for (const relation of database.relations ?? []) {
+    if (relation?.fromEntity && relation?.fromField) foreignKeyFields.add(`${relation.fromEntity}.${relation.fromField}`);
   }
 
   for (const entity of database.entities) {
@@ -292,6 +419,7 @@ export function validateDatabaseIR(database: DatabaseIR): string[] {
         }
       }
     }
+    errors.push(...validateEntityDisplayTemplates(entity, { relationFields: foreignKeyFields }));
   }
 
   const entitiesByName = new Map(database.entities.map((entity) => [entity.name, entity]));

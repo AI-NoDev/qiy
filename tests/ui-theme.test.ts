@@ -61,7 +61,8 @@ describe("Qiy UI themes", () => {
     const files = generateProject(project.database, project.name, project);
     expect(files["apps/web/app/routes/list.tsx"]).toContain("CreateButton, DeleteButton, EditButton, List, ShowButton");
     expect(files["apps/web/app/routes/show.tsx"]).toContain("EditButton, ListButton, Show");
-    expect(files["apps/web/app/components/resource-form.tsx"]).toContain("Create, Edit, useForm, useSelect");
+    expect(files["apps/web/app/components/resource-form.tsx"]).toContain("Create, Edit, useForm");
+    expect(files["apps/web/app/components/resource-form.tsx"]).toContain("RelationSelect");
     expect(JSON.parse(files["apps/web/package.json"]!).scripts.build).toBe("node build.mjs");
     expect(files["apps/web/build.mjs"]).toContain('require.resolve("@react-router/dev/package.json")');
     expect(files["apps/web/package.json"]).not.toContain("@refinedev/mui");

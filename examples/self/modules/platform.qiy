@@ -49,7 +49,7 @@ enum movementType {
   value consumption;
 }
 
-entity users @label("Users") @icon(UserOutlined) {
+entity users @label("Users") @icon(UserOutlined) @singular("User") @plural("Users") @display("{$.displayName}") @tableDisplay("{$.displayName}") @relationDetail("<b>{$.displayName}</b></br>{$.email}") {
   field id UUID @id;
   field subject Text @unique;
   field oktaSubject Text @nullable @unique;

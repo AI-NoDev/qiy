@@ -9,6 +9,7 @@
 - **WMS**：组织（scope tree claim）、仓库、库位、库存（在手/预留/批次）、库存流水、上架/调拨/盘点/预留/发运等 dataflow 命令（幂等 + 审计 + 事务回滚）；
 - **实时**：库存、库存流水、发运的 realtime outbox；
 - **权限**：pages 页面级角色、restrict 字段 mask、scope 按 claim 过滤仓库；
+- **实体显示文本（Django 风格）**：每个实体都声明 `@singular` / `@plural` / `@display` / `@tableDisplay` / `@relationDetail`，外键列显示目标记录的显示文本并链接到 Drawer/详情页，不再显示 UUID；
 - **混合登录**：`providers local, okta, keycloak, google, kinde, azure-ad-b2c;` 同时启用密码登录和 5 个 OIDC Provider；每个 Provider 映射到自己的身份列（`oktaSubject`、`keycloakSubject`、`googleSubject`、`kindeSubject`、`azureSubject`），`profileField oauthProfiles` 记录各 Provider 返回的 email/name，供个人中心展示。
 
 ```qiy
@@ -72,12 +73,15 @@ include "modules/actions.qiy";
 | Key | 覆盖内容 |
 | --- | --- |
 | `qiy.resources.<resource>.label` | 菜单、面包屑、列表/表单/详情页标题 |
+| `qiy.resources.<resource>.singular` / `.plural` | 新建/编辑/详情/抽屉标题、新建按钮（单数）与菜单、列表标题（复数） |
 | `qiy.resources.<resource>.fields.<field>.label` | 列表列头、详情 label、表单 label、筛选占位符 |
-| `qiy.enums.<enum>.label` / `qiy.enums.<enum>.values.<value>` | 枚举值 Tag、下拉选项 |
+| `qiy.enums.<enum>.label` / `qiy.enums.<enum>.values.<value>` | 枚举值 Tag、下拉选项（显示模板中的枚举字段同样使用） |
 | `qiy.menu.<group>.label` | 菜单分组（本示例没有 menu 块） |
 | `qiy.dashboard.<metric>.label` | 仪表盘指标卡 |
 | `qiy.actions.<action>.label` / `.confirm` / `.inputs.<input>.label` | 业务命令按钮、确认框、命令表单字段 |
 | `errors.*`（本示例自定义） | `@error(t("key"))` 业务规则错误：服务端返回默认语言文案 + `errorKey`，前端按当前语言再翻译 |
+
+实体显示模板（`@display` / `@tableDisplay` / `@relationDetail`）由字段引用和分隔符组成，本身不参与翻译；单数/复数名通过 `singular` / `plural` 键切换语言。示例里所有 17 个实体都带完整显示注解，`tests/example-modules.test.ts` 会断言每个外键目标实体都有表格文本与 Drawer 正文。
 
 静态页面文字（列表工具栏/导入导出/已存视图、分页、主题与明暗模式、403 页、个人中心、登录/onboarding 页面等 UI chrome）使用生成器内置的中英词典，项目 `messages` 可用同名 `qiy.*` key 覆盖，缺省回退内置值。语言选择写在生成 header 的 Select 中：切换后 Ant Design `ConfigProvider`、Refine i18n、`document.documentElement.lang` 同步更新，选择保存在 `localStorage` 的 `qiy.locale`，刷新后保持；未声明的语言回退到默认语言。生成的 `apps/web/tests/model-i18n.test.ts` 会断言每个模型 label 都有稳定 key、中文/英文词典分别解析、以及切换语言后存储值更新；`apps/web/tests/chrome-i18n.test.ts` 断言工具栏、主题控件、分页和登录/个人中心 chrome 在中英文下都能解析。
 

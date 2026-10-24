@@ -4,7 +4,7 @@ export interface ResourceEnumDefinition { name: string; label?: string; labelKey
 export interface ResourceField { name: string; label: string; labelKey: string; comment?: string; commentKey?: string; type: FieldType; nullable: boolean; primaryKey: boolean; visible: boolean; listVisible: boolean; formVisible: boolean; showVisible: boolean; sortable: boolean; filterable: boolean; filterModes: string[]; enumName?: string; enumValues?: ResourceEnumValue[]; relation?: { resource: string; labelField: string }; icon?: string; dimension?: number; uploadMode?: "binary" | "base64" | "both"; maxBytes?: number; mimeTypes?: string[]; maxFiles?: number; /** Page-level layout: the field is only rendered for these roles. */ roles?: string[]; }
 /** Page-level field layout check; a field without role rules is visible to everyone. */
 export function canSeeField(field: ResourceField, role: string | undefined | null): boolean { return !field.roles || field.roles.includes(role ?? ""); }
- export interface ResourceDefinition { name: string; apiName: string; label: string; labelKey: string; comment?: string; commentKey?: string; icon: string; liveMode: "auto" | "manual" | "off"; menuParent?: string; fields: ResourceField[]; relatedResources?: Array<{ resource: string; field: string; label: string; labelKey: string }>; }
+ export interface ResourceDefinition { name: string; apiName: string; label: string; labelKey: string; singular: string; singularKey: string; plural: string; pluralKey: string; displayTemplate?: string; tableDisplayTemplate?: string; relationDetailTemplate?: string; comment?: string; commentKey?: string; icon: string; liveMode: "auto" | "manual" | "off"; menuParent?: string; fields: ResourceField[]; relatedResources?: Array<{ resource: string; field: string; label: string; labelKey: string }>; }
 export const enumerations: ResourceEnumDefinition[] = [
   {
     "name": "userRole",
@@ -197,6 +197,13 @@ export const resources: ResourceDefinition[] = [
     "apiName": "users",
     "label": "Users",
     "labelKey": "qiy.resources.users.label",
+    "singular": "User",
+    "singularKey": "qiy.resources.users.singular",
+    "plural": "Users",
+    "pluralKey": "qiy.resources.users.plural",
+    "displayTemplate": "{$.displayName}",
+    "tableDisplayTemplate": "{$.displayName}",
+    "relationDetailTemplate": "<b>{$.displayName}</b></br>{$.email}",
     "icon": "UserOutlined",
     "liveMode": "off",
     "fields": [
@@ -488,7 +495,7 @@ export const resources: ResourceDefinition[] = [
         ],
         "relation": {
           "resource": "orgs",
-          "labelField": "code"
+          "labelField": "name"
         }
       }
     ]
@@ -498,6 +505,13 @@ export const resources: ResourceDefinition[] = [
     "apiName": "orgs",
     "label": "Organizations",
     "labelKey": "qiy.resources.orgs.label",
+    "singular": "Organization",
+    "singularKey": "qiy.resources.orgs.singular",
+    "plural": "Organizations",
+    "pluralKey": "qiy.resources.orgs.plural",
+    "displayTemplate": "{$.code} · {$.name}",
+    "tableDisplayTemplate": "{$.code} · {$.name}",
+    "relationDetailTemplate": "<b>{$.name}</b></br>{$.code}",
     "icon": "ClusterOutlined",
     "liveMode": "off",
     "relatedResources": [
@@ -608,6 +622,13 @@ export const resources: ResourceDefinition[] = [
     "apiName": "suppliers",
     "label": "Suppliers",
     "labelKey": "qiy.resources.suppliers.label",
+    "singular": "Supplier",
+    "singularKey": "qiy.resources.suppliers.singular",
+    "plural": "Suppliers",
+    "pluralKey": "qiy.resources.suppliers.plural",
+    "displayTemplate": "{$.code} · {$.name}",
+    "tableDisplayTemplate": "{$.code} · {$.name}",
+    "relationDetailTemplate": "<b>{$.name}</b></br>{$.code} · {$.leadTimeDays}",
     "icon": "ShopOutlined",
     "liveMode": "off",
     "relatedResources": [
@@ -732,6 +753,13 @@ export const resources: ResourceDefinition[] = [
     "apiName": "customers",
     "label": "Customers",
     "labelKey": "qiy.resources.customers.label",
+    "singular": "Customer",
+    "singularKey": "qiy.resources.customers.singular",
+    "plural": "Customers",
+    "pluralKey": "qiy.resources.customers.plural",
+    "displayTemplate": "{$.code} · {$.name}",
+    "tableDisplayTemplate": "{$.code} · {$.name}",
+    "relationDetailTemplate": "<b>{$.name}</b></br>{$.code} · {$.creditLimit}",
     "icon": "TeamOutlined",
     "liveMode": "off",
     "relatedResources": [
@@ -856,6 +884,13 @@ export const resources: ResourceDefinition[] = [
     "apiName": "products",
     "label": "Products",
     "labelKey": "qiy.resources.products.label",
+    "singular": "Product",
+    "singularKey": "qiy.resources.products.singular",
+    "plural": "Products",
+    "pluralKey": "qiy.resources.products.plural",
+    "displayTemplate": "{$.sku} · {$.name}",
+    "tableDisplayTemplate": "{$.sku} · {$.name}",
+    "relationDetailTemplate": "<b>{$.name}</b></br>{$.sku} · {$.price} · {$.active}",
     "icon": "ShoppingOutlined",
     "liveMode": "off",
     "relatedResources": [
@@ -1092,6 +1127,13 @@ export const resources: ResourceDefinition[] = [
     "apiName": "boms",
     "label": "Bill of materials",
     "labelKey": "qiy.resources.boms.label",
+    "singular": "BOM line",
+    "singularKey": "qiy.resources.boms.singular",
+    "plural": "Bill of materials",
+    "pluralKey": "qiy.resources.boms.plural",
+    "displayTemplate": "{$.quantity}",
+    "tableDisplayTemplate": "{$.quantity}",
+    "relationDetailTemplate": "{$.quantity}",
     "icon": "ApartmentOutlined",
     "liveMode": "off",
     "fields": [
@@ -1202,6 +1244,13 @@ export const resources: ResourceDefinition[] = [
     "apiName": "purchase_orders",
     "label": "Purchase orders",
     "labelKey": "qiy.resources.purchase_orders.label",
+    "singular": "Purchase order",
+    "singularKey": "qiy.resources.purchase_orders.singular",
+    "plural": "Purchase orders",
+    "pluralKey": "qiy.resources.purchase_orders.plural",
+    "displayTemplate": "{$.number}",
+    "tableDisplayTemplate": "{$.number}",
+    "relationDetailTemplate": "<b>{$.number}</b></br>{$.status} · {$.total}",
     "icon": "FileTextOutlined",
     "liveMode": "off",
     "relatedResources": [
@@ -1286,7 +1335,7 @@ export const resources: ResourceDefinition[] = [
         ],
         "relation": {
           "resource": "suppliers",
-          "labelField": "code"
+          "labelField": "name"
         }
       },
       {
@@ -1387,6 +1436,13 @@ export const resources: ResourceDefinition[] = [
     "apiName": "purchase_order_lines",
     "label": "Purchase order lines",
     "labelKey": "qiy.resources.purchase_order_lines.label",
+    "singular": "Purchase order line",
+    "singularKey": "qiy.resources.purchase_order_lines.singular",
+    "plural": "Purchase order lines",
+    "pluralKey": "qiy.resources.purchase_order_lines.plural",
+    "displayTemplate": "{$.quantity}",
+    "tableDisplayTemplate": "{$.quantity}",
+    "relationDetailTemplate": "{$.quantity} · {$.unitCost}",
     "icon": "UnorderedListOutlined",
     "liveMode": "off",
     "fields": [
@@ -1437,7 +1493,7 @@ export const resources: ResourceDefinition[] = [
         ],
         "relation": {
           "resource": "purchase_orders",
-          "labelField": "id"
+          "labelField": "number"
         }
       },
       {
@@ -1520,6 +1576,13 @@ export const resources: ResourceDefinition[] = [
     "apiName": "receipts",
     "label": "Goods receipts",
     "labelKey": "qiy.resources.receipts.label",
+    "singular": "Goods receipt",
+    "singularKey": "qiy.resources.receipts.singular",
+    "plural": "Goods receipts",
+    "pluralKey": "qiy.resources.receipts.plural",
+    "displayTemplate": "{$.status}",
+    "tableDisplayTemplate": "{$.status}",
+    "relationDetailTemplate": "<b>{$.status}</b></br>{$.receivedAt}",
     "icon": "InboxOutlined",
     "liveMode": "off",
     "fields": [
@@ -1570,7 +1633,7 @@ export const resources: ResourceDefinition[] = [
         ],
         "relation": {
           "resource": "purchase_orders",
-          "labelField": "id"
+          "labelField": "number"
         }
       },
       {
@@ -1597,7 +1660,7 @@ export const resources: ResourceDefinition[] = [
         ],
         "relation": {
           "resource": "warehouses",
-          "labelField": "code"
+          "labelField": "name"
         }
       },
       {
@@ -1650,6 +1713,13 @@ export const resources: ResourceDefinition[] = [
     "apiName": "sales_orders",
     "label": "Sales orders",
     "labelKey": "qiy.resources.sales_orders.label",
+    "singular": "Sales order",
+    "singularKey": "qiy.resources.sales_orders.singular",
+    "plural": "Sales orders",
+    "pluralKey": "qiy.resources.sales_orders.plural",
+    "displayTemplate": "{$.number}",
+    "tableDisplayTemplate": "{$.number}",
+    "relationDetailTemplate": "<b>{$.number}</b></br>{$.status} · {$.total}",
     "icon": "ShoppingCartOutlined",
     "liveMode": "off",
     "relatedResources": [
@@ -1734,7 +1804,7 @@ export const resources: ResourceDefinition[] = [
         ],
         "relation": {
           "resource": "customers",
-          "labelField": "code"
+          "labelField": "name"
         }
       },
       {
@@ -1840,6 +1910,13 @@ export const resources: ResourceDefinition[] = [
     "apiName": "sales_order_lines",
     "label": "Sales order lines",
     "labelKey": "qiy.resources.sales_order_lines.label",
+    "singular": "Sales order line",
+    "singularKey": "qiy.resources.sales_order_lines.singular",
+    "plural": "Sales order lines",
+    "pluralKey": "qiy.resources.sales_order_lines.plural",
+    "displayTemplate": "{$.quantity}",
+    "tableDisplayTemplate": "{$.quantity}",
+    "relationDetailTemplate": "{$.quantity} · {$.unitPrice}",
     "icon": "OrderedListOutlined",
     "liveMode": "off",
     "fields": [
@@ -1890,7 +1967,7 @@ export const resources: ResourceDefinition[] = [
         ],
         "relation": {
           "resource": "sales_orders",
-          "labelField": "id"
+          "labelField": "number"
         }
       },
       {
@@ -1996,6 +2073,13 @@ export const resources: ResourceDefinition[] = [
     "apiName": "shipments",
     "label": "Shipments",
     "labelKey": "qiy.resources.shipments.label",
+    "singular": "Shipment",
+    "singularKey": "qiy.resources.shipments.singular",
+    "plural": "Shipments",
+    "pluralKey": "qiy.resources.shipments.plural",
+    "displayTemplate": "{$.status}",
+    "tableDisplayTemplate": "{$.status}",
+    "relationDetailTemplate": "<b>{$.status}</b></br>{$.shippedAt}",
     "icon": "CarOutlined",
     "liveMode": "auto",
     "fields": [
@@ -2046,7 +2130,7 @@ export const resources: ResourceDefinition[] = [
         ],
         "relation": {
           "resource": "sales_orders",
-          "labelField": "id"
+          "labelField": "number"
         }
       },
       {
@@ -2122,6 +2206,13 @@ export const resources: ResourceDefinition[] = [
     "apiName": "warehouses",
     "label": "Warehouses",
     "labelKey": "qiy.resources.warehouses.label",
+    "singular": "Warehouse",
+    "singularKey": "qiy.resources.warehouses.singular",
+    "plural": "Warehouses",
+    "pluralKey": "qiy.resources.warehouses.plural",
+    "displayTemplate": "{$.code} · {$.name}",
+    "tableDisplayTemplate": "{$.code} · {$.name}",
+    "relationDetailTemplate": "<b>{$.name}</b></br>{$.code} · {$.active}",
     "icon": "HomeOutlined",
     "liveMode": "off",
     "relatedResources": [
@@ -2198,7 +2289,7 @@ export const resources: ResourceDefinition[] = [
         ],
         "relation": {
           "resource": "orgs",
-          "labelField": "code"
+          "labelField": "name"
         }
       },
       {
@@ -2278,6 +2369,13 @@ export const resources: ResourceDefinition[] = [
     "apiName": "bins",
     "label": "Storage bins",
     "labelKey": "qiy.resources.bins.label",
+    "singular": "Storage bin",
+    "singularKey": "qiy.resources.bins.singular",
+    "plural": "Storage bins",
+    "pluralKey": "qiy.resources.bins.plural",
+    "displayTemplate": "{$.code}",
+    "tableDisplayTemplate": "{$.code}",
+    "relationDetailTemplate": "<b>{$.code}</b></br>{$.capacity}",
     "icon": "AppstoreOutlined",
     "liveMode": "off",
     "relatedResources": [
@@ -2342,7 +2440,7 @@ export const resources: ResourceDefinition[] = [
         ],
         "relation": {
           "resource": "warehouses",
-          "labelField": "code"
+          "labelField": "name"
         }
       },
       {
@@ -2395,6 +2493,13 @@ export const resources: ResourceDefinition[] = [
     "apiName": "inventory",
     "label": "Inventory",
     "labelKey": "qiy.resources.inventory.label",
+    "singular": "Inventory record",
+    "singularKey": "qiy.resources.inventory.singular",
+    "plural": "Inventory",
+    "pluralKey": "qiy.resources.inventory.plural",
+    "displayTemplate": "{$.inventoryKey}",
+    "tableDisplayTemplate": "{$.inventoryKey}",
+    "relationDetailTemplate": "<b>{$.inventoryKey}</b></br>{$.quantity} · {$.reserved}",
     "icon": "DatabaseOutlined",
     "liveMode": "auto",
     "fields": [
@@ -2465,7 +2570,7 @@ export const resources: ResourceDefinition[] = [
         ],
         "relation": {
           "resource": "warehouses",
-          "labelField": "code"
+          "labelField": "name"
         }
       },
       {
@@ -2618,6 +2723,13 @@ export const resources: ResourceDefinition[] = [
     "apiName": "stock_movements",
     "label": "Stock movements",
     "labelKey": "qiy.resources.stock_movements.label",
+    "singular": "Stock movement",
+    "singularKey": "qiy.resources.stock_movements.singular",
+    "plural": "Stock movements",
+    "pluralKey": "qiy.resources.stock_movements.plural",
+    "displayTemplate": "{$.type}",
+    "tableDisplayTemplate": "{$.type}",
+    "relationDetailTemplate": "<b>{$.type}</b></br>{$.quantity}",
     "icon": "SwapOutlined",
     "liveMode": "auto",
     "fields": [
@@ -2695,7 +2807,7 @@ export const resources: ResourceDefinition[] = [
         ],
         "relation": {
           "resource": "warehouses",
-          "labelField": "code"
+          "labelField": "name"
         }
       },
       {
@@ -2848,6 +2960,13 @@ export const resources: ResourceDefinition[] = [
     "apiName": "work_orders",
     "label": "Work orders",
     "labelKey": "qiy.resources.work_orders.label",
+    "singular": "Work order",
+    "singularKey": "qiy.resources.work_orders.singular",
+    "plural": "Work orders",
+    "pluralKey": "qiy.resources.work_orders.plural",
+    "displayTemplate": "{$.number}",
+    "tableDisplayTemplate": "{$.number}",
+    "relationDetailTemplate": "<b>{$.number}</b></br>{$.status} · {$.quantity}",
     "icon": "ToolOutlined",
     "liveMode": "off",
     "fields": [

@@ -1,7 +1,7 @@
 # WMS domain: warehouses, storage bins, stock and shop-floor work orders.
 # Entities only; bin/inventory/movement relations are declared in relations.qiy.
 
-entity warehouses @label("Warehouses") @icon(HomeOutlined) {
+entity warehouses @label("Warehouses") @icon(HomeOutlined) @singular("Warehouse") @plural("Warehouses") @display("{$.code} · {$.name}") @tableDisplay("{$.code} · {$.name}") @relationDetail("<b>{$.name}</b></br>{$.code} · {$.active}") {
   field id UUID @id;
   field orgId UUID;
   field code Text @unique;
@@ -9,14 +9,14 @@ entity warehouses @label("Warehouses") @icon(HomeOutlined) {
   field active activeState;
 }
 
-entity bins @label("Storage bins") @icon(AppstoreOutlined) {
+entity bins @label("Storage bins") @icon(AppstoreOutlined) @singular("Storage bin") @plural("Storage bins") @display("{$.code}") @tableDisplay("{$.code}") @relationDetail("<b>{$.code}</b></br>{$.capacity}") {
   field id UUID @id;
   field warehouseId UUID;
   field code Text @unique;
   field capacity Integer;
 }
 
-entity inventory @label("Inventory") @icon(DatabaseOutlined) {
+entity inventory @label("Inventory") @icon(DatabaseOutlined) @singular("Inventory record") @plural("Inventory") @display("{$.inventoryKey}") @tableDisplay("{$.inventoryKey}") @relationDetail("<b>{$.inventoryKey}</b></br>{$.quantity} · {$.reserved}") {
   field id UUID @id;
   field inventoryKey Text @unique;
   field warehouseId UUID;
@@ -28,7 +28,7 @@ entity inventory @label("Inventory") @icon(DatabaseOutlined) {
   field updatedAt DateTime @nullable;
 }
 
-entity stock_movements @label("Stock movements") @icon(SwapOutlined) {
+entity stock_movements @label("Stock movements") @icon(SwapOutlined) @singular("Stock movement") @plural("Stock movements") @display("{$.type}") @tableDisplay("{$.type}") @relationDetail("<b>{$.type}</b></br>{$.quantity}") {
   field id UUID @id;
   field productId UUID;
   field warehouseId UUID;
@@ -39,7 +39,7 @@ entity stock_movements @label("Stock movements") @icon(SwapOutlined) {
   field occurredAt DateTime @nullable;
 }
 
-entity work_orders @label("Work orders") @icon(ToolOutlined) {
+entity work_orders @label("Work orders") @icon(ToolOutlined) @singular("Work order") @plural("Work orders") @display("{$.number}") @tableDisplay("{$.number}") @relationDetail("<b>{$.number}</b></br>{$.status} · {$.quantity}") {
   field id UUID @id;
   field number Text @unique;
   field productId UUID;

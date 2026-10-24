@@ -14,7 +14,7 @@ describe("Refine SPA generation", () => {
     expect(files["web/app/root.tsx"]).toContain("QiyUiProvider");
     expect(files["web/app/ui/index.tsx"]).toContain("ConfigProvider");
     expect(files["web/app/ui/index.tsx"]).toContain("QiyThemeControls");
-    expect(files["web/app/root.tsx"]).toContain("meta: { label: modelLabel(resource.labelKey, resource.label), icon: resolveResourceIcon(resource.icon)");
+    expect(files["web/app/root.tsx"]).toContain("meta: { label: modelLabel(resource.pluralKey, modelLabel(resource.labelKey, resource.label)), icon: resolveResourceIcon(resource.icon)");
     expect(files["web/app/data-provider.ts"]).toContain('const api = \"/api/v1\"');
     expect(files["web/package.json"]).toContain("@refinedev/antd");
     expect(files["web/package.json"]).toContain("antd");
@@ -105,6 +105,72 @@ describe("Refine SPA generation", () => {
     expect(files["web/app/routes/show.tsx"]).toContain("resource.relatedResources ?? []");
     expect(files["web/app/components/related-records.tsx"]).toContain('field: relation.field, operator: "eq", value: recordId');
     expect(files["web/app/components/related-records.tsx"]).toContain('pagination: { currentPage: 1, pageSize: 10 }');
+  });
+
+  test("renders foreign keys with display templates instead of raw ids", () => {
+    const project = parseQiyProject(`qiy v0; application display-demo {
+      database sqlite {}
+      entity customers @label("Customers") @singular("Customer") @plural("Customers") @display("{$.code} · {$.name}") @tableDisplay("客户 {$.name}") @relationDetail("<b>{$.name}</b></br>编码：{$.code}") {
+        field id UUID @id;
+        field code Text @unique;
+        field name Text;
+      }
+      entity orders @label("Orders") @singular("Order") @plural("Orders") @display("{$.number}") {
+        field id UUID @id;
+        field number Text @unique;
+        field customerId UUID;
+      }
+      relation orderCustomer orders customerId customers id one @onDelete(restrict);
+    }`);
+    const files = generateWeb(project.database, project);
+    const resources = files["web/app/resources.ts"]!;
+    // Entity-level Django-like metadata reaches the generated resource definitions.
+    expect(resources).toContain('"singular": "Customer"');
+    expect(resources).toContain('"singularKey": "qiy.resources.customers.singular"');
+    expect(resources).toContain('"pluralKey": "qiy.resources.orders.plural"');
+    expect(resources).toContain('"displayTemplate": "{$.code} · {$.name}"');
+    expect(resources).toContain('"tableDisplayTemplate": "客户 {$.name}"');
+    expect(resources).toContain('"relationDetailTemplate": "<b>{$.name}</b></br>编码：{$.code}"');
+    expect(resources).toContain('"relation": {');
+    expect(resources).toContain('"labelField": "name"');
+    // FK cells, detail fields, related tables and select inputs all delegate to the shared renderer.
+    expect(files["web/app/routes/list.tsx"]).toContain("if (field.relation) return <RelationCell field={field} value={value} />");
+    expect(files["web/app/routes/list.tsx"]).toContain('translate("qiy.createResource", { resource: singular }, singular)');
+    expect(files["web/app/routes/show.tsx"]).toContain("<RelationCell field={field} value={result[field.name]} />");
+    expect(files["web/app/components/related-records.tsx"]).toContain("<RelationCell field={field} value={value} />");
+    expect(files["web/app/components/resource-form.tsx"]).toContain("<RelationSelect relation={field.relation} fieldName={field.name} />");
+    // The display renderer and the drawer component ship with the app.
+    expect(files["web/app/display-template.ts"]).toContain("export function renderTemplate");
+    expect(files["web/app/display-template.ts"]).toContain("export function plainTextTemplate");
+    expect(files["web/app/display-template.ts"]).toContain("export function escapeHtml");
+    expect(files["web/app/components/relation-field.tsx"]).toContain("Drawer");
+    expect(files["web/app/components/relation-field.tsx"]).toContain("dangerouslySetInnerHTML");
+    expect(files["web/app/components/relation-field.tsx"]).toContain("useOne<Record<string, unknown>>");
+    expect(files["web/tests/display-template.test.ts"]).toContain("escapes every interpolated value and literal text");
+    expect(files["web/tests/display-template.test.ts"]).toContain("only whitelisted tags survive at render time");
+    // Chrome keys for the FK drawer and singular/plural titles follow the i18n dictionary.
+    expect(files["web/app/i18n.ts"]).toContain('createResource: "新建{{resource}}"');
+    expect(files["web/app/i18n.ts"]).toContain('editResource: "编辑{{resource}}"');
+    expect(files["web/app/i18n.ts"]).toContain('openDetail: "打开详情"');
+  });
+
+  test("rejects display templates that interpolate a foreign key raw id", () => {
+    const project = parseQiyProject(`qiy v0; application display-demo {
+      database sqlite {}
+      entity customers @display("{$.name}") { field id UUID @id; field name Text; }
+      entity orders @display("{$.customerId}") { field id UUID @id; field customerId UUID; }
+      relation orderCustomer orders customerId customers id one @onDelete(restrict);
+    }`);
+    expect(() => generateWeb(project.database, project)).toThrow("cannot interpolate foreign key field customerId");
+  });
+
+  test("rejects malformed display templates while parsing the model", () => {
+    const base = (annotation: string) => `qiy v0; application display-demo { database sqlite {} entity customers ${annotation} { field id UUID @id; field name Text; } }`;
+    expect(() => parseQiyProject(base('@display("{$.missing}")'))).toThrow("references unknown field missing");
+    expect(() => parseQiyProject(base('@display("<script>{$.name}</script>")'))).toThrow("unsupported tag <script>");
+    expect(() => parseQiyProject(base('@display("<b>{$.name}")'))).toThrow("unclosed <b> tag");
+    expect(() => parseQiyProject(base('@display("{name}")'))).toThrow("malformed placeholder");
+    expect(() => parseQiyProject(base('@tableDisplay("<b class=\\"x\\">{$.name}</b>")'))).toThrow("unterminated tag");
   });
 });
 

@@ -65,6 +65,8 @@ describe("modular demo model", () => {
     const add = (key: string) => expected.add(key);
     for (const entity of project.database.entities) {
       add(qiyModelKeys.resourceLabel(entity.tableName));
+      add(qiyModelKeys.resourceSingular(entity.tableName));
+      add(qiyModelKeys.resourcePlural(entity.tableName));
       for (const field of entity.fields) add(qiyModelKeys.fieldLabel(entity.tableName, field.name));
     }
     for (const enumeration of project.database.enums ?? []) {
@@ -119,8 +121,35 @@ describe("modular demo model", () => {
     // The dictionary is merged into the generated app and exercised by generated tests.
     const messages = files["apps/web/app/messages.ts"]!;
     expect(messages).toContain('"qiy.resources.products.label": "产品"');
+    expect(messages).toContain('"qiy.resources.customers.singular": "客户"');
+    expect(messages).toContain('"qiy.resources.customers.plural": "Customers"');
     expect(messages).toContain('"qiy.dashboard.movementTrend.label": "近 30 天库存流水"');
     expect(files["apps/web/tests/project-messages.test.ts"]).toContain("qiy.resources.stock_movements.label");
     expect(files["apps/web/tests/model-i18n.test.ts"]).toContain("model labels switch between the declared Chinese and English dictionaries");
+  });
+
+  test("annotates every entity with display metadata and every foreign-key target with a drawer body", async () => {
+    const { project } = await modularProject();
+    for (const entity of project.database.entities) {
+      // Django-style metadata is complete for every entity, not just the demo highlights.
+      expect(entity.singular, entity.name).toBeTruthy();
+      expect(entity.plural, entity.name).toBeTruthy();
+      expect(entity.display, entity.name).toBeTruthy();
+      expect(entity.tableDisplay, entity.name).toBeTruthy();
+      expect(entity.relationDetail, entity.name).toBeTruthy();
+    }
+    const targets = new Set((project.database.relations ?? []).map((relation) => relation.toEntity));
+    expect(targets.size).toBeGreaterThan(0);
+    for (const target of targets) {
+      const entity = project.database.entities.find((candidate) => candidate.name === target)!;
+      expect(entity.relationDetail, `${target} FK drawer body`).toBeTruthy();
+      expect(entity.tableDisplay, `${target} FK column text`).toBeTruthy();
+      expect(entity.display, `${target} display text`).toBeTruthy();
+    }
+    const { generateWeb } = await import("../tools/generate-web");
+    const web = generateWeb(project.database, project);
+    expect(web["web/app/routes/list.tsx"]).toContain("RelationCell");
+    expect(web["web/app/routes/show.tsx"]).toContain("RelationCell");
+    expect(web["web/app/components/relation-field.tsx"]).toContain("RelationSelect");
   });
 });

@@ -105,7 +105,8 @@ test("declares international locales and generates matching Refine and component
   expect(files["apps/web/app/root.tsx"]).toContain("document.documentElement.dir");
   expect(files["apps/web/app/i18n.ts"]).toContain('antd/locale/fr_FR');
   expect(files["apps/web/app/i18n.ts"]).toContain('antd/locale/ja_JP');
-  expect(files["apps/web/app/components/resource-form.tsx"]).toContain("resolveLocale(getLocale())");
+  expect(files["apps/web/app/routes/list.tsx"]).toContain("resolveLocale(getLocale())");
+  expect(files["apps/web/app/routes/show.tsx"]).toContain("resolveLocale(getLocale())");
   for (const tag of ["fr_fr", "FR-fr", "constructor", "__proto__", "", "en US"]) {
     expect(() => parseQiyProject(source.replace('default "en-US";', `default "${tag}";`))).toThrow("Invalid message locale");
   }

@@ -11,6 +11,51 @@ entity products table products @label("产品") @icon(AppstoreOutlined) {
 
 `entity` 名称默认作为资源名，`table` 可指定物理表名；`@label` 与 `@icon` 控制菜单与页面显示。
 
+## 实体显示注解（Django 风格）
+
+每个实体都可以声明自己的显示文本，生成器用它替代裸 UUID / 单字段渲染：
+
+```qiy
+entity customers @label("Customers") @singular("Customer") @plural("Customers")
+  @display("{$.code} · {$.name}")
+  @tableDisplay("{$.code} · {$.name}")
+  @relationDetail("<b>{$.name}</b></br>{$.code}") {
+  field id UUID @id;
+  field code Text @unique;
+  field name Text;
+}
+
+relation salesOrderCustomer sales_orders customerId customers id one;
+```
+
+| 注解 | 作用 | 缺省回退 |
+| --- | --- | --- |
+| `@label("...")` | 资源名（既有行为） | 实体名 |
+| `@singular("...")` | 单数名：新建/编辑标题、详情页标题、抽屉标题、按钮 | `@label` / 实体名 |
+| `@plural("...")` | 复数名：菜单、列表页标题、面包屑 | `@label` / 实体名 |
+| `@display("...")` | 记录默认显示文本：关联下拉选项、抽屉兜底标题、关联表 | 第一个 `name` / `title` / `displayName` / `code` / `number` / `sku` / `email` 等可读字段 |
+| `@tableDisplay("...")` | 本实体作为其他表外键列时的文本 | `@display` |
+| `@relationDetail("...")` | 外键抽屉正文（HTML 允许白名单标签） | `@display` |
+
+所有注解都支持 `@comment(...)` 之外的普通带引号字符串；序列化会原样往返。注解是可选的，没有注解的模型行为与旧版本一致。
+
+## 显示模板语法
+
+模板只支持三类内容：普通文本、`{$.field}` 占位符、白名单标签。生成时校验、渲染时再次白名单过滤并转义所有插值，因此不会产生 XSS。
+
+```text
+{$.fieldName}                 标量字段插值：UUID、Text、枚举、Integer、Decimal、Money、DateTime
+<b> {$.name} </b></br>{$.code} 白名单 HTML 标签 + Django 风格换行
+```
+
+- 占位符只能引用本实体已声明的标量字段；未知字段、`File` / `Files` / `Vector`、以及外键列（如 `{$.customerId}`）都会在生成前报错。外键由生成的关联单元格负责显示目标记录文本，而不是原始 id。
+- 枚举字段渲染为当前语言的枚举值 label；Decimal / Money 按本地化数字格式输出。
+- 允许的标签：`br`、`b`、`strong`、`i`、`em`、`span`、`small`、`p`、`div`；不支持属性、事件处理器、`script`、其他标签、大小写混写或非 `br` 的自闭合写法。`<br>`、`<br/>`、`</br>` 都规范化为一个换行。
+- 模板按标签配对校验；未闭合或错配、悬空的 `<` / `>`、`{name}` 这类非法占位符都会给出带实体和注解名的错误信息。
+- 模板里的文本与占位符值都会 HTML 转义；模板本身的语言中性（字段引用和分隔符），不参与 i18n；单数/复数名通过 `qiy.resources.<resource>.singular` / `.plural` 翻译键切换语言。
+
+生成后的列表页/详情页/关联表里，每个外键列显示目标实体的 `@tableDisplay` 文本并链接到该记录；点击打开 Drawer，正文是目标实体的 `@relationDetail`（无模板时回退到可见字段的 Description 列表），并有“打开详情”按钮跳转详情页。创建/编辑表单的外键下拉同样使用目标实体的显示文本。
+
 ## 类型
 
 | 写法 | IR 类型 | 备注 |

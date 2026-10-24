@@ -1,4 +1,4 @@
-import { validateDatabaseIR, type DatabaseIR, type EntityIR, type FieldIR, type FilterMode, type IndexIR, type IndexColumnIR, type RelationIR } from "./database-ir";
+import { validateDatabaseIR, validateEntityDisplayTemplates, type DatabaseIR, type EntityIR, type FieldIR, type FilterMode, type IndexIR, type IndexColumnIR, type RelationIR } from "./database-ir";
 /**
  * Declarative contract for an existing host API. It describes only what the
  * generated Refine admin needs in order to talk to that API automatically: the
@@ -1041,6 +1041,11 @@ export function parseQiyProject(input: string): QiyProject {
     if (peek() === "table") { expect("table"); tableName = identifier(); }
     let label: string | undefined;
     let icon: string | undefined;
+    let singular: string | undefined;
+    let plural: string | undefined;
+    let display: string | undefined;
+    let tableDisplay: string | undefined;
+    let relationDetail: string | undefined;
     let description: { comment?: string; commentKey?: string } = {};
     while (peek() === "@") {
       expect("@");
@@ -1049,6 +1054,14 @@ export function parseQiyProject(input: string): QiyProject {
       if (attribute === "label") label = value();
       else if (attribute === "icon") icon = value();
       else if (attribute === "comment") description = documentation();
+      else if (attribute === "singular" || attribute === "plural" || attribute === "display" || attribute === "tableDisplay" || attribute === "relationDetail") {
+        const annotationValue = value();
+        if (attribute === "singular") { if (singular !== undefined) throw new Error(`Entity ${name}: duplicate @singular annotation`); singular = annotationValue; }
+        else if (attribute === "plural") { if (plural !== undefined) throw new Error(`Entity ${name}: duplicate @plural annotation`); plural = annotationValue; }
+        else if (attribute === "display") { if (display !== undefined) throw new Error(`Entity ${name}: duplicate @display annotation`); display = annotationValue; }
+        else if (attribute === "tableDisplay") { if (tableDisplay !== undefined) throw new Error(`Entity ${name}: duplicate @tableDisplay annotation`); tableDisplay = annotationValue; }
+        else { if (relationDetail !== undefined) throw new Error(`Entity ${name}: duplicate @relationDetail annotation`); relationDetail = annotationValue; }
+      }
       else throw new Error(`Unsupported entity attribute @${attribute}`);
       expect(")");
     }
@@ -1061,7 +1074,17 @@ export function parseQiyProject(input: string): QiyProject {
       else throw new Error(`Expected field or index near token ${position}`);
     }
     expect("}");
-    return { name, tableName, fields, indexes, ...(label && { label }), ...(icon && { icon }), ...description };
+    const result: EntityIR = {
+      name, tableName, fields, indexes,
+      ...(label && { label }), ...(icon && { icon }),
+      ...(singular !== undefined && { singular }), ...(plural !== undefined && { plural }),
+      ...(display !== undefined && { display }), ...(tableDisplay !== undefined && { tableDisplay }), ...(relationDetail !== undefined && { relationDetail }),
+      ...description,
+    };
+    // Grammar and field references fail here; relation-aware checks run in validateDatabaseIR.
+    const displayErrors = validateEntityDisplayTemplates(result);
+    if (displayErrors.length) throw new Error(displayErrors.join("\n"));
+    return result;
   }
   function relation(): RelationIR {
     expect("relation");
@@ -2314,7 +2337,7 @@ export function serializeQiyProject(project: QiyProject): string {
     lines.push("  }");
   }
   for (const entity of project.database.entities) {
-    lines.push(`  entity ${qiyIdentifier(entity.name, "Entity name")} table ${qiyIdentifier(entity.tableName, "Table name")}${entity.label !== undefined ? ` @label(${qiyString(entity.label)})` : ""}${entity.icon !== undefined ? ` @icon(${qiyString(entity.icon)})` : ""}${entity.comment !== undefined ? ` @comment(${qiyComment(entity)})` : ""} {`);
+    lines.push(`  entity ${qiyIdentifier(entity.name, "Entity name")} table ${qiyIdentifier(entity.tableName, "Table name")}${entity.label !== undefined ? ` @label(${qiyString(entity.label)})` : ""}${entity.icon !== undefined ? ` @icon(${qiyString(entity.icon)})` : ""}${entity.singular !== undefined ? ` @singular(${qiyString(entity.singular)})` : ""}${entity.plural !== undefined ? ` @plural(${qiyString(entity.plural)})` : ""}${entity.display !== undefined ? ` @display(${qiyString(entity.display)})` : ""}${entity.tableDisplay !== undefined ? ` @tableDisplay(${qiyString(entity.tableDisplay)})` : ""}${entity.relationDetail !== undefined ? ` @relationDetail(${qiyString(entity.relationDetail)})` : ""}${entity.comment !== undefined ? ` @comment(${qiyComment(entity)})` : ""} {`);
     for (const field of entity.fields) {
       const typeName = field.enumName ?? field.type;
       let declaration = `    field ${qiyIdentifier(field.name, "Field name")} ${qiyIdentifier(typeName, "Field type")}`;

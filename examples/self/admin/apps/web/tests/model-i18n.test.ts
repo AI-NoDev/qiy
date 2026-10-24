@@ -8,6 +8,8 @@ import { qiyActions } from "../app/actions";
 interface LabelEntry { key: string; fallback: string }
 const labels: LabelEntry[] = [
   ...resources.map((resource) => ({ key: resource.labelKey ?? "", fallback: resource.label })),
+  ...resources.map((resource) => ({ key: resource.singularKey ?? "", fallback: resource.singular })),
+  ...resources.map((resource) => ({ key: resource.pluralKey ?? "", fallback: resource.plural })),
   ...resources.flatMap((resource) => resource.fields.map((field) => ({ key: field.labelKey ?? "", fallback: field.label }))),
   ...resources.flatMap((resource) => (resource.relatedResources ?? []).map((relation) => ({ key: relation.labelKey ?? "", fallback: relation.label }))),
   ...menuGroups.map((group) => ({ key: group.labelKey, fallback: group.label })),
@@ -41,6 +43,8 @@ test("enum values, menu groups and dashboard metrics carry translation keys", ()
   }
   for (const resource of resources) {
     expect(resource.labelKey).toBe("qiy.resources." + resource.name + ".label");
+    expect(resource.singularKey).toBe("qiy.resources." + resource.name + ".singular");
+    expect(resource.pluralKey).toBe("qiy.resources." + resource.name + ".plural");
     for (const field of resource.fields) expect(field.labelKey).toBe("qiy.resources." + resource.name + ".fields." + field.name + ".label");
   }
   for (const metric of dashboardMetrics) expect(metric.labelKey).toBe("qiy.dashboard." + metric.name + ".label");

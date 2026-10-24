@@ -42,6 +42,8 @@ type GeneratedAction = {
  */
 export const qiyModelKeys = {
   resourceLabel: (resource: string) => `qiy.resources.${resource}.label`,
+  resourceSingular: (resource: string) => `qiy.resources.${resource}.singular`,
+  resourcePlural: (resource: string) => `qiy.resources.${resource}.plural`,
   fieldLabel: (resource: string, field: string) => `qiy.resources.${resource}.fields.${field}.label`,
   enumLabel: (enumeration: string) => `qiy.enums.${enumeration}.label`,
   enumValueLabel: (enumeration: string, value: string) => `qiy.enums.${enumeration}.values.${value}`,
@@ -51,6 +53,18 @@ export const qiyModelKeys = {
   actionConfirm: (action: string) => `qiy.actions.${action}.confirm`,
   actionInputLabel: (action: string, input: string) => `qiy.actions.${action}.inputs.${input}.label`,
 } as const;
+
+/** Field-name heuristics shared by relation targets and display fallbacks. */
+const naturalLabelFields = ["name", "title", "displayName", "code", "number", "sku", "email", "label", "inventoryKey"] as const;
+
+/** Fallback chain for a resource display template: declared template, then the first human-readable field. */
+function naturalDisplayField(entity: { fields: FieldIR[] }): FieldIR | undefined {
+  return naturalLabelFields.map((name) => entity.fields.find((field) => field.name === name && field.type !== "File" && field.type !== "Files" && field.type !== "Vector")).find(Boolean);
+}
+
+function displayTemplateFor(declared: string | undefined, fallbackField?: FieldIR | undefined): string | undefined {
+  return declared ?? (fallbackField ? `{$.${fallbackField.name}}` : undefined);
+}
 
 function enumerationDefinitions(database: DatabaseIR): Array<EnumIR & { label: string; labelKey: string; values: Array<EnumValueIR & { label: string; labelKey: string }> }> {
   return (database.enums ?? []).map((enumeration) => ({
@@ -68,11 +82,25 @@ function resourceFields(database: DatabaseIR, menuGroups: NonNullable<QiyProject
   const liveModeByResource = new Map((realtime?.resources ?? []).map((subscription) => [subscription.resource, realtime!.mode] as const));
   // Page-level field layout: a field with roles is only rendered for those roles.
   const fieldRolesByResource = new Map(pages.filter((page) => page.fields?.length).map((page) => [page.resource, new Map(page.fields!.map((entry) => [entry.field, entry.roles]))]));
-  return JSON.stringify(database.entities.map((entity) => ({
+  return JSON.stringify(database.entities.map((entity) => {
+    const displayField = naturalDisplayField(entity);
+    const displayTemplate = displayTemplateFor(entity.display, displayField);
+    // A table cell and its drawer should show the same text unless the model
+    // declares a dedicated table display; both fall back to the entity display.
+    const tableDisplayTemplate = entity.tableDisplay ?? displayTemplate;
+    const relationDetailTemplate = entity.relationDetail ?? displayTemplate;
+    return {
     name: entity.tableName,
     apiName: entity.name,
     label: entity.label ?? entity.name,
     labelKey: qiyModelKeys.resourceLabel(entity.tableName),
+    singular: entity.singular ?? entity.label ?? entity.name,
+    singularKey: qiyModelKeys.resourceSingular(entity.tableName),
+    plural: entity.plural ?? entity.label ?? entity.name,
+    pluralKey: qiyModelKeys.resourcePlural(entity.tableName),
+    ...(displayTemplate !== undefined && { displayTemplate }),
+    ...(tableDisplayTemplate !== undefined && { tableDisplayTemplate }),
+    ...(relationDetailTemplate !== undefined && { relationDetailTemplate }),
     ...(entity.comment !== undefined && { comment: entity.comment }),
     ...(entity.commentKey !== undefined && { commentKey: entity.commentKey }),
     icon: entity.icon ?? (entity.name.toLowerCase().includes("user") ? "UserOutlined" : entity.name.toLowerCase().includes("order") ? "ShoppingOutlined" : entity.name.toLowerCase().includes("warehouse") ? "DatabaseOutlined" : "TableOutlined"),
@@ -100,12 +128,12 @@ function resourceFields(database: DatabaseIR, menuGroups: NonNullable<QiyProject
       filterModes: field.filterModes ?? (field.enumName ? ["eq"] : field.type === "Text" ? ["contains", "startsWith", "endsWith", "eq"] : ["eq", "gt", "gte", "lt", "lte", "between", "in"]),
       ...((field.type === "File" || field.type === "Files") && { uploadMode: field.uploadMode ?? "binary", maxBytes: field.maxBytes ?? 25 * 1024 * 1024, mimeTypes: field.mimeTypes ?? ["*/*"], maxFiles: field.type === "Files" ? field.maxFiles ?? 6 : 1 }),
       ...(field.enumName && { enumName: field.enumName, enumValues: enumByName.get(field.enumName) ?? [] }),
-      ...(target && { relation: { resource: target.tableName, labelField: target.fields.find((candidate) => ["name", "title", "displayName", "code"].includes(candidate.name))?.name ?? "id" } }),
+      ...(target && { relation: { resource: target.tableName, labelField: naturalDisplayField(target)?.name ?? "id" } }),
       ...(field.icon && { icon: field.icon }),
       ...(fieldRolesByResource.get(entity.tableName)?.has(field.name) && { roles: fieldRolesByResource.get(entity.tableName)!.get(field.name) }),
       ...(field.type === "Vector" && { dimension: field.dimension }),
     }; }),
-  })), null, 2);
+  }; }), null, 2);
 }
 
 function editable(field: FieldIR): boolean { return !field.primaryKey && field.type !== "Vector"; }
@@ -1116,6 +1144,7 @@ import { Alert, Card, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Link } from "react-router";
 import { canSeeField, getResource } from "../resources";
+import { RelationCell } from "./relation-field";
 import { t, resolveLocale, type QiyLocale } from "../i18n";
 
 interface RelatedResource { resource: string; field: string; label: string; labelKey: string; }
@@ -1131,7 +1160,7 @@ export function RelatedRecords({ relation, recordId }: { relation: RelatedResour
     queryOptions: { enabled: Boolean(recordId) },
   });
   const fields = resource?.fields.filter((field) => field.listVisible && !field.primaryKey && field.type !== "Vector").slice(0, 5) ?? [];
-  const columns: ColumnsType<Record<string, unknown>> = fields.map((field) => ({ title: translate(field.labelKey, {}, field.label), dataIndex: field.name, key: field.name, render: (value: unknown) => String(value ?? "—") }));
+  const columns: ColumnsType<Record<string, unknown>> = fields.map((field) => ({ title: translate(field.labelKey, {}, field.label), dataIndex: field.name, key: field.name, render: (value: unknown) => field.relation ? <RelationCell field={field} value={value} /> : String(value ?? "—") }));
   columns.push({ title: t(locale, "actions"), key: "actions", render: (_value, record) => <Link to={"/" + relation.resource + "/" + String(record.id)}>{t(locale, "view")}</Link> });
   if (!resource) return <Alert type="error" message={translate("qiy.relatedUnknown", { resource: relation.resource })} />;
   const total = result.total ?? 0;
@@ -1147,7 +1176,7 @@ export interface ResourceEnumDefinition { name: string; label?: string; labelKey
 export interface ResourceField { name: string; label: string; labelKey: string; comment?: string; commentKey?: string; type: FieldType; nullable: boolean; primaryKey: boolean; visible: boolean; listVisible: boolean; formVisible: boolean; showVisible: boolean; sortable: boolean; filterable: boolean; filterModes: string[]; enumName?: string; enumValues?: ResourceEnumValue[]; relation?: { resource: string; labelField: string }; icon?: string; dimension?: number; uploadMode?: "binary" | "base64" | "both"; maxBytes?: number; mimeTypes?: string[]; maxFiles?: number; /** Page-level layout: the field is only rendered for these roles. */ roles?: string[]; }
 /** Page-level field layout check; a field without role rules is visible to everyone. */
 export function canSeeField(field: ResourceField, role: string | undefined | null): boolean { return !field.roles || field.roles.includes(role ?? ""); }
- export interface ResourceDefinition { name: string; apiName: string; label: string; labelKey: string; comment?: string; commentKey?: string; icon: string; liveMode: "auto" | "manual" | "off"; menuParent?: string; fields: ResourceField[]; relatedResources?: Array<{ resource: string; field: string; label: string; labelKey: string }>; }
+ export interface ResourceDefinition { name: string; apiName: string; label: string; labelKey: string; singular: string; singularKey: string; plural: string; pluralKey: string; displayTemplate?: string; tableDisplayTemplate?: string; relationDetailTemplate?: string; comment?: string; commentKey?: string; icon: string; liveMode: "auto" | "manual" | "off"; menuParent?: string; fields: ResourceField[]; relatedResources?: Array<{ resource: string; field: string; label: string; labelKey: string }>; }
 export const enumerations: ResourceEnumDefinition[] = ${JSON.stringify(enumerationDefinitions(database), null, 2)};
 export const menuGroups = ${JSON.stringify(menuGroups.map((group) => ({ name: `menu-${group.name}`, label: group.label, labelKey: qiyModelKeys.menuLabel(group.name), icon: group.icon ?? "AppstoreOutlined", ...(group.parent && { parent: `menu-${group.parent}` }), ...(group.comment !== undefined && { comment: group.comment }), ...(group.commentKey !== undefined && { commentKey: group.commentKey }) })), null, 2)} as Array<{ name: string; label: string; labelKey: string; icon: string; parent?: string; comment?: string; commentKey?: string }>;
 export const resources: ResourceDefinition[] = ${resourceFields(database, menuGroups, options.realtime, options.pages)};
@@ -1262,7 +1291,7 @@ import { t, resolveLocale, type QiyLocale } from "../i18n";
 }
 export default function Home() {
   const { getLocale, translate } = useTranslation(); const locale: QiyLocale = resolveLocale(getLocale());
-   return <Space direction="vertical" size="large" style={{ width: "100%" }}><div><Typography.Title level={2}>{t(locale, "overview")}</Typography.Title><Typography.Paragraph type="secondary">{t(locale, "overviewDescription")}</Typography.Paragraph></div><Row gutter={[16, 16]}>{dashboardMetrics.map((metric) => <CanAccess key={metric.name} resource={metric.resource} action="list"><ResourceSummary metric={metric} /></CanAccess>)}</Row><Card title={t(locale, "quickAccess")}><Space wrap>{resources.slice(0, 4).map((resource) => <CanAccess key={resource.name} resource={resource.name} action="list"><Link to={\`/\${resource.name}\`}>{translate(resource.labelKey, {}, resource.label)}</Link></CanAccess>)}</Space></Card></Space>;
+   return <Space direction="vertical" size="large" style={{ width: "100%" }}><div><Typography.Title level={2}>{t(locale, "overview")}</Typography.Title><Typography.Paragraph type="secondary">{t(locale, "overviewDescription")}</Typography.Paragraph></div><Row gutter={[16, 16]}>{dashboardMetrics.map((metric) => <CanAccess key={metric.name} resource={metric.resource} action="list"><ResourceSummary metric={metric} /></CanAccess>)}</Row><Card title={t(locale, "quickAccess")}><Space wrap>{resources.slice(0, 4).map((resource) => <CanAccess key={resource.name} resource={resource.name} action="list"><Link to={\`/\${resource.name}\`}>{translate(resource.pluralKey, {}, translate(resource.labelKey, {}, resource.label))}</Link></CanAccess>)}</Space></Card></Space>;
 }
 `,
     "web/app/messages.ts": `export const defaultMessageLocale = ${JSON.stringify(options.messages?.defaultLocale ?? "zh-CN")};\nexport const projectMessages: Record<string, Record<string, string>> = ${JSON.stringify(options.messages?.locales ?? {}, null, 2)};\nexport function projectMessage(locale: string, key: string): string | undefined { const entries = Object.hasOwn(projectMessages, locale) ? projectMessages[locale] : undefined; if (entries && Object.hasOwn(entries, key)) return entries[key]; const fallback = projectMessages[defaultMessageLocale]; return fallback && Object.hasOwn(fallback, key) ? fallback[key] : undefined; }\n`,
@@ -1286,6 +1315,7 @@ export const localeMessages = {
   "zh-CN": {
     new: "新建", edit: "编辑", view: "查看", back: "返回列表", delete: "删除", batchDelete: "批量删除", actions: "操作",
     visibleColumns: "显示列", confirmDelete: "确认删除选中记录？", deleted: "删除成功", unknownResource: "未知资源", detail: "详情",
+    createResource: "新建{{resource}}", editResource: "编辑{{resource}}", openDetail: "打开详情", searchRelation: "搜索…",
     language: "语言", save: "保存", cancel: "取消", deleteSuccess: "删除成功", quickAccess: "快速访问", upload: "上传文件",
     overview: "概览", overviewDescription: "从数据资源快速进入业务管理。", profile: "个人中心", filters: "筛选", search: "搜索",
     matchAll: "全部匹配", matchAny: "任一匹配", commaSeparated: "（逗号分隔）", forbidden: "没有访问该页面的权限",
@@ -1325,6 +1355,7 @@ export const localeMessages = {
   "en-US": {
     new: "New", edit: "Edit", view: "View", back: "Back to list", delete: "Delete", batchDelete: "Batch delete", actions: "Actions",
     visibleColumns: "Columns", confirmDelete: "Delete selected records?", deleted: "Deleted", unknownResource: "Unknown resource", detail: "Detail",
+    createResource: "Create {{resource}}", editResource: "Edit {{resource}}", openDetail: "Open details", searchRelation: "Search…",
     language: "Language", save: "Save", cancel: "Cancel", deleteSuccess: "Deleted", quickAccess: "Quick access", upload: "Upload file",
     overview: "Overview", overviewDescription: "Jump into your data resources from one place.", profile: "Profile", filters: "Filters", search: "Search",
     matchAll: "Match all", matchAny: "Match any", commaSeparated: " (comma separated)", forbidden: "You are not allowed to open this page",
@@ -1465,7 +1496,8 @@ import type { ColumnsType } from "antd/es/table";
 import { DeleteOutlined, DownloadOutlined, SaveOutlined, SettingOutlined, UploadOutlined } from "@ant-design/icons";
 import { Link, useParams } from "react-router";
 import { useEffect, useState } from "react";
-import { canSeeField, getResource } from "../resources";
+import { canSeeField, getResource, type ResourceField } from "../resources";
+import { RelationCell } from "../components/relation-field";
 import { fetchServerViews, publishServerView, type QiyServerView } from "../views-api";
 import { useColumnVisibility } from "../hooks/use-column-visibility";
 import { qiyIcons } from "../icons";
@@ -1475,8 +1507,9 @@ import { t, filterModeLabel, resolveLocale, type QiyLocale } from "../i18n";
 import { downloadFile } from "../hooks/download-file";
 import type { BaseRecord } from "@refinedev/core";
 
-function renderCell(field: { name: string; type: string; enumValues?: Array<{ name: string; label?: string; labelKey: string; color?: string; icon?: string; comment?: string; commentKey?: string }> }, value: unknown, notify: ReturnType<typeof useNotification>["open"], translate: ReturnType<typeof useTranslation>["translate"]) {
+function renderCell(field: ResourceField, value: unknown, notify: ReturnType<typeof useNotification>["open"], translate: ReturnType<typeof useTranslation>["translate"]) {
   if (value === null || value === undefined || value === "") return "—";
+  if (field.relation) return <RelationCell field={field} value={value} />;
   if (field.type === "File") return <Typography.Link onClick={() => void downloadFile(String(value)).catch((error) => { notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) }); })}>{String(value)}</Typography.Link>;
   if (field.type === "Files") {
     const keys = Array.isArray(value) ? value.map(String).filter(Boolean) : [];
@@ -1527,6 +1560,10 @@ export default function ResourceList() {
   const [search, setSearch] = useState(""); const enumFields = resource?.fields.filter((field) => field.filterable && field.enumValues?.length) ?? []; const advancedFields = resource?.fields.filter((field) => field.filterable && !field.enumValues?.length && field.filterModes?.length) ?? []; const [enumFilters, setEnumFilters] = useState<Record<string, string | undefined>>({}); const [advancedFilters, setAdvancedFilters] = useState<Record<string, { operator: string; value: string }>>({}); const [advancedJoin, setAdvancedJoin] = useState<"and" | "or">("and");
   const { visibleKeys, setVisibleKeys } = useColumnVisibility(resource);
   if (!resource) return <Alert type="error" message={translate("qiy.unknownResource", {}, t(locale, "unknownResource"))} />;
+  // Menu/list titles use @plural, create/edit titles use @singular; both fall
+  // back to the translated resource label so older dictionaries keep working.
+  const singular = translate(resource.singularKey, {}, translate(resource.labelKey, {}, resource.singular));
+  const plural = translate(resource.pluralKey, {}, translate(resource.labelKey, {}, resource.label));
   const fields = resource.fields.filter((field) => field.type !== "Vector" && visibleKeys.includes(field.name) && canSeeField(field, identity?.role));
   const columns: ColumnsType<Record<string, unknown>> = fields.map((field) => {
     const Icon = field.icon ? qiyIcons[field.icon as keyof typeof qiyIcons] : undefined;
@@ -1539,8 +1576,8 @@ export default function ResourceList() {
   </Space> });
   const deleteSelected = async () => { await removeMany({ resource: resource.name, ids: selectedRowKeys.map(String) }); setSelectedRowKeys([]); notify?.({ type: "success", message: t(locale, "deleteSuccess") }); };
   const applyFilters = (nextSearch = search, nextEnums = enumFilters, nextAdvanced = advancedFilters, nextAdvancedJoin = advancedJoin) => { const filters: Array<{ field: string; operator: string; value: string | string[] } | { operator: "and" | "or"; value: Array<{ field: string; operator: string; value: string | string[] }> }> = nextSearch ? [{ field: "__search", operator: "contains", value: nextSearch }] : []; for (const [field, value] of Object.entries(nextEnums)) if (value) filters.push({ field, operator: "eq", value }); const advanced = Object.entries(nextAdvanced).flatMap(([field, condition]) => !condition.value ? [] : [{ field, operator: condition.operator, value: condition.operator === "in" || condition.operator === "between" ? condition.value.split(",").map((item) => item.trim()) : condition.value }]); if (advanced.length === 1) filters.push(advanced[0]!); else if (advanced.length > 1) filters.push({ operator: nextAdvancedJoin, value: advanced }); setFilters(filters as never); };
-  return <List resource={resource.name} title={<Typography.Title level={3} style={{ margin: 0 }}>{translate(resource.labelKey, {}, resource.label)}</Typography.Title>} headerButtons={() => <Space wrap>${options.readOnly ? "" : '<Upload accept=".csv,text/csv" showUploadList={false} beforeUpload={(file) => { setImporting(true); void startImport(resource.name, file).then(({ jobId }) => waitForImport(resource.name, jobId, { onProgress: (progress) => notify?.({ type: "progress", message: translate("qiy.importProgress", { processed: progress.processed, total: progress.total }) }) })).then((job) => { if (job.status === "failed") throw new Error(job.errors[0] ?? translate("qiy.importFailed", {}, "Import failed")); notify?.({ type: "success", message: translate("qiy.importedRows", { rows: job.processed }) }); return tableQuery.refetch(); }).catch((error) => notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) })).finally(() => setImporting(false)); return Upload.LIST_IGNORE; }}><Button icon={<UploadOutlined />} loading={importing}>{translate("qiy.import", {}, "Import CSV")}</Button></Upload>'}<Button icon={<DownloadOutlined />} loading={exporting} onClick={runExport}>{${options.readOnly ? 'translate("qiy.export", {}, "Export CSV")' : 'selectedRowKeys.length > 0 ? translate("qiy.exportSelected", {}, "Export selected") + " (" + selectedRowKeys.length + ")" : translate("qiy.export", {}, "Export CSV")'}}</Button><Dropdown menu={{ items: resource.fields.filter((field) => field.type !== "Vector").map((field) => ({ key: field.name, label: <Checkbox checked={visibleKeys.includes(field.name)} onChange={(event) => setVisibleKeys((keys) => event.target.checked ? [...keys, field.name] : keys.filter((key) => key !== field.name))}>{translate(field.labelKey, {}, field.label)}</Checkbox> })) }}><Button icon={<SettingOutlined />}>{t(locale, "visibleColumns")}</Button></Dropdown><Select allowClear style={{ minWidth: 160 }} placeholder={translate("qiy.views", {}, "Saved views")} value={activeView} options={[...savedViews.map((view) => ({ value: view.id, label: view.name })), ...serverViews.map((view) => ({ value: "server:" + view.id, label: view.name + translate("qiy.shared", {}, " (shared)") }))]} onChange={(value) => applySavedView(value)} /><Popover trigger="click" content={<Space direction="vertical"><Input value={viewName} placeholder={translate("qiy.viewName", {}, "View name")} onChange={(event) => setViewName(event.target.value)} onPressEnter={storeSavedView} /><Button type="primary" disabled={!viewName.trim()} onClick={storeSavedView}>{translate("qiy.save", {}, "Save")}</Button></Space>}><Button icon={<SaveOutlined />}>{translate("qiy.saveView", {}, "Save view")}</Button></Popover>{activeView && <Popover trigger="click" content={<Space direction="vertical"><Button onClick={() => void publishSavedView(false)}>{translate("qiy.saveToServer", {}, "Save to server")}</Button><Button onClick={() => void publishSavedView(true)}>{translate("qiy.shareView", {}, "Share with everyone")}</Button></Space>}><Button icon={<UploadOutlined />}>{translate("qiy.publishView", {}, "Publish view")}</Button></Popover>}
-    {activeView && <Button danger onClick={removeSavedView}>{translate("qiy.deleteView", {}, "Delete view")}</Button>}${Object.keys(treeEntities).length ? `{${JSON.stringify(Object.keys(treeEntities))}.includes(resource.name) && <Link to={"/" + resource.name + "/tree"}><Button>{translate("qiy.treeView", {}, "Tree view")}</Button></Link>}` : ""}<CreateButton resource={resource.name}>{t(locale, "new")}</CreateButton></Space>}>
+  return <List resource={resource.name} title={<Typography.Title level={3} style={{ margin: 0 }}>{plural}</Typography.Title>} headerButtons={() => <Space wrap>${options.readOnly ? "" : '<Upload accept=".csv,text/csv" showUploadList={false} beforeUpload={(file) => { setImporting(true); void startImport(resource.name, file).then(({ jobId }) => waitForImport(resource.name, jobId, { onProgress: (progress) => notify?.({ type: "progress", message: translate("qiy.importProgress", { processed: progress.processed, total: progress.total }) }) })).then((job) => { if (job.status === "failed") throw new Error(job.errors[0] ?? translate("qiy.importFailed", {}, "Import failed")); notify?.({ type: "success", message: translate("qiy.importedRows", { rows: job.processed }) }); return tableQuery.refetch(); }).catch((error) => notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) })).finally(() => setImporting(false)); return Upload.LIST_IGNORE; }}><Button icon={<UploadOutlined />} loading={importing}>{translate("qiy.import", {}, "Import CSV")}</Button></Upload>'}<Button icon={<DownloadOutlined />} loading={exporting} onClick={runExport}>{${options.readOnly ? 'translate("qiy.export", {}, "Export CSV")' : 'selectedRowKeys.length > 0 ? translate("qiy.exportSelected", {}, "Export selected") + " (" + selectedRowKeys.length + ")" : translate("qiy.export", {}, "Export CSV")'}}</Button><Dropdown menu={{ items: resource.fields.filter((field) => field.type !== "Vector").map((field) => ({ key: field.name, label: <Checkbox checked={visibleKeys.includes(field.name)} onChange={(event) => setVisibleKeys((keys) => event.target.checked ? [...keys, field.name] : keys.filter((key) => key !== field.name))}>{translate(field.labelKey, {}, field.label)}</Checkbox> })) }}><Button icon={<SettingOutlined />}>{t(locale, "visibleColumns")}</Button></Dropdown><Select allowClear style={{ minWidth: 160 }} placeholder={translate("qiy.views", {}, "Saved views")} value={activeView} options={[...savedViews.map((view) => ({ value: view.id, label: view.name })), ...serverViews.map((view) => ({ value: "server:" + view.id, label: view.name + translate("qiy.shared", {}, " (shared)") }))]} onChange={(value) => applySavedView(value)} /><Popover trigger="click" content={<Space direction="vertical"><Input value={viewName} placeholder={translate("qiy.viewName", {}, "View name")} onChange={(event) => setViewName(event.target.value)} onPressEnter={storeSavedView} /><Button type="primary" disabled={!viewName.trim()} onClick={storeSavedView}>{translate("qiy.save", {}, "Save")}</Button></Space>}><Button icon={<SaveOutlined />}>{translate("qiy.saveView", {}, "Save view")}</Button></Popover>{activeView && <Popover trigger="click" content={<Space direction="vertical"><Button onClick={() => void publishSavedView(false)}>{translate("qiy.saveToServer", {}, "Save to server")}</Button><Button onClick={() => void publishSavedView(true)}>{translate("qiy.shareView", {}, "Share with everyone")}</Button></Space>}><Button icon={<UploadOutlined />}>{translate("qiy.publishView", {}, "Publish view")}</Button></Popover>}
+    {activeView && <Button danger onClick={removeSavedView}>{translate("qiy.deleteView", {}, "Delete view")}</Button>}${Object.keys(treeEntities).length ? `{${JSON.stringify(Object.keys(treeEntities))}.includes(resource.name) && <Link to={"/" + resource.name + "/tree"}><Button>{translate("qiy.treeView", {}, "Tree view")}</Button></Link>}` : ""}<CreateButton resource={resource.name}>{translate("qiy.createResource", { resource: singular }, singular)}</CreateButton></Space>}>
     <div className="qiy-list-filters" role="search" aria-label={t(locale, "filters")}><Input.Search allowClear value={search} placeholder={t(locale, "search")} onChange={(event) => setSearch(event.target.value)} onSearch={(value) => { setSearch(value); applyFilters(value); }} />{enumFields.map((field) => <Select key={field.name} allowClear value={enumFilters[field.name]} placeholder={translate(field.labelKey, {}, field.label)} options={field.enumValues?.map((item) => ({ value: item.name, label: translate(item.labelKey, {}, item.label ?? item.name) }))} onChange={(value) => { const next = { ...enumFilters, [field.name]: value }; setEnumFilters(next); applyFilters(search, next); }} />)}{advancedFields.length > 1 && <Select value={advancedJoin} style={{ minWidth: 116 }} options={[{ value: "and", label: t(locale, "matchAll") }, { value: "or", label: t(locale, "matchAny") }]} onChange={(value: "and" | "or") => { setAdvancedJoin(value); applyFilters(search, enumFilters, advancedFilters, value); }} />}{advancedFields.map((field) => { const condition = advancedFilters[field.name] ?? { operator: field.filterModes[0] ?? "eq", value: "" }; return <Space.Compact key={field.name}><Select value={condition.operator} style={{ width: 120 }} options={field.filterModes.map((mode) => ({ value: mode, label: filterModeLabel(locale, mode) }))} onChange={(operator) => { const next = { ...advancedFilters, [field.name]: { ...condition, operator } }; setAdvancedFilters(next); applyFilters(search, enumFilters, next); }} /><Input allowClear value={condition.value} placeholder={translate(field.labelKey, {}, field.label) + (condition.operator === "in" || condition.operator === "between" ? t(locale, "commaSeparated") : "")} onChange={(event) => { const next = { ...advancedFilters, [field.name]: { ...condition, value: event.target.value } }; setAdvancedFilters(next); applyFilters(search, enumFilters, next); }} /></Space.Compact>; })}</div>
     {tableQuery.error && <Alert type="error" showIcon message={String(tableQuery.error)} style={{ marginBottom: 16 }} />}
     {deletePermission?.can && selectedRowKeys.length > 0 && <Popconfirm title={t(locale, "confirmDelete")} onConfirm={() => void deleteSelected()}><Button danger icon={<DeleteOutlined />}>{t(locale, "batchDelete")} ({selectedRowKeys.length})</Button></Popconfirm>}
@@ -1676,6 +1713,8 @@ ${actionDefinitions.length ? 'import { qiyActions } from "../app/actions";\n' : 
 interface LabelEntry { key: string; fallback: string }
 const labels: LabelEntry[] = [
   ...resources.map((resource) => ({ key: resource.labelKey ?? "", fallback: resource.label })),
+  ...resources.map((resource) => ({ key: resource.singularKey ?? "", fallback: resource.singular })),
+  ...resources.map((resource) => ({ key: resource.pluralKey ?? "", fallback: resource.plural })),
   ...resources.flatMap((resource) => resource.fields.map((field) => ({ key: field.labelKey ?? "", fallback: field.label }))),
   ...resources.flatMap((resource) => (resource.relatedResources ?? []).map((relation) => ({ key: relation.labelKey ?? "", fallback: relation.label }))),
   ...menuGroups.map((group) => ({ key: group.labelKey, fallback: group.label })),
@@ -1709,6 +1748,8 @@ test("enum values, menu groups and dashboard metrics carry translation keys", ()
   }
   for (const resource of resources) {
     expect(resource.labelKey).toBe("qiy.resources." + resource.name + ".label");
+    expect(resource.singularKey).toBe("qiy.resources." + resource.name + ".singular");
+    expect(resource.pluralKey).toBe("qiy.resources." + resource.name + ".plural");
     for (const field of resource.fields) expect(field.labelKey).toBe("qiy.resources." + resource.name + ".fields." + field.name + ".label");
   }
   for (const metric of dashboardMetrics) expect(metric.labelKey).toBe("qiy.dashboard." + metric.name + ".label");
@@ -1746,6 +1787,7 @@ const chromeKeys = [
   "qiy.viewShared", "qiy.viewPublished", "qiy.deleteView", "qiy.shared", "qiy.importFailed", "qiy.importedRows",
   "qiy.treeView", "qiy.auditTitle", "qiy.auditAction", "qiy.auditAuthor", "qiy.auditSystem", "qiy.auditTime",
   "qiy.new", "qiy.edit", "qiy.delete", "qiy.batchDelete", "qiy.confirmDelete", "qiy.detail",
+  "qiy.createResource", "qiy.editResource", "qiy.openDetail", "qiy.searchRelation",
   "qiy.search", "qiy.filters", "qiy.matchAll", "qiy.matchAny", "qiy.commaSeparated", "qiy.forbidden", "qiy.noData",
   "qiy.themeColor", "qiy.themeBlue", "qiy.themePurple", "qiy.themeGreen", "qiy.themeOrange", "qiy.themeRed",
   "qiy.colorMode", "qiy.colorLight", "qiy.colorDark", "qiy.colorSystem",
@@ -1808,6 +1850,63 @@ test("filter operators and unknown keys still fall back safely", () => {
   expect(filterModeLabel("zh-CN", "contains")).toBe("包含");
   expect(filterModeLabel("en-US", "between")).toBe("Between");
   expect(createI18nProvider("en-US").translate("qiy.notARealChromeKey", {}, "Fallback")).toBe("Fallback");
+});
+`,
+    "web/tests/display-template.test.ts": `import { describe, expect, test } from "bun:test";
+import { escapeHtml, plainTextTemplate, recordDisplayText, relationDetailHtml, renderTemplate } from "../app/display-template";
+import type { ResourceDefinition, ResourceField } from "../app/resources";
+
+const fields = [
+  { name: "code", type: "Text", label: "Code", labelKey: "code", nullable: false, primaryKey: false, visible: true, listVisible: true, formVisible: true, showVisible: true, sortable: true, filterable: true, filterModes: ["eq"] },
+  { name: "status", type: "Text", label: "Status", labelKey: "status", nullable: false, primaryKey: false, visible: true, listVisible: true, formVisible: true, showVisible: true, sortable: true, filterable: true, filterModes: ["eq"], enumValues: [{ name: "active", label: "Active", labelKey: "qiy.enums.state.values.active" }] },
+] as unknown as ResourceField[];
+
+const translate = (key: string, _options?: Record<string, unknown>, fallback?: string) => key === "qiy.enums.state.values.active" ? "启用" : fallback ?? key;
+
+describe("display templates", () => {
+  test("escapes every interpolated value and literal text", () => {
+    expect(renderTemplate("<b>{$.name}</b>", { name: "<img src=x onerror=alert(1)>" })).toBe("<b>&lt;img src=x onerror=alert(1)&gt;</b>");
+    expect(renderTemplate("{$.value}", { value: "a&b \\"quoted\\" 'single'" })).toBe("a&amp;b &quot;quoted&quot; &#39;single&#39;");
+    expect(renderTemplate("1 < 2", {})).toBe("1 &lt; 2");
+    expect(escapeHtml("<script>")).toBe("&lt;script&gt;");
+  });
+
+  test("only whitelisted tags survive at render time", () => {
+    expect(renderTemplate("<script>{$.id}</script>", { id: "x" })).toBe("x");
+    expect(renderTemplate("<img src=x>{$.id}", { id: "x" })).toBe("&lt;img src=x&gt;x");
+    expect(renderTemplate("<b>{$.id}</b>", { id: "x" })).toBe("<b>x</b>");
+    expect(renderTemplate("{$.a}</br>{$.b}<br/><br>", { a: "1", b: "2" })).toBe("1<br>2<br><br>");
+  });
+
+  test("missing placeholders collapse and options.empty is honored", () => {
+    expect(renderTemplate("{$.missing}{$.name}", { name: "Ada" })).toBe("Ada");
+    expect(renderTemplate("{$.missing}", {}, { empty: "—" })).toBe("—");
+    expect(renderTemplate(undefined, {})).toBe("");
+  });
+
+  test("plain text strips tags for select options and cell text", () => {
+    expect(plainTextTemplate("<b>{$.code}</b></br>{$.status}", { code: "C-1", status: "active" }, { fields, translate })).toBe("C-1 启用");
+    expect(plainTextTemplate("{$.code} · {$.status}", { code: "C-1", status: "active" }, { fields, translate })).toBe("C-1 · 启用");
+    expect(plainTextTemplate("<div>a</div><div>b</div>", {})).toBe("a b");
+  });
+
+  test("record display falls back from template to label field to id", () => {
+    const resource = { displayTemplate: "{$.code} · {$.status}", fields } as unknown as ResourceDefinition;
+    expect(recordDisplayText(resource, { id: "uuid-1", code: "C-1", status: "active" }, { fields, translate })).toBe("C-1 · 启用");
+    const tableResource = { ...resource, tableDisplayTemplate: "TABLE {$.code}" } as unknown as ResourceDefinition;
+    expect(recordDisplayText(tableResource, { id: "uuid-1", code: "C-1" }, { fields, translate })).toBe("TABLE C-1");
+    const plain = { fields } as unknown as ResourceDefinition;
+    expect(recordDisplayText(plain, { id: "uuid-1", code: "C-1" })).toBe("C-1");
+    expect(recordDisplayText(plain, { id: "uuid-1" })).toBe("uuid-1");
+    expect(recordDisplayText(undefined, { id: "uuid-1" })).toBe("uuid-1");
+  });
+
+  test("relation detail is rendered HTML with escaped values", () => {
+    const resource = { relationDetailTemplate: "<b>{$.name}</b></br>{$.note}", fields } as unknown as ResourceDefinition;
+    expect(relationDetailHtml(resource, { name: "Ada", note: "<b>not markup</b>" })).toBe("<b>Ada</b><br>&lt;b&gt;not markup&lt;/b&gt;");
+    expect(relationDetailHtml(resource, {})).toBe("<b></b><br>");
+    expect(relationDetailHtml(undefined, { name: "Ada" })).toBe("");
+  });
 });
 `,
     "web/tests/export.test.ts": `import { describe, expect, test } from "bun:test";
@@ -1903,7 +2002,7 @@ describe("CSV export helper", () => {
       ['    <EditButton resource={resource.name} recordItemId={String(record.id)} hideText />\n', ""],
       ['    <DeleteButton resource={resource.name} recordItemId={String(record.id)} hideText />\n', ""],
       ['  const deleteSelected = async () => { await removeMany({ resource: resource.name, ids: selectedRowKeys.map(String) }); setSelectedRowKeys([]); notify?.({ type: "success", message: t(locale, "deleteSuccess") }); };\n', ""],
-      ['<CreateButton resource={resource.name}>{t(locale, "new")}</CreateButton>', ""],
+      ['<CreateButton resource={resource.name}>{translate("qiy.createResource", { resource: singular }, singular)}</CreateButton>', ""],
       ['    {deletePermission?.can && selectedRowKeys.length > 0 && <Popconfirm title={t(locale, "confirmDelete")} onConfirm={() => void deleteSelected()}><Button danger icon={<DeleteOutlined />}>{t(locale, "batchDelete")} ({selectedRowKeys.length})</Button></Popconfirm>}\n', ""],
       [' rowSelection={deletePermission?.can ? { selectedRowKeys, onChange: setSelectedRowKeys } : undefined}', ""],
     ] as const) list = list.replace(from, to);
@@ -1989,7 +2088,7 @@ ${Object.entries(options.messages.locales).flatMap(([locale, entries]) => Object
       .replace('resource === "users"', `resource === ${JSON.stringify(userTable)}`)
       .replace('if (identity.role === "admin")', 'if (action === "audit") return { can: identity.role === "admin" }; if (identity.role === "admin")');
     generated["web/tests/auth.test.ts"] = generated["web/tests/auth.test.ts"]!.replaceAll('resource: "users"', `resource: ${JSON.stringify(userTable)}`).replaceAll('resource === "users"', `resource === ${JSON.stringify(userTable)}`);
-    generated["web/app/root.tsx"] = 'import { auditLogProvider } from "./providers/audit-log-provider";\n' + generated["web/app/root.tsx"]!.replace("authProvider={qiyAuthProvider}", "auditLogProvider={auditLogProvider} authProvider={qiyAuthProvider}").replace("meta: { label: modelLabel(resource.labelKey, resource.label)", "meta: { audit: [], label: modelLabel(resource.labelKey, resource.label)");
+    generated["web/app/root.tsx"] = 'import { auditLogProvider } from "./providers/audit-log-provider";\n' + generated["web/app/root.tsx"]!.replace("authProvider={qiyAuthProvider}", "auditLogProvider={auditLogProvider} authProvider={qiyAuthProvider}").replace("meta: { label: modelLabel(resource.pluralKey", "meta: { audit: [], label: modelLabel(resource.pluralKey");
     generated["web/app/routes/show.tsx"] = 'import { AuditHistory } from "../components/audit-history";\n' + generated["web/app/routes/show.tsx"]!.replace('</Show>;', '{id && <CanAccess resource={resource.name} action="audit"><AuditHistory resource={resource.name} recordId={id} /></CanAccess>}</Show>;');
     generated["web/app/providers/audit-log-provider.ts"] = `import type { AuditLogProvider } from "@refinedev/core";
 import { qiyAuthToken } from "../auth";

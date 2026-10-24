@@ -57,7 +57,7 @@ function RefineApplication({ i18nProvider }: { i18nProvider: I18nProvider }) {
       meta: { label: modelLabel(group.labelKey, group.label), icon: resolveResourceIcon(group.icon), ...("parent" in group ? { parent: group.parent } : {}) },
     })), ...resources.map((resource) => ({
       name: resource.name,
-      meta: { audit: [], label: modelLabel(resource.labelKey, resource.label), icon: resolveResourceIcon(resource.icon), ...(resource.menuParent && { parent: resource.menuParent }) },
+      meta: { audit: [], label: modelLabel(resource.pluralKey, modelLabel(resource.labelKey, resource.label)), icon: resolveResourceIcon(resource.icon), ...(resource.menuParent && { parent: resource.menuParent }) },
       list: `/${resource.name}`,
       create: `/${resource.name}/new`,
       show: `/${resource.name}/:id`,

@@ -4,6 +4,7 @@ import { Alert, Card, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Link } from "react-router";
 import { canSeeField, getResource } from "../resources";
+import { RelationCell } from "./relation-field";
 import { t, resolveLocale, type QiyLocale } from "../i18n";
 
 interface RelatedResource { resource: string; field: string; label: string; labelKey: string; }
@@ -19,7 +20,7 @@ export function RelatedRecords({ relation, recordId }: { relation: RelatedResour
     queryOptions: { enabled: Boolean(recordId) },
   });
   const fields = resource?.fields.filter((field) => field.listVisible && !field.primaryKey && field.type !== "Vector").slice(0, 5) ?? [];
-  const columns: ColumnsType<Record<string, unknown>> = fields.map((field) => ({ title: translate(field.labelKey, {}, field.label), dataIndex: field.name, key: field.name, render: (value: unknown) => String(value ?? "—") }));
+  const columns: ColumnsType<Record<string, unknown>> = fields.map((field) => ({ title: translate(field.labelKey, {}, field.label), dataIndex: field.name, key: field.name, render: (value: unknown) => field.relation ? <RelationCell field={field} value={value} /> : String(value ?? "—") }));
   columns.push({ title: t(locale, "actions"), key: "actions", render: (_value, record) => <Link to={"/" + relation.resource + "/" + String(record.id)}>{t(locale, "view")}</Link> });
   if (!resource) return <Alert type="error" message={translate("qiy.relatedUnknown", { resource: relation.resource })} />;
   const total = result.total ?? 0;

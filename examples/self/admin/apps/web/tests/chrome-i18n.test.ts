@@ -13,6 +13,7 @@ const chromeKeys = [
   "qiy.viewShared", "qiy.viewPublished", "qiy.deleteView", "qiy.shared", "qiy.importFailed", "qiy.importedRows",
   "qiy.treeView", "qiy.auditTitle", "qiy.auditAction", "qiy.auditAuthor", "qiy.auditSystem", "qiy.auditTime",
   "qiy.new", "qiy.edit", "qiy.delete", "qiy.batchDelete", "qiy.confirmDelete", "qiy.detail",
+  "qiy.createResource", "qiy.editResource", "qiy.openDetail", "qiy.searchRelation",
   "qiy.search", "qiy.filters", "qiy.matchAll", "qiy.matchAny", "qiy.commaSeparated", "qiy.forbidden", "qiy.noData",
   "qiy.themeColor", "qiy.themeBlue", "qiy.themePurple", "qiy.themeGreen", "qiy.themeOrange", "qiy.themeRed",
   "qiy.colorMode", "qiy.colorLight", "qiy.colorDark", "qiy.colorSystem",

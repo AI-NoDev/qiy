@@ -2,14 +2,14 @@
 # products, bills of materials). Entities only; relations live in relations.qiy
 # because the parser requires every relation after every entity.
 
-entity orgs @label("Organizations") @icon(ClusterOutlined) {
+entity orgs @label("Organizations") @icon(ClusterOutlined) @singular("Organization") @plural("Organizations") @display("{$.code} · {$.name}") @tableDisplay("{$.code} · {$.name}") @relationDetail("<b>{$.name}</b></br>{$.code}") {
   field id UUID @id;
   field code Text @unique;
   field name Text;
   field parentId UUID @nullable;
 }
 
-entity suppliers @label("Suppliers") @icon(ShopOutlined) {
+entity suppliers @label("Suppliers") @icon(ShopOutlined) @singular("Supplier") @plural("Suppliers") @display("{$.code} · {$.name}") @tableDisplay("{$.code} · {$.name}") @relationDetail("<b>{$.name}</b></br>{$.code} · {$.leadTimeDays}") {
   field id UUID @id;
   field code Text @unique;
   field name Text;
@@ -17,7 +17,7 @@ entity suppliers @label("Suppliers") @icon(ShopOutlined) {
   field leadTimeDays Integer;
 }
 
-entity customers @label("Customers") @icon(TeamOutlined) {
+entity customers @label("Customers") @icon(TeamOutlined) @singular("Customer") @plural("Customers") @display("{$.code} · {$.name}") @tableDisplay("{$.code} · {$.name}") @relationDetail("<b>{$.name}</b></br>{$.code} · {$.creditLimit}") {
   field id UUID @id;
   field code Text @unique;
   field name Text;
@@ -25,7 +25,7 @@ entity customers @label("Customers") @icon(TeamOutlined) {
   field creditLimit Decimal(12,2);
 }
 
-entity products @label("Products") @icon(ShoppingOutlined) {
+entity products @label("Products") @icon(ShoppingOutlined) @singular("Product") @plural("Products") @display("{$.sku} · {$.name}") @tableDisplay("{$.sku} · {$.name}") @relationDetail("<b>{$.name}</b></br>{$.sku} · {$.price} · {$.active}") {
   field id UUID @id;
   field sku Text @unique;
   field name Text;
@@ -36,7 +36,7 @@ entity products @label("Products") @icon(ShoppingOutlined) {
   field active activeState;
 }
 
-entity boms @label("Bill of materials") @icon(ApartmentOutlined) {
+entity boms @label("Bill of materials") @icon(ApartmentOutlined) @singular("BOM line") @plural("Bill of materials") @display("{$.quantity}") @tableDisplay("{$.quantity}") @relationDetail("{$.quantity}") {
   field id UUID @id;
   field productId UUID;
   field componentId UUID;

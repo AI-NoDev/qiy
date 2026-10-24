@@ -58,6 +58,7 @@ ui {
 - `//` 和 `#` 都可用于行注释；`application`、`database`、实体、字段、索引、关系、枚举、枚举值、菜单分组、Dashboard 指标、Dataflow 的根/input/context/step 及手写 Action 页支持 `@comment("...")` 与 `@comment(t("key"))`。尚未列出的配置块不能假定支持注释，未知或重复注解会在生成前失败。
 - `application` 注释成为根、Server 和 Web `package.json` 的 `description`；`database` 注释成为生成 Drizzle `schema.ts` 的文件级 JSDoc。实体、字段、索引与外键关系说明进入 PostgreSQL/MySQL/SQLite Drizzle schema 的 JSDoc；实体说明也进入 repository 接口和 service 工厂函数。生成代码使用默认语言并保留 `i18n: key`，前端继续在运行时切换语言。这些是源码和包元数据说明，不会执行数据库 `COMMENT ON` 或修改迁移行为。
 - 字符串使用双引号或单引号。
+- `entity` 支持显示注解 `@singular`、`@plural`、`@display`、`@tableDisplay`、`@relationDetail`：外键列按目标实体的显示模板渲染成链接与 Drawer，而不是裸 UUID；模板语法与校验见 [entity 与 field 的实体显示注解](/dsl/entity#实体显示注解-django-风格)。
 - 项目可以通过 [`include` 模块](../guide/modules) 将 `application` 内容拆分到多个相对 `.qiy` 文件。
 
 ## 消息与模型描述
@@ -124,11 +125,14 @@ messages {
 | Key | 覆盖的界面文案 |
 | --- | --- |
 | `qiy.resources.<resource>.label` | 菜单、面包屑、列表/新建/编辑/详情标题、关联记录卡片 |
+| `qiy.resources.<resource>.singular` / `.plural` | 新建/编辑/详情/抽屉标题、按钮（单数）与菜单、列表标题（复数） |
 | `qiy.resources.<resource>.fields.<field>.label` | 列表列头、详情字段名、表单 label、筛选占位符、关联表列头 |
-| `qiy.enums.<enum>.label` / `qiy.enums.<enum>.values.<value>` | 枚举值 Tag、下拉选项 |
+| `qiy.enums.<enum>.label` / `qiy.enums.<enum>.values.<value>` | 枚举值 Tag、下拉选项（显示模板中的枚举字段同样走这里） |
 | `qiy.menu.<group>.label` | 菜单分组 |
 | `qiy.dashboard.<metric>.label` | Dashboard 指标卡 |
 | `qiy.actions.<action>.label` / `.confirm` / `.inputs.<input>.label` | 业务命令按钮、确认文案、命令表单字段与枚举选项 |
+
+`singular` / `plural` 缺失时分别回退到 `label` 与 DSL 里的 `@singular` / `@plural` / `@label` 原文；`@display`、`@tableDisplay`、`@relationDetail` 模板本身由字段引用和分隔符组成，不参与翻译。生成器会为每个实体输出这两个 key，并在 `web/tests/model-i18n.test.ts` 中断言。
 
 其中 `<resource>` 使用资源名（实体默认取 `table` 名）。生成的 `web/tests/model-i18n.test.ts` 会遍历所有资源、字段、枚举、菜单、Dashboard 指标与命令，断言 key 稳定、词典按语言解析、缺失时回退原文；仓库侧 `tests/example-modules.test.ts` 校验示例模型的词典完整覆盖全部模型 label。`apps/web/app/i18n.ts` 还提供 `qiy.filters.mode.<mode>`（筛选操作符）等 `qiy.*` 覆盖点。
 
@@ -148,6 +152,7 @@ messages {
 | `qiy.finishAccount` / `qiy.confirmAccount` / `qiy.fieldRequired` / `qiy.passwordMin` / `qiy.createAccount` … | 首次 OAuth 账号开通表单与校验提示 |
 | `qiy.completingSignIn` / `qiy.providerLoginFailed` / `qiy.multiProviderHint` / `qiy.otp*` / `qiy.oidc*` | 登录/回调/OTP/OIDC 页面文案 |
 | `qiy.forbidden` / `qiy.createForbidden` / `qiy.auditTitle` / `qiy.treeNodesCount` / `qiy.relatedUnknown` | 403 页、页面级权限提示、审计历史、树视图与关联记录 |
+| `qiy.createResource` / `qiy.editResource` / `qiy.openDetail` / `qiy.searchRelation` | 新建/编辑资源标题（插入单数名）、外键抽屉的“打开详情”按钮与关联下拉搜索占位符 |
 
 这些键的默认值写在生成器的 chrome 词典中（`app/i18n.ts` 的 `localeMessages`），与 Refine 官方键（`buttons.*`、`notifications.*`、`pages.login.*`）一起注入 i18n provider；`t(locale, key)` 会先查项目 `messages` 中的 `qiy.<key>`，再回退内置词典。
 

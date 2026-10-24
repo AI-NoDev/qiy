@@ -1,7 +1,7 @@
 # ERP domain: purchasing and sales documents. Entities only; purchase/sales
 # header-line relations and warehouse relations are declared in relations.qiy.
 
-entity purchase_orders @label("Purchase orders") @icon(FileTextOutlined) {
+entity purchase_orders @label("Purchase orders") @icon(FileTextOutlined) @singular("Purchase order") @plural("Purchase orders") @display("{$.number}") @tableDisplay("{$.number}") @relationDetail("<b>{$.number}</b></br>{$.status} · {$.total}") {
   field id UUID @id;
   field number Text @unique;
   field supplierId UUID;
@@ -10,7 +10,7 @@ entity purchase_orders @label("Purchase orders") @icon(FileTextOutlined) {
   field total Decimal(12,2);
 }
 
-entity purchase_order_lines @label("Purchase order lines") @icon(UnorderedListOutlined) {
+entity purchase_order_lines @label("Purchase order lines") @icon(UnorderedListOutlined) @singular("Purchase order line") @plural("Purchase order lines") @display("{$.quantity}") @tableDisplay("{$.quantity}") @relationDetail("{$.quantity} · {$.unitCost}") {
   field id UUID @id;
   field purchaseOrderId UUID;
   field productId UUID;
@@ -18,7 +18,7 @@ entity purchase_order_lines @label("Purchase order lines") @icon(UnorderedListOu
   field unitCost Decimal(12,2);
 }
 
-entity receipts @label("Goods receipts") @icon(InboxOutlined) {
+entity receipts @label("Goods receipts") @icon(InboxOutlined) @singular("Goods receipt") @plural("Goods receipts") @display("{$.status}") @tableDisplay("{$.status}") @relationDetail("<b>{$.status}</b></br>{$.receivedAt}") {
   field id UUID @id;
   field purchaseOrderId UUID;
   field warehouseId UUID;
@@ -26,7 +26,7 @@ entity receipts @label("Goods receipts") @icon(InboxOutlined) {
   field receivedAt DateTime @nullable;
 }
 
-entity sales_orders @label("Sales orders") @icon(ShoppingCartOutlined) {
+entity sales_orders @label("Sales orders") @icon(ShoppingCartOutlined) @singular("Sales order") @plural("Sales orders") @display("{$.number}") @tableDisplay("{$.number}") @relationDetail("<b>{$.number}</b></br>{$.status} · {$.total}") {
   field id UUID @id;
   field number Text @unique;
   field customerId UUID;
@@ -35,7 +35,7 @@ entity sales_orders @label("Sales orders") @icon(ShoppingCartOutlined) {
   field total Decimal(12,2);
 }
 
-entity sales_order_lines @label("Sales order lines") @icon(OrderedListOutlined) {
+entity sales_order_lines @label("Sales order lines") @icon(OrderedListOutlined) @singular("Sales order line") @plural("Sales order lines") @display("{$.quantity}") @tableDisplay("{$.quantity}") @relationDetail("{$.quantity} · {$.unitPrice}") {
   field id UUID @id;
   field salesOrderId UUID;
   field productId UUID;
@@ -44,7 +44,7 @@ entity sales_order_lines @label("Sales order lines") @icon(OrderedListOutlined) 
   field allocated Integer;
 }
 
-entity shipments @label("Shipments") @icon(CarOutlined) {
+entity shipments @label("Shipments") @icon(CarOutlined) @singular("Shipment") @plural("Shipments") @display("{$.status}") @tableDisplay("{$.status}") @relationDetail("<b>{$.status}</b></br>{$.shippedAt}") {
   field id UUID @id;
   field salesOrderId UUID;
   field warehouseId UUID;
