@@ -46,3 +46,5 @@ editors/jetbrains-qiy/build
 deploy/config.local.ts
 
 examples/**/qiy.sqlite
+
+examples/self/dex/demo.env

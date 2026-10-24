@@ -212,6 +212,7 @@ The server owns validation, authorization and database transactions; the browser
 - [apps/web/app/routes/home.tsx](../apps/web/app/routes/home.tsx)
 - [apps/web/app/routes/list.tsx](../apps/web/app/routes/list.tsx)
 - [apps/web/app/routes/login.tsx](../apps/web/app/routes/login.tsx)
+- [apps/web/app/routes/oauth-callback.tsx](../apps/web/app/routes/oauth-callback.tsx)
 - [apps/web/app/routes/show.tsx](../apps/web/app/routes/show.tsx)
 - [apps/web/app/shared/types.ts](../apps/web/app/shared/types.ts)
 - [apps/web/app/tree.ts](../apps/web/app/tree.ts)

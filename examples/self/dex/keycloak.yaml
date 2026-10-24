@@ -2,6 +2,8 @@ issuer: http://localhost:5557/dex
 storage:
   type: memory
 web:
+  allowedOrigins:
+    - "http://localhost:8000"
   http: 0.0.0.0:5557
 oauth2:
   skipApprovalScreen: true

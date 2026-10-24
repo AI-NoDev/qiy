@@ -36,14 +36,19 @@ export QIY_OIDC_GOOGLE_CLIENT_ID=<google client id>
 浏览器登录页会列出所有已配置 Provider（未配置的自动隐藏）；服务端接受任一 Provider 的 token，并按各自映射列找到用户。
 
 
-## 本地演示（两个 Dex OIDC 租户，端口 8000）
+## 本地演示（多 Provider 登录 + Ably realtime，端口 8000）
 
-示例用**两个独立的 Dex 实例**模拟两个不同的 OIDC Provider（不同 issuer），登录页会展示两个可选按钮，服务端按 token 的 `iss` 路由到对应 JWKS，并把 `keycloak` Provider 的 `sub` 映射到 `keycloakSubject` 列：
+Demo 同时配置了 **5 个 OIDC Provider**，登录页每个配一项按钮，服务端按 token `iss` 路由到对应 JWKS：
 
-| Provider | issuer | client id | 身份列 |
-| --- | --- | --- | --- |
-| okta | http://localhost:5556/dex | qiy-admin | 默认 `iss\|sub` → `subject` |
-| keycloak | http://localhost:5557/dex | qiy-keycloak | `sub` → `keycloakSubject` |
+| Provider | 身份源 | 身份列 |
+| --- | --- | --- |
+| okta | 本地 Dex A（:5556） | 默认 `iss|sub` → `subject` |
+| keycloak | 本地 Dex B（:5557，不同 issuer） | `sub` → `keycloakSubject` |
+| google | 真实 Google 租户（PKCE，回调 `/oauth/google`） | `sub` → 默认列 |
+| kinde | 真实 Kinde 租户（回调 `/oauth/kinde`） | `sub` → 默认列 |
+| azure-ad-b2c | 真实 Entra External ID 租户（回调 `/oauth/azure`） | `sub` → 默认列 |
+
+Ably realtime 通过 `QIY_ABLY_API_KEY` 配置；登录后 `POST /api/v1/realtime/token` 返回 ably TokenRequest（subscribe-only capability）。
 
 ```sh
 # 1) 生成并迁移
@@ -51,24 +56,21 @@ bun run qiy generate examples/self/app.qiy examples/self/admin
 cd examples/self/admin && bun install
 cd apps/server && bun run db:generate && bun run db:migrate
 
-# 2) 两个 OIDC Provider（Dex）
+# 2) 两个 Dex 租户（本地）
 docker run -d --name qiy-dex-demo  -p 5556:5556 -v "$PWD/../../dex:/etc/dex" ghcr.io/dexidp/dex:v2.41.1 dex serve /etc/dex/dex.yaml
 docker run -d --name qiy-dex-demo2 -p 5557:5557 -v "$PWD/../../dex:/etc/dex" ghcr.io/dexidp/dex:v2.41.1 dex serve /etc/dex/keycloak.yaml
 
-# 3) .env.development（API 在 8001，回调统一 http://localhost:8000/auth/callback）
-#    PORT=8001
-#    QIY_OIDC_OKTA_ISSUER=http://localhost:5556/dex
-#    QIY_OIDC_OKTA_AUDIENCE=qiy-admin
-#    QIY_OIDC_OKTA_CLIENT_ID=qiy-admin
-#    ... JWKS/AUTHORIZATION/TOKEN/REDIRECT
-#    QIY_OIDC_KEYCLOAK_ISSUER=http://localhost:5557/dex
-#    QIY_OIDC_KEYCLOAK_AUDIENCE=qiy-keycloak
-#    QIY_OIDC_KEYCLOAK_CLIENT_ID=qiy-keycloak
-#    QIY_OIDC_KEYCLOAK_REDIRECT_URI=http://localhost:8000/auth/callback
+# 3) 演示环境（含 Ably key / 真实 Provider client id，本地保存、不提交）
+cp examples/self/dex/demo.env examples/self/admin/apps/server/.env.development
 
-# 4) 启动
-cd apps/server && bun --env-file=.env.development src/server.ts     # API :8001
-cd apps/web && QIY_API_PROXY=http://localhost:8001 bun run dev -- --port 8000  # Web :8000
+# 4) 演示数据
+bun run examples/self/dex/seed.ts examples/self/admin/apps/server/qiy.sqlite
+
+# 5) 启动：API :8001，Web :8000（所有 Provider 回调都在 8000）
+cd examples/self/admin/apps/server && bun --env-file=.env.development src/server.ts
+cd examples/self/admin/apps/web && QIY_API_PROXY=http://localhost:8001 bun run dev -- --port 8000
 ```
 
-打开 <http://localhost:8000>，登录页列出 **Okta / Keycloak** 两个按钮，均可用 `admin@example.com / admin-password` 登录；两个 Provider 的 password grant 与 PKCE 授权码流程都已验证会返回各自真实 token 并能访问生成 API。
+打开 <http://localhost:8000>：登录页列出 **Okta / Keycloak / Google / Kinde / Azure AD B2C** 五个按钮；Okta/Keycloak 用 `admin@example.com / admin-password` 登录，三个真实厂商按钮需要在其控制台把对应回调登记到 8000（Kinde 目前登记的是 3000，需要在 Kinde 控制台把回调改成 `http://localhost:8000/oauth/kinde`）。
+
+> 回调路径任意（`/auth/callback`、`/oauth/google`、`/oauth/kinde`、`/oauth/azure` 都可以），生成 Web 用通配路由 `oauth/*` 统一落到回调组件；StrictMode 双执行与 token 交换 CORS 已处理。

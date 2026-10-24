@@ -64,8 +64,11 @@ export async function completeProviderLogin(callbackUrl: URL, fetcher: typeof fe
   const verifier = sessionStorage.getItem(verifierKey);
   const expectedState = sessionStorage.getItem(stateKey);
   const returnTo = sessionStorage.getItem(returnToKey) ?? "/";
-  for (const key of [verifierKey, stateKey, providerKey, returnToKey]) sessionStorage.removeItem(key);
-  if (!provider || !verifier || !expectedState) throw new Error("No pending login for this provider");
+  if (!provider || !verifier || !expectedState) {
+    // A second StrictMode/hydration pass after a successful login should land on the app instead of showing an error.
+    if (window.localStorage.getItem(accessTokenKey)) return "/";
+    throw new Error("No pending login for this provider");
+  }
   const error = callbackUrl.searchParams.get("error");
   if (error) throw new Error(callbackUrl.searchParams.get("error_description") ?? error);
   if (callbackUrl.searchParams.get("state") !== expectedState) throw new Error("State mismatch in the provider callback");
@@ -83,5 +86,6 @@ export async function completeProviderLogin(callbackUrl: URL, fetcher: typeof fe
   window.localStorage.setItem(accessTokenKey, tokens.access_token);
   if (tokens.id_token) window.localStorage.setItem(idTokenKey, tokens.id_token);
   if (typeof tokens.expires_in === "number") window.localStorage.setItem(expiresAtKey, String(Date.now() + tokens.expires_in * 1000));
+  for (const key of [verifierKey, stateKey, providerKey, returnToKey]) sessionStorage.removeItem(key);
   return returnTo;
 }

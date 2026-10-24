@@ -236,6 +236,7 @@
     "apps/web/app/providers/live-provider.ts",
     "apps/web/tests/live-provider.test.ts",
     "apps/web/app/auth/oidc-multi.ts",
+    "apps/web/app/routes/oauth-callback.tsx",
     "apps/server/.env.development",
     "apps/web/.env.development",
     "apps/server/.env.production",

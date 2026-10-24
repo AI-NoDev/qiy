@@ -146,8 +146,11 @@ export async function completeProviderLogin(callbackUrl: URL, fetcher: typeof fe
   const verifier = sessionStorage.getItem(verifierKey);
   const expectedState = sessionStorage.getItem(stateKey);
   const returnTo = sessionStorage.getItem(returnToKey) ?? "/";
-  for (const key of [verifierKey, stateKey, providerKey, returnToKey]) sessionStorage.removeItem(key);
-  if (!provider || !verifier || !expectedState) throw new Error("No pending login for this provider");
+  if (!provider || !verifier || !expectedState) {
+    // A second StrictMode/hydration pass after a successful login should land on the app instead of showing an error.
+    if (window.localStorage.getItem(accessTokenKey)) return "/";
+    throw new Error("No pending login for this provider");
+  }
   const error = callbackUrl.searchParams.get("error");
   if (error) throw new Error(callbackUrl.searchParams.get("error_description") ?? error);
   if (callbackUrl.searchParams.get("state") !== expectedState) throw new Error("State mismatch in the provider callback");
@@ -165,6 +168,7 @@ export async function completeProviderLogin(callbackUrl: URL, fetcher: typeof fe
   window.localStorage.setItem(accessTokenKey, tokens.access_token);
   if (tokens.id_token) window.localStorage.setItem(idTokenKey, tokens.id_token);
   if (typeof tokens.expires_in === "number") window.localStorage.setItem(expiresAtKey, String(Date.now() + tokens.expires_in * 1000));
+  for (const key of [verifierKey, stateKey, providerKey, returnToKey]) sessionStorage.removeItem(key);
   return returnTo;
 }
 `;
@@ -2238,6 +2242,11 @@ test("SSE subscription reconnects after the stream ends", async () => {
   }
   if (options.auth?.providers && options.auth.providers.length > 1) {
     generated["web/app/auth/oidc-multi.ts"] = renderMultiProviderWebClient();
+    generated["web/app/routes/oauth-callback.tsx"] = 'export { default } from "./auth-callback";';
+    generated["web/app/routes.ts"] = generated["web/app/routes.ts"]!.replace(
+      '  route("auth/callback", "./routes/auth-callback.tsx"),',
+      '  route("auth/callback", "./routes/auth-callback.tsx"),\n  route("oauth/*", "./routes/oauth-callback.tsx"),',
+    );
     generated["web/app/routes/login.tsx"] = `import { Alert, Button, Card, Space, Spin, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { beginProviderLogin, fetchAuthProviders, type QiyAuthProviderPublic } from "../auth/oidc-multi";
@@ -2264,14 +2273,15 @@ export default function Login() {
 }
 `;
     generated["web/app/routes/auth-callback.tsx"] = `import { Alert, Card, Spin } from "antd";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { completeProviderLogin } from "../auth/oidc-multi";
 
 export default function AuthCallback() {
   const navigate = useNavigate();
+  const started = useRef(false);
   const [error, setError] = useState<string>();
-  useEffect(() => { let active = true; void completeProviderLogin(new URL(window.location.href)).then((target) => { if (active) navigate(target || "/", { replace: true }); }).catch((caught: unknown) => { if (active) setError(caught instanceof Error ? caught.message : String(caught)); }); return () => { active = false; }; }, [navigate]);
+  useEffect(() => { if (started.current) return; started.current = true; let active = true; void completeProviderLogin(new URL(window.location.href)).then((target) => { if (active) navigate(target || "/", { replace: true }); }).catch((caught: unknown) => { if (active) setError(caught instanceof Error ? caught.message : String(caught)); }); return () => { active = false; }; }, [navigate]);
   return <main style={{ padding: 40, display: "flex", justifyContent: "center" }}><Card>{error ? <Alert type="error" showIcon message={error} /> : <Spin />}</Card></main>;
 }
 `;
