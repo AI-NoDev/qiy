@@ -44,3 +44,5 @@ editors/jetbrains-qiy/build
 
 # local deployment credentials
 deploy/config.local.ts
+
+examples/**/qiy.sqlite

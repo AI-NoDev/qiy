@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+﻿import { describe, expect, test } from "bun:test";
 import type { DatabaseIR } from "../tools/database-ir";
 import { generateWeb } from "../tools/generate-web";
 import { parseQiyProject } from "../tools/qiy-project";
@@ -33,7 +33,7 @@ describe("Refine SPA generation", () => {
     expect(files["web/app/routes/edit.tsx"]).toContain('action="edit"');
     expect(files["web/app/routes/show.tsx"]).toContain('CanAccess resource={resource.name} action="edit"');
     expect(files["web/app/i18n.ts"]).toContain("zh-CN");
-    expect(files["web/vite.config.ts"]).toContain('"/graphql": "http://localhost:3000"');
+    expect(files["web/vite.config.ts"]).toContain('process.env.QIY_API_PROXY ?? "http://localhost:3000"');
     expect(files["web/app/routes/show.tsx"]).not.toContain("OrderWorkflowActions");
     expect(files["web/tests/workflow.test.ts"]).toBeUndefined();
   });

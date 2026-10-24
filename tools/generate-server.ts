@@ -4878,7 +4878,7 @@ export async function createApp(repositories: Repositories, authenticate: Authen
    const configuredOrigins = ${JSON.stringify(options.corsOrigins ?? [])} as string[];
    const environmentOrigins = Bun.env.QIY_CORS_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean) ?? [];
    const allowedOrigins = normalizeCorsOrigins(corsOrigins ?? (environmentOrigins.length > 0 ? environmentOrigins : configuredOrigins));
-   const guard = createAuthorizationGuard(authenticate, ${protectedResources}, ${pageRules});
+   const guard = createAuthorizationGuard(authenticate, ${protectedResources}, ${pageRules}, ${JSON.stringify(auth?.providers && auth.providers.length > 1 ? ["/api/v1/auth/providers"] : [])});
   const routes = (new Elysia({ prefix: "/api/v1" }) as any)
     .get("/health", () => ({ ok: true }))
     .get("/auth/me", async ({ request }: { request: Request }) => authenticate(request))
