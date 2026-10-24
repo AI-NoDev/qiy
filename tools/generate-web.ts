@@ -157,10 +157,13 @@ export async function completeProviderLogin(callbackUrl: URL, fetcher: typeof fe
   const code = callbackUrl.searchParams.get("code");
   if (!code) throw new Error("The provider callback did not contain an authorization code");
   const redirectUri = provider.redirectUri ?? window.location.origin + "/auth/callback";
-  const response = await fetcher(provider.tokenUrl ?? "", {
+  // Exchange through the generated server so confidential clients (Google,
+  // Auth0, Okta web apps) can use their client secret and browser CORS is not
+  // required. The server keeps secrets out of the SPA bundle.
+  const response = await fetcher("/api/v1/auth/exchange", {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "authorization_code", client_id: provider.clientId, code, redirect_uri: redirectUri, code_verifier: verifier }).toString(),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: provider.id, code, codeVerifier: verifier, redirectUri }),
   });
   if (!response.ok) throw new Error("The provider token exchange failed");
   const tokens = (await response.json()) as { access_token?: string; id_token?: string; expires_in?: number };

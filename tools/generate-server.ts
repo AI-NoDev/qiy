@@ -4878,7 +4878,7 @@ export async function createApp(repositories: Repositories, authenticate: Authen
    const configuredOrigins = ${JSON.stringify(options.corsOrigins ?? [])} as string[];
    const environmentOrigins = Bun.env.QIY_CORS_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean) ?? [];
    const allowedOrigins = normalizeCorsOrigins(corsOrigins ?? (environmentOrigins.length > 0 ? environmentOrigins : configuredOrigins));
-   const guard = createAuthorizationGuard(authenticate, ${protectedResources}, ${pageRules}, ${JSON.stringify(auth?.providers && auth.providers.length > 1 ? ["/api/v1/auth/providers"] : [])});
+   const guard = createAuthorizationGuard(authenticate, ${protectedResources}, ${pageRules}, ${JSON.stringify(auth?.providers && auth.providers.length > 1 ? ["/api/v1/auth/providers", "/api/v1/auth/exchange"] : [])});
   const routes = (new Elysia({ prefix: "/api/v1" }) as any)
     .get("/health", () => ({ ok: true }))
     .get("/auth/me", async ({ request }: { request: Request }) => authenticate(request))
@@ -6481,7 +6481,7 @@ function renderMultiProviderOidcModule(auth: NonNullable<QiyProject["auth"]>): s
   lines.push("");
   lines.push("export interface QiyOidcProviderConfig {");
   lines.push("  id: string; label: string; issuer: string; audience: string; jwksUrl: string;");
-  lines.push("  authorizationUrl?: string; tokenUrl?: string; clientId?: string; scope: string; redirectUri?: string; logoutUrl?: string;");
+  lines.push("  authorizationUrl?: string; tokenUrl?: string; clientId?: string; scope: string; redirectUri?: string; logoutUrl?: string; clientSecret?: string;");
   lines.push("  subjectField?: string; claim?: string;");
   lines.push("}");
   lines.push("");
@@ -6504,6 +6504,7 @@ function renderMultiProviderOidcModule(auth: NonNullable<QiyProject["auth"]>): s
   lines.push("      authorizationUrl: providerEnv(id, \"AUTHORIZATION_URL\"), tokenUrl: providerEnv(id, \"TOKEN_URL\"),");
   lines.push("      clientId: providerEnv(id, \"CLIENT_ID\"), scope: providerEnv(id, \"SCOPE\") ?? \"openid profile email\",");
   lines.push("      redirectUri: providerEnv(id, \"REDIRECT_URI\") ?? readEnv(\"QIY_OIDC_REDIRECT_URI\"), logoutUrl: providerEnv(id, \"LOGOUT_URL\"),");
+  lines.push("      clientSecret: providerEnv(id, \"CLIENT_SECRET\"),");
   lines.push("      ...(mapping ? { subjectField: mapping.subjectField, ...(mapping.claim ? { claim: mapping.claim } : {}) } : {}) }];");
   lines.push("  });");
   lines.push("}");
@@ -6515,7 +6516,23 @@ function renderMultiProviderOidcModule(auth: NonNullable<QiyProject["auth"]>): s
   lines.push("  }));");
   lines.push("}");
   lines.push("");
-  lines.push("export function createAuthProviderRoutes() { return new Elysia({ prefix: \"/api/v1/auth\" }).get(\"/providers\", () => ({ providers: publicAuthProviders() })); }");
+  lines.push("export function createAuthProviderRoutes() {");
+  lines.push("  return new Elysia({ prefix: \"/api/v1/auth\" })");
+  lines.push("    .get(\"/providers\", () => ({ providers: publicAuthProviders() }))");
+  lines.push("    .post(\"/exchange\", async (context: any) => {");
+  lines.push("      const { body, set } = context;");
+  lines.push("      const input = (body ?? {}) as { provider?: string; code?: string; codeVerifier?: string; redirectUri?: string };");
+  lines.push("      const config = input.provider ? providerConfigs().find((candidate) => candidate.id === input.provider) : undefined;");
+  lines.push("      if (!config || !config.tokenUrl || !config.clientId || !input.code) { set.status = 400; return { error: \"invalid token exchange request\" }; }");
+  lines.push("      const form = new URLSearchParams({ grant_type: \"authorization_code\", code: input.code, client_id: config.clientId, redirect_uri: input.redirectUri ?? config.redirectUri ?? \"\" });");
+  lines.push("      if (input.codeVerifier) form.set(\"code_verifier\", input.codeVerifier);");
+  lines.push("      if (config.clientSecret) form.set(\"client_secret\", config.clientSecret);");
+  lines.push("      const response = await fetch(config.tokenUrl, { method: \"POST\", headers: { \"Content-Type\": \"application/x-www-form-urlencoded\", Accept: \"application/json\" }, body: form.toString() });");
+  lines.push("      const tokens = (await response.json().catch(() => ({}))) as { access_token?: string; id_token?: string; expires_in?: number; error?: string };");
+  lines.push("      if (!response.ok || !tokens.access_token) { set.status = 401; return { error: tokens.error ?? \"provider token exchange failed\" }; }");
+  lines.push("      return { access_token: tokens.access_token, ...(tokens.id_token ? { id_token: tokens.id_token } : {}), ...(typeof tokens.expires_in === \"number\" ? { expires_in: tokens.expires_in } : {}) };");
+  lines.push("    });");
+  lines.push("}");
   lines.push("");
   lines.push("function positiveInteger(name: string, fallback: number, minimum: number): number {");
   lines.push("  const raw = Bun.env[name];");

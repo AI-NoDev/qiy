@@ -71,6 +71,13 @@ cd examples/self/admin/apps/server && bun --env-file=.env.development src/server
 cd examples/self/admin/apps/web && QIY_API_PROXY=http://localhost:8001 bun run dev -- --port 8000
 ```
 
+登录页每个按钮对应一个真实的登录方式：
+
+- **Okta / Keycloak**：本地 Dex 账号 `admin@example.com` / `admin-password`（两个不同 issuer，分别写 `subject` 与 `keycloakSubject`）；
+- **Google**：任意 Google 账号；token 交换在生成服务端完成（`POST /api/v1/auth/exchange`，server 端持有 client secret，SPA 不暴露 secret、不依赖 IdP CORS）；
+- **Kinde**：任意 Kinde 账号，但需在 Kinde 控制台把回调改为 `http://localhost:8000/oauth/kinde`（当前登记的是 3000，会返回 400）；
+- **Azure AD B2C**：必须是该 External ID 租户里的**本地账号**；`@outlook.com` 这类个人 Microsoft 账号不会被接受（页面会提示"此组织中不存在此帐户"）。在 Entra 管理中心 Users → New user 建一个本地用户（或点登录页的"新建一个帐户"走自助注册），再用该邮箱+密码登录。
+
 打开 <http://localhost:8000>：登录页列出 **Okta / Keycloak / Google / Kinde / Azure AD B2C** 五个按钮；Okta/Keycloak 用 `admin@example.com / admin-password` 登录，三个真实厂商按钮需要在其控制台把对应回调登记到 8000（Kinde 目前登记的是 3000，需要在 Kinde 控制台把回调改成 `http://localhost:8000/oauth/kinde`）。
 
 > 回调路径任意（`/auth/callback`、`/oauth/google`、`/oauth/kinde`、`/oauth/azure` 都可以），生成 Web 用通配路由 `oauth/*` 统一落到回调组件；StrictMode 双执行与 token 交换 CORS 已处理。

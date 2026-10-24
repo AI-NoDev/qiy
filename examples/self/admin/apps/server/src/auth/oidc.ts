@@ -8,7 +8,7 @@ import type { Authenticator } from "./guard";
 
 export interface QiyOidcProviderConfig {
   id: string; label: string; issuer: string; audience: string; jwksUrl: string;
-  authorizationUrl?: string; tokenUrl?: string; clientId?: string; scope: string; redirectUri?: string; logoutUrl?: string;
+  authorizationUrl?: string; tokenUrl?: string; clientId?: string; scope: string; redirectUri?: string; logoutUrl?: string; clientSecret?: string;
   subjectField?: string; claim?: string;
 }
 
@@ -31,6 +31,7 @@ export function providerConfigs(): QiyOidcProviderConfig[] {
       authorizationUrl: providerEnv(id, "AUTHORIZATION_URL"), tokenUrl: providerEnv(id, "TOKEN_URL"),
       clientId: providerEnv(id, "CLIENT_ID"), scope: providerEnv(id, "SCOPE") ?? "openid profile email",
       redirectUri: providerEnv(id, "REDIRECT_URI") ?? readEnv("QIY_OIDC_REDIRECT_URI"), logoutUrl: providerEnv(id, "LOGOUT_URL"),
+      clientSecret: providerEnv(id, "CLIENT_SECRET"),
       ...(mapping ? { subjectField: mapping.subjectField, ...(mapping.claim ? { claim: mapping.claim } : {}) } : {}) }];
   });
 }
@@ -42,7 +43,23 @@ export function publicAuthProviders() {
   }));
 }
 
-export function createAuthProviderRoutes() { return new Elysia({ prefix: "/api/v1/auth" }).get("/providers", () => ({ providers: publicAuthProviders() })); }
+export function createAuthProviderRoutes() {
+  return new Elysia({ prefix: "/api/v1/auth" })
+    .get("/providers", () => ({ providers: publicAuthProviders() }))
+    .post("/exchange", async (context: any) => {
+      const { body, set } = context;
+      const input = (body ?? {}) as { provider?: string; code?: string; codeVerifier?: string; redirectUri?: string };
+      const config = input.provider ? providerConfigs().find((candidate) => candidate.id === input.provider) : undefined;
+      if (!config || !config.tokenUrl || !config.clientId || !input.code) { set.status = 400; return { error: "invalid token exchange request" }; }
+      const form = new URLSearchParams({ grant_type: "authorization_code", code: input.code, client_id: config.clientId, redirect_uri: input.redirectUri ?? config.redirectUri ?? "" });
+      if (input.codeVerifier) form.set("code_verifier", input.codeVerifier);
+      if (config.clientSecret) form.set("client_secret", config.clientSecret);
+      const response = await fetch(config.tokenUrl, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: form.toString() });
+      const tokens = (await response.json().catch(() => ({}))) as { access_token?: string; id_token?: string; expires_in?: number; error?: string };
+      if (!response.ok || !tokens.access_token) { set.status = 401; return { error: tokens.error ?? "provider token exchange failed" }; }
+      return { access_token: tokens.access_token, ...(tokens.id_token ? { id_token: tokens.id_token } : {}), ...(typeof tokens.expires_in === "number" ? { expires_in: tokens.expires_in } : {}) };
+    });
+}
 
 function positiveInteger(name: string, fallback: number, minimum: number): number {
   const raw = Bun.env[name];
