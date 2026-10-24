@@ -29,9 +29,12 @@ export function generateProject(database: DatabaseIR, name: string, options: Pro
     : database.dialect === "mysql"
       ? "mysql://qiy:qiy@127.0.0.1:3306/qiy_test"
       : "postgres://qiy:qiy@127.0.0.1:5432/qiy_test";
+  // Tests are hermetic: they must never borrow the development database from a
+  // loaded .env file. Run them against an in-memory / dedicated test database
+  // unless QIY_TEST_DATABASE_URL explicitly asks for a disposable server.
   template["apps/server/tests/setup.ts"] = template["apps/server/tests/setup.ts"]!.replace(
     /Bun\.env\.DATABASE_URL \?\?= .*;/,
-    `Bun.env.DATABASE_URL ??= ${JSON.stringify(testDatabaseUrl)};`,
+    `Bun.env.DATABASE_URL = Bun.env.QIY_TEST_DATABASE_URL ?? ${JSON.stringify(testDatabaseUrl)};`,
   );
   if (options.elysiaPlugins?.jwt) {
     template["apps/server/tests/setup.ts"] += `Bun.env[${JSON.stringify(options.elysiaPlugins.jwt.secretEnv)}] ??= "qiy-test-only-jwt-secret";\n`;
