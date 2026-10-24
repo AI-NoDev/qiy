@@ -10,6 +10,8 @@ export interface QiySavedView {
   name: string;
   ownerId: string;
   shared: boolean;
+  /** True when the caller owns this row; shared rows from other users report false. */
+  mine: boolean;
   search?: string;
   filters?: unknown[];
   sorters?: unknown[];
@@ -23,13 +25,14 @@ const MAX_VIEWS_PER_RESOURCE = 100;
 const iso = (value: Date | number | string) => value instanceof Date ? value.toISOString() : new Date(Number(value)).toISOString();
 const decode = (value: string | null): unknown[] | undefined => { if (!value) return undefined; try { const parsed = JSON.parse(value) as unknown; return Array.isArray(parsed) ? parsed : undefined; } catch { return undefined; } };
 
-function toView(row: typeof qiySavedViews.$inferSelect): QiySavedView {
+function toView(row: typeof qiySavedViews.$inferSelect, principalId: string): QiySavedView {
   return {
     id: row.id,
     resource: row.resource,
     name: row.name,
     ownerId: row.ownerId,
     shared: Boolean(row.shared),
+    mine: row.ownerId === principalId,
     ...(row.search ? { search: row.search } : {}),
     ...(decode(row.filters) ? { filters: decode(row.filters) } : {}),
     ...(decode(row.sorters) ? { sorters: decode(row.sorters) } : {}),
@@ -40,36 +43,43 @@ function toView(row: typeof qiySavedViews.$inferSelect): QiySavedView {
 }
 
 export async function listSavedViews(resource: string, principal: Principal): Promise<QiySavedView[]> {
-  const rows = db.select().from(qiySavedViews).where(and(eq(qiySavedViews.resource, resource), or(eq(qiySavedViews.ownerId, principal.id), eq(qiySavedViews.shared, 1)))).orderBy(desc(qiySavedViews.updatedAt)).all();
-  return rows.map((row) => toView(row as typeof qiySavedViews.$inferSelect));
+  // Own views plus everyone's shared views, newest first. updatedAt then createdAt
+  // plus the id tiebreaker keep the dropdown order stable for identical timestamps.
+  const rows = db.select().from(qiySavedViews).where(and(eq(qiySavedViews.resource, resource), or(eq(qiySavedViews.ownerId, principal.id), eq(qiySavedViews.shared, 1)))).orderBy(desc(qiySavedViews.updatedAt), desc(qiySavedViews.createdAt), desc(qiySavedViews.id)).all();
+  return rows.map((row) => toView(row as typeof qiySavedViews.$inferSelect, principal.id));
 }
 
 export async function createSavedView(input: { resource: string; name: string; shared: boolean; search?: string; filters?: unknown[]; sorters?: unknown[]; columns?: string[]; principal: Principal }): Promise<QiySavedView> {
   const existing = db.select().from(qiySavedViews).where(and(eq(qiySavedViews.resource, input.resource), eq(qiySavedViews.ownerId, input.principal.id))).all();
-  if (existing.length >= MAX_VIEWS_PER_RESOURCE) throw new Error("view.limit");
-  const id = crypto.randomUUID();
-  const values = {
-    id,
-    resource: input.resource,
-    name: input.name,
-    ownerId: input.principal.id,
+  // Publishing an existing name updates that row; only a new name counts toward the cap.
+  // Rows duplicated by older releases are collapsed on the next publish.
+  const duplicates = existing.filter((row) => row.name === input.name);
+  const duplicate = duplicates[0];
+  if (!duplicate && existing.length >= MAX_VIEWS_PER_RESOURCE) throw new Error("view.limit");
+  const id = duplicate ? duplicate.id : crypto.randomUUID();
+  const payload = {
     shared: input.shared ? 1 : 0,
     search: input.search ?? null,
     filters: input.filters ? JSON.stringify(input.filters) : null,
     sorters: input.sorters ? JSON.stringify(input.sorters) : null,
     columns: input.columns ? JSON.stringify(input.columns) : null,
-    createdAt: new Date(),
     updatedAt: new Date(),
   };
-  db.insert(qiySavedViews).values(values).run();
-  const [created] = await listSavedViews(input.resource, input.principal);
-  return created!;
+  if (duplicate) {
+    for (const extra of duplicates.slice(1)) db.delete(qiySavedViews).where(eq(qiySavedViews.id, extra.id)).run();
+    db.update(qiySavedViews).set(payload).where(eq(qiySavedViews.id, id)).run();
+  } else {
+    db.insert(qiySavedViews).values({ id, resource: input.resource, name: input.name, ownerId: input.principal.id, createdAt: new Date(), ...payload }).run();
+  }
+  const row = db.select().from(qiySavedViews).where(eq(qiySavedViews.id, id)).get();
+  return toView(row as typeof qiySavedViews.$inferSelect, input.principal.id);
 }
 
 export async function deleteSavedView(id: string, principal: Principal): Promise<"deleted" | "missing" | "forbidden"> {
   const row = db.select().from(qiySavedViews).where(eq(qiySavedViews.id, id)).get();
   if (!row) return "missing";
-  if (row.ownerId !== principal.id) return "forbidden";
+  // Owners delete their own rows; an admin may remove another user's shared row during cleanup.
+  if (row.ownerId !== principal.id && principal.role !== "admin") return "forbidden";
   db.delete(qiySavedViews).where(eq(qiySavedViews.id, id)).run();
   return "deleted";
 }

@@ -11,6 +11,7 @@ const chromeKeys = [
   "qiy.import", "qiy.export", "qiy.exportSelected", "qiy.visibleColumns", "qiy.views", "qiy.viewName",
   "qiy.save", "qiy.saveView", "qiy.saveToServer", "qiy.shareView", "qiy.publishView", "qiy.saved",
   "qiy.viewShared", "qiy.viewPublished", "qiy.deleteView", "qiy.shared", "qiy.importFailed", "qiy.importedRows",
+  "qiy.viewDeleted", "qiy.viewDeleteFailed", "qiy.confirmDeleteView", "qiy.viewMine", "qiy.viewPublishedTag", "qiy.viewSharedTag",
   "qiy.treeView", "qiy.auditTitle", "qiy.auditAction", "qiy.auditAuthor", "qiy.auditSystem", "qiy.auditTime",
   "qiy.new", "qiy.edit", "qiy.delete", "qiy.batchDelete", "qiy.confirmDelete", "qiy.detail",
   "qiy.createResource", "qiy.editResource", "qiy.openDetail", "qiy.searchRelation",
@@ -47,6 +48,12 @@ test("every chrome key resolves in zh-CN and en-US instead of falling back to En
   expect(zh.translate("qiy.visibleColumns")).toBe("显示列");
   expect(zh.translate("qiy.views")).toBe("已存视图");
   expect(zh.translate("qiy.saveView")).toBe("保存视图");
+  expect(zh.translate("qiy.viewDeleted")).toBe("视图已删除");
+  expect(en.translate("qiy.viewDeleted")).toBe("View deleted");
+  expect(zh.translate("qiy.viewDeleteFailed")).toBe("删除视图失败");
+  expect(zh.translate("qiy.viewMine")).toBe("个人");
+  expect(zh.translate("qiy.viewPublishedTag")).toBe("发布");
+  expect(zh.translate("qiy.viewSharedTag")).toBe("共享");
   expect(zh.translate("qiy.search")).toBe("搜索");
   expect(zh.translate("qiy.matchAll")).toBe("全部匹配");
   expect(zh.translate("qiy.themeBlue")).toBe("蓝色");

@@ -173,6 +173,7 @@ The server owns validation, authorization and database transactions; the browser
 - [apps/server/tests/receipts.test.ts](../apps/server/tests/receipts.test.ts)
 - [apps/server/tests/sales_order_lines.test.ts](../apps/server/tests/sales_order_lines.test.ts)
 - [apps/server/tests/sales_orders.test.ts](../apps/server/tests/sales_orders.test.ts)
+- [apps/server/tests/saved-views.test.ts](../apps/server/tests/saved-views.test.ts)
 - [apps/server/tests/schema-drift.test.ts](../apps/server/tests/schema-drift.test.ts)
 - [apps/server/tests/setup.ts](../apps/server/tests/setup.ts)
 - [apps/server/tests/shipments.test.ts](../apps/server/tests/shipments.test.ts)

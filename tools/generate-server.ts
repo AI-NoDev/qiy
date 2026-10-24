@@ -2272,6 +2272,8 @@ export interface QiySavedView {
   name: string;
   ownerId: string;
   shared: boolean;
+  /** True when the caller owns this row; shared rows from other users report false. */
+  mine: boolean;
   search?: string;
   filters?: unknown[];
   sorters?: unknown[];
@@ -2285,13 +2287,14 @@ const MAX_VIEWS_PER_RESOURCE = 100;
 const iso = (value: Date | number | string) => value instanceof Date ? value.toISOString() : new Date(Number(value)).toISOString();
 const decode = (value: string | null): unknown[] | undefined => { if (!value) return undefined; try { const parsed = JSON.parse(value) as unknown; return Array.isArray(parsed) ? parsed : undefined; } catch { return undefined; } };
 
-function toView(row: typeof qiySavedViews.$inferSelect): QiySavedView {
+function toView(row: typeof qiySavedViews.$inferSelect, principalId: string): QiySavedView {
   return {
     id: row.id,
     resource: row.resource,
     name: row.name,
     ownerId: row.ownerId,
     shared: Boolean(row.shared),
+    mine: row.ownerId === principalId,
     ...(row.search ? { search: row.search } : {}),
     ...(decode(row.filters) ? { filters: decode(row.filters) } : {}),
     ...(decode(row.sorters) ? { sorters: decode(row.sorters) } : {}),
@@ -2302,42 +2305,49 @@ function toView(row: typeof qiySavedViews.$inferSelect): QiySavedView {
 }
 
 export async function listSavedViews(resource: string, principal: Principal): Promise<QiySavedView[]> {
+  // Own views plus everyone's shared views, newest first. updatedAt then createdAt
+  // plus the id tiebreaker keep the dropdown order stable for identical timestamps.
   ${sqlite
-    ? "const rows = db.select().from(qiySavedViews).where(and(eq(qiySavedViews.resource, resource), or(eq(qiySavedViews.ownerId, principal.id), eq(qiySavedViews.shared, 1)))).orderBy(desc(qiySavedViews.updatedAt)).all();"
+    ? "const rows = db.select().from(qiySavedViews).where(and(eq(qiySavedViews.resource, resource), or(eq(qiySavedViews.ownerId, principal.id), eq(qiySavedViews.shared, 1)))).orderBy(desc(qiySavedViews.updatedAt), desc(qiySavedViews.createdAt), desc(qiySavedViews.id)).all();"
     : dialect === "mysql"
-      ? "const rows = await db.select().from(qiySavedViews).where(and(eq(qiySavedViews.resource, resource), or(eq(qiySavedViews.ownerId, principal.id), eq(qiySavedViews.shared, 1)))).orderBy(desc(qiySavedViews.updatedAt));"
-      : "const rows = await db.select().from(qiySavedViews).where(and(eq(qiySavedViews.resource, resource), or(eq(qiySavedViews.ownerId, principal.id), eq(qiySavedViews.shared, true)))).orderBy(desc(qiySavedViews.updatedAt));"}
-  return rows.map((row) => toView(row as typeof qiySavedViews.$inferSelect));
+      ? "const rows = await db.select().from(qiySavedViews).where(and(eq(qiySavedViews.resource, resource), or(eq(qiySavedViews.ownerId, principal.id), eq(qiySavedViews.shared, 1)))).orderBy(desc(qiySavedViews.updatedAt), desc(qiySavedViews.createdAt), desc(qiySavedViews.id));"
+      : "const rows = await db.select().from(qiySavedViews).where(and(eq(qiySavedViews.resource, resource), or(eq(qiySavedViews.ownerId, principal.id), eq(qiySavedViews.shared, true)))).orderBy(desc(qiySavedViews.updatedAt), desc(qiySavedViews.createdAt), desc(qiySavedViews.id));"}
+  return rows.map((row) => toView(row as typeof qiySavedViews.$inferSelect, principal.id));
 }
 
 export async function createSavedView(input: { resource: string; name: string; shared: boolean; search?: string; filters?: unknown[]; sorters?: unknown[]; columns?: string[]; principal: Principal }): Promise<QiySavedView> {
   ${sqlite
     ? "const existing = db.select().from(qiySavedViews).where(and(eq(qiySavedViews.resource, input.resource), eq(qiySavedViews.ownerId, input.principal.id))).all();"
     : "const existing = await db.select().from(qiySavedViews).where(and(eq(qiySavedViews.resource, input.resource), eq(qiySavedViews.ownerId, input.principal.id)));"}
-  if (existing.length >= MAX_VIEWS_PER_RESOURCE) throw new Error("view.limit");
-  const id = crypto.randomUUID();
-  const values = {
-    id,
-    resource: input.resource,
-    name: input.name,
-    ownerId: input.principal.id,
+  // Publishing an existing name updates that row; only a new name counts toward the cap.
+  // Rows duplicated by older releases are collapsed on the next publish.
+  const duplicates = existing.filter((row) => row.name === input.name);
+  const duplicate = duplicates[0];
+  if (!duplicate && existing.length >= MAX_VIEWS_PER_RESOURCE) throw new Error("view.limit");
+  const id = duplicate ? duplicate.id : crypto.randomUUID();
+  const payload = {
     shared: ${dialect === "postgresql" ? "input.shared" : "input.shared ? 1 : 0"},
     search: input.search ?? null,
     filters: input.filters ? JSON.stringify(input.filters) : null,
     sorters: input.sorters ? JSON.stringify(input.sorters) : null,
     columns: input.columns ? JSON.stringify(input.columns) : null,
-    createdAt: ${now},
     updatedAt: ${now},
   };
-  ${sqlite ? "db.insert(qiySavedViews).values(values).run();" : "await db.insert(qiySavedViews).values(values);"}
-  const [created] = await listSavedViews(input.resource, input.principal);
-  return created!;
+  if (duplicate) {
+    ${sqlite ? "for (const extra of duplicates.slice(1)) db.delete(qiySavedViews).where(eq(qiySavedViews.id, extra.id)).run();" : "for (const extra of duplicates.slice(1)) await db.delete(qiySavedViews).where(eq(qiySavedViews.id, extra.id));"}
+    ${sqlite ? "db.update(qiySavedViews).set(payload).where(eq(qiySavedViews.id, id)).run();" : "await db.update(qiySavedViews).set(payload).where(eq(qiySavedViews.id, id));"}
+  } else {
+    ${sqlite ? "db.insert(qiySavedViews).values({ id, resource: input.resource, name: input.name, ownerId: input.principal.id, createdAt: new Date(), ...payload }).run();" : "await db.insert(qiySavedViews).values({ id, resource: input.resource, name: input.name, ownerId: input.principal.id, createdAt: new Date(), ...payload });"}
+  }
+  ${sqlite ? "const row = db.select().from(qiySavedViews).where(eq(qiySavedViews.id, id)).get();" : "const [row] = await db.select().from(qiySavedViews).where(eq(qiySavedViews.id, id)).limit(1);"}
+  return toView(row as typeof qiySavedViews.$inferSelect, input.principal.id);
 }
 
 export async function deleteSavedView(id: string, principal: Principal): Promise<"deleted" | "missing" | "forbidden"> {
   ${sqlite ? "const row = db.select().from(qiySavedViews).where(eq(qiySavedViews.id, id)).get();" : "const [row] = await db.select().from(qiySavedViews).where(eq(qiySavedViews.id, id)).limit(1);"}
   if (!row) return "missing";
-  if (row.ownerId !== principal.id) return "forbidden";
+  // Owners delete their own rows; an admin may remove another user's shared row during cleanup.
+  if (row.ownerId !== principal.id && principal.role !== "admin") return "forbidden";
   ${sqlite ? "db.delete(qiySavedViews).where(eq(qiySavedViews.id, id)).run();" : "await db.delete(qiySavedViews).where(eq(qiySavedViews.id, id));"}
   return "deleted";
 }
@@ -2373,6 +2383,133 @@ export function createSavedViewsRoutes(authenticate: Authenticator) {
       return status(204);
     });
 }
+`;
+}
+
+/**
+ * Regression tests for the generated saved-view routes. Publishing the same name
+ * must upsert instead of duplicating the dropdown entry, every row reports whether
+ * it belongs to the caller, only the owner (or an admin) may delete, and the
+ * per-user cap only applies to new names. SQLite runs on the in-memory test
+ * database; PostgreSQL/MySQL need QIY_TEST_DATABASE_URL with migrations applied.
+ */
+function renderSavedViewsTest(dialect: DatabaseIR["dialect"], resources: string[]): string {
+  const resource = resources[0]!;
+  const exec = dialect === "sqlite" ? "client.exec(statement)" : dialect === "postgresql" ? "client.unsafe(statement)" : "client.query(statement)";
+  const ddl = dialect === "sqlite"
+    ? `CREATE TABLE IF NOT EXISTS "qiy_saved_views" ("id" text primary key, "resource" text not null, "name" text not null, "ownerId" text not null, "shared" integer not null, "search" text, "filters" text, "sorters" text, "columns" text, "createdAt" integer not null, "updatedAt" integer not null)`
+    : dialect === "postgresql"
+      ? `CREATE TABLE IF NOT EXISTS "qiy_saved_views" ("id" text primary key, "resource" text not null, "name" text not null, "ownerId" text not null, "shared" boolean not null, "search" text, "filters" text, "sorters" text, "columns" text, "createdAt" timestamp with time zone not null, "updatedAt" timestamp with time zone not null)`
+      : "CREATE TABLE IF NOT EXISTS `qiy_saved_views` (`id` varchar(36) primary key, `resource` varchar(160) not null, `name` varchar(120) not null, `ownerId` varchar(36) not null, `shared` int not null, `search` text, `filters` text, `sorters` text, `columns` text, `createdAt` datetime(3) not null, `updatedAt` datetime(3) not null)";
+  const available = dialect === "sqlite" ? "true" : "Boolean(Bun.env.QIY_TEST_DATABASE_URL)";
+  const carolRows = dialect === "mysql"
+    ? "DELETE FROM `qiy_saved_views` WHERE `ownerId` = '00000000-0000-4000-8000-0000000000c1'"
+    : `DELETE FROM "qiy_saved_views" WHERE "ownerId" = '00000000-0000-4000-8000-0000000000c1'`;
+  return `import { expect, test } from "bun:test";
+import { Elysia } from "elysia";
+import type { QiySavedView } from "../src/saved-views";
+
+const dialect = ${JSON.stringify(dialect)};
+const available = ${available};
+const resource = ${JSON.stringify(resource)};
+const ddl = ${JSON.stringify(ddl)};
+const carolRows = ${JSON.stringify(carolRows)};
+
+type Principal = { id: string; name: string; role: "admin" | "operator" | "viewer" };
+const alice: Principal = { id: "00000000-0000-4000-8000-0000000000a1", name: "Alice", role: "admin" };
+const bob: Principal = { id: "00000000-0000-4000-8000-0000000000b1", name: "Bob", role: "operator" };
+const carol: Principal = { id: "00000000-0000-4000-8000-0000000000c1", name: "Carol", role: "operator" };
+
+async function sql(statement: string): Promise<void> {
+  const { client } = await import("../src/db");
+  await ${exec};
+}
+
+async function setup() {
+  await sql(ddl);
+  const { createSavedViewsRoutes } = await import("../src/saved-views");
+  let current: Principal | undefined = alice;
+  const app = new Elysia().use(createSavedViewsRoutes(async () => current ?? null));
+  const request = (user: Principal | undefined, path: string, init?: RequestInit) => { current = user; return app.handle(new Request("http://localhost" + path, init)); };
+  const list = async (user: Principal): Promise<QiySavedView[]> => {
+    const response = await request(user, "/api/v1/saved-views?resource=" + resource);
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { items: QiySavedView[] }).items;
+  };
+  const create = (user: Principal, body: Record<string, unknown>) => request(user, "/api/v1/saved-views", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource, ...body }) });
+  const remove = (user: Principal | undefined, id: string) => request(user, "/api/v1/saved-views/" + id, { method: "DELETE" });
+  return { request, list, create, remove };
+}
+
+test.skipIf(!available)("publishing the same name twice upserts one row and reports ownership", async () => {
+  const { list, create } = await setup();
+  const first = await create(alice, { name: "open-items", shared: true, search: "one", columns: ["id"] });
+  expect(first.status).toBe(201);
+  const created = (await first.json()) as QiySavedView;
+  expect(created).toMatchObject({ resource, name: "open-items", ownerId: alice.id, shared: true, mine: true, search: "one", columns: ["id"] });
+
+  // Republishing the same name keeps the id and replaces the stored payload.
+  const second = await create(alice, { name: "open-items", shared: true, search: "two", columns: ["id", "title"] });
+  expect(second.status).toBe(201);
+  const updated = (await second.json()) as QiySavedView;
+  expect(updated.id).toBe(created.id);
+  expect(updated).toMatchObject({ search: "two", columns: ["id", "title"] });
+  expect(new Date(updated.updatedAt).getTime()).toBeGreaterThanOrEqual(new Date(created.updatedAt).getTime());
+
+  // Exactly one row survives, and another user sees the shared copy flagged as not mine.
+  expect((await list(alice)).filter((view) => view.name === "open-items")).toHaveLength(1);
+  const sharedCopies = (await list(carol)).filter((view) => view.name === "open-items");
+  expect(sharedCopies).toHaveLength(1);
+  expect(sharedCopies[0]).toMatchObject({ id: created.id, ownerId: alice.id, mine: false });
+
+  // Private views never leak into another user's list.
+  await create(alice, { name: "admin-only" });
+  expect((await list(carol)).some((view) => view.name === "admin-only")).toBe(false);
+});
+
+test.skipIf(!available)("owners and admins delete views while others get 403, 404 or 401", async () => {
+  const { list, create, remove } = await setup();
+  const adminView = (await (await create(alice, { name: "admin-private" })).json()) as QiySavedView;
+  const bobShared = (await (await create(bob, { name: "bob-shared", shared: true })).json()) as QiySavedView;
+
+  // A non-owner cannot delete another user's row, even a shared one.
+  expect((await remove(bob, adminView.id)).status).toBe(403);
+  // An admin may clean up another user's shared row.
+  expect((await remove(alice, bobShared.id)).status).toBe(204);
+  expect((await list(bob)).some((view) => view.id === bobShared.id)).toBe(false);
+  // Owners delete their own rows; deleting twice is a 404.
+  const ownView = (await (await create(bob, { name: "bob-own" })).json()) as QiySavedView;
+  expect((await remove(bob, ownView.id)).status).toBe(204);
+  expect((await remove(bob, ownView.id)).status).toBe(404);
+  // Anonymous deletes are rejected before ownership is considered.
+  expect((await remove(undefined, adminView.id)).status).toBe(401);
+  expect((await list(alice)).some((view) => view.id === adminView.id)).toBe(true);
+});
+
+test.skipIf(!available)("validates the resource, the name and the caller", async () => {
+  const { request, create } = await setup();
+  expect((await request(undefined, "/api/v1/saved-views?resource=" + resource)).status).toBe(401);
+  expect((await request(alice, "/api/v1/saved-views?resource=not-a-resource")).status).toBe(400);
+  expect((await create(alice, { name: "   " })).status).toBe(400);
+  expect((await create(alice, { name: "wrong-resource", resource: "not-a-resource" })).status).toBe(400);
+  const anonymous = await request(undefined, "/api/v1/saved-views", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource, name: "anonymous" }) });
+  expect(anonymous.status).toBe(401);
+});
+
+test.skipIf(!available)("caps distinct view names but keeps upserting existing names", async () => {
+  const { list, create } = await setup();
+  // The test principal is unique, so it owns exactly the rows created here.
+  await sql(carolRows);
+  for (let index = 0; index < 100; index++) expect((await create(carol, { name: "bulk-" + index })).status).toBe(201);
+  const rejected = await create(carol, { name: "one-too-many" });
+  expect(rejected.status).toBe(400);
+  expect(((await rejected.json()) as { errorKey?: string }).errorKey).toBe("views.limit");
+  // Republishing an existing name updates in place and is not blocked by the cap.
+  expect((await create(carol, { name: "bulk-0", search: "updated" })).status).toBe(201);
+  const own = (await list(carol)).filter((view) => view.ownerId === carol.id && view.resource === resource);
+  expect(own).toHaveLength(100);
+  expect(own.find((view) => view.name === "bulk-0")?.search).toBe("updated");
+});
 `;
 }
 
@@ -4759,6 +4896,7 @@ export const orderIdempotency = pgTable("order_idempotency", {
     ...(normalizedRestrictions.length ? { "api/src/security/policy.ts": renderPolicyModule(normalizedRestrictions, database, options.scopes ?? []) } : {}),
     "api/src/import-jobs.ts": renderImportJobsModule(database.dialect),
     "api/src/saved-views.ts": renderSavedViewsModule(database.dialect, database.entities.map((entity) => entity.tableName)),
+    "api/tests/saved-views.test.ts": renderSavedViewsTest(database.dialect, database.entities.map((entity) => entity.tableName)),
     "api/src/export-jobs.ts": renderExportJobsModule(database.dialect),
     "api/src/db.ts": database.dialect === "postgresql" ? `import { SQL } from "bun";\nimport { drizzle } from "drizzle-orm/bun-sql";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = new SQL(url);\nexport const db = drizzle({ client, schema });\n` : database.dialect === "sqlite" ? `import { Database } from "bun:sqlite";\nimport { drizzle } from "drizzle-orm/bun-sqlite";\nimport * as schema from "./schema";\n\nconst filename = Bun.env.DATABASE_URL ?? "./qiy.sqlite";\nexport const client = new Database(filename);\nexport const db = drizzle(client, { schema });\n` : `import mysql from "mysql2/promise";\nimport { drizzle } from "drizzle-orm/mysql2";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = mysql.createPool({ uri: url, timezone: "Z" });\nexport const db = drizzle({ client, schema, mode: "default" });\n`,
     "api/src/schema-drift.ts": `import { isTable } from "drizzle-orm";

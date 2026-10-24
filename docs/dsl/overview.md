@@ -146,6 +146,7 @@ messages {
 | `qiy.new` / `qiy.edit` / `qiy.delete` / `qiy.search` / `qiy.visibleColumns` … | 列表工具栏、批量操作、详情/表单按钮 |
 | `qiy.import` / `qiy.export` / `qiy.exportSelected` / `qiy.importProgress` / `qiy.importedRows` | CSV 导入导出按钮、进度与结果通知 |
 | `qiy.views` / `qiy.viewName` / `qiy.saveView` / `qiy.saveToServer` / `qiy.shareView` / `qiy.publishView` / `qiy.saved` / `qiy.deleteView` / `qiy.shared` | 已存视图的下拉、弹层、共享标记与通知 |
+| `qiy.viewDeleted` / `qiy.viewDeleteFailed` / `qiy.confirmDeleteView` / `qiy.viewMine` / `qiy.viewPublishedTag` / `qiy.viewSharedTag` | 视图删除结果通知、删除确认，以及下拉中"个人 / 发布 / 共享"三种来源标记 |
 | `qiy.matchAll` / `qiy.matchAny` / `qiy.commaSeparated` / `qiy.filters.mode.*` | 筛选组合与操作符名称 |
 | `qiy.paginationTotal` / `qiy.perPage` / `qiy.page` | 分页总数与每页条数文案 |
 | `qiy.themeColor` / `qiy.themeBlue` … `qiy.themeRed` / `qiy.colorMode` / `qiy.colorLight` / `qiy.colorDark` / `qiy.colorSystem` | Header 主题色与明暗模式控件（品牌名 "Qiy Admin" 不翻译） |

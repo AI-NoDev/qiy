@@ -342,6 +342,34 @@ P1 文件能力中此前缺失的分片/续传已补齐（服务端 + 真实验�
 
 **边界**：UI 目前只"读取并应用"共享视图，**发布**共享视图通过 API（`publishServerView` 已生成但未接按钮）；没有视图更新（PATCH）与权限细分（例如按角色共享）；视图内容不做服务端语义校验（只限制结构与大小）。
 
+> 后续（2026-10-25）已补齐发布按钮、同名去重、`mine` 所有权标记与本人/admin 删除，见下一节。
+
+## 已存视图删除 / 同名去重 / 所有权（2026-10-25，已完成）
+
+用户报告：共享/发布到服务端的视图在 **已存视图** 下拉里出现多条同名 `aaa (共享)`，且 **删除视图** 按钮对它们无效。根因与修复：
+
+- **根因**
+  - Web `list.tsx` 的删除处理始终调用本地 `deleteSavedView(resource, activeView)`，`server:<id>` 的服务端行从未真正删除；也没有确认/错误反馈。
+  - 服务端 `createSavedView` 无条件插入新行，同名重复发布会堆叠；列表把所有人的共享行都返回，但不告诉前端哪一条属于自己。
+  - 服务端 `deleteSavedView` 只允许 `row.ownerId === principal.id`，没有 admin 清理能力。
+- **服务端（`tools/generate-server.ts`）**
+  - `createSavedView` 改为按 `(resource, ownerId, name)` **upsert**：同名更新 shared/search/filters/sorters/columns/updatedAt 并返回该行；旧版本残留的重复同名行在下一次发布时合并；`MAX_VIEWS_PER_RESOURCE` 只对**新名称**生效。
+  - `QiySavedView` 响应新增 **`mine`**（`ownerId === 调用者`），保留其余字段与 `ownerId`（兼容旧客户端），不额外暴露其他用户身份。
+  - `deleteSavedView`：本人或 `role = admin` 可删除（admin 用于清理他人共享视图），缺失 404、其余 403；列表排序改为 `updatedAt desc, createdAt desc, id desc`，下拉顺序稳定。
+  - 新增生成测试 `api/tests/saved-views.test.ts`（4 tests / 133 断言）：同名发布只留一行且更新 payload、`mine` 标记、本人删除、非本人 403、admin 删除他人共享视图、共享视图对他人可见、401、上限只挡新名称。SQLite 用内存库；PostgreSQL/MySQL 需 `QIY_TEST_DATABASE_URL`（无则 skip），跨方言矩阵仍由 `tools/verify-saved-views.ts` 覆盖。
+- **Web（`tools/generate-web.ts`）**
+  - `app/views.ts` 新增纯助手 `viewKind` / `serverViewKey` / `serverViewId` / `viewMarker` / `canDeleteView`；本地同名保存仍为 upsert（自动去重）。
+  - `app/views-api.ts` 的 `deleteServerView({ resource, id })` 真正调用 `DELETE /api/v1/saved-views/:id`，401/403/404 分别抛出明确错误；`QiyServerView` 增加 `mine`。
+  - `app/routes/list.tsx`：下拉每一项显示 **个人 / 发布 / 共享** 标记，右侧删除图标 + Popconfirm（`stopPropagation`，不会先选中视图）；本地视图改 localStorage、`server:<id>` 调服务端删除后重新拉取并清空选中项，成功/失败走本地化通知。删除入口只出现在本地视图或 `mine: true` 的服务端视图上，其他用户的共享视图不提供删除。发布本地视图成功后删除本地副本并选中服务端行，避免"个人 + 共享"同名并存。
+  - chrome 词典新增 `viewDeleted` / `viewDeleteFailed` / `confirmDeleteView` / `viewMine` / `viewPublishedTag` / `viewSharedTag`（zh-CN + en-US），`chrome-i18n.test.ts` 与根仓 `tests/i18n.test.ts` 断言。
+- **演示与文档**
+  - `examples/self/dex/seed.ts` 重置数据时清空 `qiy_saved_views`，重新 seed 不再残留上一轮共享视图。
+  - 更新 `docs/guide/api.md`、`docs/dsl/overview.md`、`docs/dsl/entity.md`、`examples/self/README.md` 的删除规则、共享语义与 upsert/去重说明。
+
+**验收** — 根仓 `bun run check` + 全量 `bun test`（**285 pass / 0 fail / 3228 断言**）绿；重新生成 `examples/self/admin` 后：生成的 web typecheck + **56 pass / 2753 断言** + build 通过，生成的 server typecheck + **154 pass / 3 skip / 1272 断言**（含新 `saved-views.test.ts` 4 pass），脚本化真实 HTTP 矩阵 **29 项断言全过**（同名发布只留 1 行、`mine` 正确、本人/admin 删除 204、非本人 403、重复删除 404、匿名 401、未知资源/空名称 400、web:8000 SPA 与代理正常、清理后列表为空）。`tools/verify-saved-views.ts`（SQLite，真实生成包 + 迁移 + 真实 HTTP）同步通过：Web 阶段 **40 pass / 754 断言**，server 验收 **5 pass / 143 断言**；顺带修复该脚本未把迁移后的库传给 `tests/setup.ts`（缺 `QIY_TEST_DATABASE_URL` 会退回 `:memory:`）的问题。证据：`examples/self/admin` 重新生成 + `tmp/verify-saved-views-http.ts`（未提交）。
+
+**边界**：admin 清理他人共享视图只在 API 层开放，UI 不渲染他人视图的删除按钮；没有重命名/PATCH 与"取消共享"专用按钮（可通过同名再发布 `shared: false` 实现）；历史重复行不会在迁移时自动清理，只在该用户下次同名发布时合并；没有按角色/团队细分共享范围。
+
 ## 页面内字段级布局权限（2026-10-17，已完成）
 
 计划 #4：`pages` 块新增字段级布局规则，补齐"页面级字段/区块权限"：

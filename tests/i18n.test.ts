@@ -174,6 +174,16 @@ describe("model-derived i18n keys", () => {
     expect(i18n).toContain('export: "Export CSV"');
     expect(i18n).toContain('views: "已存视图"');
     expect(i18n).toContain('saveView: "保存视图"');
+    expect(i18n).toContain('viewDeleted: "视图已删除"');
+    expect(i18n).toContain('viewDeleteFailed: "删除视图失败"');
+    expect(i18n).toContain('viewMine: "个人"');
+    expect(i18n).toContain('viewPublishedTag: "发布"');
+    expect(i18n).toContain('viewSharedTag: "共享"');
+    // The list page offers a per-row delete action for own server rows and local rows.
+    expect(files["apps/web/app/views-api.ts"]).toContain("deleteServerView(input: { resource: string; id: string }");
+    expect(files["apps/web/app/routes/list.tsx"]).toContain("removeSavedView = async (key: string)");
+    expect(files["apps/web/app/routes/list.tsx"]).toContain("<SavedViewLabel");
+    expect(files["apps/web/tests/views.test.ts"]).toContain("decides view kind, marker and deletability");
     expect(i18n).toContain('matchAll: "全部匹配"');
     expect(i18n).toContain('paginationTotal: "第 {{start}}-{{end}} 条，共 {{total}} 条"');
     expect(i18n).toContain('perPage: "条/页"');

@@ -11,7 +11,9 @@ const viewerPasswordHash = await Bun.password.hash("viewer-password", { algorith
 const now = Date.now();
 db.exec("BEGIN");
 try {
-  db.exec("DELETE FROM shipments; DELETE FROM sales_order_lines; DELETE FROM sales_orders; DELETE FROM purchase_order_lines; DELETE FROM purchase_orders; DELETE FROM stock_movements; DELETE FROM inventory; DELETE FROM bins; DELETE FROM warehouses; DELETE FROM products; DELETE FROM customers; DELETE FROM suppliers; DELETE FROM work_orders; DELETE FROM orgs; DELETE FROM users;");
+  // Saved views are user data too: reseeding must not leak (or duplicate) previous
+  // shared views into the fresh demo, so clear the generated store as well.
+  db.exec("DELETE FROM qiy_saved_views; DELETE FROM shipments; DELETE FROM sales_order_lines; DELETE FROM sales_orders; DELETE FROM purchase_order_lines; DELETE FROM purchase_orders; DELETE FROM stock_movements; DELETE FROM inventory; DELETE FROM bins; DELETE FROM warehouses; DELETE FROM products; DELETE FROM customers; DELETE FROM suppliers; DELETE FROM work_orders; DELETE FROM orgs; DELETE FROM users;");
   const insert = (table: string, rows: Array<Record<string, unknown>>) => {
     for (const row of rows) {
       const keys = Object.keys(row);

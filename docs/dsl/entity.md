@@ -131,7 +131,7 @@ entity products {
 
 当前 operator：`eq`、`contains`、`startsWith`、`endsWith`、`gt`、`gte`、`lt`、`lte`、`between`、`in`。REST 继续兼容旧的等值对象过滤参数；高级条件使用 clause 数组。GraphQL 使用 `QiyFilterInput`，未提供 operator 时默认为 `eq`。服务端会按字段声明重复校验，不接受前端自行构造的未授权字段或 operator。
 
-REST DataProvider 同时保留 Refine 的嵌套 `and`/`or` 条件组；服务端会递归验证每个叶子、限制深度为 8 层及总叶子数为 50，再映射为 Drizzle 条件。GraphQL 仍使用平铺 `QiyFilterInput`（顶层 AND），因为 GraphQL 不允许递归 input 定义。保存的用户筛选视图仍在 V3 待办中。
+REST DataProvider 同时保留 Refine 的嵌套 `and`/`or` 条件组；服务端会递归验证每个叶子、限制深度为 8 层及总叶子数为 50，再映射为 Drizzle 条件。GraphQL 仍使用平铺 `QiyFilterInput`（顶层 AND），因为 GraphQL 不允许递归 input 定义。列表的保存视图已实现：浏览器本地视图 + 生成的服务端 `/api/v1/saved-views` 视图（同名发布 upsert、`mine` 所有权标记、本人/admin 删除规则），详见 [API：保存视图](../guide/api.md#保存视图服务端)。
 
 ## 与权限的关系
 

@@ -3,6 +3,11 @@ export interface QiyServerView {
   resource: string;
   name: string;
   shared: boolean;
+  /** True when the current user owns the row; the list page only offers delete for own rows. */
+  mine?: boolean;
+  ownerId?: string;
+  createdAt?: string;
+  updatedAt?: string;
   search?: string;
   filters?: unknown[];
   sorters?: unknown[];
@@ -22,14 +27,22 @@ export async function fetchServerViews(resource: string, fetcher: typeof fetch =
   return Array.isArray(body.items) ? body.items : [];
 }
 
+/**
+ * Publishing is an upsert keyed by name: the server updates the caller's existing
+ * row with that name instead of adding a duplicate dropdown entry.
+ */
 export async function publishServerView(input: { resource: string; name: string; shared?: boolean; search?: string; filters?: unknown[]; sorters?: unknown[]; columns?: string[] }, fetcher: typeof fetch = fetch): Promise<QiyServerView> {
   const response = await fetcher("/api/v1/saved-views", { method: "POST", headers: { "Content-Type": "application/json", ...bearer() }, body: JSON.stringify({ shared: false, ...input }) });
   const body = await response.json().catch(() => null) as (QiyServerView & { error?: string }) | null;
-  if (!response.ok || !body) throw new Error(body?.error ?? "Saving a shared view failed: " + response.status);
+  if (!response.ok || !body) throw new Error(body?.error ?? "Saving the view failed: " + response.status);
   return body;
 }
 
-export async function deleteServerView(id: string, fetcher: typeof fetch = fetch): Promise<void> {
-  const response = await fetcher("/api/v1/saved-views/" + encodeURIComponent(id), { method: "DELETE", headers: bearer() });
-  if (!response.ok && response.status !== 204) throw new Error("Deleting a shared view failed: " + response.status);
+/** Deletes a server view; 401/403/404 become explicit errors the list page can report. */
+export async function deleteServerView(input: { resource: string; id: string }, fetcher: typeof fetch = fetch): Promise<void> {
+  const response = await fetcher("/api/v1/saved-views/" + encodeURIComponent(input.id), { method: "DELETE", headers: bearer() });
+  if (response.status === 401) throw new Error("Sign in again to delete the saved view for " + input.resource);
+  if (response.status === 403) throw new Error("Only the owner or an admin can delete the saved view for " + input.resource);
+  if (response.status === 404) throw new Error("The saved view for " + input.resource + " no longer exists");
+  if (!response.ok) throw new Error("Deleting the saved view for " + input.resource + " failed: " + response.status);
 }

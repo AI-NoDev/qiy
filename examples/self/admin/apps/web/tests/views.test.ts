@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { deleteSavedView, listSavedViews, saveView } from "../app/views";
-import { fetchServerViews, publishServerView } from "../app/views-api";
+import { canDeleteView, deleteSavedView, listSavedViews, saveView, serverViewId, serverViewKey, viewKind, viewMarker } from "../app/views";
+import { deleteServerView, fetchServerViews, publishServerView } from "../app/views-api";
 
 function memoryStorage(): Storage {
   const map = new Map<string, string>();
@@ -66,4 +66,45 @@ test("publishes a view to the server and lists the shared ones", async () => {
   const listed = await fetchServerViews("orders", fetcher);
   expect(listed.map((view) => view.id)).toEqual(["s1"]);
   expect(calls[1]!.url).toContain("resource=orders");
+});
+
+test("decides view kind, marker and deletability for local and server rows", () => {
+  // Server rows are addressed with a "server:" prefix; plain ids are browser rows.
+  expect(viewKind(undefined)).toBe("local");
+  expect(viewKind("abc")).toBe("local");
+  expect(viewKind("server:123")).toBe("server");
+  expect(serverViewKey("123")).toBe("server:123");
+  expect(serverViewId("server:123")).toBe("123");
+  expect(serverViewId("abc")).toBeUndefined();
+  // Local rows are personal; server rows are published (private) or shared.
+  expect(viewMarker("local", false)).toBe("local");
+  expect(viewMarker("server", false)).toBe("published");
+  expect(viewMarker("server", true)).toBe("shared");
+  // Local rows can always be deleted; server rows only when the caller owns them.
+  expect(canDeleteView({ kind: "local" })).toBe(true);
+  expect(canDeleteView({ kind: "server", mine: true })).toBe(true);
+  expect(canDeleteView({ kind: "server", mine: false })).toBe(false);
+  expect(canDeleteView({ kind: "server" })).toBe(false);
+});
+
+test("deletes server views through the API and reports 401/403/404", async () => {
+  const calls: Array<{ url: string; method: string; authorization?: string }> = [];
+  const responses = [new Response(null, { status: 204 }), new Response(null, { status: 401 }), new Response(null, { status: 403 }), new Response(null, { status: 404 })];
+  const fetcher = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({ url: String(url), method: init?.method ?? "GET", authorization: (init?.headers as Record<string, string> | undefined)?.Authorization });
+    return responses.shift() ?? new Response(null, { status: 500 });
+  }) as typeof fetch;
+  const original = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: { getItem: () => "token-1" } } });
+  try {
+    // Bearer token is attached and the id is URL-encoded.
+    await deleteServerView({ resource: "orders", id: "view 1" }, fetcher);
+    expect(calls[0]).toMatchObject({ url: "/api/v1/saved-views/view%201", method: "DELETE", authorization: "Bearer token-1" });
+    await expect(deleteServerView({ resource: "orders", id: "gone" }, fetcher)).rejects.toThrow("Sign in again");
+    await expect(deleteServerView({ resource: "orders", id: "other" }, fetcher)).rejects.toThrow("Only the owner or an admin");
+    await expect(deleteServerView({ resource: "orders", id: "missing" }, fetcher)).rejects.toThrow("no longer exists");
+  } finally {
+    if (original) Object.defineProperty(globalThis, "window", original);
+    else Object.defineProperty(globalThis, "window", { configurable: true, value: undefined });
+  }
 });

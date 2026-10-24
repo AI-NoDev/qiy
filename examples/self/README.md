@@ -87,6 +87,22 @@ include "modules/actions.qiy";
 
 静态页面文字（列表工具栏/导入导出/已存视图、分页、主题与明暗模式、403 页、个人中心、登录/onboarding 页面等 UI chrome）使用生成器内置的中英词典，项目 `messages` 可用同名 `qiy.*` key 覆盖，缺省回退内置值。语言选择写在生成 header 的 Select 中：切换后 Ant Design `ConfigProvider`、Refine i18n、`document.documentElement.lang` 同步更新，选择保存在 `localStorage` 的 `qiy.locale`，刷新后保持；未声明的语言回退到默认语言。生成的 `apps/web/tests/model-i18n.test.ts` 会断言每个模型 label 都有稳定 key、中文/英文词典分别解析、以及切换语言后存储值更新；`apps/web/tests/chrome-i18n.test.ts` 断言工具栏、主题控件、分页和登录/个人中心 chrome 在中英文下都能解析。
 
+## 已存视图（saved views）
+
+列表页的 **Saved views / 已存视图** 下拉同时承载两种视图，来源用标签区分：
+
+| 标签 | 来源 | 存储 | 删除规则 |
+| --- | --- | --- | --- |
+| **个人**（`qiy.viewMine`） | 浏览器本地视图 | `localStorage` 的 `qiy.views.<resource>` | 任何能打开列表页的用户都可以删除自己的本地视图 |
+| **发布**（`qiy.viewPublishedTag`） | 服务端私有视图（`shared: false`） | 生成的 `qiy_saved_views` 表 | 只有 `ownerId` 本人；`role = admin` 也可以清理他人的共享视图 |
+| **共享**（`qiy.viewSharedTag`） | 服务端共享视图（`shared: true`） | 生成的 `qiy_saved_views` 表 | 本人或 admin；其他用户只读，UI 不显示删除入口 |
+
+- 同名保存/发布是 **upsert**：同一用户在同一资源下用相同名称再次保存会更新既有行（筛选、排序、列、共享标记、`updatedAt`），不会产生重复的下拉项；旧版本残留的重复同名行会在下一次发布时合并。每人每资源最多 100 个不同名称的视图（同名更新不计入）。
+- 共享语义：`共享` 视图对**所有能读取该资源的登录用户可见**（列表接口返回自己的视图 + 所有人的共享视图），`发布` 视图只对本人可见；两者都只暴露数据快照（search/filters/sorters/columns）和 `mine` 所有权标记，不泄露其他用户身份。
+- 删除：下拉中每一项右侧有删除图标 + Popconfirm；本地视图直接改 `localStorage`，服务端 `server:<id>` 视图调用 `DELETE /api/v1/saved-views/:id` 后重新拉取列表，成功/失败都有本地化通知。删除当前选中的视图会清空选择。
+- 发布后本地副本会被服务端行取代，避免同名"个人 + 共享"两条并存；把已共享视图再次发布为 `shared: false` 即可取消共享（当前未提供单独的"取消共享"按钮）。
+- `examples/self/dex/seed.ts` 在重置演示数据时会一并清空 `qiy_saved_views`，所以重新 seed 后不会残留上一轮的共享/发布视图。
+
 ## 生成与运行
 
 ```sh

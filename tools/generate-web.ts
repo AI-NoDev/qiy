@@ -901,6 +901,11 @@ test("permission-guarded commands follow effective permissions from /auth/me", a
   resource: string;
   name: string;
   shared: boolean;
+  /** True when the current user owns the row; the list page only offers delete for own rows. */
+  mine?: boolean;
+  ownerId?: string;
+  createdAt?: string;
+  updatedAt?: string;
   search?: string;
   filters?: unknown[];
   sorters?: unknown[];
@@ -920,16 +925,24 @@ export async function fetchServerViews(resource: string, fetcher: typeof fetch =
   return Array.isArray(body.items) ? body.items : [];
 }
 
+/**
+ * Publishing is an upsert keyed by name: the server updates the caller's existing
+ * row with that name instead of adding a duplicate dropdown entry.
+ */
 export async function publishServerView(input: { resource: string; name: string; shared?: boolean; search?: string; filters?: unknown[]; sorters?: unknown[]; columns?: string[] }, fetcher: typeof fetch = fetch): Promise<QiyServerView> {
   const response = await fetcher("/api/v1/saved-views", { method: "POST", headers: { "Content-Type": "application/json", ...bearer() }, body: JSON.stringify({ shared: false, ...input }) });
   const body = await response.json().catch(() => null) as (QiyServerView & { error?: string }) | null;
-  if (!response.ok || !body) throw new Error(body?.error ?? "Saving a shared view failed: " + response.status);
+  if (!response.ok || !body) throw new Error(body?.error ?? "Saving the view failed: " + response.status);
   return body;
 }
 
-export async function deleteServerView(id: string, fetcher: typeof fetch = fetch): Promise<void> {
-  const response = await fetcher("/api/v1/saved-views/" + encodeURIComponent(id), { method: "DELETE", headers: bearer() });
-  if (!response.ok && response.status !== 204) throw new Error("Deleting a shared view failed: " + response.status);
+/** Deletes a server view; 401/403/404 become explicit errors the list page can report. */
+export async function deleteServerView(input: { resource: string; id: string }, fetcher: typeof fetch = fetch): Promise<void> {
+  const response = await fetcher("/api/v1/saved-views/" + encodeURIComponent(input.id), { method: "DELETE", headers: bearer() });
+  if (response.status === 401) throw new Error("Sign in again to delete the saved view for " + input.resource);
+  if (response.status === 403) throw new Error("Only the owner or an admin can delete the saved view for " + input.resource);
+  if (response.status === 404) throw new Error("The saved view for " + input.resource + " no longer exists");
+  if (!response.ok) throw new Error("Deleting the saved view for " + input.resource + " failed: " + response.status);
 }
 `,
     "web/app/tree.ts": `export interface QiyTreeNode<T> {
@@ -1041,6 +1054,21 @@ export function deleteSavedView(resource: string, id: string, storage?: Storage)
   writeAll(resource, { ...readAll(resource, storage), [resource]: views }, storage);
   return views;
 }
+
+/**
+ * The dropdown mixes browser views with server views. Server rows are addressed as
+ * "server:<id>" so one select value can stand for both kinds.
+ */
+export const SERVER_VIEW_PREFIX = "server:";
+export type QiySavedViewKind = "local" | "server";
+export function viewKind(id: string | undefined): QiySavedViewKind { return id?.startsWith(SERVER_VIEW_PREFIX) ? "server" : "local"; }
+export function serverViewKey(id: string): string { return SERVER_VIEW_PREFIX + id; }
+export function serverViewId(id: string | undefined): string | undefined { return id?.startsWith(SERVER_VIEW_PREFIX) ? id.slice(SERVER_VIEW_PREFIX.length) : undefined; }
+/** Browser views are personal; server views are published (private) or shared with everyone. */
+export type QiyViewMarker = "local" | "published" | "shared";
+export function viewMarker(kind: QiySavedViewKind, shared: boolean): QiyViewMarker { return kind === "local" ? "local" : shared ? "shared" : "published"; }
+/** Only own server rows are deletable in the UI; local rows always are. Fail closed when ownership is unknown. */
+export function canDeleteView(view: { kind: QiySavedViewKind; mine?: boolean }): boolean { return view.kind === "local" || view.mine === true; }
 `,
     "web/tests/tree.test.ts": `import { expect, test } from "bun:test";
 import { buildTree } from "../app/tree";
@@ -1109,8 +1137,8 @@ test("fields without layout rules stay visible to every role", () => {
 });
 `,
     "web/tests/views.test.ts": `import { expect, test } from "bun:test";
-import { deleteSavedView, listSavedViews, saveView } from "../app/views";
-import { fetchServerViews, publishServerView } from "../app/views-api";
+import { canDeleteView, deleteSavedView, listSavedViews, saveView, serverViewId, serverViewKey, viewKind, viewMarker } from "../app/views";
+import { deleteServerView, fetchServerViews, publishServerView } from "../app/views-api";
 
 function memoryStorage(): Storage {
   const map = new Map<string, string>();
@@ -1176,6 +1204,47 @@ test("publishes a view to the server and lists the shared ones", async () => {
   const listed = await fetchServerViews("orders", fetcher);
   expect(listed.map((view) => view.id)).toEqual(["s1"]);
   expect(calls[1]!.url).toContain("resource=orders");
+});
+
+test("decides view kind, marker and deletability for local and server rows", () => {
+  // Server rows are addressed with a "server:" prefix; plain ids are browser rows.
+  expect(viewKind(undefined)).toBe("local");
+  expect(viewKind("abc")).toBe("local");
+  expect(viewKind("server:123")).toBe("server");
+  expect(serverViewKey("123")).toBe("server:123");
+  expect(serverViewId("server:123")).toBe("123");
+  expect(serverViewId("abc")).toBeUndefined();
+  // Local rows are personal; server rows are published (private) or shared.
+  expect(viewMarker("local", false)).toBe("local");
+  expect(viewMarker("server", false)).toBe("published");
+  expect(viewMarker("server", true)).toBe("shared");
+  // Local rows can always be deleted; server rows only when the caller owns them.
+  expect(canDeleteView({ kind: "local" })).toBe(true);
+  expect(canDeleteView({ kind: "server", mine: true })).toBe(true);
+  expect(canDeleteView({ kind: "server", mine: false })).toBe(false);
+  expect(canDeleteView({ kind: "server" })).toBe(false);
+});
+
+test("deletes server views through the API and reports 401/403/404", async () => {
+  const calls: Array<{ url: string; method: string; authorization?: string }> = [];
+  const responses = [new Response(null, { status: 204 }), new Response(null, { status: 401 }), new Response(null, { status: 403 }), new Response(null, { status: 404 })];
+  const fetcher = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({ url: String(url), method: init?.method ?? "GET", authorization: (init?.headers as Record<string, string> | undefined)?.Authorization });
+    return responses.shift() ?? new Response(null, { status: 500 });
+  }) as typeof fetch;
+  const original = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: { getItem: () => "token-1" } } });
+  try {
+    // Bearer token is attached and the id is URL-encoded.
+    await deleteServerView({ resource: "orders", id: "view 1" }, fetcher);
+    expect(calls[0]).toMatchObject({ url: "/api/v1/saved-views/view%201", method: "DELETE", authorization: "Bearer token-1" });
+    await expect(deleteServerView({ resource: "orders", id: "gone" }, fetcher)).rejects.toThrow("Sign in again");
+    await expect(deleteServerView({ resource: "orders", id: "other" }, fetcher)).rejects.toThrow("Only the owner or an admin");
+    await expect(deleteServerView({ resource: "orders", id: "missing" }, fetcher)).rejects.toThrow("no longer exists");
+  } finally {
+    if (original) Object.defineProperty(globalThis, "window", original);
+    else Object.defineProperty(globalThis, "window", { configurable: true, value: undefined });
+  }
 });
 `,
     "web/app/export.ts": `export type QiyExportFilter = { field: string; operator: string; value: string } | { operator: "and" | "or"; value: QiyExportFilter[] };
@@ -1479,6 +1548,8 @@ export const localeMessages = {
     import: "导入 CSV", export: "导出 CSV", exportSelected: "导出选中", views: "已存视图", viewName: "视图名称",
     saveView: "保存视图", saveToServer: "保存到服务器", shareView: "共享给所有人", publishView: "发布视图",
     saved: "视图已保存", viewShared: "视图已共享给所有人", viewPublished: "视图已保存到服务器", deleteView: "删除视图",
+    viewDeleted: "视图已删除", viewDeleteFailed: "删除视图失败", confirmDeleteView: "删除该视图？",
+    viewMine: "个人", viewPublishedTag: "发布", viewSharedTag: "共享",
     treeView: "树视图", shared: "（共享）", importProgress: "正在导入：{{processed}}/{{total}}",
     importedRows: "已导入 {{rows}} 行", importFailed: "导入失败", publishFailed: "发布视图失败",
     paginationTotal: "第 {{start}}-{{end}} 条，共 {{total}} 条", perPage: "条/页", page: "页",
@@ -1519,6 +1590,8 @@ export const localeMessages = {
     import: "Import CSV", export: "Export CSV", exportSelected: "Export selected", views: "Saved views", viewName: "View name",
     saveView: "Save view", saveToServer: "Save to server", shareView: "Share with everyone", publishView: "Publish view",
     saved: "View saved", viewShared: "View shared with everyone", viewPublished: "View saved to server", deleteView: "Delete view",
+    viewDeleted: "View deleted", viewDeleteFailed: "Deleting the view failed", confirmDeleteView: "Delete this view?",
+    viewMine: "Personal", viewPublishedTag: "Published", viewSharedTag: "Shared",
     treeView: "Tree view", shared: " (shared)", importProgress: "Importing: {{processed}}/{{total}}",
     importedRows: "{{rows}} row(s) imported", importFailed: "Import failed", publishFailed: "Publishing the view failed",
     paginationTotal: "{{start}}-{{end}} of {{total}}", perPage: "/ page", page: "page",
@@ -1654,11 +1727,11 @@ import { Link, useParams } from "react-router";
 import { useEffect, useState } from "react";
 import { canSeeField, getResource, type ResourceField } from "../resources";
 import { RelationCell } from "../components/relation-field";
-import { fetchServerViews, publishServerView, type QiyServerView } from "../views-api";
+import { fetchServerViews, publishServerView, deleteServerView, type QiyServerView } from "../views-api";
 import { useColumnVisibility } from "../hooks/use-column-visibility";
 import { qiyIcons } from "../icons";
 import { downloadExport, exportUrl, startImport, waitForImport } from "../export";
-import { deleteSavedView, listSavedViews, saveView } from "../views";
+import { canDeleteView, deleteSavedView, listSavedViews, saveView, serverViewId, serverViewKey, viewMarker, type QiySavedViewKind } from "../views";
 import { t, filterModeLabel, resolveLocale, type QiyLocale } from "../i18n";
 import { downloadFile } from "../hooks/download-file";
 import type { BaseRecord } from "@refinedev/core";
@@ -1678,6 +1751,27 @@ function renderCell(field: ResourceField, value: unknown, notify: ReturnType<typ
   if (field.type === "Money" || field.type === "Decimal") return Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return String(value);
 }
+/**
+ * One row of the "Saved views" dropdown. Browser views are personal, published
+ * server views are private to their owner and shared views are visible to everyone.
+ * Only deletable rows (own server rows and local rows) render the trash action, and
+ * the action stops propagation so deleting never selects the view first.
+ */
+function SavedViewLabel({ viewKey, name, kind, shared, mine, deleting, onDelete, translate }: { viewKey: string; name: string; kind: QiySavedViewKind; shared: boolean; mine?: boolean; deleting: boolean; onDelete: (key: string) => void; translate: ReturnType<typeof useTranslation>["translate"] }) {
+  const marker = viewMarker(kind, shared);
+  const markerKey = marker === "local" ? "qiy.viewMine" : marker === "shared" ? "qiy.viewSharedTag" : "qiy.viewPublishedTag";
+  const markerFallback = marker === "local" ? "Personal" : marker === "shared" ? "Shared" : "Published";
+  const markerColor = marker === "local" ? "default" : marker === "shared" ? "green" : "blue";
+  return <Space>
+    <span>{name}</span>
+    <Tag color={markerColor} style={{ marginInlineEnd: 0 }}>{translate(markerKey, {}, markerFallback)}</Tag>
+    {canDeleteView({ kind, mine }) && <span onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+      <Popconfirm title={translate("qiy.confirmDeleteView", {}, "Delete this view?")} okText={translate("qiy.delete", {}, "Delete")} cancelText={translate("qiy.cancel", {}, "Cancel")} onConfirm={() => onDelete(viewKey)}>
+        <Button type="text" size="small" danger loading={deleting} icon={<DeleteOutlined />} aria-label={translate("qiy.deleteView", {}, "Delete view")} />
+      </Popconfirm>
+    </span>}
+  </Space>;
+}
 export default function ResourceList() {
   const { resource: name } = useParams(); const resource = getResource(name); const { translate, getLocale } = useTranslation(); const { open: notify } = useNotification(); const { data: identity } = useGetIdentity<{ role?: string }>(); const locale: QiyLocale = resolveLocale(getLocale());
   const { tableProps, tableQuery, setFilters, setSorters, filters, sorters } = useTable<Record<string, unknown>>({ resource: name ?? "", pagination: { currentPage: 1, pageSize: 10 }, syncWithLocation: true, queryOptions: { enabled: !!resource } });
@@ -1688,24 +1782,53 @@ export default function ResourceList() {
   const [activeView, setActiveView] = useState<string | undefined>(undefined);
   const [viewName, setViewName] = useState("");
   const [serverViews, setServerViews] = useState<QiyServerView[]>([]);
+  const [deletingView, setDeletingView] = useState<string | undefined>(undefined);
   useEffect(() => {
     if (!name) return undefined;
     let active = true;
     void fetchServerViews(name).then((items) => { if (active) setServerViews(items); }).catch(() => undefined);
     return () => { active = false; };
   }, [name]);
-  const applySavedView = (id: string | undefined) => { setActiveView(id); const shared = id?.startsWith("server:") ?? false; const view = shared ? serverViews.find((item) => "server:" + item.id === id) : savedViews.find((item) => item.id === id); if (!view) return; setSearch(view.search ?? ""); setFilters((view.filters ?? []) as never); setSorters((view.sorters ?? []) as never); if (view.columns?.length) { const columns = view.columns; setVisibleKeys(() => columns); } };
+  const applySavedView = (id: string | undefined) => { setActiveView(id); const serverId = serverViewId(id); const view = serverId ? serverViews.find((item) => item.id === serverId) : savedViews.find((item) => item.id === id); if (!view) return; setSearch(view.search ?? ""); setFilters((view.filters ?? []) as never); setSorters((view.sorters ?? []) as never); if (view.columns?.length) { const columns = view.columns; setVisibleKeys(() => columns); } };
   const storeSavedView = () => { if (!viewName.trim() || !resource) return; setSavedViews(saveView(resource.name, { name: viewName, search, filters: filters as unknown[], sorters: sorters as unknown[], columns: visibleKeys })); setViewName(""); notify?.({ type: "success", message: translate("qiy.saved", {}, "View saved") }); };
-  const removeSavedView = () => { if (!resource) return; if (!activeView) return; setSavedViews(deleteSavedView(resource.name, activeView)); setActiveView(undefined); };
+  /**
+   * Deletes browser views from localStorage and server views through
+   * DELETE /api/v1/saved-views/:id, then refetches so the dropdown matches the server.
+   */
+  const removeSavedView = async (key: string) => {
+    if (!resource) return;
+    setDeletingView(key);
+    const serverId = serverViewId(key);
+    try {
+      if (serverId) {
+        await deleteServerView({ resource: resource.name, id: serverId });
+        setServerViews(await fetchServerViews(resource.name));
+      } else {
+        setSavedViews(deleteSavedView(resource.name, key));
+      }
+      if (activeView === key) setActiveView(undefined);
+      notify?.({ type: "success", message: translate("qiy.viewDeleted", {}, "View deleted") });
+    } catch {
+      // Leave the row in place on failure: only the server may confirm a remote delete.
+      notify?.({ type: "error", message: translate("qiy.viewDeleteFailed", {}, "Deleting the view failed") });
+    } finally {
+      setDeletingView(undefined);
+    }
+  };
   const publishSavedView = async (shared: boolean) => {
     if (!resource || !activeView) return;
     const personal = savedViews.find((item) => item.id === activeView);
-    const server = activeView.startsWith("server:") ? serverViews.find((item) => "server:" + item.id === activeView) : undefined;
+    const serverId = serverViewId(activeView);
+    const server = serverId ? serverViews.find((item) => item.id === serverId) : undefined;
     const view = personal ?? server;
     if (!view) return;
     try {
-      await publishServerView({ resource: resource.name, name: view.name, shared, search: view.search, filters: view.filters as unknown[] | undefined, sorters: view.sorters as unknown[] | undefined, columns: view.columns });
+      // POST is an upsert keyed by name, so republishing never adds a duplicate row.
+      const published = await publishServerView({ resource: resource.name, name: view.name, shared, search: view.search, filters: view.filters as unknown[] | undefined, sorters: view.sorters as unknown[] | undefined, columns: view.columns });
       setServerViews(await fetchServerViews(resource.name));
+      // A published local view now lives on the server; drop the browser copy and follow the server row.
+      if (!serverId) setSavedViews(deleteSavedView(resource.name, activeView));
+      setActiveView(serverViewKey(published.id));
       notify?.({ type: "success", message: shared ? translate("qiy.viewShared", {}, "View shared with everyone") : translate("qiy.viewPublished", {}, "View saved to server") });
     } catch (error) {
       notify?.({ type: "error", message: error instanceof Error ? error.message : translate("qiy.publishFailed", {}, "Publishing the view failed") });
@@ -1732,8 +1855,8 @@ export default function ResourceList() {
   </Space> });
   const deleteSelected = async () => { await removeMany({ resource: resource.name, ids: selectedRowKeys.map(String) }); setSelectedRowKeys([]); notify?.({ type: "success", message: t(locale, "deleteSuccess") }); };
   const applyFilters = (nextSearch = search, nextEnums = enumFilters, nextAdvanced = advancedFilters, nextAdvancedJoin = advancedJoin) => { const filters: Array<{ field: string; operator: string; value: string | string[] } | { operator: "and" | "or"; value: Array<{ field: string; operator: string; value: string | string[] }> }> = nextSearch ? [{ field: "__search", operator: "contains", value: nextSearch }] : []; for (const [field, value] of Object.entries(nextEnums)) if (value) filters.push({ field, operator: "eq", value }); const advanced = Object.entries(nextAdvanced).flatMap(([field, condition]) => !condition.value ? [] : [{ field, operator: condition.operator, value: condition.operator === "in" || condition.operator === "between" ? condition.value.split(",").map((item) => item.trim()) : condition.value }]); if (advanced.length === 1) filters.push(advanced[0]!); else if (advanced.length > 1) filters.push({ operator: nextAdvancedJoin, value: advanced }); setFilters(filters as never); };
-  return <List resource={resource.name} title={<Typography.Title level={3} style={{ margin: 0 }}>{plural}</Typography.Title>} headerButtons={() => <Space wrap>${options.readOnly ? "" : '<Upload accept=".csv,text/csv" showUploadList={false} beforeUpload={(file) => { setImporting(true); void startImport(resource.name, file).then(({ jobId }) => waitForImport(resource.name, jobId, { onProgress: (progress) => notify?.({ type: "progress", message: translate("qiy.importProgress", { processed: progress.processed, total: progress.total }) }) })).then((job) => { if (job.status === "failed") throw new Error(job.errors[0] ?? translate("qiy.importFailed", {}, "Import failed")); notify?.({ type: "success", message: translate("qiy.importedRows", { rows: job.processed }) }); return tableQuery.refetch(); }).catch((error) => notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) })).finally(() => setImporting(false)); return Upload.LIST_IGNORE; }}><Button icon={<UploadOutlined />} loading={importing}>{translate("qiy.import", {}, "Import CSV")}</Button></Upload>'}<Button icon={<DownloadOutlined />} loading={exporting} onClick={runExport}>{${options.readOnly ? 'translate("qiy.export", {}, "Export CSV")' : 'selectedRowKeys.length > 0 ? translate("qiy.exportSelected", {}, "Export selected") + " (" + selectedRowKeys.length + ")" : translate("qiy.export", {}, "Export CSV")'}}</Button><Dropdown menu={{ items: resource.fields.filter((field) => field.type !== "Vector").map((field) => ({ key: field.name, label: <Checkbox checked={visibleKeys.includes(field.name)} onChange={(event) => setVisibleKeys((keys) => event.target.checked ? [...keys, field.name] : keys.filter((key) => key !== field.name))}>{translate(field.labelKey, {}, field.label)}</Checkbox> })) }}><Button icon={<SettingOutlined />}>{t(locale, "visibleColumns")}</Button></Dropdown><Select allowClear style={{ minWidth: 160 }} placeholder={translate("qiy.views", {}, "Saved views")} value={activeView} options={[...savedViews.map((view) => ({ value: view.id, label: view.name })), ...serverViews.map((view) => ({ value: "server:" + view.id, label: view.name + translate("qiy.shared", {}, " (shared)") }))]} onChange={(value) => applySavedView(value)} /><Popover trigger="click" content={<Space direction="vertical"><Input value={viewName} placeholder={translate("qiy.viewName", {}, "View name")} onChange={(event) => setViewName(event.target.value)} onPressEnter={storeSavedView} /><Button type="primary" disabled={!viewName.trim()} onClick={storeSavedView}>{translate("qiy.save", {}, "Save")}</Button></Space>}><Button icon={<SaveOutlined />}>{translate("qiy.saveView", {}, "Save view")}</Button></Popover>{activeView && <Popover trigger="click" content={<Space direction="vertical"><Button onClick={() => void publishSavedView(false)}>{translate("qiy.saveToServer", {}, "Save to server")}</Button><Button onClick={() => void publishSavedView(true)}>{translate("qiy.shareView", {}, "Share with everyone")}</Button></Space>}><Button icon={<UploadOutlined />}>{translate("qiy.publishView", {}, "Publish view")}</Button></Popover>}
-    {activeView && <Button danger onClick={removeSavedView}>{translate("qiy.deleteView", {}, "Delete view")}</Button>}${Object.keys(treeEntities).length ? `{${JSON.stringify(Object.keys(treeEntities))}.includes(resource.name) && <Link to={"/" + resource.name + "/tree"}><Button>{translate("qiy.treeView", {}, "Tree view")}</Button></Link>}` : ""}<CreateButton resource={resource.name}>{translate("qiy.createResource", { resource: singular }, singular)}</CreateButton></Space>}>
+  return <List resource={resource.name} title={<Typography.Title level={3} style={{ margin: 0 }}>{plural}</Typography.Title>} headerButtons={() => <Space wrap>${options.readOnly ? "" : '<Upload accept=".csv,text/csv" showUploadList={false} beforeUpload={(file) => { setImporting(true); void startImport(resource.name, file).then(({ jobId }) => waitForImport(resource.name, jobId, { onProgress: (progress) => notify?.({ type: "progress", message: translate("qiy.importProgress", { processed: progress.processed, total: progress.total }) }) })).then((job) => { if (job.status === "failed") throw new Error(job.errors[0] ?? translate("qiy.importFailed", {}, "Import failed")); notify?.({ type: "success", message: translate("qiy.importedRows", { rows: job.processed }) }); return tableQuery.refetch(); }).catch((error) => notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) })).finally(() => setImporting(false)); return Upload.LIST_IGNORE; }}><Button icon={<UploadOutlined />} loading={importing}>{translate("qiy.import", {}, "Import CSV")}</Button></Upload>'}<Button icon={<DownloadOutlined />} loading={exporting} onClick={runExport}>{${options.readOnly ? 'translate("qiy.export", {}, "Export CSV")' : 'selectedRowKeys.length > 0 ? translate("qiy.exportSelected", {}, "Export selected") + " (" + selectedRowKeys.length + ")" : translate("qiy.export", {}, "Export CSV")'}}</Button><Dropdown menu={{ items: resource.fields.filter((field) => field.type !== "Vector").map((field) => ({ key: field.name, label: <Checkbox checked={visibleKeys.includes(field.name)} onChange={(event) => setVisibleKeys((keys) => event.target.checked ? [...keys, field.name] : keys.filter((key) => key !== field.name))}>{translate(field.labelKey, {}, field.label)}</Checkbox> })) }}><Button icon={<SettingOutlined />}>{t(locale, "visibleColumns")}</Button></Dropdown><Select allowClear style={{ minWidth: 160 }} placeholder={translate("qiy.views", {}, "Saved views")} value={activeView} options={[...savedViews.map((view) => ({ value: view.id, label: <SavedViewLabel viewKey={view.id} name={view.name} kind="local" shared={false} deleting={deletingView === view.id} onDelete={removeSavedView} translate={translate} /> })), ...serverViews.map((view) => { const key = serverViewKey(view.id); return { value: key, label: <SavedViewLabel viewKey={key} name={view.name} kind="server" shared={view.shared} mine={view.mine} deleting={deletingView === key} onDelete={removeSavedView} translate={translate} /> }; })]} onChange={(value) => applySavedView(value)} /><Popover trigger="click" content={<Space direction="vertical"><Input value={viewName} placeholder={translate("qiy.viewName", {}, "View name")} onChange={(event) => setViewName(event.target.value)} onPressEnter={storeSavedView} /><Button type="primary" disabled={!viewName.trim()} onClick={storeSavedView}>{translate("qiy.save", {}, "Save")}</Button></Space>}><Button icon={<SaveOutlined />}>{translate("qiy.saveView", {}, "Save view")}</Button></Popover>{activeView && <Popover trigger="click" content={<Space direction="vertical"><Button onClick={() => void publishSavedView(false)}>{translate("qiy.saveToServer", {}, "Save to server")}</Button><Button onClick={() => void publishSavedView(true)}>{translate("qiy.shareView", {}, "Share with everyone")}</Button></Space>}><Button icon={<UploadOutlined />}>{translate("qiy.publishView", {}, "Publish view")}</Button></Popover>}
+    ${Object.keys(treeEntities).length ? `{${JSON.stringify(Object.keys(treeEntities))}.includes(resource.name) && <Link to={"/" + resource.name + "/tree"}><Button>{translate("qiy.treeView", {}, "Tree view")}</Button></Link>}` : ""}<CreateButton resource={resource.name}>{translate("qiy.createResource", { resource: singular }, singular)}</CreateButton></Space>}>
     <div className="qiy-list-filters" role="search" aria-label={t(locale, "filters")}><Input.Search allowClear value={search} placeholder={t(locale, "search")} onChange={(event) => setSearch(event.target.value)} onSearch={(value) => { setSearch(value); applyFilters(value); }} />{enumFields.map((field) => <Select key={field.name} allowClear value={enumFilters[field.name]} placeholder={translate(field.labelKey, {}, field.label)} options={field.enumValues?.map((item) => ({ value: item.name, label: translate(item.labelKey, {}, item.label ?? item.name) }))} onChange={(value) => { const next = { ...enumFilters, [field.name]: value }; setEnumFilters(next); applyFilters(search, next); }} />)}{advancedFields.length > 1 && <Select value={advancedJoin} style={{ minWidth: 116 }} options={[{ value: "and", label: t(locale, "matchAll") }, { value: "or", label: t(locale, "matchAny") }]} onChange={(value: "and" | "or") => { setAdvancedJoin(value); applyFilters(search, enumFilters, advancedFilters, value); }} />}{advancedFields.map((field) => { const condition = advancedFilters[field.name] ?? { operator: field.filterModes[0] ?? "eq", value: "" }; return <Space.Compact key={field.name}><Select value={condition.operator} style={{ width: 120 }} options={field.filterModes.map((mode) => ({ value: mode, label: filterModeLabel(locale, mode) }))} onChange={(operator) => { const next = { ...advancedFilters, [field.name]: { ...condition, operator } }; setAdvancedFilters(next); applyFilters(search, enumFilters, next); }} /><Input allowClear value={condition.value} placeholder={translate(field.labelKey, {}, field.label) + (condition.operator === "in" || condition.operator === "between" ? t(locale, "commaSeparated") : "")} onChange={(event) => { const next = { ...advancedFilters, [field.name]: { ...condition, value: event.target.value } }; setAdvancedFilters(next); applyFilters(search, enumFilters, next); }} /></Space.Compact>; })}</div>
     {tableQuery.error && <Alert type="error" showIcon message={String(tableQuery.error)} style={{ marginBottom: 16 }} />}
     {deletePermission?.can && selectedRowKeys.length > 0 && <Popconfirm title={t(locale, "confirmDelete")} onConfirm={() => void deleteSelected()}><Button danger icon={<DeleteOutlined />}>{t(locale, "batchDelete")} ({selectedRowKeys.length})</Button></Popconfirm>}
@@ -1941,6 +2064,7 @@ const chromeKeys = [
   "qiy.import", "qiy.export", "qiy.exportSelected", "qiy.visibleColumns", "qiy.views", "qiy.viewName",
   "qiy.save", "qiy.saveView", "qiy.saveToServer", "qiy.shareView", "qiy.publishView", "qiy.saved",
   "qiy.viewShared", "qiy.viewPublished", "qiy.deleteView", "qiy.shared", "qiy.importFailed", "qiy.importedRows",
+  "qiy.viewDeleted", "qiy.viewDeleteFailed", "qiy.confirmDeleteView", "qiy.viewMine", "qiy.viewPublishedTag", "qiy.viewSharedTag",
   "qiy.treeView", "qiy.auditTitle", "qiy.auditAction", "qiy.auditAuthor", "qiy.auditSystem", "qiy.auditTime",
   "qiy.new", "qiy.edit", "qiy.delete", "qiy.batchDelete", "qiy.confirmDelete", "qiy.detail",
   "qiy.createResource", "qiy.editResource", "qiy.openDetail", "qiy.searchRelation",
@@ -1977,6 +2101,12 @@ test("every chrome key resolves in zh-CN and en-US instead of falling back to En
   expect(zh.translate("qiy.visibleColumns")).toBe("显示列");
   expect(zh.translate("qiy.views")).toBe("已存视图");
   expect(zh.translate("qiy.saveView")).toBe("保存视图");
+  expect(zh.translate("qiy.viewDeleted")).toBe("视图已删除");
+  expect(en.translate("qiy.viewDeleted")).toBe("View deleted");
+  expect(zh.translate("qiy.viewDeleteFailed")).toBe("删除视图失败");
+  expect(zh.translate("qiy.viewMine")).toBe("个人");
+  expect(zh.translate("qiy.viewPublishedTag")).toBe("发布");
+  expect(zh.translate("qiy.viewSharedTag")).toBe("共享");
   expect(zh.translate("qiy.search")).toBe("搜索");
   expect(zh.translate("qiy.matchAll")).toBe("全部匹配");
   expect(zh.translate("qiy.themeBlue")).toBe("蓝色");
@@ -2148,6 +2278,8 @@ describe("CSV export helper", () => {
       .replace('  layout("./routes/guard-create.tsx", [route(":resource/new", "./routes/create.tsx")]),\n', "")
       .replace('  layout("./routes/guard-edit.tsx", [route(":resource/:id/edit", "./routes/edit.tsx")]),\n', "");
     let list = generated["web/app/routes/list.tsx"]!;
+    // Read-only host integrations keep local saved views but must not offer delete.
+    list = list.replace(/\n\s*\{canDeleteView\(\{ kind, mine \}\) && <span[\s\S]*?<\/span>\}/, "");
     for (const [from, to] of [
       ['import { useCan, useDeleteMany, useGetIdentity, useNotification, useTranslation } from "@refinedev/core";', 'import { useGetIdentity, useNotification, useTranslation } from "@refinedev/core";'],
       ['import { CreateButton, DeleteButton, EditButton, List, ShowButton, useTable } from "@refinedev/antd";', 'import { List, ShowButton, useTable } from "@refinedev/antd";'],

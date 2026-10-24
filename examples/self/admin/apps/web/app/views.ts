@@ -53,3 +53,18 @@ export function deleteSavedView(resource: string, id: string, storage?: Storage)
   writeAll(resource, { ...readAll(resource, storage), [resource]: views }, storage);
   return views;
 }
+
+/**
+ * The dropdown mixes browser views with server views. Server rows are addressed as
+ * "server:<id>" so one select value can stand for both kinds.
+ */
+export const SERVER_VIEW_PREFIX = "server:";
+export type QiySavedViewKind = "local" | "server";
+export function viewKind(id: string | undefined): QiySavedViewKind { return id?.startsWith(SERVER_VIEW_PREFIX) ? "server" : "local"; }
+export function serverViewKey(id: string): string { return SERVER_VIEW_PREFIX + id; }
+export function serverViewId(id: string | undefined): string | undefined { return id?.startsWith(SERVER_VIEW_PREFIX) ? id.slice(SERVER_VIEW_PREFIX.length) : undefined; }
+/** Browser views are personal; server views are published (private) or shared with everyone. */
+export type QiyViewMarker = "local" | "published" | "shared";
+export function viewMarker(kind: QiySavedViewKind, shared: boolean): QiyViewMarker { return kind === "local" ? "local" : shared ? "shared" : "published"; }
+/** Only own server rows are deletable in the UI; local rows always are. Fail closed when ownership is unknown. */
+export function canDeleteView(view: { kind: QiySavedViewKind; mine?: boolean }): boolean { return view.kind === "local" || view.mine === true; }

@@ -89,12 +89,13 @@ GET    /api/v1/graphql/subscribe   GraphQL 订阅（SSE，仅 GraphQL 客户端 
 
 浏览器本地视图（`qiy.views.<resource>`）之外，每个应用还生成一套服务端保存视图，用于跨设备同步与团队共享：
 
-- `GET /api/v1/saved-views?resource=<table>` → `{ items }`：返回**自己的**视图 + 所有人可见的 `shared` 视图，按更新时间倒序。
-- `POST /api/v1/saved-views` body `{ resource, name, shared?, search?, filters?, sorters?, columns? }` → `201` 视图对象；`name` 去空格后必填（≤80 字符），`filters` ≤50 项、`sorters` ≤10 项、`columns` ≤100 项。
-- `DELETE /api/v1/saved-views/:id` → `204`；只有创建者能删除（他人 `403 views.forbidden`），不存在 `404`。
-- 校验：未知资源 `400 views.unknownResource`；每人每资源最多 100 个视图（`400 views.limit`）；未认证 `401`。
+- `GET /api/v1/saved-views?resource=<table>` → `{ items }`：返回**自己的**视图 + 所有人可见的 `shared` 视图，按 `updatedAt` 倒序（再按 `createdAt`、`id` 稳定排序）。每一项除 `id/resource/name/ownerId/shared/search/filters/sorters/columns/createdAt/updatedAt` 外还带 **`mine`**（`ownerId === 当前用户`），UI 用它决定是否显示删除入口；共享视图不泄露其他用户的身份信息，`mine` 就是唯一的所有权信号。
+- `POST /api/v1/saved-views` body `{ resource, name, shared?, search?, filters?, sorters?, columns? }` → `201` 视图对象。**同名发布是 upsert**：同一用户、同一资源、同一 `name` 再次保存时更新既有行（`shared`、`search`、`filters`、`sorters`、`columns`、`updatedAt`）并返回该行，不会新增重复项；旧版本遗留的重复同名行会在下一次发布时被合并。`name` 去空格后必填（≤80 字符），`filters` ≤50 项、`sorters` ≤10 项、`columns` ≤100 项。
+- `DELETE /api/v1/saved-views/:id` → `204`。**创建者本人可以删除自己的视图；`role = admin` 的用户也可以删除任意用户的共享视图**（用于清理团队共享项），其他情况 `403 views.forbidden`；不存在的 id `404`。共享（`shared: true`）不授予删除权限。
+- 校验：未知资源 `400 views.unknownResource`；每人每资源最多 100 个**不同名称**的视图（`400 views.limit`）——同名重复发布属于更新，不受该上限影响；未认证 `401`。
 - 持久化在生成的 `qiy_saved_views` 表（三方言 schema 都包含），不依赖进程内存。
-- Web：列表页打开时通过 `web/app/views-api.ts` 的 `fetchServerViews()` 拉取并合并进 `Saved views` 下拉（共享视图显示为 `名称 (shared)`，可直接应用）；本地视图仍是即时保存。选中视图后点 **Publish view** → **Save to server**（个人服务端视图）或 **Share with everyone**（共享视图），成功后下拉立即刷新。
+- Web：列表页打开时通过 `web/app/views-api.ts` 的 `fetchServerViews()` 拉取并合并进 `Saved views` 下拉；本地视图标记为 **个人**，服务端私有视图标记为 **发布**，共享视图标记为 **共享**。下拉里每一项右侧有**删除图标 + Popconfirm**：本地视图删除 localStorage 行；`server:<id>` 视图调用 `deleteServerView({ resource, id })` → `DELETE /api/v1/saved-views/:id`，成功后立即重新拉取服务端列表并清除选中项，失败以通知显示。删除图标只在本地视图或 `mine: true` 的服务端视图上出现，其他用户的共享视图不提供删除入口（服务端仍对 admin 开放清理能力）。选中视图后点 **Publish view** → **Save to server**（个人/发布）或 **Share with everyone**（共享）：同名发布走 upsert，发布成功后本地副本会被服务端行取代，下拉不会出现本地 + 服务端两条同名项。
+- 保留旧 `shared` 文案键 `qiy.shared` 供旧项目覆盖；新 UI 使用 `qiy.viewMine` / `qiy.viewPublishedTag` / `qiy.viewSharedTag` / `qiy.viewDeleted` / `qiy.viewDeleteFailed` / `qiy.confirmDeleteView`。
 
 ## GraphQL Subscription（SSE 与 graphql-ws）
 

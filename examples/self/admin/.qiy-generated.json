@@ -19,6 +19,7 @@
     "apps/server/src/security/policy.ts",
     "apps/server/src/import-jobs.ts",
     "apps/server/src/saved-views.ts",
+    "apps/server/tests/saved-views.test.ts",
     "apps/server/src/export-jobs.ts",
     "apps/server/src/schema-drift.ts",
     "apps/server/src/db-check.ts",

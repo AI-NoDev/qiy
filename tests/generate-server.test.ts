@@ -256,19 +256,32 @@ describe("V0 Elysia API generation", () => {
     const project = parseQiyProject(`qiy v0; application views { database sqlite {} entity items { field id UUID @id; field title Text; } }`);
     const files = generateServer(project.database, {});
     const module = files["api/src/saved-views.ts"]!;
-    // Per-user rows with an explicit shared flag, plus ownership rules.
+    // Per-user rows with an explicit shared flag, ownership flags and upsert semantics.
     expect(module).toContain("export async function listSavedViews");
     expect(module).toContain("export async function createSavedView");
     expect(module).toContain("export async function deleteSavedView");
     expect(module).toContain('eq(qiySavedViews.shared, 1)');
-    expect(module).toContain("if (row.ownerId !== principal.id) return \"forbidden\";");
+    expect(module).toContain("mine: row.ownerId === principalId");
+    expect(module).toContain('const duplicates = existing.filter((row) => row.name === input.name);');
+    expect(module).toContain("if (!duplicate && existing.length >= MAX_VIEWS_PER_RESOURCE)");
+    // The owner or an admin may delete; other users are forbidden.
+    expect(module).toContain('if (row.ownerId !== principal.id && principal.role !== "admin") return "forbidden";');
     expect(module).toContain("MAX_VIEWS_PER_RESOURCE = 100");
     expect(module).toContain("createSavedViewsRoutes(authenticate: Authenticator)");
     expect(files["api/src/app.ts"]).toContain("createSavedViewsRoutes(authenticate)");
+    // The generated test pins the upsert, ownership and delete matrix.
+    const test = files["api/tests/saved-views.test.ts"]!;
+    expect(test).toContain("publishing the same name twice upserts one row and reports ownership");
+    expect(test).toContain("expect(sharedCopies[0]).toMatchObject({ id: created.id, ownerId: alice.id, mine: false });");
+    expect(test).toContain('expect((await remove(bob, adminView.id)).status).toBe(403);');
+    expect(test).toContain('errorKey).toBe("views.limit")');
     // The table ships in every dialect schema.
     for (const dialect of ["sqlite", "postgresql", "mysql"] as const) {
       const scoped = parseQiyProject(`qiy v0; application views { database ${dialect} {} entity items { field id UUID @id; field title Text; } }`);
-      expect(generateServer(scoped.database, {})["api/src/schema.ts"]).toContain('"qiy_saved_views"');
+      const scopedFiles = generateServer(scoped.database, {});
+      expect(scopedFiles["api/src/schema.ts"]).toContain('"qiy_saved_views"');
+      expect(scopedFiles["api/tests/saved-views.test.ts"]).toContain("publishing the same name twice upserts one row");
+      expect(scopedFiles["api/src/saved-views.ts"]).toContain("mine: row.ownerId === principalId");
     }
   });
 
