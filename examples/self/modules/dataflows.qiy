@@ -1,0 +1,260 @@
+# Transactional business commands (dataflows). Each flow is called by an action in
+# actions.qiy; the action's label/confirm/input labels are translated by
+# modules/messages.qiy through qiy.actions.<action>.* keys.
+
+dataflow receiveInventory @label("Receive goods") @confirm("Post this receipt into stock?") @comment("Append a receipt movement and update the on-hand quantity of the target inventory record.") {
+  allow roles admin, operator;
+  idempotency required;
+  audit "inventory.received";
+  input {
+    field purchaseOrderId UUID @required;
+    field productId UUID @required;
+    field warehouseId UUID @required;
+    field binId UUID @required;
+    field inventoryId UUID @required;
+    field quantity Integer @required @comment("Quantity received in this posting");
+    field newOnHand Integer @required @comment("Absolute on-hand quantity after the receipt");
+    field reference Text @required;
+  }
+  context {
+    purchaseOrder = entity purchase_orders by id input.purchaseOrderId @required;
+    inventoryItem = entity inventory by id input.inventoryId @required;
+  }
+  step validate {
+    require purchaseOrder.status == "approved" @error(t("errors.purchaseOrder.notApproved"));
+    require input.quantity > 0 @error(t("errors.inventory.quantityPositive"));
+  }
+  step postMovement {
+    create movement = entity stock_movements {
+      productId = input.productId;
+      warehouseId = input.warehouseId;
+      binId = input.binId;
+      type = "receipt";
+      quantity = input.quantity;
+      reference = input.reference;
+    }
+  }
+  step updateOnHand {
+    update inventoryItem {
+      quantity = input.newOnHand;
+      binId = input.binId;
+    }
+    update purchaseOrder {
+      status = "received";
+    }
+    emit "inventory.received" {
+      inventoryId = inventoryItem.id;
+      quantity = input.newOnHand;
+    }
+  }
+  result { return inventoryItem; }
+}
+
+dataflow putawayStock @label("Put away") @comment("Move an inventory record into another storage bin and record the transfer.") {
+  allow roles admin, operator;
+  idempotency required;
+  audit "inventory.putaway";
+  input {
+    field inventoryId UUID @required;
+    field targetBinId UUID @required;
+    field quantity Integer @required;
+    field productId UUID @required;
+    field warehouseId UUID @required;
+  }
+  context {
+    inventoryItem = entity inventory by id input.inventoryId @required;
+  }
+  step validate {
+    require input.quantity > 0 @error(t("errors.inventory.quantityPositive"));
+  }
+  step move {
+    create movement = entity stock_movements {
+      productId = input.productId;
+      warehouseId = input.warehouseId;
+      binId = input.targetBinId;
+      type = "transfer";
+      quantity = input.quantity;
+    }
+    update inventoryItem {
+      binId = input.targetBinId;
+    }
+    emit "inventory.moved" {
+      inventoryId = inventoryItem.id;
+      binId = input.targetBinId;
+    }
+  }
+  result { return inventoryItem; }
+}
+
+dataflow reserveStock @label("Reserve stock") @comment("Reserve an absolute quantity of an inventory record for a sales order.") {
+  allow roles admin, operator;
+  idempotency required;
+  audit "inventory.reserved";
+  input {
+    field inventoryId UUID @required;
+    field reservedQuantity Integer @required @comment("Absolute reserved quantity after this operation");
+    field salesOrderId UUID @required;
+  }
+  context {
+    inventoryItem = entity inventory by id input.inventoryId @required;
+    salesOrder = entity sales_orders by id input.salesOrderId @required;
+  }
+  step reserve {
+    update inventoryItem {
+      reserved = input.reservedQuantity;
+    }
+    update salesOrder {
+      status = "allocated";
+    }
+    emit "sales.allocated" {
+      salesOrderId = salesOrder.id;
+      inventoryId = inventoryItem.id;
+      reserved = input.reservedQuantity;
+    }
+  }
+  result { return inventoryItem; }
+}
+
+dataflow adjustStock @label("Adjust stock") @confirm("Apply this stock count?") @comment("Record a cycle count and set the counted on-hand quantity.") {
+  allow roles admin, operator;
+  idempotency required;
+  audit "inventory.adjusted";
+  input {
+    field inventoryId UUID @required;
+    field countedQuantity Integer @required;
+    field reason Text @required;
+    field productId UUID @required;
+    field warehouseId UUID @required;
+    field binId UUID @required;
+  }
+  context {
+    inventoryItem = entity inventory by id input.inventoryId @required;
+  }
+  step apply {
+    create movement = entity stock_movements {
+      productId = input.productId;
+      warehouseId = input.warehouseId;
+      binId = input.binId;
+      type = "adjust";
+      quantity = input.countedQuantity;
+      reference = input.reason;
+    }
+    update inventoryItem {
+      quantity = input.countedQuantity;
+    }
+    emit "inventory.adjusted" {
+      inventoryId = inventoryItem.id;
+      counted = input.countedQuantity;
+    }
+  }
+  result { return inventoryItem; }
+}
+
+dataflow shipSalesOrder @label("Ship order") @comment("Create a shipment for a sales order and mark it shipped.") {
+  allow roles admin, operator;
+  idempotency required;
+  audit "sales.shipped";
+  input {
+    field salesOrderId UUID @required;
+    field warehouseId UUID @required;
+  }
+  context {
+    salesOrder = entity sales_orders by id input.salesOrderId @required;
+  }
+  step validate {
+    require salesOrder.status == "allocated" @error(t("errors.salesOrder.notAllocated"));
+  }
+  step ship {
+    create shipment = entity shipments {
+      salesOrderId = input.salesOrderId;
+      warehouseId = input.warehouseId;
+      status = "shipped";
+    }
+    update salesOrder {
+      status = "shipped";
+    }
+    emit "sales.shipped" {
+      salesOrderId = salesOrder.id;
+    }
+  }
+  result { return shipment; }
+}
+
+dataflow transferInventory @label("Transfer inventory") @comment("Transfer stock between warehouses or bins with an audit movement.") {
+  allow roles admin, operator;
+  idempotency required;
+  audit "inventory.transferred";
+  input {
+    field inventoryId UUID @required;
+    field targetWarehouseId UUID @required;
+    field targetBinId UUID @required;
+    field quantity Integer @required;
+    field productId UUID @required;
+  }
+  context {
+    inventoryItem = entity inventory by id input.inventoryId @required;
+  }
+  step transfer {
+    create movement = entity stock_movements {
+      productId = input.productId;
+      warehouseId = input.targetWarehouseId;
+      binId = input.targetBinId;
+      type = "transfer";
+      quantity = input.quantity;
+    }
+    update inventoryItem {
+      warehouseId = input.targetWarehouseId;
+      binId = input.targetBinId;
+    }
+    emit "inventory.transferred" {
+      inventoryId = inventoryItem.id;
+      warehouseId = input.targetWarehouseId;
+    }
+  }
+  result { return inventoryItem; }
+}
+
+dataflow completeWorkOrder @label("Complete work order") @comment("Consume components and book the produced quantity, then close the work order.") {
+  allow roles admin, operator;
+  idempotency required;
+  audit "production.completed";
+  input {
+    field workOrderId UUID @required;
+    field componentId UUID @required;
+    field componentQuantity Integer @required;
+    field outputBinId UUID @required;
+    field outputQuantity Integer @required;
+    field warehouseId UUID @required;
+    field productId UUID @required;
+  }
+  context {
+    workOrder = entity work_orders by id input.workOrderId @required;
+  }
+  step validate {
+    require workOrder.status == "in_progress" @error(t("errors.workOrder.notInProgress"));
+  }
+  step consume {
+    create consumption = entity stock_movements {
+      productId = input.componentId;
+      warehouseId = input.warehouseId;
+      binId = input.outputBinId;
+      type = "consumption";
+      quantity = input.componentQuantity;
+    }
+    create production = entity stock_movements {
+      productId = input.productId;
+      warehouseId = input.warehouseId;
+      binId = input.outputBinId;
+      type = "production";
+      quantity = input.outputQuantity;
+    }
+    update workOrder {
+      status = "completed";
+    }
+    emit "production.completed" {
+      workOrderId = workOrder.id;
+      produced = input.outputQuantity;
+    }
+  }
+  result { return workOrder; }
+}

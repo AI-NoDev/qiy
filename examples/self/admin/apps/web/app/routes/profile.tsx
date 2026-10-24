@@ -1,4 +1,4 @@
-import { useLogout, useNotification } from "@refinedev/core";
+import { useLogout, useNotification, useTranslation } from "@refinedev/core";
 import { Alert, Button, Card, Descriptions, List, Popconfirm, Space, Spin, Tag, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -8,6 +8,7 @@ import { fetchIdentities, unbindProvider, type QiyIdentities, type QiyIdentityPr
 export default function Profile() {
   const [searchParams] = useSearchParams();
   const { open } = useNotification();
+  const { translate } = useTranslation();
   const { mutate: logout } = useLogout();
   const [identities, setIdentities] = useState<QiyIdentities>();
   const [error, setError] = useState<string>();
@@ -41,7 +42,7 @@ export default function Profile() {
         { key: "username", label: "Username", children: identities.user.username },
         { key: "email", label: "Email", children: identities.user.email },
         { key: "name", label: "Name", children: identities.user.name },
-        { key: "role", label: "Role", children: <Tag color="blue">{identities.user.role}</Tag> },
+        { key: "role", label: "Role", children: <Tag color="blue">{translate("qiy.enums.userRole.values." + identities.user.role, {}, identities.user.role)}</Tag> },
         { key: "password", label: "Password", children: passwordSet ? <Tag color="green">Set</Tag> : <Tag>Not set</Tag> },
       ]} />
     </Card>

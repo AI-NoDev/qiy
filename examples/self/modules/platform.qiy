@@ -1,0 +1,66 @@
+# Platform domain: enumerations shared by every other domain, plus the auth identity
+# entity that the `auth { user users; ... }` block points at.
+#
+# Every module is a plain application fragment: no `qiy v0;`, no `application {}`.
+# The parser requires enums before entities, so the shared enums stay at the top.
+
+enum userRole {
+  value admin label "Administrator" color red icon SafetyOutlined;
+  value operator label "Operator" color blue icon UserOutlined;
+  value viewer label "Viewer" color default icon EyeOutlined;
+}
+
+enum purchaseStatus {
+  value draft;
+  value approved;
+  value received;
+  value closed;
+  value cancelled;
+}
+
+enum salesStatus {
+  value draft;
+  value confirmed;
+  value allocated;
+  value shipped;
+  value closed;
+  value cancelled;
+}
+
+enum workStatus {
+  value planned;
+  value released;
+  value in_progress;
+  value completed;
+  value cancelled;
+}
+
+enum activeState {
+  value active;
+  value inactive;
+}
+
+enum movementType {
+  value receipt;
+  value issue;
+  value transfer;
+  value adjust;
+  value production;
+  value consumption;
+}
+
+entity users @label("Users") @icon(UserOutlined) {
+  field id UUID @id;
+  field subject Text @unique;
+  field oktaSubject Text @nullable @unique;
+  field keycloakSubject Text @nullable @unique;
+  field googleSubject Text @nullable @unique;
+  field kindeSubject Text @nullable @unique;
+  field azureSubject Text @nullable @unique;
+  field email Text @unique;
+  field displayName Text @nullable;
+  field role userRole;
+  field passwordHash Text @nullable @listVisible(false) @showVisible(false) @formVisible(false);
+  field oauthProfiles Text @nullable @listVisible(false) @showVisible(false) @formVisible(false);
+  field orgId UUID @nullable;
+}

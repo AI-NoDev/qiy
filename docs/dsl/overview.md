@@ -117,9 +117,28 @@ messages {
 
 在主文件的 `application` 内通过 `include "modules/messages.qiy";` 引入完整片段；若文件还包含其他声明，可使用 `include "modules/messages.qiy" @messages;` 仅引入消息字典。`qiy.*` 覆盖生成页面操作文字，`buttons.*`、`notifications.*`、`actions.*`、`table.actions` 等使用 Refine 官方翻译键；`{{resource}}`、`{{seconds}}` 等参数交由 i18next 插值。复数使用 `_one` / `_other` 等 CLDR 分类，并传入 `translate("product.items", { count: 2 })`。
 
+### 模型 label 的自动翻译键
+
+除了 `@comment(t("key"))` 这种显式引用，生成器会为每个模型派生 label 自动生成稳定 key，并在渲染时用 `translate(key, {}, "<声明的原文>")` 查询词典：词典缺失时回退到 DSL 原文，因此没有 `messages` 块的项目行为与旧版本一致。key 只由声明的标识符推导，修改 label 文案不会破坏翻译：
+
+| Key | 覆盖的界面文案 |
+| --- | --- |
+| `qiy.resources.<resource>.label` | 菜单、面包屑、列表/新建/编辑/详情标题、关联记录卡片 |
+| `qiy.resources.<resource>.fields.<field>.label` | 列表列头、详情字段名、表单 label、筛选占位符、关联表列头 |
+| `qiy.enums.<enum>.label` / `qiy.enums.<enum>.values.<value>` | 枚举值 Tag、下拉选项 |
+| `qiy.menu.<group>.label` | 菜单分组 |
+| `qiy.dashboard.<metric>.label` | Dashboard 指标卡 |
+| `qiy.actions.<action>.label` / `.confirm` / `.inputs.<input>.label` | 业务命令按钮、确认文案、命令表单字段与枚举选项 |
+
+其中 `<resource>` 使用资源名（实体默认取 `table` 名）。生成的 `web/tests/model-i18n.test.ts` 会遍历所有资源、字段、枚举、菜单、Dashboard 指标与命令，断言 key 稳定、词典按语言解析、缺失时回退原文；仓库侧 `tests/example-modules.test.ts` 校验示例模型的词典完整覆盖全部模型 label。`apps/web/app/i18n.ts` 还提供 `qiy.filters.mode.<mode>`（筛选操作符）等 `qiy.*` 覆盖点。
+
+### 语言选择与持久化
+
+语言选择器切换后同时更新 Refine i18n、Ant Design `ConfigProvider` locale 和 `document.documentElement.lang/dir`；选择写入 `localStorage` 的 `qiy.locale`（由生成的 `readStoredLocale` / `storeLocale` 读写），刷新后保持上次选择，未声明或损坏的值回退到 `messages` 的默认语言（无 `messages` 时为 `zh-CN`）。
+
 语言选择器包含内置中英文及模型声明的语言。Ant Design 组件按已声明的语言自动加载中英、日、韩、法、德、西班牙、巴西葡萄牙、俄、埃及阿拉伯、印地、意大利及繁体中文语言包；其他标签的组件暂回退英语。阿拉伯语、波斯语、希伯来语和乌尔都语切换为 RTL，并同步页面 `lang` / `dir`。
 
-当前仅预置部分 Refine 中英文常用键，其他语言需要在模型中提供翻译；缺失项目 key 回退默认字典。尚未覆盖的自定义页面固定文字、全部 Refine 功能键及服务端业务错误不会自动翻译。四语言完整例子见 [multilingual/app.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/multilingual/app.qiy)。
+当前模型 label（资源、字段、枚举值、菜单、Dashboard、命令与命令输入）已由自动键覆盖，Refine 内置按钮与通知使用预置中英文键；Refine 未预置的功能键、登录/onboarding/个人中心等纯静态页面的固定英文文案，以及第三方组件文案仍需在模型 `messages` 中补充对应 key 才会翻译。四语言完整例子见 [multilingual/app.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/multilingual/app.qiy)，中文/英文全量示例见 [examples/self](https://github.com/AI-NoDev/qiy/blob/main/examples/self/app.qiy)。
 
 ## CLI 使用
 

@@ -1,10 +1,10 @@
 export type FieldType = "UUID" | "Text" | "Integer" | "Decimal" | "Money" | "DateTime" | "File" | "Files" | "Vector";
-export interface ResourceEnumValue { name: string; label?: string; color?: string; icon?: string; comment?: string; commentKey?: string; }
-export interface ResourceEnumDefinition { name: string; comment?: string; commentKey?: string; values: ResourceEnumValue[]; }
-export interface ResourceField { name: string; label: string; comment?: string; commentKey?: string; type: FieldType; nullable: boolean; primaryKey: boolean; visible: boolean; listVisible: boolean; formVisible: boolean; showVisible: boolean; sortable: boolean; filterable: boolean; filterModes: string[]; enumName?: string; enumValues?: ResourceEnumValue[]; relation?: { resource: string; labelField: string }; icon?: string; dimension?: number; uploadMode?: "binary" | "base64" | "both"; maxBytes?: number; mimeTypes?: string[]; maxFiles?: number; /** Page-level layout: the field is only rendered for these roles. */ roles?: string[]; }
+export interface ResourceEnumValue { name: string; label?: string; labelKey: string; color?: string; icon?: string; comment?: string; commentKey?: string; }
+export interface ResourceEnumDefinition { name: string; label?: string; labelKey?: string; comment?: string; commentKey?: string; values: ResourceEnumValue[]; }
+export interface ResourceField { name: string; label: string; labelKey: string; comment?: string; commentKey?: string; type: FieldType; nullable: boolean; primaryKey: boolean; visible: boolean; listVisible: boolean; formVisible: boolean; showVisible: boolean; sortable: boolean; filterable: boolean; filterModes: string[]; enumName?: string; enumValues?: ResourceEnumValue[]; relation?: { resource: string; labelField: string }; icon?: string; dimension?: number; uploadMode?: "binary" | "base64" | "both"; maxBytes?: number; mimeTypes?: string[]; maxFiles?: number; /** Page-level layout: the field is only rendered for these roles. */ roles?: string[]; }
 /** Page-level field layout check; a field without role rules is visible to everyone. */
 export function canSeeField(field: ResourceField, role: string | undefined | null): boolean { return !field.roles || field.roles.includes(role ?? ""); }
- export interface ResourceDefinition { name: string; apiName: string; label: string; comment?: string; commentKey?: string; icon: string; liveMode: "auto" | "manual" | "off"; menuParent?: string; fields: ResourceField[]; relatedResources?: Array<{ resource: string; field: string; label: string }>; }
+ export interface ResourceDefinition { name: string; apiName: string; label: string; labelKey: string; comment?: string; commentKey?: string; icon: string; liveMode: "auto" | "manual" | "off"; menuParent?: string; fields: ResourceField[]; relatedResources?: Array<{ resource: string; field: string; label: string; labelKey: string }>; }
 export const enumerations: ResourceEnumDefinition[] = [
   {
     "name": "userRole",
@@ -13,132 +13,197 @@ export const enumerations: ResourceEnumDefinition[] = [
         "name": "admin",
         "label": "Administrator",
         "color": "red",
-        "icon": "SafetyOutlined"
+        "icon": "SafetyOutlined",
+        "labelKey": "qiy.enums.userRole.values.admin"
       },
       {
         "name": "operator",
         "label": "Operator",
         "color": "blue",
-        "icon": "UserOutlined"
+        "icon": "UserOutlined",
+        "labelKey": "qiy.enums.userRole.values.operator"
       },
       {
         "name": "viewer",
         "label": "Viewer",
         "color": "default",
-        "icon": "EyeOutlined"
+        "icon": "EyeOutlined",
+        "labelKey": "qiy.enums.userRole.values.viewer"
       }
-    ]
+    ],
+    "label": "userRole",
+    "labelKey": "qiy.enums.userRole.label"
   },
   {
     "name": "purchaseStatus",
     "values": [
       {
-        "name": "draft"
+        "name": "draft",
+        "label": "draft",
+        "labelKey": "qiy.enums.purchaseStatus.values.draft"
       },
       {
-        "name": "approved"
+        "name": "approved",
+        "label": "approved",
+        "labelKey": "qiy.enums.purchaseStatus.values.approved"
       },
       {
-        "name": "received"
+        "name": "received",
+        "label": "received",
+        "labelKey": "qiy.enums.purchaseStatus.values.received"
       },
       {
-        "name": "closed"
+        "name": "closed",
+        "label": "closed",
+        "labelKey": "qiy.enums.purchaseStatus.values.closed"
       },
       {
-        "name": "cancelled"
+        "name": "cancelled",
+        "label": "cancelled",
+        "labelKey": "qiy.enums.purchaseStatus.values.cancelled"
       }
-    ]
+    ],
+    "label": "purchaseStatus",
+    "labelKey": "qiy.enums.purchaseStatus.label"
   },
   {
     "name": "salesStatus",
     "values": [
       {
-        "name": "draft"
+        "name": "draft",
+        "label": "draft",
+        "labelKey": "qiy.enums.salesStatus.values.draft"
       },
       {
-        "name": "confirmed"
+        "name": "confirmed",
+        "label": "confirmed",
+        "labelKey": "qiy.enums.salesStatus.values.confirmed"
       },
       {
-        "name": "allocated"
+        "name": "allocated",
+        "label": "allocated",
+        "labelKey": "qiy.enums.salesStatus.values.allocated"
       },
       {
-        "name": "shipped"
+        "name": "shipped",
+        "label": "shipped",
+        "labelKey": "qiy.enums.salesStatus.values.shipped"
       },
       {
-        "name": "closed"
+        "name": "closed",
+        "label": "closed",
+        "labelKey": "qiy.enums.salesStatus.values.closed"
       },
       {
-        "name": "cancelled"
+        "name": "cancelled",
+        "label": "cancelled",
+        "labelKey": "qiy.enums.salesStatus.values.cancelled"
       }
-    ]
+    ],
+    "label": "salesStatus",
+    "labelKey": "qiy.enums.salesStatus.label"
   },
   {
     "name": "workStatus",
     "values": [
       {
-        "name": "planned"
+        "name": "planned",
+        "label": "planned",
+        "labelKey": "qiy.enums.workStatus.values.planned"
       },
       {
-        "name": "released"
+        "name": "released",
+        "label": "released",
+        "labelKey": "qiy.enums.workStatus.values.released"
       },
       {
-        "name": "in_progress"
+        "name": "in_progress",
+        "label": "in_progress",
+        "labelKey": "qiy.enums.workStatus.values.in_progress"
       },
       {
-        "name": "completed"
+        "name": "completed",
+        "label": "completed",
+        "labelKey": "qiy.enums.workStatus.values.completed"
       },
       {
-        "name": "cancelled"
+        "name": "cancelled",
+        "label": "cancelled",
+        "labelKey": "qiy.enums.workStatus.values.cancelled"
       }
-    ]
+    ],
+    "label": "workStatus",
+    "labelKey": "qiy.enums.workStatus.label"
   },
   {
     "name": "activeState",
     "values": [
       {
-        "name": "active"
+        "name": "active",
+        "label": "active",
+        "labelKey": "qiy.enums.activeState.values.active"
       },
       {
-        "name": "inactive"
+        "name": "inactive",
+        "label": "inactive",
+        "labelKey": "qiy.enums.activeState.values.inactive"
       }
-    ]
+    ],
+    "label": "activeState",
+    "labelKey": "qiy.enums.activeState.label"
   },
   {
     "name": "movementType",
     "values": [
       {
-        "name": "receipt"
+        "name": "receipt",
+        "label": "receipt",
+        "labelKey": "qiy.enums.movementType.values.receipt"
       },
       {
-        "name": "issue"
+        "name": "issue",
+        "label": "issue",
+        "labelKey": "qiy.enums.movementType.values.issue"
       },
       {
-        "name": "transfer"
+        "name": "transfer",
+        "label": "transfer",
+        "labelKey": "qiy.enums.movementType.values.transfer"
       },
       {
-        "name": "adjust"
+        "name": "adjust",
+        "label": "adjust",
+        "labelKey": "qiy.enums.movementType.values.adjust"
       },
       {
-        "name": "production"
+        "name": "production",
+        "label": "production",
+        "labelKey": "qiy.enums.movementType.values.production"
       },
       {
-        "name": "consumption"
+        "name": "consumption",
+        "label": "consumption",
+        "labelKey": "qiy.enums.movementType.values.consumption"
       }
-    ]
+    ],
+    "label": "movementType",
+    "labelKey": "qiy.enums.movementType.label"
   }
 ];
-export const menuGroups = [] as Array<{ name: string; label: string; icon: string; parent?: string; comment?: string; commentKey?: string }>;
+export const menuGroups = [] as Array<{ name: string; label: string; labelKey: string; icon: string; parent?: string; comment?: string; commentKey?: string }>;
 export const resources: ResourceDefinition[] = [
   {
     "name": "users",
     "apiName": "users",
     "label": "Users",
+    "labelKey": "qiy.resources.users.label",
     "icon": "UserOutlined",
     "liveMode": "off",
     "fields": [
       {
         "name": "id",
         "label": "id",
+        "labelKey": "qiy.resources.users.fields.id.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": true,
@@ -161,6 +226,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "subject",
         "label": "subject",
+        "labelKey": "qiy.resources.users.fields.subject.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -180,6 +246,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "oktaSubject",
         "label": "oktaSubject",
+        "labelKey": "qiy.resources.users.fields.oktaSubject.label",
         "type": "Text",
         "nullable": true,
         "primaryKey": false,
@@ -199,6 +266,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "keycloakSubject",
         "label": "keycloakSubject",
+        "labelKey": "qiy.resources.users.fields.keycloakSubject.label",
         "type": "Text",
         "nullable": true,
         "primaryKey": false,
@@ -218,6 +286,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "googleSubject",
         "label": "googleSubject",
+        "labelKey": "qiy.resources.users.fields.googleSubject.label",
         "type": "Text",
         "nullable": true,
         "primaryKey": false,
@@ -237,6 +306,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "kindeSubject",
         "label": "kindeSubject",
+        "labelKey": "qiy.resources.users.fields.kindeSubject.label",
         "type": "Text",
         "nullable": true,
         "primaryKey": false,
@@ -256,6 +326,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "azureSubject",
         "label": "azureSubject",
+        "labelKey": "qiy.resources.users.fields.azureSubject.label",
         "type": "Text",
         "nullable": true,
         "primaryKey": false,
@@ -275,6 +346,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "email",
         "label": "email",
+        "labelKey": "qiy.resources.users.fields.email.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -294,6 +366,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "displayName",
         "label": "displayName",
+        "labelKey": "qiy.resources.users.fields.displayName.label",
         "type": "Text",
         "nullable": true,
         "primaryKey": false,
@@ -313,6 +386,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "role",
         "label": "role",
+        "labelKey": "qiy.resources.users.fields.role.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -331,25 +405,29 @@ export const resources: ResourceDefinition[] = [
             "name": "admin",
             "label": "Administrator",
             "color": "red",
-            "icon": "SafetyOutlined"
+            "icon": "SafetyOutlined",
+            "labelKey": "qiy.enums.userRole.values.admin"
           },
           {
             "name": "operator",
             "label": "Operator",
             "color": "blue",
-            "icon": "UserOutlined"
+            "icon": "UserOutlined",
+            "labelKey": "qiy.enums.userRole.values.operator"
           },
           {
             "name": "viewer",
             "label": "Viewer",
             "color": "default",
-            "icon": "EyeOutlined"
+            "icon": "EyeOutlined",
+            "labelKey": "qiy.enums.userRole.values.viewer"
           }
         ]
       },
       {
         "name": "passwordHash",
         "label": "passwordHash",
+        "labelKey": "qiy.resources.users.fields.passwordHash.label",
         "type": "Text",
         "nullable": true,
         "primaryKey": false,
@@ -369,6 +447,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "oauthProfiles",
         "label": "oauthProfiles",
+        "labelKey": "qiy.resources.users.fields.oauthProfiles.label",
         "type": "Text",
         "nullable": true,
         "primaryKey": false,
@@ -388,6 +467,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "orgId",
         "label": "orgId",
+        "labelKey": "qiy.resources.users.fields.orgId.label",
         "type": "UUID",
         "nullable": true,
         "primaryKey": false,
@@ -417,24 +497,28 @@ export const resources: ResourceDefinition[] = [
     "name": "orgs",
     "apiName": "orgs",
     "label": "Organizations",
+    "labelKey": "qiy.resources.orgs.label",
     "icon": "ClusterOutlined",
     "liveMode": "off",
     "relatedResources": [
       {
         "resource": "users",
         "field": "orgId",
-        "label": "Users"
+        "label": "Users",
+        "labelKey": "qiy.resources.users.label"
       },
       {
         "resource": "warehouses",
         "field": "orgId",
-        "label": "Warehouses"
+        "label": "Warehouses",
+        "labelKey": "qiy.resources.warehouses.label"
       }
     ],
     "fields": [
       {
         "name": "id",
         "label": "id",
+        "labelKey": "qiy.resources.orgs.fields.id.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": true,
@@ -457,6 +541,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "code",
         "label": "code",
+        "labelKey": "qiy.resources.orgs.fields.code.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -476,6 +561,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "name",
         "label": "name",
+        "labelKey": "qiy.resources.orgs.fields.name.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -495,6 +581,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "parentId",
         "label": "parentId",
+        "labelKey": "qiy.resources.orgs.fields.parentId.label",
         "type": "UUID",
         "nullable": true,
         "primaryKey": false,
@@ -520,19 +607,22 @@ export const resources: ResourceDefinition[] = [
     "name": "suppliers",
     "apiName": "suppliers",
     "label": "Suppliers",
+    "labelKey": "qiy.resources.suppliers.label",
     "icon": "ShopOutlined",
     "liveMode": "off",
     "relatedResources": [
       {
         "resource": "purchase_orders",
         "field": "supplierId",
-        "label": "Purchase orders"
+        "label": "Purchase orders",
+        "labelKey": "qiy.resources.purchase_orders.label"
       }
     ],
     "fields": [
       {
         "name": "id",
         "label": "id",
+        "labelKey": "qiy.resources.suppliers.fields.id.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": true,
@@ -555,6 +645,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "code",
         "label": "code",
+        "labelKey": "qiy.resources.suppliers.fields.code.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -574,6 +665,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "name",
         "label": "name",
+        "labelKey": "qiy.resources.suppliers.fields.name.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -593,6 +685,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "email",
         "label": "email",
+        "labelKey": "qiy.resources.suppliers.fields.email.label",
         "type": "Text",
         "nullable": true,
         "primaryKey": false,
@@ -612,6 +705,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "leadTimeDays",
         "label": "leadTimeDays",
+        "labelKey": "qiy.resources.suppliers.fields.leadTimeDays.label",
         "type": "Integer",
         "nullable": false,
         "primaryKey": false,
@@ -637,19 +731,22 @@ export const resources: ResourceDefinition[] = [
     "name": "customers",
     "apiName": "customers",
     "label": "Customers",
+    "labelKey": "qiy.resources.customers.label",
     "icon": "TeamOutlined",
     "liveMode": "off",
     "relatedResources": [
       {
         "resource": "sales_orders",
         "field": "customerId",
-        "label": "Sales orders"
+        "label": "Sales orders",
+        "labelKey": "qiy.resources.sales_orders.label"
       }
     ],
     "fields": [
       {
         "name": "id",
         "label": "id",
+        "labelKey": "qiy.resources.customers.fields.id.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": true,
@@ -672,6 +769,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "code",
         "label": "code",
+        "labelKey": "qiy.resources.customers.fields.code.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -691,6 +789,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "name",
         "label": "name",
+        "labelKey": "qiy.resources.customers.fields.name.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -710,6 +809,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "email",
         "label": "email",
+        "labelKey": "qiy.resources.customers.fields.email.label",
         "type": "Text",
         "nullable": true,
         "primaryKey": false,
@@ -729,6 +829,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "creditLimit",
         "label": "creditLimit",
+        "labelKey": "qiy.resources.customers.fields.creditLimit.label",
         "type": "Decimal",
         "nullable": false,
         "primaryKey": false,
@@ -754,49 +855,58 @@ export const resources: ResourceDefinition[] = [
     "name": "products",
     "apiName": "products",
     "label": "Products",
+    "labelKey": "qiy.resources.products.label",
     "icon": "ShoppingOutlined",
     "liveMode": "off",
     "relatedResources": [
       {
         "resource": "inventory",
         "field": "productId",
-        "label": "Inventory"
+        "label": "Inventory",
+        "labelKey": "qiy.resources.inventory.label"
       },
       {
         "resource": "stock_movements",
         "field": "productId",
-        "label": "Stock movements"
+        "label": "Stock movements",
+        "labelKey": "qiy.resources.stock_movements.label"
       },
       {
         "resource": "purchase_order_lines",
         "field": "productId",
-        "label": "Purchase order lines"
+        "label": "Purchase order lines",
+        "labelKey": "qiy.resources.purchase_order_lines.label"
       },
       {
         "resource": "sales_order_lines",
         "field": "productId",
-        "label": "Sales order lines"
+        "label": "Sales order lines",
+        "labelKey": "qiy.resources.sales_order_lines.label"
       },
       {
         "resource": "work_orders",
         "field": "productId",
-        "label": "Work orders"
+        "label": "Work orders",
+        "labelKey": "qiy.resources.work_orders.label"
       },
       {
         "resource": "boms",
         "field": "productId",
-        "label": "Bill of materials"
+        "label": "Bill of materials",
+        "labelKey": "qiy.resources.boms.label"
       },
       {
         "resource": "boms",
         "field": "componentId",
-        "label": "Bill of materials"
+        "label": "Bill of materials",
+        "labelKey": "qiy.resources.boms.label"
       }
     ],
     "fields": [
       {
         "name": "id",
         "label": "id",
+        "labelKey": "qiy.resources.products.fields.id.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": true,
@@ -819,6 +929,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "sku",
         "label": "sku",
+        "labelKey": "qiy.resources.products.fields.sku.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -838,6 +949,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "name",
         "label": "name",
+        "labelKey": "qiy.resources.products.fields.name.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -857,6 +969,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "uom",
         "label": "uom",
+        "labelKey": "qiy.resources.products.fields.uom.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -876,6 +989,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "unitCost",
         "label": "unitCost",
+        "labelKey": "qiy.resources.products.fields.unitCost.label",
         "type": "Decimal",
         "nullable": false,
         "primaryKey": false,
@@ -898,6 +1012,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "price",
         "label": "price",
+        "labelKey": "qiy.resources.products.fields.price.label",
         "type": "Decimal",
         "nullable": false,
         "primaryKey": false,
@@ -920,6 +1035,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "reorderPoint",
         "label": "reorderPoint",
+        "labelKey": "qiy.resources.products.fields.reorderPoint.label",
         "type": "Integer",
         "nullable": false,
         "primaryKey": false,
@@ -942,6 +1058,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "active",
         "label": "active",
+        "labelKey": "qiy.resources.products.fields.active.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -957,10 +1074,14 @@ export const resources: ResourceDefinition[] = [
         "enumName": "activeState",
         "enumValues": [
           {
-            "name": "active"
+            "name": "active",
+            "label": "active",
+            "labelKey": "qiy.enums.activeState.values.active"
           },
           {
-            "name": "inactive"
+            "name": "inactive",
+            "label": "inactive",
+            "labelKey": "qiy.enums.activeState.values.inactive"
           }
         ]
       }
@@ -970,12 +1091,14 @@ export const resources: ResourceDefinition[] = [
     "name": "boms",
     "apiName": "boms",
     "label": "Bill of materials",
+    "labelKey": "qiy.resources.boms.label",
     "icon": "ApartmentOutlined",
     "liveMode": "off",
     "fields": [
       {
         "name": "id",
         "label": "id",
+        "labelKey": "qiy.resources.boms.fields.id.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": true,
@@ -998,6 +1121,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "productId",
         "label": "productId",
+        "labelKey": "qiy.resources.boms.fields.productId.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": false,
@@ -1024,6 +1148,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "componentId",
         "label": "componentId",
+        "labelKey": "qiy.resources.boms.fields.componentId.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": false,
@@ -1050,682 +1175,9 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "quantity",
         "label": "quantity",
+        "labelKey": "qiy.resources.boms.fields.quantity.label",
         "type": "Integer",
         "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ]
-      }
-    ]
-  },
-  {
-    "name": "warehouses",
-    "apiName": "warehouses",
-    "label": "Warehouses",
-    "icon": "HomeOutlined",
-    "liveMode": "off",
-    "relatedResources": [
-      {
-        "resource": "bins",
-        "field": "warehouseId",
-        "label": "Storage bins"
-      },
-      {
-        "resource": "inventory",
-        "field": "warehouseId",
-        "label": "Inventory"
-      },
-      {
-        "resource": "stock_movements",
-        "field": "warehouseId",
-        "label": "Stock movements"
-      },
-      {
-        "resource": "receipts",
-        "field": "warehouseId",
-        "label": "Goods receipts"
-      }
-    ],
-    "fields": [
-      {
-        "name": "id",
-        "label": "id",
-        "type": "UUID",
-        "nullable": false,
-        "primaryKey": true,
-        "visible": false,
-        "listVisible": false,
-        "formVisible": false,
-        "showVisible": false,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ]
-      },
-      {
-        "name": "orgId",
-        "label": "orgId",
-        "type": "UUID",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ],
-        "relation": {
-          "resource": "orgs",
-          "labelField": "code"
-        }
-      },
-      {
-        "name": "code",
-        "label": "code",
-        "type": "Text",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "contains",
-          "startsWith",
-          "endsWith",
-          "eq"
-        ]
-      },
-      {
-        "name": "name",
-        "label": "name",
-        "type": "Text",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "contains",
-          "startsWith",
-          "endsWith",
-          "eq"
-        ]
-      },
-      {
-        "name": "active",
-        "label": "active",
-        "type": "Text",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq"
-        ],
-        "enumName": "activeState",
-        "enumValues": [
-          {
-            "name": "active"
-          },
-          {
-            "name": "inactive"
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "bins",
-    "apiName": "bins",
-    "label": "Storage bins",
-    "icon": "AppstoreOutlined",
-    "liveMode": "off",
-    "relatedResources": [
-      {
-        "resource": "inventory",
-        "field": "binId",
-        "label": "Inventory"
-      },
-      {
-        "resource": "stock_movements",
-        "field": "binId",
-        "label": "Stock movements"
-      }
-    ],
-    "fields": [
-      {
-        "name": "id",
-        "label": "id",
-        "type": "UUID",
-        "nullable": false,
-        "primaryKey": true,
-        "visible": false,
-        "listVisible": false,
-        "formVisible": false,
-        "showVisible": false,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ]
-      },
-      {
-        "name": "warehouseId",
-        "label": "warehouseId",
-        "type": "UUID",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ],
-        "relation": {
-          "resource": "warehouses",
-          "labelField": "code"
-        }
-      },
-      {
-        "name": "code",
-        "label": "code",
-        "type": "Text",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "contains",
-          "startsWith",
-          "endsWith",
-          "eq"
-        ]
-      },
-      {
-        "name": "capacity",
-        "label": "capacity",
-        "type": "Integer",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ]
-      }
-    ]
-  },
-  {
-    "name": "inventory",
-    "apiName": "inventory",
-    "label": "Inventory",
-    "icon": "DatabaseOutlined",
-    "liveMode": "auto",
-    "fields": [
-      {
-        "name": "id",
-        "label": "id",
-        "type": "UUID",
-        "nullable": false,
-        "primaryKey": true,
-        "visible": false,
-        "listVisible": false,
-        "formVisible": false,
-        "showVisible": false,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ]
-      },
-      {
-        "name": "inventoryKey",
-        "label": "inventoryKey",
-        "type": "Text",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "contains",
-          "startsWith",
-          "endsWith",
-          "eq"
-        ]
-      },
-      {
-        "name": "warehouseId",
-        "label": "warehouseId",
-        "type": "UUID",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ],
-        "relation": {
-          "resource": "warehouses",
-          "labelField": "code"
-        }
-      },
-      {
-        "name": "binId",
-        "label": "binId",
-        "type": "UUID",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ],
-        "relation": {
-          "resource": "bins",
-          "labelField": "code"
-        }
-      },
-      {
-        "name": "productId",
-        "label": "productId",
-        "type": "UUID",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ],
-        "relation": {
-          "resource": "products",
-          "labelField": "name"
-        }
-      },
-      {
-        "name": "quantity",
-        "label": "quantity",
-        "type": "Integer",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ]
-      },
-      {
-        "name": "reserved",
-        "label": "reserved",
-        "type": "Integer",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ]
-      },
-      {
-        "name": "lotCode",
-        "label": "lotCode",
-        "type": "Text",
-        "nullable": true,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "contains",
-          "startsWith",
-          "endsWith",
-          "eq"
-        ]
-      },
-      {
-        "name": "updatedAt",
-        "label": "updatedAt",
-        "type": "DateTime",
-        "nullable": true,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ]
-      }
-    ]
-  },
-  {
-    "name": "stock_movements",
-    "apiName": "stock_movements",
-    "label": "Stock movements",
-    "icon": "SwapOutlined",
-    "liveMode": "auto",
-    "fields": [
-      {
-        "name": "id",
-        "label": "id",
-        "type": "UUID",
-        "nullable": false,
-        "primaryKey": true,
-        "visible": false,
-        "listVisible": false,
-        "formVisible": false,
-        "showVisible": false,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ]
-      },
-      {
-        "name": "productId",
-        "label": "productId",
-        "type": "UUID",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ],
-        "relation": {
-          "resource": "products",
-          "labelField": "name"
-        }
-      },
-      {
-        "name": "warehouseId",
-        "label": "warehouseId",
-        "type": "UUID",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ],
-        "relation": {
-          "resource": "warehouses",
-          "labelField": "code"
-        }
-      },
-      {
-        "name": "binId",
-        "label": "binId",
-        "type": "UUID",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ],
-        "relation": {
-          "resource": "bins",
-          "labelField": "code"
-        }
-      },
-      {
-        "name": "type",
-        "label": "type",
-        "type": "Text",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq"
-        ],
-        "enumName": "movementType",
-        "enumValues": [
-          {
-            "name": "receipt"
-          },
-          {
-            "name": "issue"
-          },
-          {
-            "name": "transfer"
-          },
-          {
-            "name": "adjust"
-          },
-          {
-            "name": "production"
-          },
-          {
-            "name": "consumption"
-          }
-        ]
-      },
-      {
-        "name": "quantity",
-        "label": "quantity",
-        "type": "Integer",
-        "nullable": false,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "eq",
-          "gt",
-          "gte",
-          "lt",
-          "lte",
-          "between",
-          "in"
-        ]
-      },
-      {
-        "name": "reference",
-        "label": "reference",
-        "type": "Text",
-        "nullable": true,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "contains",
-          "startsWith",
-          "endsWith",
-          "eq"
-        ]
-      },
-      {
-        "name": "occurredAt",
-        "label": "occurredAt",
-        "type": "DateTime",
-        "nullable": true,
         "primaryKey": false,
         "visible": true,
         "listVisible": true,
@@ -1749,24 +1201,28 @@ export const resources: ResourceDefinition[] = [
     "name": "purchase_orders",
     "apiName": "purchase_orders",
     "label": "Purchase orders",
+    "labelKey": "qiy.resources.purchase_orders.label",
     "icon": "FileTextOutlined",
     "liveMode": "off",
     "relatedResources": [
       {
         "resource": "purchase_order_lines",
         "field": "purchaseOrderId",
-        "label": "Purchase order lines"
+        "label": "Purchase order lines",
+        "labelKey": "qiy.resources.purchase_order_lines.label"
       },
       {
         "resource": "receipts",
         "field": "purchaseOrderId",
-        "label": "Goods receipts"
+        "label": "Goods receipts",
+        "labelKey": "qiy.resources.receipts.label"
       }
     ],
     "fields": [
       {
         "name": "id",
         "label": "id",
+        "labelKey": "qiy.resources.purchase_orders.fields.id.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": true,
@@ -1789,6 +1245,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "number",
         "label": "number",
+        "labelKey": "qiy.resources.purchase_orders.fields.number.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -1808,6 +1265,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "supplierId",
         "label": "supplierId",
+        "labelKey": "qiy.resources.purchase_orders.fields.supplierId.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": false,
@@ -1834,6 +1292,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "status",
         "label": "status",
+        "labelKey": "qiy.resources.purchase_orders.fields.status.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -1849,25 +1308,36 @@ export const resources: ResourceDefinition[] = [
         "enumName": "purchaseStatus",
         "enumValues": [
           {
-            "name": "draft"
+            "name": "draft",
+            "label": "draft",
+            "labelKey": "qiy.enums.purchaseStatus.values.draft"
           },
           {
-            "name": "approved"
+            "name": "approved",
+            "label": "approved",
+            "labelKey": "qiy.enums.purchaseStatus.values.approved"
           },
           {
-            "name": "received"
+            "name": "received",
+            "label": "received",
+            "labelKey": "qiy.enums.purchaseStatus.values.received"
           },
           {
-            "name": "closed"
+            "name": "closed",
+            "label": "closed",
+            "labelKey": "qiy.enums.purchaseStatus.values.closed"
           },
           {
-            "name": "cancelled"
+            "name": "cancelled",
+            "label": "cancelled",
+            "labelKey": "qiy.enums.purchaseStatus.values.cancelled"
           }
         ]
       },
       {
         "name": "orderedAt",
         "label": "orderedAt",
+        "labelKey": "qiy.resources.purchase_orders.fields.orderedAt.label",
         "type": "DateTime",
         "nullable": false,
         "primaryKey": false,
@@ -1890,6 +1360,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "total",
         "label": "total",
+        "labelKey": "qiy.resources.purchase_orders.fields.total.label",
         "type": "Decimal",
         "nullable": false,
         "primaryKey": false,
@@ -1915,12 +1386,14 @@ export const resources: ResourceDefinition[] = [
     "name": "purchase_order_lines",
     "apiName": "purchase_order_lines",
     "label": "Purchase order lines",
+    "labelKey": "qiy.resources.purchase_order_lines.label",
     "icon": "UnorderedListOutlined",
     "liveMode": "off",
     "fields": [
       {
         "name": "id",
         "label": "id",
+        "labelKey": "qiy.resources.purchase_order_lines.fields.id.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": true,
@@ -1943,6 +1416,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "purchaseOrderId",
         "label": "purchaseOrderId",
+        "labelKey": "qiy.resources.purchase_order_lines.fields.purchaseOrderId.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": false,
@@ -1969,6 +1443,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "productId",
         "label": "productId",
+        "labelKey": "qiy.resources.purchase_order_lines.fields.productId.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": false,
@@ -1995,6 +1470,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "quantity",
         "label": "quantity",
+        "labelKey": "qiy.resources.purchase_order_lines.fields.quantity.label",
         "type": "Integer",
         "nullable": false,
         "primaryKey": false,
@@ -2017,6 +1493,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "unitCost",
         "label": "unitCost",
+        "labelKey": "qiy.resources.purchase_order_lines.fields.unitCost.label",
         "type": "Decimal",
         "nullable": false,
         "primaryKey": false,
@@ -2042,12 +1519,14 @@ export const resources: ResourceDefinition[] = [
     "name": "receipts",
     "apiName": "receipts",
     "label": "Goods receipts",
+    "labelKey": "qiy.resources.receipts.label",
     "icon": "InboxOutlined",
     "liveMode": "off",
     "fields": [
       {
         "name": "id",
         "label": "id",
+        "labelKey": "qiy.resources.receipts.fields.id.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": true,
@@ -2070,6 +1549,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "purchaseOrderId",
         "label": "purchaseOrderId",
+        "labelKey": "qiy.resources.receipts.fields.purchaseOrderId.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": false,
@@ -2096,6 +1576,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "warehouseId",
         "label": "warehouseId",
+        "labelKey": "qiy.resources.receipts.fields.warehouseId.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": false,
@@ -2122,6 +1603,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "status",
         "label": "status",
+        "labelKey": "qiy.resources.receipts.fields.status.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -2141,6 +1623,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "receivedAt",
         "label": "receivedAt",
+        "labelKey": "qiy.resources.receipts.fields.receivedAt.label",
         "type": "DateTime",
         "nullable": true,
         "primaryKey": false,
@@ -2166,24 +1649,28 @@ export const resources: ResourceDefinition[] = [
     "name": "sales_orders",
     "apiName": "sales_orders",
     "label": "Sales orders",
+    "labelKey": "qiy.resources.sales_orders.label",
     "icon": "ShoppingCartOutlined",
     "liveMode": "off",
     "relatedResources": [
       {
         "resource": "sales_order_lines",
         "field": "salesOrderId",
-        "label": "Sales order lines"
+        "label": "Sales order lines",
+        "labelKey": "qiy.resources.sales_order_lines.label"
       },
       {
         "resource": "shipments",
         "field": "salesOrderId",
-        "label": "Shipments"
+        "label": "Shipments",
+        "labelKey": "qiy.resources.shipments.label"
       }
     ],
     "fields": [
       {
         "name": "id",
         "label": "id",
+        "labelKey": "qiy.resources.sales_orders.fields.id.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": true,
@@ -2206,6 +1693,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "number",
         "label": "number",
+        "labelKey": "qiy.resources.sales_orders.fields.number.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -2225,6 +1713,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "customerId",
         "label": "customerId",
+        "labelKey": "qiy.resources.sales_orders.fields.customerId.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": false,
@@ -2251,6 +1740,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "status",
         "label": "status",
+        "labelKey": "qiy.resources.sales_orders.fields.status.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -2266,28 +1756,41 @@ export const resources: ResourceDefinition[] = [
         "enumName": "salesStatus",
         "enumValues": [
           {
-            "name": "draft"
+            "name": "draft",
+            "label": "draft",
+            "labelKey": "qiy.enums.salesStatus.values.draft"
           },
           {
-            "name": "confirmed"
+            "name": "confirmed",
+            "label": "confirmed",
+            "labelKey": "qiy.enums.salesStatus.values.confirmed"
           },
           {
-            "name": "allocated"
+            "name": "allocated",
+            "label": "allocated",
+            "labelKey": "qiy.enums.salesStatus.values.allocated"
           },
           {
-            "name": "shipped"
+            "name": "shipped",
+            "label": "shipped",
+            "labelKey": "qiy.enums.salesStatus.values.shipped"
           },
           {
-            "name": "closed"
+            "name": "closed",
+            "label": "closed",
+            "labelKey": "qiy.enums.salesStatus.values.closed"
           },
           {
-            "name": "cancelled"
+            "name": "cancelled",
+            "label": "cancelled",
+            "labelKey": "qiy.enums.salesStatus.values.cancelled"
           }
         ]
       },
       {
         "name": "orderedAt",
         "label": "orderedAt",
+        "labelKey": "qiy.resources.sales_orders.fields.orderedAt.label",
         "type": "DateTime",
         "nullable": false,
         "primaryKey": false,
@@ -2310,6 +1813,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "total",
         "label": "total",
+        "labelKey": "qiy.resources.sales_orders.fields.total.label",
         "type": "Decimal",
         "nullable": false,
         "primaryKey": false,
@@ -2335,12 +1839,14 @@ export const resources: ResourceDefinition[] = [
     "name": "sales_order_lines",
     "apiName": "sales_order_lines",
     "label": "Sales order lines",
+    "labelKey": "qiy.resources.sales_order_lines.label",
     "icon": "OrderedListOutlined",
     "liveMode": "off",
     "fields": [
       {
         "name": "id",
         "label": "id",
+        "labelKey": "qiy.resources.sales_order_lines.fields.id.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": true,
@@ -2363,6 +1869,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "salesOrderId",
         "label": "salesOrderId",
+        "labelKey": "qiy.resources.sales_order_lines.fields.salesOrderId.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": false,
@@ -2389,6 +1896,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "productId",
         "label": "productId",
+        "labelKey": "qiy.resources.sales_order_lines.fields.productId.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": false,
@@ -2415,6 +1923,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "quantity",
         "label": "quantity",
+        "labelKey": "qiy.resources.sales_order_lines.fields.quantity.label",
         "type": "Integer",
         "nullable": false,
         "primaryKey": false,
@@ -2437,6 +1946,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "unitPrice",
         "label": "unitPrice",
+        "labelKey": "qiy.resources.sales_order_lines.fields.unitPrice.label",
         "type": "Decimal",
         "nullable": false,
         "primaryKey": false,
@@ -2459,6 +1969,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "allocated",
         "label": "allocated",
+        "labelKey": "qiy.resources.sales_order_lines.fields.allocated.label",
         "type": "Integer",
         "nullable": false,
         "primaryKey": false,
@@ -2484,12 +1995,14 @@ export const resources: ResourceDefinition[] = [
     "name": "shipments",
     "apiName": "shipments",
     "label": "Shipments",
+    "labelKey": "qiy.resources.shipments.label",
     "icon": "CarOutlined",
     "liveMode": "auto",
     "fields": [
       {
         "name": "id",
         "label": "id",
+        "labelKey": "qiy.resources.shipments.fields.id.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": true,
@@ -2512,6 +2025,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "salesOrderId",
         "label": "salesOrderId",
+        "labelKey": "qiy.resources.shipments.fields.salesOrderId.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": false,
@@ -2538,6 +2052,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "warehouseId",
         "label": "warehouseId",
+        "labelKey": "qiy.resources.shipments.fields.warehouseId.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": false,
@@ -2560,6 +2075,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "status",
         "label": "status",
+        "labelKey": "qiy.resources.shipments.fields.status.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -2579,6 +2095,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "shippedAt",
         "label": "shippedAt",
+        "labelKey": "qiy.resources.shipments.fields.shippedAt.label",
         "type": "DateTime",
         "nullable": true,
         "primaryKey": false,
@@ -2601,15 +2118,43 @@ export const resources: ResourceDefinition[] = [
     ]
   },
   {
-    "name": "work_orders",
-    "apiName": "work_orders",
-    "label": "Work orders",
-    "icon": "ToolOutlined",
+    "name": "warehouses",
+    "apiName": "warehouses",
+    "label": "Warehouses",
+    "labelKey": "qiy.resources.warehouses.label",
+    "icon": "HomeOutlined",
     "liveMode": "off",
+    "relatedResources": [
+      {
+        "resource": "bins",
+        "field": "warehouseId",
+        "label": "Storage bins",
+        "labelKey": "qiy.resources.bins.label"
+      },
+      {
+        "resource": "inventory",
+        "field": "warehouseId",
+        "label": "Inventory",
+        "labelKey": "qiy.resources.inventory.label"
+      },
+      {
+        "resource": "stock_movements",
+        "field": "warehouseId",
+        "label": "Stock movements",
+        "labelKey": "qiy.resources.stock_movements.label"
+      },
+      {
+        "resource": "receipts",
+        "field": "warehouseId",
+        "label": "Goods receipts",
+        "labelKey": "qiy.resources.receipts.label"
+      }
+    ],
     "fields": [
       {
         "name": "id",
         "label": "id",
+        "labelKey": "qiy.resources.warehouses.fields.id.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": true,
@@ -2630,8 +2175,36 @@ export const resources: ResourceDefinition[] = [
         ]
       },
       {
-        "name": "number",
-        "label": "number",
+        "name": "orgId",
+        "label": "orgId",
+        "labelKey": "qiy.resources.warehouses.fields.orgId.label",
+        "type": "UUID",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ],
+        "relation": {
+          "resource": "orgs",
+          "labelField": "code"
+        }
+      },
+      {
+        "name": "code",
+        "label": "code",
+        "labelKey": "qiy.resources.warehouses.fields.code.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -2649,8 +2222,283 @@ export const resources: ResourceDefinition[] = [
         ]
       },
       {
+        "name": "name",
+        "label": "name",
+        "labelKey": "qiy.resources.warehouses.fields.name.label",
+        "type": "Text",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "contains",
+          "startsWith",
+          "endsWith",
+          "eq"
+        ]
+      },
+      {
+        "name": "active",
+        "label": "active",
+        "labelKey": "qiy.resources.warehouses.fields.active.label",
+        "type": "Text",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq"
+        ],
+        "enumName": "activeState",
+        "enumValues": [
+          {
+            "name": "active",
+            "label": "active",
+            "labelKey": "qiy.enums.activeState.values.active"
+          },
+          {
+            "name": "inactive",
+            "label": "inactive",
+            "labelKey": "qiy.enums.activeState.values.inactive"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "bins",
+    "apiName": "bins",
+    "label": "Storage bins",
+    "labelKey": "qiy.resources.bins.label",
+    "icon": "AppstoreOutlined",
+    "liveMode": "off",
+    "relatedResources": [
+      {
+        "resource": "inventory",
+        "field": "binId",
+        "label": "Inventory",
+        "labelKey": "qiy.resources.inventory.label"
+      },
+      {
+        "resource": "stock_movements",
+        "field": "binId",
+        "label": "Stock movements",
+        "labelKey": "qiy.resources.stock_movements.label"
+      }
+    ],
+    "fields": [
+      {
+        "name": "id",
+        "label": "id",
+        "labelKey": "qiy.resources.bins.fields.id.label",
+        "type": "UUID",
+        "nullable": false,
+        "primaryKey": true,
+        "visible": false,
+        "listVisible": false,
+        "formVisible": false,
+        "showVisible": false,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ]
+      },
+      {
+        "name": "warehouseId",
+        "label": "warehouseId",
+        "labelKey": "qiy.resources.bins.fields.warehouseId.label",
+        "type": "UUID",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ],
+        "relation": {
+          "resource": "warehouses",
+          "labelField": "code"
+        }
+      },
+      {
+        "name": "code",
+        "label": "code",
+        "labelKey": "qiy.resources.bins.fields.code.label",
+        "type": "Text",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "contains",
+          "startsWith",
+          "endsWith",
+          "eq"
+        ]
+      },
+      {
+        "name": "capacity",
+        "label": "capacity",
+        "labelKey": "qiy.resources.bins.fields.capacity.label",
+        "type": "Integer",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "inventory",
+    "apiName": "inventory",
+    "label": "Inventory",
+    "labelKey": "qiy.resources.inventory.label",
+    "icon": "DatabaseOutlined",
+    "liveMode": "auto",
+    "fields": [
+      {
+        "name": "id",
+        "label": "id",
+        "labelKey": "qiy.resources.inventory.fields.id.label",
+        "type": "UUID",
+        "nullable": false,
+        "primaryKey": true,
+        "visible": false,
+        "listVisible": false,
+        "formVisible": false,
+        "showVisible": false,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ]
+      },
+      {
+        "name": "inventoryKey",
+        "label": "inventoryKey",
+        "labelKey": "qiy.resources.inventory.fields.inventoryKey.label",
+        "type": "Text",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "contains",
+          "startsWith",
+          "endsWith",
+          "eq"
+        ]
+      },
+      {
+        "name": "warehouseId",
+        "label": "warehouseId",
+        "labelKey": "qiy.resources.inventory.fields.warehouseId.label",
+        "type": "UUID",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ],
+        "relation": {
+          "resource": "warehouses",
+          "labelField": "code"
+        }
+      },
+      {
+        "name": "binId",
+        "label": "binId",
+        "labelKey": "qiy.resources.inventory.fields.binId.label",
+        "type": "UUID",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ],
+        "relation": {
+          "resource": "bins",
+          "labelField": "code"
+        }
+      },
+      {
         "name": "productId",
         "label": "productId",
+        "labelKey": "qiy.resources.inventory.fields.productId.label",
         "type": "UUID",
         "nullable": false,
         "primaryKey": false,
@@ -2677,6 +2525,406 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "quantity",
         "label": "quantity",
+        "labelKey": "qiy.resources.inventory.fields.quantity.label",
+        "type": "Integer",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ]
+      },
+      {
+        "name": "reserved",
+        "label": "reserved",
+        "labelKey": "qiy.resources.inventory.fields.reserved.label",
+        "type": "Integer",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ]
+      },
+      {
+        "name": "lotCode",
+        "label": "lotCode",
+        "labelKey": "qiy.resources.inventory.fields.lotCode.label",
+        "type": "Text",
+        "nullable": true,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "contains",
+          "startsWith",
+          "endsWith",
+          "eq"
+        ]
+      },
+      {
+        "name": "updatedAt",
+        "label": "updatedAt",
+        "labelKey": "qiy.resources.inventory.fields.updatedAt.label",
+        "type": "DateTime",
+        "nullable": true,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "stock_movements",
+    "apiName": "stock_movements",
+    "label": "Stock movements",
+    "labelKey": "qiy.resources.stock_movements.label",
+    "icon": "SwapOutlined",
+    "liveMode": "auto",
+    "fields": [
+      {
+        "name": "id",
+        "label": "id",
+        "labelKey": "qiy.resources.stock_movements.fields.id.label",
+        "type": "UUID",
+        "nullable": false,
+        "primaryKey": true,
+        "visible": false,
+        "listVisible": false,
+        "formVisible": false,
+        "showVisible": false,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ]
+      },
+      {
+        "name": "productId",
+        "label": "productId",
+        "labelKey": "qiy.resources.stock_movements.fields.productId.label",
+        "type": "UUID",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ],
+        "relation": {
+          "resource": "products",
+          "labelField": "name"
+        }
+      },
+      {
+        "name": "warehouseId",
+        "label": "warehouseId",
+        "labelKey": "qiy.resources.stock_movements.fields.warehouseId.label",
+        "type": "UUID",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ],
+        "relation": {
+          "resource": "warehouses",
+          "labelField": "code"
+        }
+      },
+      {
+        "name": "binId",
+        "label": "binId",
+        "labelKey": "qiy.resources.stock_movements.fields.binId.label",
+        "type": "UUID",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ],
+        "relation": {
+          "resource": "bins",
+          "labelField": "code"
+        }
+      },
+      {
+        "name": "type",
+        "label": "type",
+        "labelKey": "qiy.resources.stock_movements.fields.type.label",
+        "type": "Text",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq"
+        ],
+        "enumName": "movementType",
+        "enumValues": [
+          {
+            "name": "receipt",
+            "label": "receipt",
+            "labelKey": "qiy.enums.movementType.values.receipt"
+          },
+          {
+            "name": "issue",
+            "label": "issue",
+            "labelKey": "qiy.enums.movementType.values.issue"
+          },
+          {
+            "name": "transfer",
+            "label": "transfer",
+            "labelKey": "qiy.enums.movementType.values.transfer"
+          },
+          {
+            "name": "adjust",
+            "label": "adjust",
+            "labelKey": "qiy.enums.movementType.values.adjust"
+          },
+          {
+            "name": "production",
+            "label": "production",
+            "labelKey": "qiy.enums.movementType.values.production"
+          },
+          {
+            "name": "consumption",
+            "label": "consumption",
+            "labelKey": "qiy.enums.movementType.values.consumption"
+          }
+        ]
+      },
+      {
+        "name": "quantity",
+        "label": "quantity",
+        "labelKey": "qiy.resources.stock_movements.fields.quantity.label",
+        "type": "Integer",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ]
+      },
+      {
+        "name": "reference",
+        "label": "reference",
+        "labelKey": "qiy.resources.stock_movements.fields.reference.label",
+        "type": "Text",
+        "nullable": true,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "contains",
+          "startsWith",
+          "endsWith",
+          "eq"
+        ]
+      },
+      {
+        "name": "occurredAt",
+        "label": "occurredAt",
+        "labelKey": "qiy.resources.stock_movements.fields.occurredAt.label",
+        "type": "DateTime",
+        "nullable": true,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "work_orders",
+    "apiName": "work_orders",
+    "label": "Work orders",
+    "labelKey": "qiy.resources.work_orders.label",
+    "icon": "ToolOutlined",
+    "liveMode": "off",
+    "fields": [
+      {
+        "name": "id",
+        "label": "id",
+        "labelKey": "qiy.resources.work_orders.fields.id.label",
+        "type": "UUID",
+        "nullable": false,
+        "primaryKey": true,
+        "visible": false,
+        "listVisible": false,
+        "formVisible": false,
+        "showVisible": false,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ]
+      },
+      {
+        "name": "number",
+        "label": "number",
+        "labelKey": "qiy.resources.work_orders.fields.number.label",
+        "type": "Text",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "contains",
+          "startsWith",
+          "endsWith",
+          "eq"
+        ]
+      },
+      {
+        "name": "productId",
+        "label": "productId",
+        "labelKey": "qiy.resources.work_orders.fields.productId.label",
+        "type": "UUID",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ],
+        "relation": {
+          "resource": "products",
+          "labelField": "name"
+        }
+      },
+      {
+        "name": "quantity",
+        "label": "quantity",
+        "labelKey": "qiy.resources.work_orders.fields.quantity.label",
         "type": "Integer",
         "nullable": false,
         "primaryKey": false,
@@ -2699,6 +2947,7 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "status",
         "label": "status",
+        "labelKey": "qiy.resources.work_orders.fields.status.label",
         "type": "Text",
         "nullable": false,
         "primaryKey": false,
@@ -2714,25 +2963,36 @@ export const resources: ResourceDefinition[] = [
         "enumName": "workStatus",
         "enumValues": [
           {
-            "name": "planned"
+            "name": "planned",
+            "label": "planned",
+            "labelKey": "qiy.enums.workStatus.values.planned"
           },
           {
-            "name": "released"
+            "name": "released",
+            "label": "released",
+            "labelKey": "qiy.enums.workStatus.values.released"
           },
           {
-            "name": "in_progress"
+            "name": "in_progress",
+            "label": "in_progress",
+            "labelKey": "qiy.enums.workStatus.values.in_progress"
           },
           {
-            "name": "completed"
+            "name": "completed",
+            "label": "completed",
+            "labelKey": "qiy.enums.workStatus.values.completed"
           },
           {
-            "name": "cancelled"
+            "name": "cancelled",
+            "label": "cancelled",
+            "labelKey": "qiy.enums.workStatus.values.cancelled"
           }
         ]
       },
       {
         "name": "plannedAt",
         "label": "plannedAt",
+        "labelKey": "qiy.resources.work_orders.fields.plannedAt.label",
         "type": "DateTime",
         "nullable": false,
         "primaryKey": false,
@@ -2755,5 +3015,5 @@ export const resources: ResourceDefinition[] = [
     ]
   }
 ];
-export const resourceNames = ["users","orgs","suppliers","customers","products","boms","warehouses","bins","inventory","stock_movements","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","work_orders"] as const;
+export const resourceNames = ["users","orgs","suppliers","customers","products","boms","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","warehouses","bins","inventory","stock_movements","work_orders"] as const;
 export function getResource(name: string | undefined): ResourceDefinition | undefined { return resources.find((resource) => resource.name === name); }

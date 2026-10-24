@@ -12,7 +12,7 @@ const repository = {
   delete: async (_id: string, _actor?: string, scope?: unknown) => { seen.push(scope); return undefined; },
   deleteMany: async (_ids: string[], _actor?: string, scope?: unknown) => { seen.push(scope); return []; },
 };
-const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","warehouses","bins","inventory","stock_movements","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","work_orders"].map((resource) => [resource, repository])) as unknown as Repositories;
+const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","warehouses","bins","inventory","stock_movements","work_orders"].map((resource) => [resource, repository])) as unknown as Repositories;
 const request = (query: string) => new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query }) });
 
 test("data scope rejects missing claims without blocking unrelated resources", async () => {

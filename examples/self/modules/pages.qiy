@@ -1,0 +1,34 @@
+# Page-level role rules. Included after the inline `scope` / `restrict` blocks in
+# app.qiy, matching the parser order: relations -> scope -> restrict -> pages.
+
+pages inventory {
+  list roles admin, operator;
+  show roles admin, operator;
+  create roles admin, operator;
+  edit roles admin, operator;
+  delete roles admin;
+}
+
+pages stock_movements {
+  list roles admin, operator;
+  show roles admin, operator;
+  create roles admin, operator;
+  edit roles admin;
+  delete roles admin;
+}
+
+pages purchase_orders {
+  list roles admin, operator;
+  show roles admin, operator;
+  create roles admin, operator;
+  edit roles admin, operator;
+  delete roles admin;
+}
+
+pages sales_orders {
+  list roles admin, operator;
+  show roles admin, operator;
+  create roles admin, operator;
+  edit roles admin, operator;
+  delete roles admin;
+}

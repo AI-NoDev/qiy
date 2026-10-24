@@ -20,7 +20,7 @@ function EnumLabel({ item }: { item: ResourceEnumValue }) {
   const { translate } = useTranslation();
   const Icon = item.icon ? qiyIcons[item.icon as keyof typeof qiyIcons] : undefined;
   const comment = item.commentKey ? translate(item.commentKey, {}, item.comment) : item.comment;
-  return <Space title={comment}>{Icon && <Icon />}{item.label ?? item.name}</Space>;
+  return <Space title={comment}>{Icon && <Icon />}{translate(item.labelKey, {}, item.label ?? item.name)}</Space>;
 }
 
 async function encodeBase64(file: Blob): Promise<string> {
@@ -77,10 +77,10 @@ export function ResourceForm({ resource, id }: { resource: ResourceDefinition; i
   const content = <>
     {query?.isError && <Alert type="error" showIcon message={String(query.error)} />}
     <Form {...formProps} layout="vertical" style={{ maxWidth: 720 }} onFinish={(values) => { const record = values as Record<string, unknown>; return onFinish(Object.fromEntries(fields.flatMap((field) => { const value = record[field.name]; return (value === undefined || value === "") && field.nullable ? [] : [[field.name, field.type === "Integer" ? Number(value) : value]]; }))); }}>
-      {fields.map((field) => <Form.Item key={field.name} name={field.name} label={field.label} tooltip={field.commentKey ? translate(field.commentKey, {}, field.comment) : field.comment} rules={[{ required: !field.nullable }]}>{field.type === "File" || field.type === "Files" ? <FileInput field={field} resource={resource.name} resourceId={id} /> : field.relation ? <RelationSelect relation={field.relation} /> : field.enumValues ? <Select options={field.enumValues.map((item) => ({ value: item.name, label: <EnumLabel item={item} /> }))} /> : field.type === "Integer" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>)}
+      {fields.map((field) => <Form.Item key={field.name} name={field.name} label={translate(field.labelKey, {}, field.label)} tooltip={field.commentKey ? translate(field.commentKey, {}, field.comment) : field.comment} rules={[{ required: !field.nullable }]}>{field.type === "File" || field.type === "Files" ? <FileInput field={field} resource={resource.name} resourceId={id} /> : field.relation ? <RelationSelect relation={field.relation} /> : field.enumValues ? <Select options={field.enumValues.map((item) => ({ value: item.name, label: <EnumLabel item={item} /> }))} /> : field.type === "Integer" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>)}
     </Form>
   </>;
   return id
-    ? <Edit resource={resource.name} recordItemId={id} title={`${t(locale, "edit")} ${resource.label}`} saveButtonProps={saveButtonProps}>{content}</Edit>
-    : <Create resource={resource.name} title={`${t(locale, "new")} ${resource.label}`} saveButtonProps={saveButtonProps}>{content}</Create>;
+    ? <Edit resource={resource.name} recordItemId={id} title={`${t(locale, "edit")} ${translate(resource.labelKey, {}, resource.label)}`} saveButtonProps={saveButtonProps}>{content}</Edit>
+    : <Create resource={resource.name} title={`${t(locale, "new")} ${translate(resource.labelKey, {}, resource.label)}`} saveButtonProps={saveButtonProps}>{content}</Create>;
 }

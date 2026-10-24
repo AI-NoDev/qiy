@@ -1,0 +1,53 @@
+# ERP domain: purchasing and sales documents. Entities only; purchase/sales
+# header-line relations and warehouse relations are declared in relations.qiy.
+
+entity purchase_orders @label("Purchase orders") @icon(FileTextOutlined) {
+  field id UUID @id;
+  field number Text @unique;
+  field supplierId UUID;
+  field status purchaseStatus;
+  field orderedAt DateTime;
+  field total Decimal(12,2);
+}
+
+entity purchase_order_lines @label("Purchase order lines") @icon(UnorderedListOutlined) {
+  field id UUID @id;
+  field purchaseOrderId UUID;
+  field productId UUID;
+  field quantity Integer;
+  field unitCost Decimal(12,2);
+}
+
+entity receipts @label("Goods receipts") @icon(InboxOutlined) {
+  field id UUID @id;
+  field purchaseOrderId UUID;
+  field warehouseId UUID;
+  field status Text;
+  field receivedAt DateTime @nullable;
+}
+
+entity sales_orders @label("Sales orders") @icon(ShoppingCartOutlined) {
+  field id UUID @id;
+  field number Text @unique;
+  field customerId UUID;
+  field status salesStatus;
+  field orderedAt DateTime;
+  field total Decimal(12,2);
+}
+
+entity sales_order_lines @label("Sales order lines") @icon(OrderedListOutlined) {
+  field id UUID @id;
+  field salesOrderId UUID;
+  field productId UUID;
+  field quantity Integer;
+  field unitPrice Decimal(12,2);
+  field allocated Integer;
+}
+
+entity shipments @label("Shipments") @icon(CarOutlined) {
+  field id UUID @id;
+  field salesOrderId UUID;
+  field warehouseId UUID;
+  field status Text;
+  field shippedAt DateTime @nullable;
+}

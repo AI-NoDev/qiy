@@ -6,10 +6,10 @@ import { Link } from "react-router";
 import { canSeeField, getResource } from "../resources";
 import { t, resolveLocale, type QiyLocale } from "../i18n";
 
-interface RelatedResource { resource: string; field: string; label: string; }
+interface RelatedResource { resource: string; field: string; label: string; labelKey: string; }
 
 export function RelatedRecords({ relation, recordId }: { relation: RelatedResource; recordId: string }) {
-  const { getLocale } = useTranslation();
+  const { getLocale, translate } = useTranslation();
   const locale: QiyLocale = resolveLocale(getLocale());
   const resource = getResource(relation.resource);
   const { result, query } = useList<Record<string, unknown>>({
@@ -19,9 +19,9 @@ export function RelatedRecords({ relation, recordId }: { relation: RelatedResour
     queryOptions: { enabled: Boolean(recordId) },
   });
   const fields = resource?.fields.filter((field) => field.listVisible && !field.primaryKey && field.type !== "Vector").slice(0, 5) ?? [];
-  const columns: ColumnsType<Record<string, unknown>> = fields.map((field) => ({ title: field.label, dataIndex: field.name, key: field.name, render: (value: unknown) => String(value ?? "—") }));
+  const columns: ColumnsType<Record<string, unknown>> = fields.map((field) => ({ title: translate(field.labelKey, {}, field.label), dataIndex: field.name, key: field.name, render: (value: unknown) => String(value ?? "—") }));
   columns.push({ title: t(locale, "actions"), key: "actions", render: (_value, record) => <Link to={"/" + relation.resource + "/" + String(record.id)}>{t(locale, "view")}</Link> });
   if (!resource) return <Alert type="error" message={"Unknown related resource: " + relation.resource} />;
   const total = result.total ?? 0;
-  return <Card size="small" title={relation.label} style={{ marginTop: 16 }}><Table<Record<string, unknown>> rowKey="id" loading={query.isLoading} dataSource={result.data} columns={columns} pagination={total > 10 ? { pageSize: 10, total, showSizeChanger: false } : false} scroll={{ x: "max-content" }} /></Card>;
+  return <Card size="small" title={translate(relation.labelKey, {}, relation.label)} style={{ marginTop: 16 }}><Table<Record<string, unknown>> rowKey="id" loading={query.isLoading} dataSource={result.data} columns={columns} pagination={total > 10 ? { pageSize: 10, total, showSizeChanger: false } : false} scroll={{ x: "max-content" }} /></Card>;
 }

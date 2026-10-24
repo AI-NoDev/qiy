@@ -3,7 +3,7 @@ import { createApp, type Repositories } from "../src/app";
 
 test("publishes model descriptions in the actual OpenAPI request schemas", async () => {
   const repository = { distribution: async () => [], trend: async () => [], list: async () => ({ data: [], total: 0 }), one: async () => undefined, create: async () => ({}), update: async () => undefined, delete: async () => undefined, deleteMany: async () => [] };
-  const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","warehouses","bins","inventory","stock_movements","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","work_orders"].map((name) => [name, repository])) as unknown as Repositories;
+  const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","warehouses","bins","inventory","stock_movements","work_orders"].map((name) => [name, repository])) as unknown as Repositories;
   const app = await createApp(repositories);
   const response = await app.handle(new Request("http://localhost/api/v1/openapi/json"));
   expect(response.status).toBe(200);

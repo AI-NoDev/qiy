@@ -4,18 +4,18 @@ import { createDataProvider, createGraphQLDataProvider } from "../app/data-provi
 test("REST trend requests the selected UTC day window", async () => {
   const requests: string[] = [];
   const fetcher = (async (url: RequestInfo | URL) => { requests.push(String(url)); return Response.json([{ day: "2026-10-06", count: 2 }]); }) as typeof fetch;
-  const endpoint = "/api/v1/inventory/trend";
-  const result = await createDataProvider(fetcher).custom?.({ url: endpoint, method: "get", query: { field: "updatedAt", days: 30 } });
+  const endpoint = "/api/v1/purchase_orders/trend";
+  const result = await createDataProvider(fetcher).custom?.({ url: endpoint, method: "get", query: { field: "orderedAt", days: 30 } });
   expect(result?.data.items).toEqual([{ day: "2026-10-06", count: 2 }]);
-  expect(requests).toEqual([endpoint + "?field=updatedAt&days=30"]);
-  await expect(createDataProvider(fetcher).custom?.({ url: endpoint, method: "get", query: { field: "updatedAt", days: 366 } })).rejects.toThrow("Invalid trend days");
+  expect(requests).toEqual([endpoint + "?field=orderedAt&days=30"]);
+  await expect(createDataProvider(fetcher).custom?.({ url: endpoint, method: "get", query: { field: "orderedAt", days: 366 } })).rejects.toThrow("Invalid trend days");
   await expect(createDataProvider(fetcher).custom?.({ url: endpoint, method: "get", query: { field: "missing", days: 30 } })).rejects.toThrow("Unknown trend field");
 });
 
 test("GraphQL trend requests the same field and day window", async () => {
   const requests: string[] = [];
-  const fetcher = (async (_url: RequestInfo | URL, init?: RequestInit) => { requests.push(String(init?.body)); return Response.json({ data: { inventoryTrend: [{ day: "2026-10-06", count: 2 }] } }); }) as typeof fetch;
-  const result = await createGraphQLDataProvider(fetcher).custom?.({ url: "/api/v1/inventory/trend", method: "get", query: { field: "updatedAt", days: 30 } });
+  const fetcher = (async (_url: RequestInfo | URL, init?: RequestInit) => { requests.push(String(init?.body)); return Response.json({ data: { purchase_ordersTrend: [{ day: "2026-10-06", count: 2 }] } }); }) as typeof fetch;
+  const result = await createGraphQLDataProvider(fetcher).custom?.({ url: "/api/v1/purchase_orders/trend", method: "get", query: { field: "orderedAt", days: 30 } });
   expect(result?.data.items).toEqual([{ day: "2026-10-06", count: 2 }]);
-  expect(JSON.parse(requests[0]!).variables).toEqual({ field: "updatedAt", days: 30 });
+  expect(JSON.parse(requests[0]!).variables).toEqual({ field: "orderedAt", days: 30 });
 });

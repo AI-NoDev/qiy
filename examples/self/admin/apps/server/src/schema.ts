@@ -57,44 +57,6 @@ export const boms = sqliteTable("boms", {
   "quantity": integer("quantity").notNull(),
 });
 
-export const warehouses = sqliteTable("warehouses", {
-  "id": text("id").primaryKey(),
-  "orgId": text("orgId").references(() => orgs["id"], { onDelete: "restrict" }).notNull(),
-  "code": text("code").notNull().unique(),
-  "name": text("name").notNull(),
-  "active": text("active").notNull(),
-});
-
-export const bins = sqliteTable("bins", {
-  "id": text("id").primaryKey(),
-  "warehouseId": text("warehouseId").references(() => warehouses["id"], { onDelete: "restrict" }).notNull(),
-  "code": text("code").notNull().unique(),
-  "capacity": integer("capacity").notNull(),
-});
-
-export const inventory = sqliteTable("inventory", {
-  "id": text("id").primaryKey(),
-  "inventoryKey": text("inventoryKey").notNull().unique(),
-  "warehouseId": text("warehouseId").references(() => warehouses["id"], { onDelete: "restrict" }).notNull(),
-  "binId": text("binId").references(() => bins["id"], { onDelete: "restrict" }).notNull(),
-  "productId": text("productId").references(() => products["id"], { onDelete: "restrict" }).notNull(),
-  "quantity": integer("quantity").notNull(),
-  "reserved": integer("reserved").notNull(),
-  "lotCode": text("lotCode"),
-  "updatedAt": integer("updatedAt", { mode: "timestamp_ms" }),
-});
-
-export const stock_movements = sqliteTable("stock_movements", {
-  "id": text("id").primaryKey(),
-  "productId": text("productId").references(() => products["id"], { onDelete: "restrict" }).notNull(),
-  "warehouseId": text("warehouseId").references(() => warehouses["id"], { onDelete: "restrict" }).notNull(),
-  "binId": text("binId").references(() => bins["id"], { onDelete: "restrict" }).notNull(),
-  "type": text("type").notNull(),
-  "quantity": integer("quantity").notNull(),
-  "reference": text("reference"),
-  "occurredAt": integer("occurredAt", { mode: "timestamp_ms" }),
-});
-
 export const purchase_orders = sqliteTable("purchase_orders", {
   "id": text("id").primaryKey(),
   "number": text("number").notNull().unique(),
@@ -144,6 +106,44 @@ export const shipments = sqliteTable("shipments", {
   "warehouseId": text("warehouseId").notNull(),
   "status": text("status").notNull(),
   "shippedAt": integer("shippedAt", { mode: "timestamp_ms" }),
+});
+
+export const warehouses = sqliteTable("warehouses", {
+  "id": text("id").primaryKey(),
+  "orgId": text("orgId").references(() => orgs["id"], { onDelete: "restrict" }).notNull(),
+  "code": text("code").notNull().unique(),
+  "name": text("name").notNull(),
+  "active": text("active").notNull(),
+});
+
+export const bins = sqliteTable("bins", {
+  "id": text("id").primaryKey(),
+  "warehouseId": text("warehouseId").references(() => warehouses["id"], { onDelete: "restrict" }).notNull(),
+  "code": text("code").notNull().unique(),
+  "capacity": integer("capacity").notNull(),
+});
+
+export const inventory = sqliteTable("inventory", {
+  "id": text("id").primaryKey(),
+  "inventoryKey": text("inventoryKey").notNull().unique(),
+  "warehouseId": text("warehouseId").references(() => warehouses["id"], { onDelete: "restrict" }).notNull(),
+  "binId": text("binId").references(() => bins["id"], { onDelete: "restrict" }).notNull(),
+  "productId": text("productId").references(() => products["id"], { onDelete: "restrict" }).notNull(),
+  "quantity": integer("quantity").notNull(),
+  "reserved": integer("reserved").notNull(),
+  "lotCode": text("lotCode"),
+  "updatedAt": integer("updatedAt", { mode: "timestamp_ms" }),
+});
+
+export const stock_movements = sqliteTable("stock_movements", {
+  "id": text("id").primaryKey(),
+  "productId": text("productId").references(() => products["id"], { onDelete: "restrict" }).notNull(),
+  "warehouseId": text("warehouseId").references(() => warehouses["id"], { onDelete: "restrict" }).notNull(),
+  "binId": text("binId").references(() => bins["id"], { onDelete: "restrict" }).notNull(),
+  "type": text("type").notNull(),
+  "quantity": integer("quantity").notNull(),
+  "reference": text("reference"),
+  "occurredAt": integer("occurredAt", { mode: "timestamp_ms" }),
 });
 
 export const work_orders = sqliteTable("work_orders", {

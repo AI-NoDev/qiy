@@ -5,12 +5,12 @@ import { Refine, useTranslation, type I18nProvider } from "@refinedev/core";
 import { RefineKbar, RefineKbarProvider } from "@refinedev/kbar";
 import routerProvider from "@refinedev/react-router";
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { qiyIcons } from "./icons";
 import { dataProvider } from "./data-provider";
 __QIY_AUTH_IMPORT__
 import { resources, menuGroups } from "./resources";
-import { getAntdLocale, languageOptions, createI18nProvider, type QiyLocale } from "./i18n";
+import { getAntdLocale, languageOptions, createI18nProvider, readStoredLocale, resolveLocale, storeLocale, t, type QiyLocale } from "./i18n";
 import { QiyThemeControls, QiyThemedLayout, QiyThemedTitle, QiyUiProvider, useQiyNotificationProvider } from "./ui";
 
 function resolveResourceIcon(name: string) { const Icon = qiyIcons[name as keyof typeof qiyIcons] ?? qiyIcons.TableOutlined; return <Icon />; }
@@ -21,17 +21,23 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function Root() {
-  const [locale, setLocale] = useState<QiyLocale>("zh-CN");
+  const [locale, setLocale] = useState<QiyLocale>(() => readStoredLocale());
   const direction = ["ar", "fa", "he", "ur"].includes(locale.split("-")[0]!) ? "rtl" : "ltr";
+  // Persist the choice so a reload keeps the language the user picked; the stored
+  // value wins over the model default and unknown values fall back to it.
+  const applyLocale = useCallback((next: QiyLocale) => { setLocale(next); storeLocale(next); }, []);
   useEffect(() => { document.documentElement.lang = locale; document.documentElement.dir = direction; }, [locale, direction]);
-  const i18nProvider = useMemo(() => createI18nProvider(locale, setLocale), [locale]);
+  const i18nProvider = useMemo(() => createI18nProvider(locale, applyLocale), [locale, applyLocale]);
   return <QiyUiProvider direction={direction} locale={getAntdLocale(locale)}><RefineApplication i18nProvider={i18nProvider} /></QiyUiProvider>;
 }
 
 function RefineApplication({ i18nProvider }: { i18nProvider: I18nProvider }) {
   __QIY_AUTH_LOCATION__
   const notificationProvider = useQiyNotificationProvider();
-  const overviewLabel = i18nProvider.getLocale() === "zh-CN" ? "概览" : "Overview";
+  const locale = resolveLocale(i18nProvider.getLocale());
+  // Model labels are looked up through their stable keys at render time, so
+  // switching the language re-renders the menu, titles and breadcrumbs.
+  const modelLabel = (labelKey: string | undefined, fallback: string): string => labelKey ? i18nProvider.translate(labelKey, {}, fallback) : fallback;
   return <RefineKbarProvider><Refine
     dataProvider={dataProvider}
     __QIY_AUTH_PROPS__
@@ -41,13 +47,13 @@ function RefineApplication({ i18nProvider }: { i18nProvider: I18nProvider }) {
     resources={[{
       name: "qiy-overview",
       list: "/",
-      meta: { label: overviewLabel, icon: resolveResourceIcon("DashboardOutlined") },
+      meta: { label: t(locale, "overview"), icon: resolveResourceIcon("DashboardOutlined") },
     }, ...menuGroups.map((group) => ({
       name: group.name,
-      meta: { label: group.label, icon: resolveResourceIcon(group.icon), ...("parent" in group ? { parent: group.parent } : {}) },
+      meta: { label: modelLabel(group.labelKey, group.label), icon: resolveResourceIcon(group.icon), ...("parent" in group ? { parent: group.parent } : {}) },
     })), ...resources.map((resource) => ({
       name: resource.name,
-      meta: { label: resource.label, icon: resolveResourceIcon(resource.icon), ...(resource.menuParent && { parent: resource.menuParent }) },
+      meta: { label: modelLabel(resource.labelKey, resource.label), icon: resolveResourceIcon(resource.icon), ...(resource.menuParent && { parent: resource.menuParent }) },
       list: `/${resource.name}`,
       create: `/${resource.name}/new`,
       show: `/${resource.name}/:id`,
@@ -61,11 +67,11 @@ function RefineApplication({ i18nProvider }: { i18nProvider: I18nProvider }) {
 }
 
 function AdminHeader() {
-  const { getLocale, changeLocale } = useTranslation();
+  const { getLocale, changeLocale, translate } = useTranslation();
   const { token } = theme.useToken();
   return <header className="qiy-header" style={{ background: token.colorBgElevated, color: token.colorText, borderBottom: `1px solid ${token.colorBorderSecondary}` }}><Space wrap style={{ width: "100%", justifyContent: "flex-end" }}>
     <Typography.Text type="secondary">Qiy Admin</Typography.Text>
     <QiyThemeControls />
-    <Select aria-label="Language" value={getLocale()} onChange={(value) => void changeLocale(value)} options={languageOptions} />
+    <Select aria-label={translate("qiy.language", {}, "Language")} value={getLocale()} onChange={(value) => void changeLocale(value)} options={languageOptions} />
   </Space></header>;
 }

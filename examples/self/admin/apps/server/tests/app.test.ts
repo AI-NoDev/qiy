@@ -13,7 +13,7 @@ const repository = {
 };
 
 test("mounts REST and GraphQL at their public paths", async () => {
-  const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","warehouses","bins","inventory","stock_movements","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","work_orders"].map((name) => [name, repository])) as unknown as Repositories;
+  const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","warehouses","bins","inventory","stock_movements","work_orders"].map((name) => [name, repository])) as unknown as Repositories;
   const app = await createApp(repositories, async () => ({ id: crypto.randomUUID(), name: "Test Admin", role: "admin", claims: {"org.id":"00000000-0000-4000-8000-000000000002"} }));
   const handle = createHandler((request) => app.handle(request), "./build/client");
   expect((await handle(new Request("http://localhost/api/v1/health"))).status).toBe(200);
@@ -30,7 +30,7 @@ test("mounts REST and GraphQL at their public paths", async () => {
 });
 
 test("enables CORS only for explicitly configured origins", async () => {
-  const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","warehouses","bins","inventory","stock_movements","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","work_orders"].map((name) => [name, repository])) as unknown as Repositories;
+  const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","warehouses","bins","inventory","stock_movements","work_orders"].map((name) => [name, repository])) as unknown as Repositories;
   const app = await createApp(repositories, async () => ({ id: "cors-test", name: "Admin", role: "admin", claims: {"org.id":"00000000-0000-4000-8000-000000000002"} }), false, false, ["https://admin.example"]);
   const allowed = await app.handle(new Request("http://localhost/api/v1/health", { headers: { Origin: "https://admin.example" } }));
   expect(allowed.headers.get("access-control-allow-origin")).toBe("https://admin.example");
@@ -47,7 +47,7 @@ test("enables CORS only for explicitly configured origins", async () => {
 });
 
 test("denies anonymous REST and GraphQL and enforces role permissions", async () => {
-  const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","warehouses","bins","inventory","stock_movements","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","work_orders"].map((name) => [name, repository])) as unknown as Repositories;
+  const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","warehouses","bins","inventory","stock_movements","work_orders"].map((name) => [name, repository])) as unknown as Repositories;
   const target = "http://localhost/api/v1/orgs/";
   const graph = "http://localhost/graphql";
   const anonymous = await createApp(repositories);
@@ -63,7 +63,7 @@ test("passes the authenticated actor through REST and GraphQL mutations", async 
   const actors: Array<string | undefined> = [];
   const id = "00000000-0000-4000-8000-000000000002";
   const tracked = { ...repository, async delete(_id: string, actorId?: string) { actors.push(actorId); return { id }; } };
-  const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","warehouses","bins","inventory","stock_movements","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","work_orders"].map((name) => [name, tracked])) as unknown as Repositories;
+  const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","warehouses","bins","inventory","stock_movements","work_orders"].map((name) => [name, tracked])) as unknown as Repositories;
   const app = await createApp(repositories, async () => ({ id, name: "Admin", role: "admin", claims: {"org.id":"00000000-0000-4000-8000-000000000002"} }));
   expect((await app.handle(new Request("http://localhost/api/v1/users/" + id, { method: "DELETE" }))).status).toBe(200);
   const graph = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "mutation { deleteUsers(id: \"" + id + "\") { id } }" }) }));
@@ -75,7 +75,7 @@ test.skip("protects file storage endpoints and rejects traversal", async () => {
   Bun.env.QIY_STORAGE_METADATA = "memory";
   Bun.env.QIY_STORAGE_PROVIDER = "local";
   Bun.env.QIY_STORAGE_ROOT = import.meta.dir + "/.qiy-test-storage";
-  const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","warehouses","bins","inventory","stock_movements","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","work_orders"].map((name) => [name, repository])) as unknown as Repositories;
+  const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","warehouses","bins","inventory","stock_movements","work_orders"].map((name) => [name, repository])) as unknown as Repositories;
   const app = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: "admin", claims: {"org.id":"00000000-0000-4000-8000-000000000002"} }));
   const resource = "missing";
   const field = "missing";

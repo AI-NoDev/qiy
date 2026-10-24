@@ -44,8 +44,8 @@ export function createDataflowRoutes(authenticate: Authenticator) {
         let context1 = tx.select().from(inventory).where(eq(inventory["id"], body["inventoryId"])).limit(1).get();
         if (!context1) throw new DataflowFailure(404, "Not found", "inventory");
 
-        if (!(context0["status"] == "approved")) throw new DataflowFailure(409, "errors.purchaseOrder.notApproved");
-        if (!(body["quantity"] > 0)) throw new DataflowFailure(409, "errors.inventory.quantityPositive");
+        if (!(context0["status"] == "approved")) throw new DataflowFailure(409, "采购单必须处于已审批状态", undefined, "errors.purchaseOrder.notApproved");
+        if (!(body["quantity"] > 0)) throw new DataflowFailure(409, "数量必须大于 0", undefined, "errors.inventory.quantityPositive");
         let context2 = tx.insert(stock_movements).values({ id: crypto.randomUUID(), "productId": body["productId"], "warehouseId": body["warehouseId"], "binId": body["binId"], "type": "receipt", "quantity": body["quantity"], "reference": body["reference"] } as typeof stock_movements.$inferInsert).returning().get();
         if (!context2) throw new DataflowFailure(409, "Unable to create", "stock_movements");
         {
@@ -113,7 +113,7 @@ export function createDataflowRoutes(authenticate: Authenticator) {
         let context0 = tx.select().from(inventory).where(eq(inventory["id"], body["inventoryId"])).limit(1).get();
         if (!context0) throw new DataflowFailure(404, "Not found", "inventory");
 
-        if (!(body["quantity"] > 0)) throw new DataflowFailure(409, "errors.inventory.quantityPositive");
+        if (!(body["quantity"] > 0)) throw new DataflowFailure(409, "数量必须大于 0", undefined, "errors.inventory.quantityPositive");
         let context1 = tx.insert(stock_movements).values({ id: crypto.randomUUID(), "productId": body["productId"], "warehouseId": body["warehouseId"], "binId": body["targetBinId"], "type": "transfer", "quantity": body["quantity"] } as typeof stock_movements.$inferInsert).returning().get();
         if (!context1) throw new DataflowFailure(409, "Unable to create", "stock_movements");
         {
@@ -281,7 +281,7 @@ export function createDataflowRoutes(authenticate: Authenticator) {
         let context0 = tx.select().from(sales_orders).where(eq(sales_orders["id"], body["salesOrderId"])).limit(1).get();
         if (!context0) throw new DataflowFailure(404, "Not found", "sales_orders");
 
-        if (!(context0["status"] == "allocated")) throw new DataflowFailure(409, "errors.salesOrder.notAllocated");
+        if (!(context0["status"] == "allocated")) throw new DataflowFailure(409, "销售单必须先完成库存分配", undefined, "errors.salesOrder.notAllocated");
         let context1 = tx.insert(shipments).values({ id: crypto.randomUUID(), "salesOrderId": body["salesOrderId"], "warehouseId": body["warehouseId"], "status": "shipped" } as typeof shipments.$inferInsert).returning().get();
         if (!context1) throw new DataflowFailure(409, "Unable to create", "shipments");
         {
@@ -385,7 +385,7 @@ export function createDataflowRoutes(authenticate: Authenticator) {
         let context0 = tx.select().from(work_orders).where(eq(work_orders["id"], body["workOrderId"])).limit(1).get();
         if (!context0) throw new DataflowFailure(404, "Not found", "work_orders");
 
-        if (!(context0["status"] == "in_progress")) throw new DataflowFailure(409, "errors.workOrder.notInProgress");
+        if (!(context0["status"] == "in_progress")) throw new DataflowFailure(409, "工单必须处于生产中状态", undefined, "errors.workOrder.notInProgress");
         let context1 = tx.insert(stock_movements).values({ id: crypto.randomUUID(), "productId": body["componentId"], "warehouseId": body["warehouseId"], "binId": body["outputBinId"], "type": "consumption", "quantity": body["componentQuantity"] } as typeof stock_movements.$inferInsert).returning().get();
         if (!context1) throw new DataflowFailure(409, "Unable to create", "stock_movements");
         let context2 = tx.insert(stock_movements).values({ id: crypto.randomUUID(), "productId": body["productId"], "warehouseId": body["warehouseId"], "binId": body["outputBinId"], "type": "production", "quantity": body["outputQuantity"] } as typeof stock_movements.$inferInsert).returning().get();

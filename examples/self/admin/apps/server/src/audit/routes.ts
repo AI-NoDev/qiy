@@ -3,7 +3,7 @@ import type { Authenticator } from "../auth/guard";
 
 export type AuditQuery = { resource: string; resourceId?: string; action?: string; actorId?: string; page: number; pageSize: number };
 export type AuditReader = (query: AuditQuery) => Promise<{ data: unknown[]; total: number }>;
-const resources = new Set<string>(["users","orgs","suppliers","customers","products","boms","warehouses","bins","inventory","stock_movements","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","work_orders"]);
+const resources = new Set<string>(["users","orgs","suppliers","customers","products","boms","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","warehouses","bins","inventory","stock_movements","work_orders"]);
 const scopedResources = new Set<string>(["warehouses"]);
 export function createAuditRoutes(authenticate: Authenticator, read: AuditReader = async (query) => (await import("./repository")).readAudit(query)) {
   return new Elysia({ prefix: "/api/v1/audit-logs" }).get("/", async ({ request, query, status, set }) => {

@@ -1,0 +1,44 @@
+# SCM domain: supply-chain master data (organizations, suppliers, customers,
+# products, bills of materials). Entities only; relations live in relations.qiy
+# because the parser requires every relation after every entity.
+
+entity orgs @label("Organizations") @icon(ClusterOutlined) {
+  field id UUID @id;
+  field code Text @unique;
+  field name Text;
+  field parentId UUID @nullable;
+}
+
+entity suppliers @label("Suppliers") @icon(ShopOutlined) {
+  field id UUID @id;
+  field code Text @unique;
+  field name Text;
+  field email Text @nullable;
+  field leadTimeDays Integer;
+}
+
+entity customers @label("Customers") @icon(TeamOutlined) {
+  field id UUID @id;
+  field code Text @unique;
+  field name Text;
+  field email Text @nullable;
+  field creditLimit Decimal(12,2);
+}
+
+entity products @label("Products") @icon(ShoppingOutlined) {
+  field id UUID @id;
+  field sku Text @unique;
+  field name Text;
+  field uom Text;
+  field unitCost Decimal(12,2);
+  field price Decimal(12,2);
+  field reorderPoint Integer;
+  field active activeState;
+}
+
+entity boms @label("Bill of materials") @icon(ApartmentOutlined) {
+  field id UUID @id;
+  field productId UUID;
+  field componentId UUID;
+  field quantity Integer;
+}

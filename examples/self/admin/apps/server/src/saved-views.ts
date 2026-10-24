@@ -18,7 +18,7 @@ export interface QiySavedView {
   updatedAt: string;
 }
 
-const viewResources = ["users","orgs","suppliers","customers","products","boms","warehouses","bins","inventory","stock_movements","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","work_orders"] as string[];
+const viewResources = ["users","orgs","suppliers","customers","products","boms","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","warehouses","bins","inventory","stock_movements","work_orders"] as string[];
 const MAX_VIEWS_PER_RESOURCE = 100;
 const iso = (value: Date | number | string) => value instanceof Date ? value.toISOString() : new Date(Number(value)).toISOString();
 const decode = (value: string | null): unknown[] | undefined => { if (!value) return undefined; try { const parsed = JSON.parse(value) as unknown; return Array.isArray(parsed) ? parsed : undefined; } catch { return undefined; } };

@@ -1,0 +1,52 @@
+# UI actions that bind a dataflow to a resource page. Labels are declared in the
+# source language; modules/messages.qiy overrides them per locale with
+# qiy.actions.<action>.label keys, so the buttons follow the language selector.
+
+action receiveInventory {
+  resource inventory;
+  dataflow receiveInventory;
+  placement list, show;
+  label "Receive goods";
+}
+
+action putawayStock {
+  resource inventory;
+  dataflow putawayStock;
+  placement list;
+  label "Put away";
+}
+
+action reserveStock {
+  resource inventory;
+  dataflow reserveStock;
+  placement list;
+  label "Reserve stock";
+}
+
+action adjustStock {
+  resource inventory;
+  dataflow adjustStock;
+  placement list;
+  label "Adjust stock";
+}
+
+action transferInventory {
+  resource inventory;
+  dataflow transferInventory;
+  placement list;
+  label "Transfer inventory";
+}
+
+action shipSalesOrder {
+  resource sales_orders;
+  dataflow shipSalesOrder;
+  placement list, show;
+  label "Ship order";
+}
+
+action completeWorkOrder {
+  resource work_orders;
+  dataflow completeWorkOrder;
+  placement list, show;
+  label "Complete work order";
+}

@@ -38,7 +38,7 @@ describe("Qiy UI themes", () => {
     expect(files["apps/web/app/ui/index.tsx"]).toContain("prefers-color-scheme: dark");
     expect(files["apps/web/app/ui/index.tsx"]).toContain("qiy.ui.color-mode");
     expect(files["apps/web/app/root.tsx"]).toContain("<QiyThemeControls />");
-    expect(files["apps/web/app/root.tsx"]).toContain('aria-label="Language"');
+    expect(files["apps/web/app/root.tsx"]).toContain('translate("qiy.language", {}, "Language")');
     expect(files["apps/web/app/root.tsx"]).toContain('className="qiy-header"');
     expect(files["apps/web/app/root.tsx"]).toContain('name: "qiy-overview"');
     expect(files["apps/web/app/root.tsx"]).toContain('list: "/"');

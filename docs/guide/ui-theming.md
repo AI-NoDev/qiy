@@ -45,7 +45,7 @@ ui/
 └── theme-config.ts    # 从 .qiy 生成的只读主题配置
 ```
 
-用户选择会写入浏览器 `localStorage`；`system` 模式监听 `prefers-color-scheme`。切换语言后，Ant Design locale 与页面 `lang` / `dir` 继续由 Qiy 的 I18nProvider 管理。
+用户选择会写入浏览器 `localStorage`；`system` 模式监听 `prefers-color-scheme`。语言选择单独保存在 `qiy.locale`（生成的 `readStoredLocale` / `storeLocale`），切换语言后 Ant Design locale 与页面 `lang` / `dir` 由 Qiy 的 I18nProvider 同步更新，刷新后保持；模型 label 的翻译键见 [DSL 总览 · 模型 label 的自动翻译键](/dsl/overview#模型-label-的自动翻译键)。
 
 CRUD 页面按以下顺序选择组件：
 

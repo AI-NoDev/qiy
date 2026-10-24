@@ -1,4 +1,4 @@
-import type { DatabaseIR, FieldIR } from "./database-ir";
+import type { DatabaseIR, EnumIR, EnumValueIR, FieldIR } from "./database-ir";
 import { renderAppTemplate } from "./admin-template";
 import { validateDatabaseIR } from "./database-ir";
 import type { QiyProject } from "./qiy-project";
@@ -30,11 +30,39 @@ type GeneratedAction = {
   condition?: { field: string; operator: "==" | "!="; value: string };
   target:
     | { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string }
-    | { kind: "dataflow"; dataflow: string; roles: string[]; confirm?: string; confirmKey?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string }> };
+    | { kind: "dataflow"; dataflow: string; roles: string[]; confirm?: string; confirmKey?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string; commentKey?: string; labelKey: string; options?: Array<{ value: string; label: string; labelKey: string }> }> };
 };
 
+/**
+ * Stable, model-derived translation keys. Every label a generated page renders
+ * keeps its declared (or identifier) text as the fallback and is looked up in the
+ * project `messages` dictionary through this key, so a model can be translated
+ * without hand-editing generated code. Keys are derived only from declared
+ * identifiers, never from user text, so they are stable across label edits.
+ */
+export const qiyModelKeys = {
+  resourceLabel: (resource: string) => `qiy.resources.${resource}.label`,
+  fieldLabel: (resource: string, field: string) => `qiy.resources.${resource}.fields.${field}.label`,
+  enumLabel: (enumeration: string) => `qiy.enums.${enumeration}.label`,
+  enumValueLabel: (enumeration: string, value: string) => `qiy.enums.${enumeration}.values.${value}`,
+  menuLabel: (group: string) => `qiy.menu.${group}.label`,
+  dashboardLabel: (metric: string) => `qiy.dashboard.${metric}.label`,
+  actionLabel: (action: string) => `qiy.actions.${action}.label`,
+  actionConfirm: (action: string) => `qiy.actions.${action}.confirm`,
+  actionInputLabel: (action: string, input: string) => `qiy.actions.${action}.inputs.${input}.label`,
+} as const;
+
+function enumerationDefinitions(database: DatabaseIR): Array<EnumIR & { label: string; labelKey: string; values: Array<EnumValueIR & { label: string; labelKey: string }> }> {
+  return (database.enums ?? []).map((enumeration) => ({
+    ...enumeration,
+    label: enumeration.name,
+    labelKey: qiyModelKeys.enumLabel(enumeration.name),
+    values: enumeration.values.map((value) => ({ ...value, label: value.label ?? value.name, labelKey: qiyModelKeys.enumValueLabel(enumeration.name, value.name) })),
+  }));
+}
+
 function resourceFields(database: DatabaseIR, menuGroups: NonNullable<QiyProject["menuGroups"]>, realtime?: QiyProject["realtime"], pages: NonNullable<QiyProject["pages"]> = []): string {
-  const enumByName = new Map((database.enums ?? []).map((enumeration) => [enumeration.name, enumeration.values]));
+  const enumByName = new Map(enumerationDefinitions(database).map((enumeration) => [enumeration.name, enumeration.values]));
   const entityByName = new Map(database.entities.map((entity) => [entity.name, entity]));
   const parentByResource = new Map(menuGroups.flatMap((group) => group.resources.map((resource) => [resource, `menu-${group.name}`] as const)));
   const liveModeByResource = new Map((realtime?.resources ?? []).map((subscription) => [subscription.resource, realtime!.mode] as const));
@@ -44,18 +72,20 @@ function resourceFields(database: DatabaseIR, menuGroups: NonNullable<QiyProject
     name: entity.tableName,
     apiName: entity.name,
     label: entity.label ?? entity.name,
+    labelKey: qiyModelKeys.resourceLabel(entity.tableName),
     ...(entity.comment !== undefined && { comment: entity.comment }),
     ...(entity.commentKey !== undefined && { commentKey: entity.commentKey }),
     icon: entity.icon ?? (entity.name.toLowerCase().includes("user") ? "UserOutlined" : entity.name.toLowerCase().includes("order") ? "ShoppingOutlined" : entity.name.toLowerCase().includes("warehouse") ? "DatabaseOutlined" : "TableOutlined"),
     liveMode: liveModeByResource.get(entity.tableName) ?? "off",
     ...(parentByResource.has(entity.tableName) && { menuParent: parentByResource.get(entity.tableName) }),
-    ...(database.relations?.some((relation) => relation.toEntity === entity.name) && { relatedResources: database.relations.filter((relation) => relation.toEntity === entity.name).map((relation) => ({ resource: entityByName.get(relation.fromEntity)!.tableName, field: relation.fromField, label: entityByName.get(relation.fromEntity)!.label ?? entityByName.get(relation.fromEntity)!.name })) }),
+    ...(database.relations?.some((relation) => relation.toEntity === entity.name) && { relatedResources: database.relations.filter((relation) => relation.toEntity === entity.name).map((relation) => ({ resource: entityByName.get(relation.fromEntity)!.tableName, field: relation.fromField, label: entityByName.get(relation.fromEntity)!.label ?? entityByName.get(relation.fromEntity)!.name, labelKey: qiyModelKeys.resourceLabel(entityByName.get(relation.fromEntity)!.tableName) })) }),
     fields: entity.fields.map((field) => {
       const relation = (database.relations ?? []).find((candidate) => candidate.fromEntity === entity.name && candidate.fromField === field.name);
       const target = relation && entityByName.get(relation.toEntity);
       return {
       name: field.name,
       label: field.label ?? field.name,
+      labelKey: qiyModelKeys.fieldLabel(entity.tableName, field.name),
       ...(field.comment !== undefined && { comment: field.comment }),
       ...(field.commentKey !== undefined && { commentKey: field.commentKey }),
       type: field.type,
@@ -191,6 +221,9 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
   const usesOtpAuth = options.auth?.provider === "otp";
   const authProviderLabel = options.auth ? authProviderLabels[options.auth.provider] ?? options.auth.provider : "";
   const userEntity = options.auth ? database.entities.find((entity) => entity.name === options.auth!.userEntity) : undefined;
+  // The generated profile page renders the signed-in role; when the role field is
+  // a declared enum, its localized value label comes from the model dictionary.
+  const authRoleEnumName = options.auth ? userEntity?.fields.find((field) => field.name === options.auth!.roleField)?.enumName : undefined;
   // The hybrid onboarding form asks for a separate email only when the user
   // entity declares one that is not already the username field.
   const onboardingEmailField = userEntity?.fields.some((field) => field.name === "email") && options.auth?.usernameField !== "email" ? "email" : null;
@@ -321,12 +354,30 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
   const hasOrderWorkflow = options.workflows?.includes("orderInventory") ?? false;
   if (hasOrderWorkflow && (database.dialect !== "postgresql" || !["orders", "orderItems", "inventoryItems"].every((name) => database.entities.some((entity) => entity.name === name)))) throw new Error("orderInventory workflow requires PostgreSQL and orders, orderItems, and inventoryItems entities");
   const dashboardMetrics = options.dashboardMetrics?.length ? options.dashboardMetrics : database.entities.map((entity) => ({ name: entity.name, resource: entity.tableName, label: entity.label ?? entity.name, icon: entity.icon, span: 8 as const }));
+  const localizedDashboardMetrics = dashboardMetrics.map((metric) => ({ ...metric, labelKey: qiyModelKeys.dashboardLabel(metric.name) }));
+  // A generated test can only assert a concrete language switch when the model
+  // declares translations for the first resource in both built-in locales.
+  const firstEntity = database.entities[0];
+  const firstResourceKey = firstEntity ? qiyModelKeys.resourceLabel(firstEntity.tableName) : undefined;
+  const firstResourceZh = firstResourceKey ? options.messages?.locales["zh-CN"]?.[firstResourceKey] : undefined;
+  const firstResourceEn = firstResourceKey ? options.messages?.locales["en-US"]?.[firstResourceKey] : undefined;
+  const localeSwitchTest = firstEntity && firstResourceKey && firstResourceZh !== undefined && firstResourceEn !== undefined
+    ? `
+test("model labels switch between the declared Chinese and English dictionaries", () => {
+  const resource = resources[0]!;
+  expect(createI18nProvider("zh-CN").translate(${JSON.stringify(firstResourceKey)}, {}, resource.label)).toBe(${JSON.stringify(firstResourceZh)});
+  expect(createI18nProvider("en-US").translate(${JSON.stringify(firstResourceKey)}, {}, resource.label)).toBe(${JSON.stringify(firstResourceEn)});
+  expect(${JSON.stringify(firstResourceZh)}).not.toBe(${JSON.stringify(firstResourceEn)});
+});
+`
+    : "";
   const distributionEntity = database.entities.find((entity) => entity.fields.some((field) => field.enumName));
   const distributionField = distributionEntity?.fields.find((field) => field.enumName);
   const trendEntity = database.entities.find((entity) => entity.fields.some((field) => field.type === "DateTime"));
   const trendField = trendEntity?.fields.find((field) => field.type === "DateTime");
   const actionDefinitions: GeneratedAction[] = (options.actions ?? []).map((action) => {
-    if (action.target.kind === "navigate") return { ...action, resource: database.entities.find((entity) => entity.name === action.resource)?.tableName ?? action.resource, target: action.target };
+    const labelKey = action.labelKey ?? qiyModelKeys.actionLabel(action.name);
+    if (action.target.kind === "navigate") return { ...action, labelKey, resource: database.entities.find((entity) => entity.name === action.resource)?.tableName ?? action.resource, target: action.target };
     const target = action.target;
     const flow = options.dataflows!.find((candidate) => candidate.name === target.dataflow)!;
     const entity = database.entities.find((candidate) => candidate.tableName === action.resource || candidate.name === action.resource)!;
@@ -334,14 +385,16 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
     const source = binding.id.split(":", 2)[1]!;
     return {
       ...action,
+      labelKey,
       resource: entity.tableName,
       target: {
         ...target,
+        ...(target.confirm !== undefined && !target.confirmKey ? { confirmKey: qiyModelKeys.actionConfirm(action.name) } : {}),
         url: `/api/v1/commands/${flow.name}${action.batch ? "/batch" : ""}`,
         idempotency: flow.idempotency?.required === true,
         roles: flow.roles ?? ["admin", "operator"],
         idInput: source.split(".", 2)[1]!,
-        inputs: flow.input.map((input) => ({ name: input.name, type: input.type, required: input.required, comment: input.comment, commentKey: input.commentKey, ...(database.enums?.some((enumeration) => enumeration.name === input.type) ? { options: database.enums.find((enumeration) => enumeration.name === input.type)!.values.map((value) => ({ value: value.name, label: value.label ?? value.name })) } : {}) })),
+        inputs: flow.input.map((input) => ({ name: input.name, type: input.type, required: input.required, comment: input.comment, ...(input.commentKey && { commentKey: input.commentKey }), labelKey: input.commentKey ?? qiyModelKeys.actionInputLabel(action.name, input.name), ...(database.enums?.some((enumeration) => enumeration.name === input.type) ? { options: database.enums.find((enumeration) => enumeration.name === input.type)!.values.map((value) => ({ value: value.name, label: value.label ?? value.name, labelKey: qiyModelKeys.enumValueLabel(input.type, value.name) })) } : {}) })),
       },
     };
   });
@@ -361,7 +414,7 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
     ...(actionDefinitions.length ? {
       "web/app/actions.ts": `type QiyActionCondition = { field: string; operator: "==" | "!="; value: string };
 type QiyActionBase = { name: string; resource: string; placements: Array<"list" | "show">; batch?: boolean; label: string; labelKey?: string; roles?: string[]; condition?: QiyActionCondition };
-export type QiyActionDefinition = QiyActionBase & ({ target: { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string } } | { target: { kind: "dataflow"; dataflow: string; roles: string[]; confirm?: string; confirmKey?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string; commentKey?: string; options?: Array<{ value: string; label: string }> }> } });
+export type QiyActionDefinition = QiyActionBase & ({ target: { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string } } | { target: { kind: "dataflow"; dataflow: string; roles: string[]; confirm?: string; confirmKey?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string; commentKey?: string; labelKey: string; options?: Array<{ value: string; label: string; labelKey: string }> }> } });
 export const qiyActions: QiyActionDefinition[] = ${JSON.stringify(actionDefinitions, null, 2)};
 export function actionMatchesRecord(action: QiyActionDefinition, record: Record<string, unknown>) { if (!action.condition) return true; if (!Object.prototype.hasOwnProperty.call(record, action.condition.field) || record[action.condition.field] == null) return false; const matches = record[action.condition.field] === action.condition.value; return action.condition.operator === "==" ? matches : !matches; }
 export function actionsFor(resource: string, placement: "list" | "show", record: Record<string, unknown>) { return qiyActions.filter((action) => !action.batch && action.resource === resource && action.placements.includes(placement) && actionMatchesRecord(action, record)); }
@@ -397,7 +450,7 @@ function CommandAction({ action, resource, recordId }: { action: QiyActionDefini
     } catch (error) { notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
   };
   const button = <Button type="link" loading={mutation.isPending} onClick={fields.length ? () => setOpen(true) : confirmation ? undefined : () => void run()}>{actionLabel}</Button>;
-  return <CanAccess resource={resource} action={action.name} params={{ id: recordId }}>{fields.length ? <>{button}<Modal open={open} title={actionLabel} okText={actionLabel} confirmLoading={mutation.isPending} onCancel={() => setOpen(false)} onOk={() => form.submit()}>{confirmation && <p>{confirmation}</p>}<Form form={form} layout="vertical" onFinish={(values) => void run(values)}>{fields.map((field) => <Form.Item key={field.name} name={field.name} label={field.commentKey ? translate(field.commentKey, {}, field.comment ?? field.name) : field.comment ?? field.name} rules={[{ required: true }]} valuePropName={field.type === "Boolean" ? "checked" : "value"}>{field.options ? <Select options={field.options} /> : field.type === "Boolean" ? <Checkbox /> : field.type === "Integer" || field.type === "Decimal" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>)}</Form></Modal></> : confirmation ? <Popconfirm title={confirmation} onConfirm={() => void run()}>{button}</Popconfirm> : button}</CanAccess>;
+  return <CanAccess resource={resource} action={action.name} params={{ id: recordId }}>{fields.length ? <>{button}<Modal open={open} title={actionLabel} okText={actionLabel} confirmLoading={mutation.isPending} onCancel={() => setOpen(false)} onOk={() => form.submit()}>{confirmation && <p>{confirmation}</p>}<Form form={form} layout="vertical" onFinish={(values) => void run(values)}>{fields.map((field) => <Form.Item key={field.name} name={field.name} label={translate(field.labelKey, {}, field.comment ?? field.name)} rules={[{ required: true }]} valuePropName={field.type === "Boolean" ? "checked" : "value"}>{field.options ? <Select options={field.options.map((option) => ({ value: option.value, label: translate(option.labelKey, {}, option.label) }))} /> : field.type === "Boolean" ? <Checkbox /> : field.type === "Integer" || field.type === "Decimal" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>)}</Form></Modal></> : confirmation ? <Popconfirm title={confirmation} onConfirm={() => void run()}>{button}</Popconfirm> : button}</CanAccess>;
 }
 
 function BatchCommandAction({ action, resource, recordIds, onComplete }: { action: QiyActionDefinition; resource: string; recordIds: string[]; onComplete(): void }) {
@@ -406,7 +459,7 @@ function BatchCommandAction({ action, resource, recordIds, onComplete }: { actio
   const target = action.target; const fields = target.inputs.filter((field) => field.name !== target.idInput && field.required); const actionLabel = action.labelKey ? translate(action.labelKey, {}, action.label) : action.label; const confirmation = target.confirmKey ? translate(target.confirmKey, {}, target.confirm) : target.confirm;
   const run = async (values: Record<string, unknown> = {}) => { const items = recordIds.map((recordId) => Object.fromEntries(target.inputs.map((field) => [field.name, field.name === target.idInput ? recordId : values[field.name]]))); const body = { items }; const payload = JSON.stringify(body); if (!pendingRequest.current || pendingRequest.current.payload !== payload) pendingRequest.current = { payload, key: crypto.randomUUID() }; try { await mutateAsync({ url: target.url, method: "post", successNotification: false, errorNotification: false, values: body, meta: { idempotencyKey: pendingRequest.current.key } }); pendingRequest.current = null; setOpen(false); form.resetFields(); onComplete(); notify?.({ type: "success", message: translate("notifications.success", {}, "Successful"), description: actionLabel }); await invalidate({ resource, invalidates: ["list"] }); await queryClient.invalidateQueries({ predicate: (query) => JSON.stringify(query.queryKey).toLowerCase().includes("audit") }); } catch (error) { notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) }); } };
   const button = <Button loading={mutation.isPending} onClick={fields.length ? () => setOpen(true) : confirmation ? undefined : () => void run()}>{actionLabel} ({recordIds.length})</Button>;
-  return <CanAccess resource={resource} action={action.name} params={{ ids: recordIds }}>{fields.length ? <>{button}<Modal open={open} title={actionLabel} okText={actionLabel} confirmLoading={mutation.isPending} onCancel={() => setOpen(false)} onOk={() => form.submit()}>{confirmation && <p>{confirmation}</p>}<Form form={form} layout="vertical" onFinish={(values) => void run(values)}>{fields.map((field) => <Form.Item key={field.name} name={field.name} label={field.commentKey ? translate(field.commentKey, {}, field.comment ?? field.name) : field.comment ?? field.name} rules={[{ required: true }]} valuePropName={field.type === "Boolean" ? "checked" : "value"}>{field.options ? <Select options={field.options} /> : field.type === "Boolean" ? <Checkbox /> : field.type === "Integer" || field.type === "Decimal" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>)}</Form></Modal></> : confirmation ? <Popconfirm title={confirmation} onConfirm={() => void run()}>{button}</Popconfirm> : button}</CanAccess>;
+  return <CanAccess resource={resource} action={action.name} params={{ ids: recordIds }}>{fields.length ? <>{button}<Modal open={open} title={actionLabel} okText={actionLabel} confirmLoading={mutation.isPending} onCancel={() => setOpen(false)} onOk={() => form.submit()}>{confirmation && <p>{confirmation}</p>}<Form form={form} layout="vertical" onFinish={(values) => void run(values)}>{fields.map((field) => <Form.Item key={field.name} name={field.name} label={translate(field.labelKey, {}, field.comment ?? field.name)} rules={[{ required: true }]} valuePropName={field.type === "Boolean" ? "checked" : "value"}>{field.options ? <Select options={field.options.map((option) => ({ value: option.value, label: translate(option.labelKey, {}, option.label) }))} /> : field.type === "Boolean" ? <Checkbox /> : field.type === "Integer" || field.type === "Decimal" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>)}</Form></Modal></> : confirmation ? <Popconfirm title={confirmation} onConfirm={() => void run()}>{button}</Popconfirm> : button}</CanAccess>;
 }
 
 export function BusinessActions({ resource, placement, record }: { resource: string; placement: "list" | "show"; record: Record<string, unknown> }) { const { translate } = useTranslation(); const recordId = String(record.id); return <Space wrap>{actionsFor(resource, placement, record).map((action) => action.target.kind === "navigate" ? <CanAccess key={action.name} resource={resource} action={action.name} params={{ id: recordId }}><Link to={action.target.path.replace(":id", encodeURIComponent(recordId))}><Button type="link">{action.labelKey ? translate(action.labelKey, {}, action.label) : action.label}</Button></Link></CanAccess> : <CommandAction key={action.name} action={action} resource={resource} recordId={recordId} />)}</Space>; }
@@ -463,8 +516,8 @@ export function qiyApiError(payload: unknown, statusCode: number, locale = typeo
   return Object.assign(new Error(message), { statusCode, ...(errorKey ? { errorKey } : {}) });
 }
 `,
-    "web/app/dashboard.ts": `export interface DashboardMetric { name: string; resource: string; label: string; icon?: string; comment?: string; commentKey?: string; span: 8 | 12 | 24; type?: "count" | "distribution" | "trend" | "aggregate"; groupBy?: string; days?: number; field?: string; agg?: "sum" | "avg" | "min" | "max" }
-export const dashboardMetrics: DashboardMetric[] = ${JSON.stringify(dashboardMetrics, null, 2)};
+    "web/app/dashboard.ts": `export interface DashboardMetric { name: string; resource: string; label: string; labelKey: string; icon?: string; comment?: string; commentKey?: string; span: 8 | 12 | 24; type?: "count" | "distribution" | "trend" | "aggregate"; groupBy?: string; days?: number; field?: string; agg?: "sum" | "avg" | "min" | "max" }
+export const dashboardMetrics: DashboardMetric[] = ${JSON.stringify(localizedDashboardMetrics, null, 2)};
 `,
     ...(options.auth ? {
       "web/app/auth.ts": `import type { AccessControlProvider, AuthProvider } from "@refinedev/core";
@@ -1062,13 +1115,13 @@ import { Alert, Card, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Link } from "react-router";
 import { canSeeField, getResource } from "../resources";
-import { t, type QiyLocale } from "../i18n";
+import { t, resolveLocale, type QiyLocale } from "../i18n";
 
-interface RelatedResource { resource: string; field: string; label: string; }
+interface RelatedResource { resource: string; field: string; label: string; labelKey: string; }
 
 export function RelatedRecords({ relation, recordId }: { relation: RelatedResource; recordId: string }) {
-  const { getLocale } = useTranslation();
-  const locale: QiyLocale = getLocale() === "en-US" ? "en-US" : "zh-CN";
+  const { getLocale, translate } = useTranslation();
+  const locale: QiyLocale = resolveLocale(getLocale());
   const resource = getResource(relation.resource);
   const { result, query } = useList<Record<string, unknown>>({
     resource: relation.resource,
@@ -1077,46 +1130,49 @@ export function RelatedRecords({ relation, recordId }: { relation: RelatedResour
     queryOptions: { enabled: Boolean(recordId) },
   });
   const fields = resource?.fields.filter((field) => field.listVisible && !field.primaryKey && field.type !== "Vector").slice(0, 5) ?? [];
-  const columns: ColumnsType<Record<string, unknown>> = fields.map((field) => ({ title: field.label, dataIndex: field.name, key: field.name, render: (value: unknown) => String(value ?? "—") }));
+  const columns: ColumnsType<Record<string, unknown>> = fields.map((field) => ({ title: translate(field.labelKey, {}, field.label), dataIndex: field.name, key: field.name, render: (value: unknown) => String(value ?? "—") }));
   columns.push({ title: t(locale, "actions"), key: "actions", render: (_value, record) => <Link to={"/" + relation.resource + "/" + String(record.id)}>{t(locale, "view")}</Link> });
   if (!resource) return <Alert type="error" message={"Unknown related resource: " + relation.resource} />;
   const total = result.total ?? 0;
-  return <Card size="small" title={relation.label} style={{ marginTop: 16 }}><Table<Record<string, unknown>> rowKey="id" loading={query.isLoading} dataSource={result.data} columns={columns} pagination={total > 10 ? { pageSize: 10, total, showSizeChanger: false } : false} scroll={{ x: "max-content" }} /></Card>;
+  return <Card size="small" title={translate(relation.labelKey, {}, relation.label)} style={{ marginTop: 16 }}><Table<Record<string, unknown>> rowKey="id" loading={query.isLoading} dataSource={result.data} columns={columns} pagination={total > 10 ? { pageSize: 10, total, showSizeChanger: false } : false} scroll={{ x: "max-content" }} /></Card>;
 }
 `,
     "web/app/plugins/index.ts": `export interface WebPlugin { name: string; setup?(): void | Promise<void>; }\nexport const plugins: WebPlugin[] = [];\n`,
     "web/app/shared/types.ts": `export type ID = string;\nexport interface PageResult<T> { data: T[]; total: number; }\n`,
     "web/app/features/resources/index.ts": `export { resources, resourceNames, getResource } from "../../resources";\nexport type { ResourceDefinition, ResourceField, FieldType } from "../../resources";\n`,
     "web/app/resources.ts": `export type FieldType = "UUID" | "Text" | "Integer" | "Decimal" | "Money" | "DateTime" | "File" | "Files" | "Vector";
-export interface ResourceEnumValue { name: string; label?: string; color?: string; icon?: string; comment?: string; commentKey?: string; }
-export interface ResourceEnumDefinition { name: string; comment?: string; commentKey?: string; values: ResourceEnumValue[]; }
-export interface ResourceField { name: string; label: string; comment?: string; commentKey?: string; type: FieldType; nullable: boolean; primaryKey: boolean; visible: boolean; listVisible: boolean; formVisible: boolean; showVisible: boolean; sortable: boolean; filterable: boolean; filterModes: string[]; enumName?: string; enumValues?: ResourceEnumValue[]; relation?: { resource: string; labelField: string }; icon?: string; dimension?: number; uploadMode?: "binary" | "base64" | "both"; maxBytes?: number; mimeTypes?: string[]; maxFiles?: number; /** Page-level layout: the field is only rendered for these roles. */ roles?: string[]; }
+export interface ResourceEnumValue { name: string; label?: string; labelKey: string; color?: string; icon?: string; comment?: string; commentKey?: string; }
+export interface ResourceEnumDefinition { name: string; label?: string; labelKey?: string; comment?: string; commentKey?: string; values: ResourceEnumValue[]; }
+export interface ResourceField { name: string; label: string; labelKey: string; comment?: string; commentKey?: string; type: FieldType; nullable: boolean; primaryKey: boolean; visible: boolean; listVisible: boolean; formVisible: boolean; showVisible: boolean; sortable: boolean; filterable: boolean; filterModes: string[]; enumName?: string; enumValues?: ResourceEnumValue[]; relation?: { resource: string; labelField: string }; icon?: string; dimension?: number; uploadMode?: "binary" | "base64" | "both"; maxBytes?: number; mimeTypes?: string[]; maxFiles?: number; /** Page-level layout: the field is only rendered for these roles. */ roles?: string[]; }
 /** Page-level field layout check; a field without role rules is visible to everyone. */
 export function canSeeField(field: ResourceField, role: string | undefined | null): boolean { return !field.roles || field.roles.includes(role ?? ""); }
- export interface ResourceDefinition { name: string; apiName: string; label: string; comment?: string; commentKey?: string; icon: string; liveMode: "auto" | "manual" | "off"; menuParent?: string; fields: ResourceField[]; relatedResources?: Array<{ resource: string; field: string; label: string }>; }
-export const enumerations: ResourceEnumDefinition[] = ${JSON.stringify(database.enums ?? [], null, 2)};
-export const menuGroups = ${JSON.stringify(menuGroups.map((group) => ({ name: `menu-${group.name}`, label: group.label, icon: group.icon ?? "AppstoreOutlined", ...(group.parent && { parent: `menu-${group.parent}` }), ...(group.comment !== undefined && { comment: group.comment }), ...(group.commentKey !== undefined && { commentKey: group.commentKey }) })), null, 2)} as Array<{ name: string; label: string; icon: string; parent?: string; comment?: string; commentKey?: string }>;
+ export interface ResourceDefinition { name: string; apiName: string; label: string; labelKey: string; comment?: string; commentKey?: string; icon: string; liveMode: "auto" | "manual" | "off"; menuParent?: string; fields: ResourceField[]; relatedResources?: Array<{ resource: string; field: string; label: string; labelKey: string }>; }
+export const enumerations: ResourceEnumDefinition[] = ${JSON.stringify(enumerationDefinitions(database), null, 2)};
+export const menuGroups = ${JSON.stringify(menuGroups.map((group) => ({ name: `menu-${group.name}`, label: group.label, labelKey: qiyModelKeys.menuLabel(group.name), icon: group.icon ?? "AppstoreOutlined", ...(group.parent && { parent: `menu-${group.parent}` }), ...(group.comment !== undefined && { comment: group.comment }), ...(group.commentKey !== undefined && { commentKey: group.commentKey }) })), null, 2)} as Array<{ name: string; label: string; labelKey: string; icon: string; parent?: string; comment?: string; commentKey?: string }>;
 export const resources: ResourceDefinition[] = ${resourceFields(database, menuGroups, options.realtime, options.pages)};
 export const resourceNames = ${JSON.stringify(resourceNames)} as const;
 export function getResource(name: string | undefined): ResourceDefinition | undefined { return resources.find((resource) => resource.name === name); }
 `,
     ...(Object.keys(treeEntities).length ? {
-      "web/app/components/tree-view.tsx": `import { useList } from "@refinedev/core";
+      "web/app/components/tree-view.tsx": `import { useList, useTranslation } from "@refinedev/core";
 import { Alert, Card, Empty, Space, Spin, Tree } from "antd";
 import { useNavigate } from "react-router";
 import { useState } from "react";
 import { buildTree, type QiyTreeNode } from "../tree";
+import { getResource } from "../resources";
 
 type AntdNode = { key: string; title: string; children: AntdNode[] };
 const toAntd = (nodes: Array<QiyTreeNode<Record<string, unknown>>>): AntdNode[] => nodes.map((node) => ({ key: node.key, title: node.title, children: toAntd(node.children) }));
 
 export function TreeView({ resource, parentField, labelField }: { resource: string; parentField: string; labelField: string }) {
   const navigate = useNavigate();
+  const { translate } = useTranslation();
+  const config = getResource(resource);
   const [expanded, setExpanded] = useState<string[]>([]);
   const { result, query } = useList({ resource, pagination: { mode: "off" } });
   const records = (result.data ?? []) as Array<Record<string, unknown>>;
   const { nodes, orphans } = buildTree(records, parentField, labelField);
-  return <Card title={resource} extra={<span>{records.length} node(s)</span>}>
+  return <Card title={config ? translate(config.labelKey, {}, config.label) : resource} extra={<span>{records.length} node(s)</span>}>
     {query.isLoading && <Spin />}
     {query.error && <Alert type="error" message={String(query.error)} />}
     {!query.isLoading && !records.length && <Empty />}
@@ -1147,7 +1203,7 @@ import { resources } from "../resources";
  import { dashboardMetrics, type DashboardMetric } from "../dashboard";
  import { qiyIcons } from "../icons";
  import { projectMessage } from "../messages";
-import { t, type QiyLocale } from "../i18n";
+import { t, resolveLocale, type QiyLocale } from "../i18n";
 
  function MetricDescription({ metric }: { metric: DashboardMetric }) {
    const { getLocale } = useTranslation();
@@ -1164,16 +1220,17 @@ import { t, type QiyLocale } from "../i18n";
    const Icon = qiyIcons[(metric.icon ?? resource?.icon ?? "TableOutlined") as keyof typeof qiyIcons] ?? qiyIcons.TableOutlined;
    const rows = result.data?.items ?? [];
    const total = rows.reduce((sum, row) => sum + row.count, 0);
-   return <Col xs={24} sm={12} lg={metric.span}><Card title={<Space><Icon style={{ color: token.colorPrimary }} /><span>{metric.label}</span></Space>} loading={query.isLoading}><MetricDescription metric={metric} />{query.error && <Typography.Text type="danger">{String(query.error)}</Typography.Text>}{rows.map(({ value, count }) => { const item = field?.enumValues?.find((option) => option.name === value); const comment = item?.commentKey ? translate(item.commentKey, {}, item.comment) : item?.comment; return <div key={value ?? "null"}><Space style={{ width: "100%", justifyContent: "space-between" }}><Typography.Text title={comment}>{item?.label ?? value ?? "—"}</Typography.Text><Typography.Text type="secondary">{count}</Typography.Text></Space><Progress percent={total ? Math.round(count / total * 100) : 0} showInfo={false} /></div>; })}{!query.isLoading && !rows.length && !query.error && <Typography.Text type="secondary">—</Typography.Text>}</Card></Col>;
+   return <Col xs={24} sm={12} lg={metric.span}><Card title={<Space><Icon style={{ color: token.colorPrimary }} /><span>{translate(metric.labelKey, {}, metric.label)}</span></Space>} loading={query.isLoading}><MetricDescription metric={metric} />{query.error && <Typography.Text type="danger">{String(query.error)}</Typography.Text>}{rows.map(({ value, count }) => { const item = field?.enumValues?.find((option) => option.name === value); const comment = item?.commentKey ? translate(item.commentKey, {}, item.comment) : item?.comment; return <div key={value ?? "null"}><Space style={{ width: "100%", justifyContent: "space-between" }}><Typography.Text title={comment}>{item ? translate(item.labelKey, {}, item.label ?? value ?? "—") : value ?? "—"}</Typography.Text><Typography.Text type="secondary">{count}</Typography.Text></Space><Progress percent={total ? Math.round(count / total * 100) : 0} showInfo={false} /></div>; })}{!query.isLoading && !rows.length && !query.error && <Typography.Text type="secondary">—</Typography.Text>}</Card></Col>;
  }
  function TrendSummary({ metric }: { metric: DashboardMetric }) {
+   const { translate } = useTranslation();
    const { result, query } = useCustom<{ items: Array<{ day: string; count: number }> }>({ url: \`/api/v1/\${metric.resource}/trend\`, method: "get", config: { query: { field: metric.groupBy, days: metric.days } } });
    const { token } = theme.useToken();
    const resource = resources.find((item) => item.name === metric.resource);
    const Icon = qiyIcons[(metric.icon ?? resource?.icon ?? "TableOutlined") as keyof typeof qiyIcons] ?? qiyIcons.TableOutlined;
    const rows = result.data?.items ?? [];
    const max = Math.max(...rows.map((row) => row.count), 0);
-   return <Col xs={24} lg={metric.span}><Card title={<Space><Icon style={{ color: token.colorPrimary }} /><span>{metric.label}</span></Space>} loading={query.isLoading}><MetricDescription metric={metric} />{query.error && <Typography.Text type="danger">{String(query.error)}</Typography.Text>}{rows.map((row) => <div key={row.day}><Space style={{ width: "100%", justifyContent: "space-between" }}><Typography.Text>{row.day}</Typography.Text><Typography.Text type="secondary">{row.count}</Typography.Text></Space><Progress percent={max ? Math.round(row.count / max * 100) : 0} showInfo={false} /></div>)}{!query.isLoading && !rows.length && !query.error && <Typography.Text type="secondary">—</Typography.Text>}</Card></Col>;
+   return <Col xs={24} lg={metric.span}><Card title={<Space><Icon style={{ color: token.colorPrimary }} /><span>{translate(metric.labelKey, {}, metric.label)}</span></Space>} loading={query.isLoading}><MetricDescription metric={metric} />{query.error && <Typography.Text type="danger">{String(query.error)}</Typography.Text>}{rows.map((row) => <div key={row.day}><Space style={{ width: "100%", justifyContent: "space-between" }}><Typography.Text>{row.day}</Typography.Text><Typography.Text type="secondary">{row.count}</Typography.Text></Space><Progress percent={max ? Math.round(row.count / max * 100) : 0} showInfo={false} /></div>)}{!query.isLoading && !rows.length && !query.error && <Typography.Text type="secondary">—</Typography.Text>}</Card></Col>;
  }
  function AggregateSummary({ metric }: { metric: DashboardMetric }) {
    const { translate } = useTranslation();
@@ -1184,8 +1241,8 @@ import { t, type QiyLocale } from "../i18n";
    const Icon = qiyIcons[(metric.icon ?? resource?.icon ?? "TableOutlined") as keyof typeof qiyIcons] ?? qiyIcons.TableOutlined;
    const value = result.data?.value;
    const precision = field?.type === "Money" || field?.type === "Decimal" ? 2 : 0;
-   const label = field?.label ?? metric.field ?? "";
-   return <Col xs={24} sm={12} lg={metric.span}><Card title={<Space><Icon style={{ color: token.colorPrimary }} /><span>{metric.label}</span></Space>} loading={query.isLoading}><MetricDescription metric={metric} />{query.error ? <Typography.Text type="danger">{String(query.error)}</Typography.Text> : <Statistic value={value ?? 0} precision={precision} suffix={<Typography.Text type="secondary" style={{ fontSize: 12 }}>{(metric.agg ?? "sum") + " · " + label}</Typography.Text>} />}{value === null && !query.isLoading && !query.error && <Typography.Text type="secondary">{translate("qiy.noData", {}, "No data")}</Typography.Text>}</Card></Col>;
+   const label = field ? translate(field.labelKey, {}, field.label) : metric.field ?? "";
+   return <Col xs={24} sm={12} lg={metric.span}><Card title={<Space><Icon style={{ color: token.colorPrimary }} /><span>{translate(metric.labelKey, {}, metric.label)}</span></Space>} loading={query.isLoading}><MetricDescription metric={metric} />{query.error ? <Typography.Text type="danger">{String(query.error)}</Typography.Text> : <Statistic value={value ?? 0} precision={precision} suffix={<Typography.Text type="secondary" style={{ fontSize: 12 }}>{(metric.agg ?? "sum") + " · " + label}</Typography.Text>} />}{value === null && !query.isLoading && !query.error && <Typography.Text type="secondary">{translate("qiy.noData", {}, "No data")}</Typography.Text>}</Card></Col>;
  }
  function ResourceSummary({ metric }: { metric: DashboardMetric }) {
    if (metric.type === "distribution") return <DistributionSummary metric={metric} />;
@@ -1194,15 +1251,16 @@ import { t, type QiyLocale } from "../i18n";
    return <CountSummary metric={metric} />;
  }
  function CountSummary({ metric }: { metric: DashboardMetric }) {
+   const { translate } = useTranslation();
    const { result, query } = useList({ resource: metric.resource, pagination: { currentPage: 1, pageSize: 1 } });
    const { token } = theme.useToken();
    const resource = resources.find((item) => item.name === metric.resource);
    const Icon = qiyIcons[(metric.icon ?? resource?.icon ?? "TableOutlined") as keyof typeof qiyIcons] ?? qiyIcons.TableOutlined;
-   return <Col xs={24} sm={12} lg={metric.span}><Link to={\`/\${metric.resource}\`}><Card hoverable><Space><Icon style={{ fontSize: 24, color: token.colorPrimary }} /><div><Typography.Text type="secondary">{metric.label}</Typography.Text><MetricDescription metric={metric} /><Statistic value={query.isLoading ? "—" : result.total ?? 0} /></div></Space></Card></Link></Col>;
+   return <Col xs={24} sm={12} lg={metric.span}><Link to={\`/\${metric.resource}\`}><Card hoverable><Space><Icon style={{ fontSize: 24, color: token.colorPrimary }} /><div><Typography.Text type="secondary">{translate(metric.labelKey, {}, metric.label)}</Typography.Text><MetricDescription metric={metric} /><Statistic value={query.isLoading ? "—" : result.total ?? 0} /></div></Space></Card></Link></Col>;
 }
 export default function Home() {
-  const { getLocale } = useTranslation(); const locale: QiyLocale = getLocale() === "en-US" ? "en-US" : "zh-CN";
-   return <Space direction="vertical" size="large" style={{ width: "100%" }}><div><Typography.Title level={2}>{locale === "zh-CN" ? "概览" : "Overview"}</Typography.Title><Typography.Paragraph type="secondary">{locale === "zh-CN" ? "从数据资源快速进入业务管理。" : "Jump into your data resources from one place."}</Typography.Paragraph></div><Row gutter={[16, 16]}>{dashboardMetrics.map((metric) => <CanAccess key={metric.name} resource={metric.resource} action="list"><ResourceSummary metric={metric} /></CanAccess>)}</Row><Card title={t(locale, "quickAccess")}><Space wrap>{resources.slice(0, 4).map((resource) => <CanAccess key={resource.name} resource={resource.name} action="list"><Link to={\`/\${resource.name}\`}>{resource.label}</Link></CanAccess>)}</Space></Card></Space>;
+  const { getLocale, translate } = useTranslation(); const locale: QiyLocale = resolveLocale(getLocale());
+   return <Space direction="vertical" size="large" style={{ width: "100%" }}><div><Typography.Title level={2}>{t(locale, "overview")}</Typography.Title><Typography.Paragraph type="secondary">{t(locale, "overviewDescription")}</Typography.Paragraph></div><Row gutter={[16, 16]}>{dashboardMetrics.map((metric) => <CanAccess key={metric.name} resource={metric.resource} action="list"><ResourceSummary metric={metric} /></CanAccess>)}</Row><Card title={t(locale, "quickAccess")}><Space wrap>{resources.slice(0, 4).map((resource) => <CanAccess key={resource.name} resource={resource.name} action="list"><Link to={\`/\${resource.name}\`}>{translate(resource.labelKey, {}, resource.label)}</Link></CanAccess>)}</Space></Card></Space>;
 }
 `,
     "web/app/messages.ts": `export const defaultMessageLocale = ${JSON.stringify(options.messages?.defaultLocale ?? "zh-CN")};\nexport const projectMessages: Record<string, Record<string, string>> = ${JSON.stringify(options.messages?.locales ?? {}, null, 2)};\nexport function projectMessage(locale: string, key: string): string | undefined { const entries = Object.hasOwn(projectMessages, locale) ? projectMessages[locale] : undefined; if (entries && Object.hasOwn(entries, key)) return entries[key]; const fallback = projectMessages[defaultMessageLocale]; return fallback && Object.hasOwn(fallback, key) ? fallback[key] : undefined; }\n`,
@@ -1216,7 +1274,19 @@ export type QiyLocale = string;
 export const supportedLocales: string[] = ${JSON.stringify([...new Set(["zh-CN", "en-US", ...Object.keys(options.messages?.locales ?? {})])])};
 export const languageOptions = supportedLocales.map((value) => ({ value, label: new Intl.DisplayNames([value], { type: "language" }).of(value) ?? value }));
 export function resolveLocale(value: string | undefined): QiyLocale { return value && supportedLocales.includes(value) ? value : defaultMessageLocale; }
-export const localeMessages = { "zh-CN": { new: "新建", edit: "编辑", view: "查看", back: "返回列表", delete: "删除", batchDelete: "批量删除", actions: "操作", visibleColumns: "显示列", confirmDelete: "确认删除选中记录？", deleted: "删除成功", unknownResource: "未知资源", detail: "详情", language: "语言", save: "保存", cancel: "取消", deleteSuccess: "删除成功", quickAccess: "快速访问", upload: "上传文件" }, "en-US": { new: "New", edit: "Edit", view: "View", back: "Back to list", delete: "Delete", batchDelete: "Batch delete", actions: "Actions", visibleColumns: "Columns", confirmDelete: "Delete selected records?", deleted: "Deleted", unknownResource: "Unknown resource", detail: "Detail", language: "Language", save: "Save", cancel: "Cancel", deleteSuccess: "Deleted", quickAccess: "Quick access", upload: "Upload file" } } as const;
+export const localeMessages = { "zh-CN": { new: "新建", edit: "编辑", view: "查看", back: "返回列表", delete: "删除", batchDelete: "批量删除", actions: "操作", visibleColumns: "显示列", confirmDelete: "确认删除选中记录？", deleted: "删除成功", unknownResource: "未知资源", detail: "详情", language: "语言", save: "保存", cancel: "取消", deleteSuccess: "删除成功", quickAccess: "快速访问", upload: "上传文件", overview: "概览", overviewDescription: "从数据资源快速进入业务管理。", profile: "个人中心", filters: "筛选", search: "搜索", matchAll: "全部满足", matchAny: "任一满足", commaSeparated: "（逗号分隔）", forbidden: "没有访问该页面的权限", noData: "暂无数据", vectorData: "向量数据" }, "en-US": { new: "New", edit: "Edit", view: "View", back: "Back to list", delete: "Delete", batchDelete: "Batch delete", actions: "Actions", visibleColumns: "Columns", confirmDelete: "Delete selected records?", deleted: "Deleted", unknownResource: "Unknown resource", detail: "Detail", language: "Language", save: "Save", cancel: "Cancel", deleteSuccess: "Deleted", quickAccess: "Quick access", upload: "Upload file", overview: "Overview", overviewDescription: "Jump into your data resources from one place.", profile: "Profile", filters: "Filters", search: "Search", matchAll: "Match all", matchAny: "Match any", commaSeparated: " (comma separated)", forbidden: "You are not allowed to open this page", noData: "No data", vectorData: "Vector data" } } as const;
+/** Localized filter operator names; project messages can override every entry with qiy.filters.mode.<mode>. */
+export const filterModeMessages: Record<QiyLocale, Record<string, string>> = {
+  "zh-CN": { eq: "等于", contains: "包含", startsWith: "开头是", endsWith: "结尾是", gt: "大于", gte: "大于等于", lt: "小于", lte: "小于等于", between: "介于", in: "属于" },
+  "en-US": { eq: "Equals", contains: "Contains", startsWith: "Starts with", endsWith: "Ends with", gt: "Greater than", gte: "Greater than or equal", lt: "Less than", lte: "Less than or equal", between: "Between", in: "In" },
+};
+export function filterModeLabel(locale: QiyLocale, mode: string): string { return projectMessage(locale, "qiy.filters.mode." + mode) ?? filterModeMessages[locale === "zh-CN" ? "zh-CN" : "en-US"][mode] ?? mode; }
+/** Language choice survives reloads; an unknown stored value falls back to the generated default. */
+export const localeStorageKey = "qiy.locale";
+type LocaleStorage = Pick<Storage, "getItem" | "setItem">;
+function localeStorage(): LocaleStorage | undefined { try { return typeof window === "undefined" ? undefined : window.localStorage; } catch { return undefined; } }
+export function readStoredLocale(fallback: QiyLocale = defaultMessageLocale, storage: Pick<Storage, "getItem"> | undefined = localeStorage()): QiyLocale { try { return resolveLocale(storage?.getItem(localeStorageKey) ?? fallback); } catch { return resolveLocale(fallback); } }
+export function storeLocale(locale: QiyLocale, storage: LocaleStorage | undefined = localeStorage()): void { try { storage?.setItem(localeStorageKey, locale); } catch { /* quota or private mode */ } }
 export const refineMessages: Record<QiyLocale, Record<string, string>> = {
   "zh-CN": { "buttons.logout": "退出登录", "buttons.create": "新建", "buttons.save": "保存", "buttons.delete": "删除", "buttons.edit": "编辑", "buttons.show": "查看", "buttons.cancel": "取消", "buttons.confirm": "确认", "buttons.refresh": "刷新", "buttons.search": "搜索", "buttons.filter": "筛选", "buttons.clear": "清除", "buttons.export": "导出", "buttons.import": "导入", "warnWhenUnsavedChanges": "更改尚未保存，确定离开吗？" },
   "en-US": { "buttons.logout": "Log out", "buttons.create": "Create", "buttons.save": "Save", "buttons.delete": "Delete", "buttons.edit": "Edit", "buttons.show": "View", "buttons.cancel": "Cancel", "buttons.confirm": "Confirm", "buttons.refresh": "Refresh", "buttons.search": "Search", "buttons.filter": "Filter", "buttons.clear": "Clear", "buttons.export": "Export", "buttons.import": "Import", "warnWhenUnsavedChanges": "You have unsaved changes. Leave this page?" },
@@ -1266,10 +1336,11 @@ export function createI18nProvider(locale: QiyLocale, setLocale?: (next: QiyLoca
   };
 }
 `,
-    "web/app/components/resource-page-guard.tsx": `import { CanAccess } from "@refinedev/core";
+    "web/app/components/resource-page-guard.tsx": `import { CanAccess, useTranslation } from "@refinedev/core";
 import { Result } from "antd";
 import { useParams } from "react-router";
 import { Outlet } from "react-router";
+import { resolveLocale } from "../i18n";
 
 export type ResourcePageAction = "list" | "create" | "show" | "edit";
 
@@ -1280,8 +1351,10 @@ export type ResourcePageAction = "list" | "create" | "show" | "edit";
  */
 export function ResourcePageGuard({ action }: { action: ResourcePageAction }) {
   const { resource } = useParams();
+  const { getLocale, translate } = useTranslation();
+  const locale = resolveLocale(getLocale());
   if (!resource) return <Outlet />;
-  return <CanAccess resource={resource} action={action} fallback={<Result status="403" title="403" subTitle="没有访问该页面的权限 / You are not allowed to open this page" />}><Outlet /></CanAccess>;
+  return <CanAccess resource={resource} action={action} fallback={<Result status="403" title="403" subTitle={translate("qiy.forbidden", {}, locale === "zh-CN" ? "没有访问该页面的权限" : "You are not allowed to open this page")} />}><Outlet /></CanAccess>;
 }
 `,
     "web/app/routes/guard-list.tsx": `import { ResourcePageGuard } from "../components/resource-page-guard";
@@ -1309,11 +1382,11 @@ import { useColumnVisibility } from "../hooks/use-column-visibility";
 import { qiyIcons } from "../icons";
 import { downloadExport, exportUrl, startImport, waitForImport } from "../export";
 import { deleteSavedView, listSavedViews, saveView } from "../views";
-import { t, type QiyLocale } from "../i18n";
+import { t, filterModeLabel, resolveLocale, type QiyLocale } from "../i18n";
 import { downloadFile } from "../hooks/download-file";
 import type { BaseRecord } from "@refinedev/core";
 
-function renderCell(field: { name: string; type: string; enumValues?: Array<{ name: string; label?: string; color?: string; icon?: string; comment?: string; commentKey?: string }> }, value: unknown, notify: ReturnType<typeof useNotification>["open"], translate: ReturnType<typeof useTranslation>["translate"]) {
+function renderCell(field: { name: string; type: string; enumValues?: Array<{ name: string; label?: string; labelKey: string; color?: string; icon?: string; comment?: string; commentKey?: string }> }, value: unknown, notify: ReturnType<typeof useNotification>["open"], translate: ReturnType<typeof useTranslation>["translate"]) {
   if (value === null || value === undefined || value === "") return "—";
   if (field.type === "File") return <Typography.Link onClick={() => void downloadFile(String(value)).catch((error) => { notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) }); })}>{String(value)}</Typography.Link>;
   if (field.type === "Files") {
@@ -1322,13 +1395,13 @@ function renderCell(field: { name: string; type: string; enumValues?: Array<{ na
     return <Space wrap>{keys.map((key) => <Typography.Link key={key} onClick={() => void downloadFile(key).catch((error) => { notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) }); })}>{key.split("/").pop()}</Typography.Link>)}</Space>;
   }
   const enumValue = field.enumValues?.find((item) => item.name === String(value));
-  if (enumValue) { const Icon = enumValue.icon ? qiyIcons[enumValue.icon as keyof typeof qiyIcons] : undefined; const comment = enumValue.commentKey ? translate(enumValue.commentKey, {}, enumValue.comment) : enumValue.comment; return <Tag title={comment} color={enumValue.color} icon={Icon ? <Icon /> : undefined}>{enumValue.label ?? enumValue.name}</Tag>; }
+  if (enumValue) { const Icon = enumValue.icon ? qiyIcons[enumValue.icon as keyof typeof qiyIcons] : undefined; const comment = enumValue.commentKey ? translate(enumValue.commentKey, {}, enumValue.comment) : enumValue.comment; return <Tag title={comment} color={enumValue.color} icon={Icon ? <Icon /> : undefined}>{translate(enumValue.labelKey, {}, enumValue.label ?? enumValue.name)}</Tag>; }
   if (field.name.toLowerCase().includes("status") || field.name.toLowerCase() === "role") return <Typography.Text code>{String(value)}</Typography.Text>;
   if (field.type === "Money" || field.type === "Decimal") return Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return String(value);
 }
 export default function ResourceList() {
-  const { resource: name } = useParams(); const resource = getResource(name); const { translate, getLocale } = useTranslation(); const { open: notify } = useNotification(); const { data: identity } = useGetIdentity<{ role?: string }>(); const locale: QiyLocale = getLocale() === "en-US" ? "en-US" : "zh-CN";
+  const { resource: name } = useParams(); const resource = getResource(name); const { translate, getLocale } = useTranslation(); const { open: notify } = useNotification(); const { data: identity } = useGetIdentity<{ role?: string }>(); const locale: QiyLocale = resolveLocale(getLocale());
   const { tableProps, tableQuery, setFilters, setSorters, filters, sorters } = useTable<Record<string, unknown>>({ resource: name ?? "", pagination: { currentPage: 1, pageSize: 10 }, syncWithLocation: true, queryOptions: { enabled: !!resource } });
   const { mutateAsync: removeMany } = useDeleteMany(); const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [exporting, setExporting] = useState(false);
@@ -1368,7 +1441,7 @@ export default function ResourceList() {
   const fields = resource.fields.filter((field) => field.type !== "Vector" && visibleKeys.includes(field.name) && canSeeField(field, identity?.role));
   const columns: ColumnsType<Record<string, unknown>> = fields.map((field) => {
     const Icon = field.icon ? qiyIcons[field.icon as keyof typeof qiyIcons] : undefined;
-    return { title: <Space>{Icon && <Icon />}<span>{field.label}</span></Space>, dataIndex: field.name, key: field.name, sorter: field.sortable, render: (value: unknown) => renderCell(field, value, notify, translate) };
+    return { title: <Space>{Icon && <Icon />}<span>{translate(field.labelKey, {}, field.label)}</span></Space>, dataIndex: field.name, key: field.name, sorter: field.sortable, render: (value: unknown) => renderCell(field, value, notify, translate) };
   });
   columns.push({ title: t(locale, "actions"), key: "actions", fixed: "right", render: (_value, record) => <Space>
     <ShowButton resource={resource.name} recordItemId={String(record.id)} hideText />
@@ -1377,9 +1450,9 @@ export default function ResourceList() {
   </Space> });
   const deleteSelected = async () => { await removeMany({ resource: resource.name, ids: selectedRowKeys.map(String) }); setSelectedRowKeys([]); notify?.({ type: "success", message: t(locale, "deleteSuccess") }); };
   const applyFilters = (nextSearch = search, nextEnums = enumFilters, nextAdvanced = advancedFilters, nextAdvancedJoin = advancedJoin) => { const filters: Array<{ field: string; operator: string; value: string | string[] } | { operator: "and" | "or"; value: Array<{ field: string; operator: string; value: string | string[] }> }> = nextSearch ? [{ field: "__search", operator: "contains", value: nextSearch }] : []; for (const [field, value] of Object.entries(nextEnums)) if (value) filters.push({ field, operator: "eq", value }); const advanced = Object.entries(nextAdvanced).flatMap(([field, condition]) => !condition.value ? [] : [{ field, operator: condition.operator, value: condition.operator === "in" || condition.operator === "between" ? condition.value.split(",").map((item) => item.trim()) : condition.value }]); if (advanced.length === 1) filters.push(advanced[0]!); else if (advanced.length > 1) filters.push({ operator: nextAdvancedJoin, value: advanced }); setFilters(filters as never); };
-  return <List resource={resource.name} title={<Typography.Title level={3} style={{ margin: 0 }}>{resource.label}</Typography.Title>} headerButtons={() => <Space wrap>${options.readOnly ? "" : '<Upload accept=".csv,text/csv" showUploadList={false} beforeUpload={(file) => { setImporting(true); void startImport(resource.name, file).then(({ jobId }) => waitForImport(resource.name, jobId, { onProgress: (progress) => notify?.({ type: "progress", message: String(progress.processed) + "/" + String(progress.total) + " row(s) imported" }) })).then((job) => { if (job.status === "failed") throw new Error(job.errors[0] ?? "Import failed"); notify?.({ type: "success", message: String(job.processed) + " row(s) imported" }); return tableQuery.refetch(); }).catch((error) => notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) })).finally(() => setImporting(false)); return Upload.LIST_IGNORE; }}><Button icon={<UploadOutlined />} loading={importing}>{translate("qiy.import", {}, "Import CSV")}</Button></Upload>'}<Button icon={<DownloadOutlined />} loading={exporting} onClick={runExport}>{${options.readOnly ? 'translate("qiy.export", {}, "Export CSV")' : 'selectedRowKeys.length > 0 ? translate("qiy.exportSelected", {}, "Export selected") + " (" + selectedRowKeys.length + ")" : translate("qiy.export", {}, "Export CSV")'}}</Button><Dropdown menu={{ items: resource.fields.filter((field) => field.type !== "Vector").map((field) => ({ key: field.name, label: <Checkbox checked={visibleKeys.includes(field.name)} onChange={(event) => setVisibleKeys((keys) => event.target.checked ? [...keys, field.name] : keys.filter((key) => key !== field.name))}>{field.label}</Checkbox> })) }}><Button icon={<SettingOutlined />}>{t(locale, "visibleColumns")}</Button></Dropdown><Select allowClear style={{ minWidth: 160 }} placeholder={translate("qiy.views", {}, "Saved views")} value={activeView} options={[...savedViews.map((view) => ({ value: view.id, label: view.name })), ...serverViews.map((view) => ({ value: "server:" + view.id, label: view.name + " (shared)" }))]} onChange={(value) => applySavedView(value)} /><Popover trigger="click" content={<Space direction="vertical"><Input value={viewName} placeholder={translate("qiy.viewName", {}, "View name")} onChange={(event) => setViewName(event.target.value)} onPressEnter={storeSavedView} /><Button type="primary" disabled={!viewName.trim()} onClick={storeSavedView}>{translate("qiy.save", {}, "Save")}</Button></Space>}><Button icon={<SaveOutlined />}>{translate("qiy.saveView", {}, "Save view")}</Button></Popover>{activeView && <Popover trigger="click" content={<Space direction="vertical"><Button onClick={() => void publishSavedView(false)}>{translate("qiy.saveToServer", {}, "Save to server")}</Button><Button onClick={() => void publishSavedView(true)}>{translate("qiy.shareView", {}, "Share with everyone")}</Button></Space>}><Button icon={<UploadOutlined />}>{translate("qiy.publishView", {}, "Publish view")}</Button></Popover>}
+  return <List resource={resource.name} title={<Typography.Title level={3} style={{ margin: 0 }}>{translate(resource.labelKey, {}, resource.label)}</Typography.Title>} headerButtons={() => <Space wrap>${options.readOnly ? "" : '<Upload accept=".csv,text/csv" showUploadList={false} beforeUpload={(file) => { setImporting(true); void startImport(resource.name, file).then(({ jobId }) => waitForImport(resource.name, jobId, { onProgress: (progress) => notify?.({ type: "progress", message: String(progress.processed) + "/" + String(progress.total) + " row(s) imported" }) })).then((job) => { if (job.status === "failed") throw new Error(job.errors[0] ?? "Import failed"); notify?.({ type: "success", message: String(job.processed) + " row(s) imported" }); return tableQuery.refetch(); }).catch((error) => notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) })).finally(() => setImporting(false)); return Upload.LIST_IGNORE; }}><Button icon={<UploadOutlined />} loading={importing}>{translate("qiy.import", {}, "Import CSV")}</Button></Upload>'}<Button icon={<DownloadOutlined />} loading={exporting} onClick={runExport}>{${options.readOnly ? 'translate("qiy.export", {}, "Export CSV")' : 'selectedRowKeys.length > 0 ? translate("qiy.exportSelected", {}, "Export selected") + " (" + selectedRowKeys.length + ")" : translate("qiy.export", {}, "Export CSV")'}}</Button><Dropdown menu={{ items: resource.fields.filter((field) => field.type !== "Vector").map((field) => ({ key: field.name, label: <Checkbox checked={visibleKeys.includes(field.name)} onChange={(event) => setVisibleKeys((keys) => event.target.checked ? [...keys, field.name] : keys.filter((key) => key !== field.name))}>{translate(field.labelKey, {}, field.label)}</Checkbox> })) }}><Button icon={<SettingOutlined />}>{t(locale, "visibleColumns")}</Button></Dropdown><Select allowClear style={{ minWidth: 160 }} placeholder={translate("qiy.views", {}, "Saved views")} value={activeView} options={[...savedViews.map((view) => ({ value: view.id, label: view.name })), ...serverViews.map((view) => ({ value: "server:" + view.id, label: view.name + " (shared)" }))]} onChange={(value) => applySavedView(value)} /><Popover trigger="click" content={<Space direction="vertical"><Input value={viewName} placeholder={translate("qiy.viewName", {}, "View name")} onChange={(event) => setViewName(event.target.value)} onPressEnter={storeSavedView} /><Button type="primary" disabled={!viewName.trim()} onClick={storeSavedView}>{translate("qiy.save", {}, "Save")}</Button></Space>}><Button icon={<SaveOutlined />}>{translate("qiy.saveView", {}, "Save view")}</Button></Popover>{activeView && <Popover trigger="click" content={<Space direction="vertical"><Button onClick={() => void publishSavedView(false)}>{translate("qiy.saveToServer", {}, "Save to server")}</Button><Button onClick={() => void publishSavedView(true)}>{translate("qiy.shareView", {}, "Share with everyone")}</Button></Space>}><Button icon={<UploadOutlined />}>{translate("qiy.publishView", {}, "Publish view")}</Button></Popover>}
     {activeView && <Button danger onClick={removeSavedView}>{translate("qiy.deleteView", {}, "Delete view")}</Button>}${Object.keys(treeEntities).length ? `{${JSON.stringify(Object.keys(treeEntities))}.includes(resource.name) && <Link to={"/" + resource.name + "/tree"}><Button>{translate("qiy.treeView", {}, "Tree view")}</Button></Link>}` : ""}<CreateButton resource={resource.name}>{t(locale, "new")}</CreateButton></Space>}>
-    <div className="qiy-list-filters" role="search" aria-label={locale === "zh-CN" ? "筛选" : "Filters"}><Input.Search allowClear value={search} placeholder={locale === "zh-CN" ? "搜索" : "Search"} onChange={(event) => setSearch(event.target.value)} onSearch={(value) => { setSearch(value); applyFilters(value); }} />{enumFields.map((field) => <Select key={field.name} allowClear value={enumFilters[field.name]} placeholder={field.label} options={field.enumValues?.map((item) => ({ value: item.name, label: item.label ?? item.name }))} onChange={(value) => { const next = { ...enumFilters, [field.name]: value }; setEnumFilters(next); applyFilters(search, next); }} />)}{advancedFields.length > 1 && <Select value={advancedJoin} style={{ minWidth: 116 }} options={[{ value: "and", label: locale === "zh-CN" ? "全部满足" : "Match all" }, { value: "or", label: locale === "zh-CN" ? "任一满足" : "Match any" }]} onChange={(value: "and" | "or") => { setAdvancedJoin(value); applyFilters(search, enumFilters, advancedFilters, value); }} />}{advancedFields.map((field) => { const condition = advancedFilters[field.name] ?? { operator: field.filterModes[0] ?? "eq", value: "" }; return <Space.Compact key={field.name}><Select value={condition.operator} style={{ width: 120 }} options={field.filterModes.map((mode) => ({ value: mode, label: mode }))} onChange={(operator) => { const next = { ...advancedFilters, [field.name]: { ...condition, operator } }; setAdvancedFilters(next); applyFilters(search, enumFilters, next); }} /><Input allowClear value={condition.value} placeholder={field.label + (condition.operator === "in" || condition.operator === "between" ? " (comma separated)" : "")} onChange={(event) => { const next = { ...advancedFilters, [field.name]: { ...condition, value: event.target.value } }; setAdvancedFilters(next); applyFilters(search, enumFilters, next); }} /></Space.Compact>; })}</div>
+    <div className="qiy-list-filters" role="search" aria-label={t(locale, "filters")}><Input.Search allowClear value={search} placeholder={t(locale, "search")} onChange={(event) => setSearch(event.target.value)} onSearch={(value) => { setSearch(value); applyFilters(value); }} />{enumFields.map((field) => <Select key={field.name} allowClear value={enumFilters[field.name]} placeholder={translate(field.labelKey, {}, field.label)} options={field.enumValues?.map((item) => ({ value: item.name, label: translate(item.labelKey, {}, item.label ?? item.name) }))} onChange={(value) => { const next = { ...enumFilters, [field.name]: value }; setEnumFilters(next); applyFilters(search, next); }} />)}{advancedFields.length > 1 && <Select value={advancedJoin} style={{ minWidth: 116 }} options={[{ value: "and", label: t(locale, "matchAll") }, { value: "or", label: t(locale, "matchAny") }]} onChange={(value: "and" | "or") => { setAdvancedJoin(value); applyFilters(search, enumFilters, advancedFilters, value); }} />}{advancedFields.map((field) => { const condition = advancedFilters[field.name] ?? { operator: field.filterModes[0] ?? "eq", value: "" }; return <Space.Compact key={field.name}><Select value={condition.operator} style={{ width: 120 }} options={field.filterModes.map((mode) => ({ value: mode, label: filterModeLabel(locale, mode) }))} onChange={(operator) => { const next = { ...advancedFilters, [field.name]: { ...condition, operator } }; setAdvancedFilters(next); applyFilters(search, enumFilters, next); }} /><Input allowClear value={condition.value} placeholder={translate(field.labelKey, {}, field.label) + (condition.operator === "in" || condition.operator === "between" ? t(locale, "commaSeparated") : "")} onChange={(event) => { const next = { ...advancedFilters, [field.name]: { ...condition, value: event.target.value } }; setAdvancedFilters(next); applyFilters(search, enumFilters, next); }} /></Space.Compact>; })}</div>
     {tableQuery.error && <Alert type="error" showIcon message={String(tableQuery.error)} style={{ marginBottom: 16 }} />}
     {deletePermission?.can && selectedRowKeys.length > 0 && <Popconfirm title={t(locale, "confirmDelete")} onConfirm={() => void deleteSelected()}><Button danger icon={<DeleteOutlined />}>{t(locale, "batchDelete")} ({selectedRowKeys.length})</Button></Popconfirm>}
     <Table<Record<string, unknown>> {...tableProps} pagination={{ ...tableProps.pagination, showSizeChanger: true, pageSizeOptions: ["10", "20", "50", "100"] }} rowSelection={deletePermission?.can ? { selectedRowKeys, onChange: setSelectedRowKeys } : undefined} rowKey="id" columns={columns} scroll={{ x: "max-content" }} />
@@ -1505,6 +1578,70 @@ test("implements Refine translation overloads, interpolation and asynchronous lo
   expect(createI18nProvider("en-US").getLocale()).toBe("en-US");
 });
 `,
+    "web/tests/model-i18n.test.ts": `import { expect, test } from "bun:test";
+import { createI18nProvider, filterModeLabel, readStoredLocale, resolveLocale, storeLocale, supportedLocales, t } from "../app/i18n";
+import { defaultMessageLocale, projectMessages } from "../app/messages";
+import { enumerations, menuGroups, resources } from "../app/resources";
+import { dashboardMetrics } from "../app/dashboard";
+${actionDefinitions.length ? 'import { qiyActions } from "../app/actions";\n' : ""}
+interface LabelEntry { key: string; fallback: string }
+const labels: LabelEntry[] = [
+  ...resources.map((resource) => ({ key: resource.labelKey ?? "", fallback: resource.label })),
+  ...resources.flatMap((resource) => resource.fields.map((field) => ({ key: field.labelKey ?? "", fallback: field.label }))),
+  ...resources.flatMap((resource) => (resource.relatedResources ?? []).map((relation) => ({ key: relation.labelKey ?? "", fallback: relation.label }))),
+  ...menuGroups.map((group) => ({ key: group.labelKey, fallback: group.label })),
+  ...dashboardMetrics.map((metric) => ({ key: metric.labelKey ?? "", fallback: metric.label })),
+${actionDefinitions.length ? `  ...qiyActions.flatMap((action) => [
+    { key: action.labelKey ?? "", fallback: action.label },
+    ...(action.target.kind === "dataflow" ? [
+      ...(action.target.confirmKey ? [{ key: action.target.confirmKey, fallback: action.target.confirm ?? "" }] : []),
+      ...action.target.inputs.map((input) => ({ key: input.labelKey, fallback: input.comment ?? input.name })),
+    ] : []),
+  ]),
+` : ""}];
+
+test("every model-derived label has a stable key and resolves through project messages", () => {
+  const providers = Object.fromEntries(supportedLocales.map((locale) => [locale, createI18nProvider(locale)]));
+  for (const { key, fallback } of labels) {
+    expect(key).toMatch(/^qiy\\.(resources|enums|menu|dashboard|actions)\\./);
+    for (const locale of supportedLocales) {
+      const expected = projectMessages[locale]?.[key] ?? projectMessages[defaultMessageLocale]?.[key] ?? fallback;
+      expect(providers[locale]!.translate(key, {}, fallback)).toBe(expected);
+    }
+  }
+  // The old raw label stays the default when a translation is missing.
+  expect(createI18nProvider(defaultMessageLocale).translate("qiy.resources.__missing__.label", {}, "Fallback label")).toBe("Fallback label");
+});
+
+test("enum values, menu groups and dashboard metrics carry translation keys", () => {
+  for (const enumeration of enumerations) {
+    expect(enumeration.labelKey).toBe("qiy.enums." + enumeration.name + ".label");
+    for (const value of enumeration.values) expect(value.labelKey).toBe("qiy.enums." + enumeration.name + ".values." + value.name);
+  }
+  for (const resource of resources) {
+    expect(resource.labelKey).toBe("qiy.resources." + resource.name + ".label");
+    for (const field of resource.fields) expect(field.labelKey).toBe("qiy.resources." + resource.name + ".fields." + field.name + ".label");
+  }
+  for (const metric of dashboardMetrics) expect(metric.labelKey).toBe("qiy.dashboard." + metric.name + ".label");
+  for (const mode of ["eq", "contains", "between"]) expect(filterModeLabel("zh-CN", mode).length).toBeGreaterThan(0);
+});
+
+test("locale switching stores the choice and survives a reload", async () => {
+  const storage = new Map<string, string>();
+  const fake = { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value); } };
+  expect(readStoredLocale(defaultMessageLocale, fake)).toBe(defaultMessageLocale);
+  const target = supportedLocales.find((locale) => locale !== defaultMessageLocale) ?? defaultMessageLocale;
+  let current = defaultMessageLocale;
+  const provider = createI18nProvider(defaultMessageLocale, (next) => { current = next; storeLocale(next, fake); });
+  await provider.changeLocale(target);
+  expect(current).toBe(target);
+  expect(readStoredLocale(defaultMessageLocale, fake)).toBe(target);
+  expect(resolveLocale(readStoredLocale(defaultMessageLocale, fake))).toBe(target);
+  storeLocale("not-a-declared-locale", fake);
+  expect(readStoredLocale(defaultMessageLocale, fake)).toBe(defaultMessageLocale);
+  expect(t(defaultMessageLocale, "new").length).toBeGreaterThan(0);
+});
+${localeSwitchTest}`,
     "web/tests/export.test.ts": `import { describe, expect, test } from "bun:test";
 import { downloadExport, encodeExportFilters, exportUrl, uploadImport } from "../app/export";
 
@@ -1629,7 +1766,6 @@ test("Refine custom command preserves the localized API error contract", async (
 `;
   }
   if (options.messages) {
-    generated["web/app/root.tsx"] = generated["web/app/root.tsx"]!.replace('useState<QiyLocale>("zh-CN")', `useState<QiyLocale>(${JSON.stringify(options.messages.defaultLocale)})`);
     generated["web/app/root.tsx"] = generated["web/app/root.tsx"]!.replace('lang="zh-CN"', `lang=${JSON.stringify(options.messages.defaultLocale)}`);
     generated["web/tests/project-messages.test.ts"] = `import { expect, test } from "bun:test";
 import { createI18nProvider, languageOptions, supportedLocales, resolveLocale, getAntdLocale, t } from "../app/i18n";
@@ -1674,6 +1810,8 @@ ${Object.entries(options.messages.locales).flatMap(([locale, entries]) => Object
     .replace('"en-US": enUS };', `"en-US": enUS${extraLocales.map((locale, index) => `, ${JSON.stringify(locale)}: extraLocale${index}`).join("")} };`);
   for (const path of Object.keys(generated)) {
     if (!path.startsWith("web/app/")) continue;
+    // Templates already resolve every locale through resolveLocale; keeps older
+    // inlined template snapshots working when they still hardcode en-US/zh-CN.
     generated[path] = generated[path]!.replaceAll('getLocale() === "en-US" ? "en-US" : "zh-CN"', 'resolveLocale(getLocale())');
     if (generated[path]!.includes("resolveLocale(getLocale())")) generated[path] = generated[path]!.replace('import { t, type QiyLocale }', 'import { t, resolveLocale, type QiyLocale }');
   }
@@ -1683,7 +1821,7 @@ ${Object.entries(options.messages.locales).flatMap(([locale, entries]) => Object
       .replace('resource === "users"', `resource === ${JSON.stringify(userTable)}`)
       .replace('if (identity.role === "admin")', 'if (action === "audit") return { can: identity.role === "admin" }; if (identity.role === "admin")');
     generated["web/tests/auth.test.ts"] = generated["web/tests/auth.test.ts"]!.replaceAll('resource: "users"', `resource: ${JSON.stringify(userTable)}`).replaceAll('resource === "users"', `resource === ${JSON.stringify(userTable)}`);
-    generated["web/app/root.tsx"] = 'import { auditLogProvider } from "./providers/audit-log-provider";\n' + generated["web/app/root.tsx"]!.replace("authProvider={qiyAuthProvider}", "auditLogProvider={auditLogProvider} authProvider={qiyAuthProvider}").replace("meta: { label: resource.label", "meta: { audit: [], label: resource.label");
+    generated["web/app/root.tsx"] = 'import { auditLogProvider } from "./providers/audit-log-provider";\n' + generated["web/app/root.tsx"]!.replace("authProvider={qiyAuthProvider}", "auditLogProvider={auditLogProvider} authProvider={qiyAuthProvider}").replace("meta: { label: modelLabel(resource.labelKey, resource.label)", "meta: { audit: [], label: modelLabel(resource.labelKey, resource.label)");
     generated["web/app/routes/show.tsx"] = 'import { AuditHistory } from "../components/audit-history";\n' + generated["web/app/routes/show.tsx"]!.replace('</Show>;', '{id && <CanAccess resource={resource.name} action="audit"><AuditHistory resource={resource.name} recordId={id} /></CanAccess>}</Show>;');
     generated["web/app/providers/audit-log-provider.ts"] = `import type { AuditLogProvider } from "@refinedev/core";
 import { qiyAuthToken } from "../auth";
@@ -2353,14 +2491,14 @@ export default function AuthCallback() {
       usernameLabel: onboardingUsernameLabel,
       hasEmailField: Boolean(onboardingEmailField),
     });
-    generated["web/app/routes/profile.tsx"] = renderProfileRoute({ hasProviderBinding: true });
+    generated["web/app/routes/profile.tsx"] = renderProfileRoute({ hasProviderBinding: true, ...(authRoleEnumName && { roleEnumName: authRoleEnumName }) });
     generated["web/app/routes.ts"] = generated["web/app/routes.ts"]!.replace(
       '  route("auth/login", "./routes/login.tsx"),',
       '  route("auth/login", "./routes/login.tsx"),\n  route("auth/callback", "./routes/auth-callback.tsx"),\n  route("oauth/*", "./routes/oauth-callback.tsx"),\n  route("auth/onboarding", "./routes/auth-onboarding.tsx"),\n  route("profile", "./routes/profile.tsx"),',
     );
   } else if (hasLocalAuth) {
     generated["web/app/auth/account.ts"] = renderAccountWebClient();
-    generated["web/app/routes/profile.tsx"] = renderProfileRoute({ hasProviderBinding: false });
+    generated["web/app/routes/profile.tsx"] = renderProfileRoute({ hasProviderBinding: false, ...(authRoleEnumName && { roleEnumName: authRoleEnumName }) });
     generated["web/app/routes.ts"] = generated["web/app/routes.ts"]!.replace(
       '  index("./routes/home.tsx"),',
       '  index("./routes/home.tsx"),\n  route("profile", "./routes/profile.tsx"),',
@@ -2372,7 +2510,7 @@ export default function AuthCallback() {
     generated["web/app/root.tsx"] = generated["web/app/root.tsx"]!
       .replace('import { Select, Space, Typography, theme } from "antd";', 'import { Button, Select, Space, Typography, theme } from "antd";')
       .replace('import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";', 'import { Link, Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";')
-      .replace("    <QiyThemeControls />", '    <Link to="/profile"><Button type="link">Profile</Button></Link>\n    <QiyThemeControls />');
+      .replace("    <QiyThemeControls />", '    <Link to="/profile"><Button type="link">{translate("qiy.profile", {}, "Profile")}</Button></Link>\n    <QiyThemeControls />');
   }
 
   return generated;
@@ -2677,8 +2815,15 @@ ${emailField}        <Form.Item name="password" label="Password" rules={[{ requi
  * the linked sign-in methods with bind/unbind controls. Works for local-only
  * accounts too; the provider list is simply empty there.
  */
-function renderProfileRoute(options: { hasProviderBinding: boolean }): string {
+function renderProfileRoute(options: { hasProviderBinding: boolean; roleEnumName?: string }): string {
   const bindImport = options.hasProviderBinding ? 'import { beginProviderBind } from "../auth/oidc-multi";\n' : "";
+  // The role tag is model data: resolve it through the declared role enum's value keys.
+  const roleKey = options.roleEnumName ? `qiy.enums.${options.roleEnumName}.values.` : undefined;
+  const coreImport = roleKey ? 'import { useLogout, useNotification, useTranslation } from "@refinedev/core";' : 'import { useLogout, useNotification } from "@refinedev/core";';
+  const translateHook = roleKey ? "  const { translate } = useTranslation();\n" : "";
+  const roleTag = roleKey
+    ? `<Tag color="blue">{translate(${JSON.stringify(roleKey)} + identities.user.role, {}, identities.user.role)}</Tag>`
+    : `<Tag color="blue">{identities.user.role}</Tag>`;
   const providerSection = options.hasProviderBinding
     ? `    <Card title="Linked sign-in methods">
       <List<QiyIdentityProvider> dataSource={identities.providers} locale={{ emptyText: "No OAuth providers configured" }} renderItem={(provider) => <List.Item actions={provider.bound
@@ -2689,7 +2834,7 @@ function renderProfileRoute(options: { hasProviderBinding: boolean }): string {
     </Card>
 `
     : "";
-  return `import { useLogout, useNotification } from "@refinedev/core";
+  return `${coreImport}
 import { Alert, Button, Card, Descriptions, List, Popconfirm, Space, Spin, Tag, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -2698,7 +2843,7 @@ ${bindImport}import { fetchIdentities, unbindProvider, type QiyIdentities, type 
 export default function Profile() {
   const [searchParams] = useSearchParams();
   const { open } = useNotification();
-  const { mutate: logout } = useLogout();
+${translateHook}  const { mutate: logout } = useLogout();
   const [identities, setIdentities] = useState<QiyIdentities>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState<string>();
@@ -2731,7 +2876,7 @@ export default function Profile() {
         { key: "username", label: "Username", children: identities.user.username },
         { key: "email", label: "Email", children: identities.user.email },
         { key: "name", label: "Name", children: identities.user.name },
-        { key: "role", label: "Role", children: <Tag color="blue">{identities.user.role}</Tag> },
+        { key: "role", label: "Role", children: ${roleTag} },
         { key: "password", label: "Password", children: passwordSet ? <Tag color="green">Set</Tag> : <Tag>Not set</Tag> },
       ]} />
     </Card>

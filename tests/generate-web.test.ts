@@ -1,4 +1,4 @@
-﻿import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { DatabaseIR } from "../tools/database-ir";
 import { generateWeb } from "../tools/generate-web";
 import { parseQiyProject } from "../tools/qiy-project";
@@ -14,12 +14,20 @@ describe("Refine SPA generation", () => {
     expect(files["web/app/root.tsx"]).toContain("QiyUiProvider");
     expect(files["web/app/ui/index.tsx"]).toContain("ConfigProvider");
     expect(files["web/app/ui/index.tsx"]).toContain("QiyThemeControls");
-    expect(files["web/app/root.tsx"]).toContain("meta: { label: resource.label, icon: resolveResourceIcon(resource.icon)");
+    expect(files["web/app/root.tsx"]).toContain("meta: { label: modelLabel(resource.labelKey, resource.label), icon: resolveResourceIcon(resource.icon)");
     expect(files["web/app/data-provider.ts"]).toContain('const api = \"/api/v1\"');
     expect(files["web/package.json"]).toContain("@refinedev/antd");
     expect(files["web/package.json"]).toContain("antd");
     expect(files["web/package.json"]).not.toContain("@mantine/core");
     expect(files["web/app/resources.ts"]).toContain("visible");
+    expect(files["web/app/resources.ts"]).toContain('"labelKey": "qiy.resources.');
+    expect(files["web/app/resources.ts"]).toContain(".fields.");
+    expect(files["web/app/routes/list.tsx"]).toContain("translate(field.labelKey");
+    expect(files["web/app/routes/show.tsx"]).toContain("translate(field.labelKey");
+    expect(files["web/app/routes/home.tsx"]).toContain("translate(metric.labelKey");
+    expect(files["web/app/root.tsx"]).toContain("readStoredLocale()");
+    expect(files["web/app/i18n.ts"]).toContain("localeStorageKey");
+    expect(files["web/app/i18n.ts"]).toContain("storeLocale");
     expect(files["web/app/routes/list.tsx"]).toContain("field.icon ? qiyIcons[field.icon");
     expect(files["web/app/resources.ts"]).toContain("TableOutlined");
     expect(files["web/app/routes/list.tsx"]).toContain("selectedRowKeys");

@@ -1,0 +1,49 @@
+# WMS domain: warehouses, storage bins, stock and shop-floor work orders.
+# Entities only; bin/inventory/movement relations are declared in relations.qiy.
+
+entity warehouses @label("Warehouses") @icon(HomeOutlined) {
+  field id UUID @id;
+  field orgId UUID;
+  field code Text @unique;
+  field name Text;
+  field active activeState;
+}
+
+entity bins @label("Storage bins") @icon(AppstoreOutlined) {
+  field id UUID @id;
+  field warehouseId UUID;
+  field code Text @unique;
+  field capacity Integer;
+}
+
+entity inventory @label("Inventory") @icon(DatabaseOutlined) {
+  field id UUID @id;
+  field inventoryKey Text @unique;
+  field warehouseId UUID;
+  field binId UUID;
+  field productId UUID;
+  field quantity Integer;
+  field reserved Integer;
+  field lotCode Text @nullable;
+  field updatedAt DateTime @nullable;
+}
+
+entity stock_movements @label("Stock movements") @icon(SwapOutlined) {
+  field id UUID @id;
+  field productId UUID;
+  field warehouseId UUID;
+  field binId UUID;
+  field type movementType;
+  field quantity Integer;
+  field reference Text @nullable;
+  field occurredAt DateTime @nullable;
+}
+
+entity work_orders @label("Work orders") @icon(ToolOutlined) {
+  field id UUID @id;
+  field number Text @unique;
+  field productId UUID;
+  field quantity Integer;
+  field status workStatus;
+  field plannedAt DateTime;
+}

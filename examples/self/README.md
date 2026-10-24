@@ -28,6 +28,59 @@ auth {
 }
 ```
 
+## 模块化模型
+
+模型不再是一个单文件：`app.qiy` 只保留 `application` 头、`database` / `api` / `realtime` / `auth` 配置和 `include` 语句，其余内容按领域拆到 `modules/`：
+
+```text
+examples/self/app.qiy                 # 配置 + include + scope/restrict
+examples/self/modules/platform.qiy    # 共享 enum + auth users 实体
+examples/self/modules/scm/entities.qiy  # 组织、供应商、客户、产品、BOM
+examples/self/modules/erp/entities.qiy  # 采购单/行、收货、销售单/行、发运
+examples/self/modules/wms/entities.qiy  # 仓库、库位、库存、库存流水、工单
+examples/self/modules/relations.qiy   # 全部 relation（必须在所有实体之后）
+examples/self/modules/messages.qiy    # zh-CN / en-US 完整词典
+examples/self/modules/pages.qiy       # 页面级角色规则（在 scope/restrict 之后）
+examples/self/modules/dashboard.qiy   # 仪表盘指标
+examples/self/modules/dataflows.qiy   # 事务型业务命令
+examples/self/modules/actions.qiy     # 绑定到 dataflow 的列表/详情按钮
+```
+
+被引入的文件是 application 片段，不写 `qiy v0;` / `application {}`。展开后的模型仍必须满足 V0 的声明顺序，因此 `app.qiy` 按如下顺序 include：
+
+```qiy
+include "modules/messages.qiy";        // messages 在配置块之后、enum/entity 之前
+include "modules/platform.qiy";        // enum + users
+include "modules/scm/entities.qiy";
+include "modules/erp/entities.qiy";
+include "modules/wms/entities.qiy";
+include "modules/relations.qiy";       // 所有 relation 在实体之后
+scope warehouses orgId claim org.id;   // scope/restrict 留在主文件
+restrict products { ... }
+include "modules/pages.qiy";           // pages 在 restrict 之后
+include "modules/dashboard.qiy";
+include "modules/dataflows.qiy";
+include "modules/actions.qiy";
+```
+
+`include` 路径只能使用项目根目录内的相对 `.qiy` 路径，循环引用、`..` 穿越和符号链接逃逸都会在生成前报错；`include "modules/messages.qiy" @messages;` 可以只导入目标文件唯一的顶层 `messages` 块。回归测试见 `tests/qiy-include.test.ts` 与 `tests/example-modules.test.ts`（后者断言模块拆分后实体/字段/关系/动作数量与拆分前一致）。
+
+## 多语言（zh-CN / en-US）
+
+`modules/messages.qiy` 为模型里所有会被界面渲染的字符串提供完整中英词典；生成页面不再直接渲染裸 label，而是用稳定 key 查词典、缺失时回退到 DSL 里声明的原文：
+
+| Key | 覆盖内容 |
+| --- | --- |
+| `qiy.resources.<resource>.label` | 菜单、面包屑、列表/表单/详情页标题 |
+| `qiy.resources.<resource>.fields.<field>.label` | 列表列头、详情 label、表单 label、筛选占位符 |
+| `qiy.enums.<enum>.label` / `qiy.enums.<enum>.values.<value>` | 枚举值 Tag、下拉选项 |
+| `qiy.menu.<group>.label` | 菜单分组（本示例没有 menu 块） |
+| `qiy.dashboard.<metric>.label` | 仪表盘指标卡 |
+| `qiy.actions.<action>.label` / `.confirm` / `.inputs.<input>.label` | 业务命令按钮、确认框、命令表单字段 |
+| `errors.*`（本示例自定义） | `@error(t("key"))` 业务规则错误：服务端返回默认语言文案 + `errorKey`，前端按当前语言再翻译 |
+
+静态页面文字（列表筛选/导入导出按钮、403 页、概览标题等）同样使用项目词典（`qiy.*` key，缺省走内置中英文）。语言选择写在生成 header 的 Select 中：切换后 Ant Design `ConfigProvider`、Refine i18n、`document.documentElement.lang` 同步更新，选择保存在 `localStorage` 的 `qiy.locale`，刷新后保持；未声明的语言回退到默认语言。生成的 `apps/web/tests/model-i18n.test.ts` 会断言每个模型 label 都有稳定 key、中文/英文词典分别解析、以及切换语言后存储值更新。
+
 ## 生成与运行
 
 ```sh

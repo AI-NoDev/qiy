@@ -158,7 +158,8 @@ test("accepts only matching declared enum inputs and validates all enum literals
   const files = generateProject(project.database, project.name, { dataflows: project.dataflows, actions: project.actions });
   expect(files["apps/server/src/dataflows/index.ts"]).toContain('t.Union([t.Literal("pending"), t.Literal("approved"), t.Literal("rejected")]');
   expect(files["apps/web/app/actions.ts"]).toContain('"value": "approved"');
-  expect(files["apps/web/app/components/business-actions.tsx"]).toContain('<Select options={field.options} />');
+  expect(files["apps/web/app/actions.ts"]).toContain('"labelKey": "qiy.enums.reviewState.values.approved"');
+  expect(files["apps/web/app/components/business-actions.tsx"]).toContain('field.options.map((option) => ({ value: option.value, label: translate(option.labelKey, {}, option.label) }))');
   expect(files["apps/server/tests/dataflow.test.ts"]).toContain('"status": "pending"');
   expect(() => parseQiyProject(source.replace("field decision reviewState", "field decision Text"))).toThrow("same declared enum");
   expect(() => parseQiyProject(source.replace("field decision reviewState", "field decision UnknownState"))).toThrow("unsupported input type");

@@ -36,7 +36,7 @@ test("localized model and dataflow descriptions roundtrip without losing transla
   expect(files["apps/server/src/modules/reviews/reviews.service.ts"]).toContain(" * Review requests");
   expect(files["apps/web/app/resources.ts"]).toContain('"commentKey": "entity.reviews.note"');
   expect(files["apps/web/app/components/resource-form.tsx"]).toContain("tooltip={field.commentKey ? translate(");
-  expect(files["apps/web/app/components/business-actions.tsx"]).toContain("translate(field.commentKey");
+  expect(files["apps/web/app/components/business-actions.tsx"]).toContain("translate(field.labelKey");
   expect(files["apps/web/app/components/business-actions.tsx"]).toContain("action.labelKey ? translate(action.labelKey");
   expect(files["apps/web/app/components/business-actions.tsx"]).toContain("target.confirmKey ? translate(target.confirmKey");
   expect(files["apps/web/app/messages.ts"]).toContain("请说明审核决定");
@@ -98,7 +98,9 @@ test("declares international locales and generates matching Refine and component
   const project = parseQiyProject(text);
   expect(parseQiyProject(serializeQiyProject(project))).toEqual(project);
   const files = generateProject(project.database, project.name, project);
-  expect(files["apps/web/app/root.tsx"]).toContain('useState<QiyLocale>("fr-FR")');
+  expect(files["apps/web/app/root.tsx"]).toContain('lang="fr-FR"');
+  expect(files["apps/web/app/root.tsx"]).toContain("readStoredLocale()");
+  expect(files["apps/web/app/root.tsx"]).toContain("storeLocale(next)");
   expect(files["apps/web/app/root.tsx"]).toContain("options={languageOptions}");
   expect(files["apps/web/app/root.tsx"]).toContain("document.documentElement.dir");
   expect(files["apps/web/app/i18n.ts"]).toContain('antd/locale/fr_FR');

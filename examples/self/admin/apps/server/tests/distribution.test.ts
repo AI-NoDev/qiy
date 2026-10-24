@@ -4,7 +4,7 @@ import { createApp, type Repositories } from "../src/app";
 test("REST and GraphQL expose the full authorized enum distribution", async () => {
   const rows = [{ value: "draft", count: 150 }, { value: "approved", count: 100 }];
   const repository = { distribution: async () => rows, list: async () => ({ data: [], total: 0 }), one: async () => undefined, create: async () => ({}), update: async () => undefined, delete: async () => undefined, deleteMany: async () => [] };
-  const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","warehouses","bins","inventory","stock_movements","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","work_orders"].map((name) => [name, repository])) as unknown as Repositories;
+  const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","warehouses","bins","inventory","stock_movements","work_orders"].map((name) => [name, repository])) as unknown as Repositories;
   const viewer = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: "admin", claims: {"org.id":"00000000-0000-4000-8000-000000000002"} }), false, false);
   const endpoint = "http://localhost/api/v1/users/distribution?field=role";
   expect(await (await viewer.handle(new Request(endpoint))).json()).toEqual(rows);

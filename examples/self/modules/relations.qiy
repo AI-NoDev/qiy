@@ -1,0 +1,24 @@
+# Cross-domain relations. The parser requires every `relation` declaration after
+# every entity, so relations live in their own module included after all domains.
+
+relation userOrg users orgId orgs id one @onDelete(restrict);
+relation warehouseOrg warehouses orgId orgs id one @onDelete(restrict);
+relation binWarehouse bins warehouseId warehouses id one @onDelete(restrict);
+relation inventoryWarehouse inventory warehouseId warehouses id one @onDelete(restrict);
+relation inventoryBin inventory binId bins id one @onDelete(restrict);
+relation inventoryProduct inventory productId products id one @onDelete(restrict);
+relation movementProduct stock_movements productId products id one @onDelete(restrict);
+relation movementWarehouse stock_movements warehouseId warehouses id one @onDelete(restrict);
+relation movementBin stock_movements binId bins id one @onDelete(restrict);
+relation purchaseSupplier purchase_orders supplierId suppliers id one @onDelete(restrict);
+relation purchaseLineOrder purchase_order_lines purchaseOrderId purchase_orders id one @onDelete(cascade);
+relation purchaseLineProduct purchase_order_lines productId products id one @onDelete(restrict);
+relation receiptOrder receipts purchaseOrderId purchase_orders id one @onDelete(restrict);
+relation receiptWarehouse receipts warehouseId warehouses id one @onDelete(restrict);
+relation salesCustomer sales_orders customerId customers id one @onDelete(restrict);
+relation salesLineOrder sales_order_lines salesOrderId sales_orders id one @onDelete(cascade);
+relation salesLineProduct sales_order_lines productId products id one @onDelete(restrict);
+relation shipmentOrder shipments salesOrderId sales_orders id one @onDelete(restrict);
+relation workProduct work_orders productId products id one @onDelete(restrict);
+relation bomProduct boms productId products id one @onDelete(restrict);
+relation bomComponent boms componentId products id one @onDelete(restrict);

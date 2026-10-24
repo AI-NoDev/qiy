@@ -11,16 +11,16 @@ import { SuppliersRoutes } from "./modules/suppliers/suppliers.routes";
 import { CustomersRoutes } from "./modules/customers/customers.routes";
 import { ProductsRoutes } from "./modules/products/products.routes";
 import { BomsRoutes } from "./modules/boms/boms.routes";
-import { WarehousesRoutes } from "./modules/warehouses/warehouses.routes";
-import { BinsRoutes } from "./modules/bins/bins.routes";
-import { InventoryRoutes } from "./modules/inventory/inventory.routes";
-import { Stock_movementsRoutes } from "./modules/stock_movements/stock_movements.routes";
 import { Purchase_ordersRoutes } from "./modules/purchase_orders/purchase_orders.routes";
 import { Purchase_order_linesRoutes } from "./modules/purchase_order_lines/purchase_order_lines.routes";
 import { ReceiptsRoutes } from "./modules/receipts/receipts.routes";
 import { Sales_ordersRoutes } from "./modules/sales_orders/sales_orders.routes";
 import { Sales_order_linesRoutes } from "./modules/sales_order_lines/sales_order_lines.routes";
 import { ShipmentsRoutes } from "./modules/shipments/shipments.routes";
+import { WarehousesRoutes } from "./modules/warehouses/warehouses.routes";
+import { BinsRoutes } from "./modules/bins/bins.routes";
+import { InventoryRoutes } from "./modules/inventory/inventory.routes";
+import { Stock_movementsRoutes } from "./modules/stock_movements/stock_movements.routes";
 import { Work_ordersRoutes } from "./modules/work_orders/work_orders.routes";
 
 export interface Repositories {
@@ -30,16 +30,16 @@ export interface Repositories {
   customers: import("./modules/customers/customers.contract").CustomersRepository;
   products: import("./modules/products/products.contract").ProductsRepository;
   boms: import("./modules/boms/boms.contract").BomsRepository;
-  warehouses: import("./modules/warehouses/warehouses.contract").WarehousesRepository;
-  bins: import("./modules/bins/bins.contract").BinsRepository;
-  inventory: import("./modules/inventory/inventory.contract").InventoryRepository;
-  stock_movements: import("./modules/stock_movements/stock_movements.contract").Stock_movementsRepository;
   purchase_orders: import("./modules/purchase_orders/purchase_orders.contract").Purchase_ordersRepository;
   purchase_order_lines: import("./modules/purchase_order_lines/purchase_order_lines.contract").Purchase_order_linesRepository;
   receipts: import("./modules/receipts/receipts.contract").ReceiptsRepository;
   sales_orders: import("./modules/sales_orders/sales_orders.contract").Sales_ordersRepository;
   sales_order_lines: import("./modules/sales_order_lines/sales_order_lines.contract").Sales_order_linesRepository;
   shipments: import("./modules/shipments/shipments.contract").ShipmentsRepository;
+  warehouses: import("./modules/warehouses/warehouses.contract").WarehousesRepository;
+  bins: import("./modules/bins/bins.contract").BinsRepository;
+  inventory: import("./modules/inventory/inventory.contract").InventoryRepository;
+  stock_movements: import("./modules/stock_movements/stock_movements.contract").Stock_movementsRepository;
   work_orders: import("./modules/work_orders/work_orders.contract").Work_ordersRepository;
 }
 
@@ -61,7 +61,7 @@ export async function createApp(repositories: Repositories, authenticate: Authen
    const configuredOrigins = [] as string[];
    const environmentOrigins = Bun.env.QIY_CORS_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean) ?? [];
    const allowedOrigins = normalizeCorsOrigins(corsOrigins ?? (environmentOrigins.length > 0 ? environmentOrigins : configuredOrigins));
-   const guard = createAuthorizationGuard(authenticate, [{"path":"users","query":"users"},{"path":"orgs","query":"orgs"},{"path":"suppliers","query":"suppliers"},{"path":"customers","query":"customers"},{"path":"products","query":"products"},{"path":"boms","query":"boms"},{"path":"warehouses","query":"warehouses"},{"path":"bins","query":"bins"},{"path":"inventory","query":"inventory"},{"path":"stock_movements","query":"stock_movements"},{"path":"purchase_orders","query":"purchase_orders"},{"path":"purchase_order_lines","query":"purchase_order_lines"},{"path":"receipts","query":"receipts"},{"path":"sales_orders","query":"sales_orders"},{"path":"sales_order_lines","query":"sales_order_lines"},{"path":"shipments","query":"shipments"},{"path":"work_orders","query":"work_orders"},{"path":"files","query":"files"},{"path":"commands","query":"commands","mutations":["runReceiveInventory","runPutawayStock","runReserveStock","runAdjustStock","runShipSalesOrder","runTransferInventory","runCompleteWorkOrder"]}], {"inventory":{"list":["admin","operator"],"show":["admin","operator"],"create":["admin","operator"],"edit":["admin","operator"],"delete":["admin"]},"stock_movements":{"list":["admin","operator"],"show":["admin","operator"],"create":["admin","operator"],"edit":["admin"],"delete":["admin"]},"purchase_orders":{"list":["admin","operator"],"show":["admin","operator"],"create":["admin","operator"],"edit":["admin","operator"],"delete":["admin"]},"sales_orders":{"list":["admin","operator"],"show":["admin","operator"],"create":["admin","operator"],"edit":["admin","operator"],"delete":["admin"]}}, ["/api/v1/auth/providers","/api/v1/auth/exchange","/api/v1/auth/oauth/register"]);
+   const guard = createAuthorizationGuard(authenticate, [{"path":"users","query":"users"},{"path":"orgs","query":"orgs"},{"path":"suppliers","query":"suppliers"},{"path":"customers","query":"customers"},{"path":"products","query":"products"},{"path":"boms","query":"boms"},{"path":"purchase_orders","query":"purchase_orders"},{"path":"purchase_order_lines","query":"purchase_order_lines"},{"path":"receipts","query":"receipts"},{"path":"sales_orders","query":"sales_orders"},{"path":"sales_order_lines","query":"sales_order_lines"},{"path":"shipments","query":"shipments"},{"path":"warehouses","query":"warehouses"},{"path":"bins","query":"bins"},{"path":"inventory","query":"inventory"},{"path":"stock_movements","query":"stock_movements"},{"path":"work_orders","query":"work_orders"},{"path":"files","query":"files"},{"path":"commands","query":"commands","mutations":["runReceiveInventory","runPutawayStock","runReserveStock","runAdjustStock","runShipSalesOrder","runTransferInventory","runCompleteWorkOrder"]}], {"inventory":{"list":["admin","operator"],"show":["admin","operator"],"create":["admin","operator"],"edit":["admin","operator"],"delete":["admin"]},"stock_movements":{"list":["admin","operator"],"show":["admin","operator"],"create":["admin","operator"],"edit":["admin"],"delete":["admin"]},"purchase_orders":{"list":["admin","operator"],"show":["admin","operator"],"create":["admin","operator"],"edit":["admin","operator"],"delete":["admin"]},"sales_orders":{"list":["admin","operator"],"show":["admin","operator"],"create":["admin","operator"],"edit":["admin","operator"],"delete":["admin"]}}, ["/api/v1/auth/providers","/api/v1/auth/exchange","/api/v1/auth/oauth/register"]);
   const routes = (new Elysia({ prefix: "/api/v1" }) as any)
     .get("/health", () => ({ ok: true }))
     .get("/auth/me", async ({ request }: { request: Request }) => authenticate(request))
@@ -71,16 +71,16 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     .use(CustomersRoutes(repositories.customers, authenticate))
     .use(ProductsRoutes(repositories.products, authenticate))
     .use(BomsRoutes(repositories.boms, authenticate))
-    .use(WarehousesRoutes(repositories.warehouses, authenticate))
-    .use(BinsRoutes(repositories.bins, authenticate))
-    .use(InventoryRoutes(repositories.inventory, authenticate))
-    .use(Stock_movementsRoutes(repositories.stock_movements, authenticate))
     .use(Purchase_ordersRoutes(repositories.purchase_orders, authenticate))
     .use(Purchase_order_linesRoutes(repositories.purchase_order_lines, authenticate))
     .use(ReceiptsRoutes(repositories.receipts, authenticate))
     .use(Sales_ordersRoutes(repositories.sales_orders, authenticate))
     .use(Sales_order_linesRoutes(repositories.sales_order_lines, authenticate))
     .use(ShipmentsRoutes(repositories.shipments, authenticate))
+    .use(WarehousesRoutes(repositories.warehouses, authenticate))
+    .use(BinsRoutes(repositories.bins, authenticate))
+    .use(InventoryRoutes(repositories.inventory, authenticate))
+    .use(Stock_movementsRoutes(repositories.stock_movements, authenticate))
     .use(Work_ordersRoutes(repositories.work_orders, authenticate));
  
     const dataflows = includeDataflows ? (await import("./dataflows")).createDataflowRoutes(authenticate) : undefined;
