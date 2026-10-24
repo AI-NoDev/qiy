@@ -233,6 +233,7 @@
     "apps/web/tests/trend.test.ts",
     "apps/web/tests/i18n.test.ts",
     "apps/web/tests/model-i18n.test.ts",
+    "apps/web/tests/chrome-i18n.test.ts",
     "apps/web/tests/export.test.ts",
     "apps/web/tests/data-provider.test.ts",
     "apps/web/tests/actions.test.ts",

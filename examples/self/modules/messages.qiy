@@ -236,8 +236,8 @@ messages {
     "qiy.language" "语言";
     "qiy.filters" "筛选";
     "qiy.search" "搜索";
-    "qiy.matchAll" "全部满足";
-    "qiy.matchAny" "任一满足";
+    "qiy.matchAll" "全部匹配";
+    "qiy.matchAny" "任一匹配";
     "qiy.commaSeparated" "（逗号分隔）";
     "qiy.noData" "暂无数据";
     "qiy.vectorData" "向量数据";

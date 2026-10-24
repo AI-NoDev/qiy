@@ -44,7 +44,8 @@ import { t, resolveLocale, type QiyLocale } from "../i18n";
    const value = result.data?.value;
    const precision = field?.type === "Money" || field?.type === "Decimal" ? 2 : 0;
    const label = field ? translate(field.labelKey, {}, field.label) : metric.field ?? "";
-   return <Col xs={24} sm={12} lg={metric.span}><Card title={<Space><Icon style={{ color: token.colorPrimary }} /><span>{translate(metric.labelKey, {}, metric.label)}</span></Space>} loading={query.isLoading}><MetricDescription metric={metric} />{query.error ? <Typography.Text type="danger">{String(query.error)}</Typography.Text> : <Statistic value={value ?? 0} precision={precision} suffix={<Typography.Text type="secondary" style={{ fontSize: 12 }}>{(metric.agg ?? "sum") + " · " + label}</Typography.Text>} />}{value === null && !query.isLoading && !query.error && <Typography.Text type="secondary">{translate("qiy.noData", {}, "No data")}</Typography.Text>}</Card></Col>;
+   const aggKey = ({ sum: "qiy.aggSum", avg: "qiy.aggAvg", min: "qiy.aggMin", max: "qiy.aggMax" } as const)[metric.agg ?? "sum"];
+   return <Col xs={24} sm={12} lg={metric.span}><Card title={<Space><Icon style={{ color: token.colorPrimary }} /><span>{translate(metric.labelKey, {}, metric.label)}</span></Space>} loading={query.isLoading}><MetricDescription metric={metric} />{query.error ? <Typography.Text type="danger">{String(query.error)}</Typography.Text> : <Statistic value={value ?? 0} precision={precision} suffix={<Typography.Text type="secondary" style={{ fontSize: 12 }}>{translate(aggKey, {}, metric.agg ?? "sum") + " · " + label}</Typography.Text>} />}{value === null && !query.isLoading && !query.error && <Typography.Text type="secondary">{translate("qiy.noData", {}, "No data")}</Typography.Text>}</Card></Col>;
  }
  function ResourceSummary({ metric }: { metric: DashboardMetric }) {
    if (metric.type === "distribution") return <DistributionSummary metric={metric} />;

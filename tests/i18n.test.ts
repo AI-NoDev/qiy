@@ -164,4 +164,61 @@ describe("model-derived i18n keys", () => {
     expect(files["apps/web/tests/project-messages.test.ts"]).toBeUndefined();
     expect(files["apps/web/tests/model-i18n.test.ts"]).toContain("Fallback label");
   });
+
+  test("localizes UI chrome (toolbars, theme controls, auth pages) through the built-in dictionary", () => {
+    const project = parseQiyProject(localizedModel);
+    const files = generateProject(project.database, project.name, project);
+    const i18n = files["apps/web/app/i18n.ts"]!;
+    // Toolbar and saved-view copy.
+    expect(i18n).toContain('import: "导入 CSV"');
+    expect(i18n).toContain('export: "Export CSV"');
+    expect(i18n).toContain('views: "已存视图"');
+    expect(i18n).toContain('saveView: "保存视图"');
+    expect(i18n).toContain('matchAll: "全部匹配"');
+    expect(i18n).toContain('paginationTotal: "第 {{start}}-{{end}} 条，共 {{total}} 条"');
+    expect(i18n).toContain('perPage: "条/页"');
+    // Theme controls.
+    expect(i18n).toContain('themeBlue: "蓝色"');
+    expect(i18n).toContain('themePurple: "紫色"');
+    expect(i18n).toContain('themeGreen: "绿色"');
+    expect(i18n).toContain('themeOrange: "橙色"');
+    expect(i18n).toContain('themeRed: "红色"');
+    expect(i18n).toContain('colorLight: "亮色"');
+    expect(i18n).toContain('colorDark: "暗色"');
+    expect(i18n).toContain('colorSystem: "跟随系统"');
+    // Auth chrome.
+    expect(i18n).toContain('finishAccount: "完成账号创建"');
+    expect(i18n).toContain('linkedMethods: "已关联登录方式"');
+    expect(i18n).toContain('signOut: "退出登录"');
+    // The templates consume those keys instead of English literals.
+    expect(files["apps/web/app/routes/list.tsx"]).toContain('translate("qiy.paginationTotal"');
+    expect(files["apps/web/app/routes/list.tsx"]).toContain('translate("qiy.importProgress"');
+    expect(files["apps/web/app/routes/list.tsx"]).toContain('translate("qiy.importedRows", { rows: job.processed })');
+    expect(files["apps/web/app/routes/list.tsx"]).toContain('locale: { items_per_page: t(locale, "perPage"), page: t(locale, "page") }');
+    expect(files["apps/web/app/ui/index.tsx"]).toContain("translate(themeLabelKey(key)");
+    expect(files["apps/web/app/ui/index.tsx"]).toContain('translate("qiy.colorLight"');
+    expect(files["apps/web/app/ui/index.tsx"]).toContain('translate("qiy.themeColor"');
+    expect(files["apps/web/app/components/resource-page-guard.tsx"]).toContain('translate("qiy.forbidden"');
+    expect(files["apps/web/app/routes/create.tsx"]).toContain('translate("qiy.createForbidden"');
+    expect(files["apps/web/app/routes/edit.tsx"]).toContain('translate("qiy.editForbidden"');
+    // Generated chrome test keeps the keys present in every generated app.
+    expect(files["apps/web/tests/chrome-i18n.test.ts"]).toContain("every chrome key resolves in zh-CN and en-US");
+
+    // Auth onboarding/profile/account chrome only exists when authentication is configured.
+    const authProject = parseQiyProject(`qiy v0;
+application auth-chrome {
+  database sqlite {}
+  auth { providers local, okta; user users; subjectField subject; roleField role; usernameField email; passwordField passwordHash; provider okta { subjectField oktaSubject; } }
+  enum role { value admin; value operator; value viewer; }
+  entity users { field id UUID @id; field subject Text @unique; field oktaSubject Text @nullable @unique; field email Text @unique; field role role; field passwordHash Text @nullable @listVisible(false) @showVisible(false) @formVisible(false); }
+}`);
+    const authFiles = generateProject(authProject.database, authProject.name, authProject);
+    expect(authFiles["apps/web/app/routes/auth-onboarding.tsx"]).toContain('translate("qiy.finishAccount"');
+    expect(authFiles["apps/web/app/routes/auth-onboarding.tsx"]).toContain('translate("qiy.createAccount"');
+    expect(authFiles["apps/web/app/routes/auth-callback.tsx"]).toContain('translate("qiy.completingSignIn"');
+    expect(authFiles["apps/web/app/routes/profile.tsx"]).toContain('translate("qiy.linkedMethods"');
+    expect(authFiles["apps/web/app/routes/profile.tsx"]).toContain('translate("qiy.unlinkLast"');
+    expect(authFiles["apps/web/app/routes/profile.tsx"]).toContain('translate("qiy.signOut"');
+    expect(authFiles["apps/web/app/routes/profile.tsx"]).toContain('translate("qiy.enums.role.values."');
+  });
 });

@@ -50,7 +50,7 @@ function FileInput({ field, resource, resourceId }: { field: ResourceField; reso
     const response = uploadMode === "base64"
       ? await fetch("/api/v1/files/base64", { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ key, fileName: String(file.name ?? "file"), resource, field: field.name, ...(resourceId ? { resourceId } : {}), contentType: file.type || "application/octet-stream", data: await encodeBase64(file) }) })
       : await fetch(`/api/v1/files?${params}`, { method: "POST", body: file, headers });
-    if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
+    if (!response.ok) throw new Error(translate("qiy.uploadFailed", { status: response.status }));
     return key;
   };
   const setKeys = (next: string[]) => form.setFieldValue(field.name, multiple ? next : next[0]);

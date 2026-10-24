@@ -217,8 +217,8 @@ test("switches model descriptions and falls back to the configured default local
   expect(createI18nProvider("zh-CN").translate("qiy.language")).toBe("语言");
   expect(createI18nProvider("zh-CN").translate("qiy.filters")).toBe("筛选");
   expect(createI18nProvider("zh-CN").translate("qiy.search")).toBe("搜索");
-  expect(createI18nProvider("zh-CN").translate("qiy.matchAll")).toBe("全部满足");
-  expect(createI18nProvider("zh-CN").translate("qiy.matchAny")).toBe("任一满足");
+  expect(createI18nProvider("zh-CN").translate("qiy.matchAll")).toBe("全部匹配");
+  expect(createI18nProvider("zh-CN").translate("qiy.matchAny")).toBe("任一匹配");
   expect(createI18nProvider("zh-CN").translate("qiy.commaSeparated")).toBe("（逗号分隔）");
   expect(createI18nProvider("zh-CN").translate("qiy.noData")).toBe("暂无数据");
   expect(createI18nProvider("zh-CN").translate("qiy.vectorData")).toBe("向量数据");

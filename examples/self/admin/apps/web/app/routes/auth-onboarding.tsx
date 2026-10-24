@@ -1,4 +1,5 @@
 import { Alert, Button, Card, Form, Input, Space, Typography } from "antd";
+import { useTranslation } from "@refinedev/core";
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { decodeOnboardingToken, registerOAuthUser } from "../auth/oidc-multi";
@@ -8,10 +9,12 @@ interface OnboardingValues { username: string; email?: string; password: string;
 /**
  * Shown after the first OAuth sign-in for an identity that has no users row.
  * The IdP username/email prefill the form; the user may adjust them and must set
- * a password so the account also works with password login.
+ * a password so the account also works with password login. All copy follows the
+ * active interface language through the generated chrome dictionary.
  */
 export default function AuthOnboarding() {
   const navigate = useNavigate();
+  const { translate } = useTranslation();
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token") ?? "";
   const claims = token ? decodeOnboardingToken(token) : null;
@@ -30,19 +33,19 @@ export default function AuthOnboarding() {
       setSubmitting(false);
     }
   };
-  if (!token) return <main style={{ padding: 40, display: "flex", justifyContent: "center" }}><Card style={{ width: 480 }}><Alert type="error" showIcon message="This onboarding link is invalid or has expired." /><Button style={{ marginTop: 16 }} onClick={() => navigate("/auth/login", { replace: true })}>Back to sign in</Button></Card></main>;
+  if (!token) return <main style={{ padding: 40, display: "flex", justifyContent: "center" }}><Card style={{ width: 480 }}><Alert type="error" showIcon message={translate("qiy.onboardingInvalid", {}, "This onboarding link is invalid or has expired.")} /><Button style={{ marginTop: 16 }} onClick={() => navigate("/auth/login", { replace: true })}>{translate("qiy.backToSignIn", {}, "Back to sign in")}</Button></Card></main>;
   return <main style={{ padding: 40, display: "flex", justifyContent: "center" }}><Card style={{ width: 480 }}>
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-      <Typography.Title level={3} style={{ margin: 0 }}>Finish creating your account</Typography.Title>
-      <Typography.Text type="secondary">{claims?.provider ? "Signed in with " + claims.provider + ". " : ""}Confirm the account details and choose a password.</Typography.Text>
+      <Typography.Title level={3} style={{ margin: 0 }}>{translate("qiy.finishAccount", {}, "Finish creating your account")}</Typography.Title>
+      <Typography.Text type="secondary">{claims?.provider ? translate("qiy.signedInWith", { provider: claims.provider }) : ""}{translate("qiy.confirmAccount", {}, "Confirm the account details and choose a password.")}</Typography.Text>
       {error ? <Alert type="error" showIcon message={error} /> : null}
       <Form layout="vertical" initialValues={{ username: initialUsername, email: initialEmail, password: "", confirmPassword: "" }} onFinish={(values) => void submit(values as OnboardingValues)}>
-        <Form.Item name="username" label="Email" rules={[{ required: true, message: "This field is required" }]}><Input autoComplete="username" /></Form.Item>
-        <Form.Item name="password" label="Password" rules={[{ required: true, min: 8, message: "Use at least 8 characters" }]}><Input.Password autoComplete="new-password" /></Form.Item>
-        <Form.Item name="confirmPassword" label="Confirm password" dependencies={["password"]} rules={[{ required: true }, ({ getFieldValue }) => ({ validator: (_, value: string) => value === getFieldValue("password") ? Promise.resolve() : Promise.reject(new Error("Passwords do not match")) })]}><Input.Password autoComplete="new-password" /></Form.Item>
-        <Button type="primary" htmlType="submit" block loading={submitting}>Create account and sign in</Button>
+        <Form.Item name="username" label={translate("qiy.email", {}, "Email")} rules={[{ required: true, message: translate("qiy.fieldRequired", {}, "This field is required") }]}><Input autoComplete="username" /></Form.Item>
+        <Form.Item name="password" label={translate("qiy.password", {}, "Password")} rules={[{ required: true, min: 8, message: translate("qiy.passwordMin", {}, "Use at least 8 characters") }]}><Input.Password autoComplete="new-password" /></Form.Item>
+        <Form.Item name="confirmPassword" label={translate("qiy.confirmPassword", {}, "Confirm password")} dependencies={["password"]} rules={[{ required: true }, ({ getFieldValue }) => ({ validator: (_, value: string) => value === getFieldValue("password") ? Promise.resolve() : Promise.reject(new Error(translate("qiy.passwordMismatch", {}, "Passwords do not match"))) })]}><Input.Password autoComplete="new-password" /></Form.Item>
+        <Button type="primary" htmlType="submit" block loading={submitting}>{translate("qiy.createAccount", {}, "Create account and sign in")}</Button>
       </Form>
-      <Typography.Text type="secondary">Already have an account with a password? <Typography.Link onClick={() => navigate("/auth/login", { replace: true })}>Sign in</Typography.Link> and link this provider from your profile.</Typography.Text>
+      <Typography.Text type="secondary">{translate("qiy.alreadyHaveAccount", {}, "Already have an account with a password?")} <Typography.Link onClick={() => navigate("/auth/login", { replace: true })}>{translate("qiy.signInAction", {}, "Sign in")}</Typography.Link> {translate("qiy.linkProviderHint", {}, "Sign in and link this provider from your profile.")}</Typography.Text>
     </Space>
   </Card></main>;
 }

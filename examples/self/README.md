@@ -79,7 +79,7 @@ include "modules/actions.qiy";
 | `qiy.actions.<action>.label` / `.confirm` / `.inputs.<input>.label` | 业务命令按钮、确认框、命令表单字段 |
 | `errors.*`（本示例自定义） | `@error(t("key"))` 业务规则错误：服务端返回默认语言文案 + `errorKey`，前端按当前语言再翻译 |
 
-静态页面文字（列表筛选/导入导出按钮、403 页、概览标题等）同样使用项目词典（`qiy.*` key，缺省走内置中英文）。语言选择写在生成 header 的 Select 中：切换后 Ant Design `ConfigProvider`、Refine i18n、`document.documentElement.lang` 同步更新，选择保存在 `localStorage` 的 `qiy.locale`，刷新后保持；未声明的语言回退到默认语言。生成的 `apps/web/tests/model-i18n.test.ts` 会断言每个模型 label 都有稳定 key、中文/英文词典分别解析、以及切换语言后存储值更新。
+静态页面文字（列表工具栏/导入导出/已存视图、分页、主题与明暗模式、403 页、个人中心、登录/onboarding 页面等 UI chrome）使用生成器内置的中英词典，项目 `messages` 可用同名 `qiy.*` key 覆盖，缺省回退内置值。语言选择写在生成 header 的 Select 中：切换后 Ant Design `ConfigProvider`、Refine i18n、`document.documentElement.lang` 同步更新，选择保存在 `localStorage` 的 `qiy.locale`，刷新后保持；未声明的语言回退到默认语言。生成的 `apps/web/tests/model-i18n.test.ts` 会断言每个模型 label 都有稳定 key、中文/英文词典分别解析、以及切换语言后存储值更新；`apps/web/tests/chrome-i18n.test.ts` 断言工具栏、主题控件、分页和登录/个人中心 chrome 在中英文下都能解析。
 
 ## 生成与运行
 

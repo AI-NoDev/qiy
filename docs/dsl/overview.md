@@ -132,13 +132,32 @@ messages {
 
 其中 `<resource>` 使用资源名（实体默认取 `table` 名）。生成的 `web/tests/model-i18n.test.ts` 会遍历所有资源、字段、枚举、菜单、Dashboard 指标与命令，断言 key 稳定、词典按语言解析、缺失时回退原文；仓库侧 `tests/example-modules.test.ts` 校验示例模型的词典完整覆盖全部模型 label。`apps/web/app/i18n.ts` 还提供 `qiy.filters.mode.<mode>`（筛选操作符）等 `qiy.*` 覆盖点。
 
+### 界面 chrome 文案
+
+生成页面自身的操作文案（不来自模型）使用同一套 `qiy.*` 键，并随生成的 `app/i18n.ts` 内置中英文词典一起发布；项目 `messages` 块仍可用相同 key 覆盖。生成的 `web/tests/chrome-i18n.test.ts` 断言这些键在中英文下都能解析。主要分组：
+
+| Key 分组 | 覆盖的界面文案 |
+| --- | --- |
+| `qiy.new` / `qiy.edit` / `qiy.delete` / `qiy.search` / `qiy.visibleColumns` … | 列表工具栏、批量操作、详情/表单按钮 |
+| `qiy.import` / `qiy.export` / `qiy.exportSelected` / `qiy.importProgress` / `qiy.importedRows` | CSV 导入导出按钮、进度与结果通知 |
+| `qiy.views` / `qiy.viewName` / `qiy.saveView` / `qiy.saveToServer` / `qiy.shareView` / `qiy.publishView` / `qiy.saved` / `qiy.deleteView` / `qiy.shared` | 已存视图的下拉、弹层、共享标记与通知 |
+| `qiy.matchAll` / `qiy.matchAny` / `qiy.commaSeparated` / `qiy.filters.mode.*` | 筛选组合与操作符名称 |
+| `qiy.paginationTotal` / `qiy.perPage` / `qiy.page` | 分页总数与每页条数文案 |
+| `qiy.themeColor` / `qiy.themeBlue` … `qiy.themeRed` / `qiy.colorMode` / `qiy.colorLight` / `qiy.colorDark` / `qiy.colorSystem` | Header 主题色与明暗模式控件（品牌名 "Qiy Admin" 不翻译） |
+| `qiy.profileTitle` / `qiy.account` / `qiy.signOut` / `qiy.bind` / `qiy.unbind` / `qiy.unlinkTitle` … | 个人中心、账号信息、绑定/解绑与最后登录方式提示 |
+| `qiy.finishAccount` / `qiy.confirmAccount` / `qiy.fieldRequired` / `qiy.passwordMin` / `qiy.createAccount` … | 首次 OAuth 账号开通表单与校验提示 |
+| `qiy.completingSignIn` / `qiy.providerLoginFailed` / `qiy.multiProviderHint` / `qiy.otp*` / `qiy.oidc*` | 登录/回调/OTP/OIDC 页面文案 |
+| `qiy.forbidden` / `qiy.createForbidden` / `qiy.auditTitle` / `qiy.treeNodesCount` / `qiy.relatedUnknown` | 403 页、页面级权限提示、审计历史、树视图与关联记录 |
+
+这些键的默认值写在生成器的 chrome 词典中（`app/i18n.ts` 的 `localeMessages`），与 Refine 官方键（`buttons.*`、`notifications.*`、`pages.login.*`）一起注入 i18n provider；`t(locale, key)` 会先查项目 `messages` 中的 `qiy.<key>`，再回退内置词典。
+
 ### 语言选择与持久化
 
 语言选择器切换后同时更新 Refine i18n、Ant Design `ConfigProvider` locale 和 `document.documentElement.lang/dir`；选择写入 `localStorage` 的 `qiy.locale`（由生成的 `readStoredLocale` / `storeLocale` 读写），刷新后保持上次选择，未声明或损坏的值回退到 `messages` 的默认语言（无 `messages` 时为 `zh-CN`）。
 
 语言选择器包含内置中英文及模型声明的语言。Ant Design 组件按已声明的语言自动加载中英、日、韩、法、德、西班牙、巴西葡萄牙、俄、埃及阿拉伯、印地、意大利及繁体中文语言包；其他标签的组件暂回退英语。阿拉伯语、波斯语、希伯来语和乌尔都语切换为 RTL，并同步页面 `lang` / `dir`。
 
-当前模型 label（资源、字段、枚举值、菜单、Dashboard、命令与命令输入）已由自动键覆盖，Refine 内置按钮与通知使用预置中英文键；Refine 未预置的功能键、登录/onboarding/个人中心等纯静态页面的固定英文文案，以及第三方组件文案仍需在模型 `messages` 中补充对应 key 才会翻译。四语言完整例子见 [multilingual/app.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/multilingual/app.qiy)，中文/英文全量示例见 [examples/self](https://github.com/AI-NoDev/qiy/blob/main/examples/self/app.qiy)。
+当前模型 label（资源、字段、枚举值、菜单、Dashboard、命令与命令输入）与生成页面的 UI chrome（列表工具栏、已存视图、分页、主题/明暗控件、403 页、个人中心、首次登录 onboarding、登录/回调页面）均已由自动键或内置 chrome 词典覆盖，Refine 内置按钮与通知使用预置中英文键。仍未覆盖的是 Refine/第三方组件自身未预置的文案、登录提供方品牌名等外部数据，以及需要业务自定义的扩展页面文案（可在项目 `messages` 中补充 `qiy.*` 或其他自定义 key）。四语言完整例子见 [multilingual/app.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/multilingual/app.qiy)，中文/英文全量示例见 [examples/self](https://github.com/AI-NoDev/qiy/blob/main/examples/self/app.qiy)。
 
 ## CLI 使用
 

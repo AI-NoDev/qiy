@@ -1,5 +1,6 @@
 import { App, ConfigProvider, Segmented, Select, Space, theme as antdTheme, type ThemeConfig } from "antd";
 import { ThemedLayout, ThemedTitle, useNotificationProvider } from "@refinedev/antd";
+import { useTranslation } from "@refinedev/core";
 import { createContext, useContext, useEffect, useMemo, useState, type ComponentProps } from "react";
 import { qiyUiConfig } from "./theme-config";
 
@@ -77,20 +78,28 @@ export function useQiyUi(): QiyUiState {
 
 export function QiyThemeControls() {
   const { themeKey, colorMode, setThemeKey, setColorMode } = useQiyUi();
-  const themeOptions = qiyUiConfig.themes.map((key) => ({ value: key, label: themeRegistry[key].label }));
+  const { translate } = useTranslation();
+  // Theme and color-mode names are UI chrome: resolve them through the generated
+  // chrome dictionary so they follow the language selector.
+  const themeLabelKey = (key: QiyThemeKey) => "qiy.theme" + key.charAt(0).toUpperCase() + key.slice(1);
+  const themeOptions = qiyUiConfig.themes.map((key) => ({ value: key, label: translate(themeLabelKey(key), {}, themeRegistry[key].label) }));
   return <Space wrap>
     {qiyUiConfig.allowThemeSwitch && themeOptions.length > 1 && <Select
-      aria-label="Theme color"
+      aria-label={translate("qiy.themeColor", {}, "Theme color")}
       value={themeKey}
       onChange={(value) => setThemeKey(value)}
       options={themeOptions}
       style={{ minWidth: 112 }}
     />}
     {qiyUiConfig.allowColorModeSwitch && <Segmented
-      aria-label="Color mode"
+      aria-label={translate("qiy.colorMode", {}, "Color mode")}
       value={colorMode}
       onChange={(value) => setColorMode(value as QiyColorMode)}
-      options={[{ label: "Light", value: "light" }, { label: "Dark", value: "dark" }, { label: "System", value: "system" }]}
+      options={[
+        { label: translate("qiy.colorLight", {}, "Light"), value: "light" },
+        { label: translate("qiy.colorDark", {}, "Dark"), value: "dark" },
+        { label: translate("qiy.colorSystem", {}, "System"), value: "system" },
+      ]}
     />}
   </Space>;
 }

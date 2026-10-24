@@ -28,6 +28,10 @@ describe("Refine SPA generation", () => {
     expect(files["web/app/root.tsx"]).toContain("readStoredLocale()");
     expect(files["web/app/i18n.ts"]).toContain("localeStorageKey");
     expect(files["web/app/i18n.ts"]).toContain("storeLocale");
+    expect(files["web/app/i18n.ts"]).toContain('themeBlue: "蓝色"');
+    expect(files["web/app/routes/list.tsx"]).toContain('translate("qiy.import", {}, "Import CSV")');
+    expect(files["web/app/routes/list.tsx"]).toContain('translate("qiy.paginationTotal"');
+    expect(files["web/tests/chrome-i18n.test.ts"]).toContain("every chrome key resolves in zh-CN and en-US");
     expect(files["web/app/routes/list.tsx"]).toContain("field.icon ? qiyIcons[field.icon");
     expect(files["web/app/resources.ts"]).toContain("TableOutlined");
     expect(files["web/app/routes/list.tsx"]).toContain("selectedRowKeys");

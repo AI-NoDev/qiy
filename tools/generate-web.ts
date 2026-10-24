@@ -584,14 +584,14 @@ export default function Login() { return <AuthPage type="login" title="Qiy Admin
         : usesOtpAuth
           ? `import { Alert, Button, Card, Input, Space, Typography } from "antd";
 import { useState } from "react";
-import { useLogin } from "@refinedev/core";
-export default function Login() { const [identifier, setIdentifier] = useState(""); const [challengeToken, setChallengeToken] = useState(""); const [code, setCode] = useState(""); const [requesting, setRequesting] = useState(false); const [requestError, setRequestError] = useState<string>(); const { mutate, isPending, error } = useLogin(); const requestCode = async () => { setRequesting(true); setRequestError(undefined); try { const response = await fetch("/api/v1/auth/otp/request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier }) }); const result = await response.json().catch(() => null) as { challengeToken?: string; error?: string; devCode?: string } | null; if (!response.ok || !result?.challengeToken) throw new Error(result?.error ?? "Could not send one-time password"); setChallengeToken(result.challengeToken); if (result.devCode) setCode(result.devCode); } catch (reason) { setRequestError(reason instanceof Error ? reason.message : String(reason)); } finally { setRequesting(false); } }; return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#f5f7fa" }}><Card title="Qiy Admin 登录" style={{ width: 420 }}><Space direction="vertical" style={{ width: "100%" }}><Typography.Paragraph type="secondary">输入邮箱、手机号或模型配置的唯一登录标识，获取一次性验证码。</Typography.Paragraph><Input value={identifier} onChange={(event) => setIdentifier(event.target.value)} placeholder="登录标识" disabled={Boolean(challengeToken)} />{challengeToken ? <><Input value={code} onChange={(event) => setCode(event.target.value)} placeholder="一次性验证码" /><Button type="primary" loading={isPending} block onClick={() => mutate({ identifier, challengeToken, code })}>验证并登录</Button><Button block onClick={() => { setChallengeToken(""); setCode(""); }}>重新发送</Button></> : <Button type="primary" loading={requesting} block onClick={() => void requestCode()}>发送验证码</Button>}{(requestError || error) && <Alert type="error" message={requestError ?? error?.message ?? String(error)} />}</Space></Card></div>; }
+import { useLogin, useTranslation } from "@refinedev/core";
+export default function Login() { const { translate } = useTranslation(); const [identifier, setIdentifier] = useState(""); const [challengeToken, setChallengeToken] = useState(""); const [code, setCode] = useState(""); const [requesting, setRequesting] = useState(false); const [requestError, setRequestError] = useState<string>(); const { mutate, isPending, error } = useLogin(); const requestCode = async () => { setRequesting(true); setRequestError(undefined); try { const response = await fetch("/api/v1/auth/otp/request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier }) }); const result = await response.json().catch(() => null) as { challengeToken?: string; error?: string; devCode?: string } | null; if (!response.ok || !result?.challengeToken) throw new Error(result?.error ?? translate("qiy.otpSendFailed", {}, "Could not send one-time password")); setChallengeToken(result.challengeToken); if (result.devCode) setCode(result.devCode); } catch (reason) { setRequestError(reason instanceof Error ? reason.message : String(reason)); } finally { setRequesting(false); } }; return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#f5f7fa" }}><Card title={translate("qiy.otpTitle", {}, "Qiy Admin sign in")} style={{ width: 420 }}><Space direction="vertical" style={{ width: "100%" }}><Typography.Paragraph type="secondary">{translate("qiy.otpHint", {}, "Enter the email, phone or model identifier configured for this account to receive a one-time password.")}</Typography.Paragraph><Input value={identifier} onChange={(event) => setIdentifier(event.target.value)} placeholder={translate("qiy.otpIdentifier", {}, "Sign-in identifier")} disabled={Boolean(challengeToken)} />{challengeToken ? <><Input value={code} onChange={(event) => setCode(event.target.value)} placeholder={translate("qiy.otpCode", {}, "One-time password")} /><Button type="primary" loading={isPending} block onClick={() => mutate({ identifier, challengeToken, code })}>{translate("qiy.otpVerify", {}, "Verify and sign in")}</Button><Button block onClick={() => { setChallengeToken(""); setCode(""); }}>{translate("qiy.otpResend", {}, "Send again")}</Button></> : <Button type="primary" loading={requesting} block onClick={() => void requestCode()}>{translate("qiy.otpSend", {}, "Send code")}</Button>}{(requestError || error) && <Alert type="error" message={requestError ?? error?.message ?? String(error)} />}</Space></Card></div>; }
 `
         : `import { Alert, Button, Card, Space, Spin, Typography } from "antd";
 import { useEffect, useState } from "react";
-import { useLogin } from "@refinedev/core";
+import { useLogin, useTranslation } from "@refinedev/core";
 import { beginOidcSilentRenew, consumeSilentAttempt, oidcSession, oidcSessionSkewMs, oidcProviderLabel } from "../auth/oidc-client";
-export default function Login() { const { mutate, isPending, error } = useLogin(); const [renewing, setRenewing] = useState(false); const [renewError, setRenewError] = useState<string>(); useEffect(() => { if (!oidcSession({ skewMs: oidcSessionSkewMs }).expired) return; if (!consumeSilentAttempt()) return; setRenewing(true); void beginOidcSilentRenew("/").catch((reason: unknown) => { setRenewError(reason instanceof Error ? reason.message : String(reason)); setRenewing(false); }); }, []); return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#f5f7fa" }}><Card title="Qiy Admin 登录" style={{ width: 420 }}><Space direction="vertical" style={{ width: "100%" }}><Typography.Paragraph type="secondary">使用 ${authProviderLabel} Authorization Code + PKCE 登录。浏览器端不会保存 client secret；会话过期时先尝试静默续期，失败才需要重新登录。</Typography.Paragraph>{renewing ? <><Spin /><Typography.Paragraph>正在尝试静默续期…</Typography.Paragraph></> : <Button type="primary" loading={isPending} block onClick={() => mutate({})}>使用 ${authProviderLabel} 登录</Button>}{(renewError || error) && <Alert type="error" message={renewError ?? error?.message ?? String(error)} />}</Space></Card></div>; }
+export default function Login() { const { translate } = useTranslation(); const { mutate, isPending, error } = useLogin(); const [renewing, setRenewing] = useState(false); const [renewError, setRenewError] = useState<string>(); useEffect(() => { if (!oidcSession({ skewMs: oidcSessionSkewMs }).expired) return; if (!consumeSilentAttempt()) return; setRenewing(true); void beginOidcSilentRenew("/").catch((reason: unknown) => { setRenewError(reason instanceof Error ? reason.message : String(reason)); setRenewing(false); }); }, []); return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#f5f7fa" }}><Card title={translate("qiy.oidcTitle", {}, "Qiy Admin sign in")} style={{ width: 420 }}><Space direction="vertical" style={{ width: "100%" }}><Typography.Paragraph type="secondary">{translate("qiy.oidcHint", { provider: ${JSON.stringify(authProviderLabel)} })}</Typography.Paragraph>{renewing ? <><Spin /><Typography.Paragraph>{translate("qiy.oidcRenewing", {}, "Trying silent renewal…")}</Typography.Paragraph></> : <Button type="primary" loading={isPending} block onClick={() => mutate({})}>{translate("qiy.oidcSignIn", { provider: ${JSON.stringify(authProviderLabel)} })}</Button>}{(renewError || error) && <Alert type="error" message={renewError ?? error?.message ?? String(error)} />}</Space></Card></div>; }
 `,
       ...(usesOidcAuth ? {
         "web/app/auth/oidc-client.ts": `export interface OidcClientConfig { authorizationUrl: string; tokenUrl: string; clientId: string; scope: string; redirectUri: string; logoutUrl?: string; }
@@ -648,8 +648,9 @@ export function beginOidcLogout(config?: OidcClientConfig): void { const idToken
         "web/app/routes/auth-callback.tsx": `import { Alert, Card, Spin, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
+import { useTranslation } from "@refinedev/core";
 import { completeOidcLogin, isSilentRenewFailure, oidcProviderLabel } from "../auth/oidc-client";
-export default function AuthCallback() { const navigate = useNavigate(); const [error, setError] = useState<string>(); useEffect(() => { let active = true; void completeOidcLogin(window.location.href).then((target) => { if (active) navigate(target, { replace: true }); }).catch((reason) => { if (!active) return; const message = reason instanceof Error ? reason.message : String(reason); /* A silent renewal the provider refuses is not a failure: fall back to interactive login. */ if (isSilentRenewFailure(message)) { navigate("/auth/login", { replace: true }); return; } setError(message); }); return () => { active = false; }; }, [navigate]); return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#f5f7fa" }}><Card style={{ width: 420 }}>{error ? <Alert type="error" showIcon message={oidcProviderLabel + " 登录失败"} description={error} /> : <><Spin /><Typography.Paragraph style={{ marginTop: 16 }}>正在完成 {oidcProviderLabel} 登录…</Typography.Paragraph></>}</Card></div>; }
+export default function AuthCallback() { const navigate = useNavigate(); const { translate } = useTranslation(); const [error, setError] = useState<string>(); useEffect(() => { let active = true; void completeOidcLogin(window.location.href).then((target) => { if (active) navigate(target, { replace: true }); }).catch((reason) => { if (!active) return; const message = reason instanceof Error ? reason.message : String(reason); /* A silent renewal the provider refuses is not a failure: fall back to interactive login. */ if (isSilentRenewFailure(message)) { navigate("/auth/login", { replace: true }); return; } setError(message); }); return () => { active = false; }; }, [navigate]); return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#f5f7fa" }}><Card style={{ width: 420 }}>{error ? <Alert type="error" showIcon message={translate("qiy.providerLoginFailed", { provider: oidcProviderLabel })} description={error} /> : <><Spin /><Typography.Paragraph style={{ marginTop: 16 }}>{translate("qiy.completingProviderSignIn", { provider: oidcProviderLabel })}</Typography.Paragraph></>}</Card></div>; }
 `,
         "web/tests/oidc-client.test.ts": `import { expect, test } from "bun:test";
 import { beginOidcSilentRenew, buildAuthorizationUrl, clearOidcSession, completeOidcLogin, consumeSilentAttempt, isSilentRenewFailure, oidcSession, readOidcClientConfig } from "../app/auth/oidc-client";
@@ -1132,7 +1133,7 @@ export function RelatedRecords({ relation, recordId }: { relation: RelatedResour
   const fields = resource?.fields.filter((field) => field.listVisible && !field.primaryKey && field.type !== "Vector").slice(0, 5) ?? [];
   const columns: ColumnsType<Record<string, unknown>> = fields.map((field) => ({ title: translate(field.labelKey, {}, field.label), dataIndex: field.name, key: field.name, render: (value: unknown) => String(value ?? "—") }));
   columns.push({ title: t(locale, "actions"), key: "actions", render: (_value, record) => <Link to={"/" + relation.resource + "/" + String(record.id)}>{t(locale, "view")}</Link> });
-  if (!resource) return <Alert type="error" message={"Unknown related resource: " + relation.resource} />;
+  if (!resource) return <Alert type="error" message={translate("qiy.relatedUnknown", { resource: relation.resource })} />;
   const total = result.total ?? 0;
   return <Card size="small" title={translate(relation.labelKey, {}, relation.label)} style={{ marginTop: 16 }}><Table<Record<string, unknown>> rowKey="id" loading={query.isLoading} dataSource={result.data} columns={columns} pagination={total > 10 ? { pageSize: 10, total, showSizeChanger: false } : false} scroll={{ x: "max-content" }} /></Card>;
 }
@@ -1172,12 +1173,12 @@ export function TreeView({ resource, parentField, labelField }: { resource: stri
   const { result, query } = useList({ resource, pagination: { mode: "off" } });
   const records = (result.data ?? []) as Array<Record<string, unknown>>;
   const { nodes, orphans } = buildTree(records, parentField, labelField);
-  return <Card title={config ? translate(config.labelKey, {}, config.label) : resource} extra={<span>{records.length} node(s)</span>}>
+  return <Card title={config ? translate(config.labelKey, {}, config.label) : resource} extra={<span>{translate("qiy.treeNodesCount", { nodes: records.length })}</span>}>
     {query.isLoading && <Spin />}
     {query.error && <Alert type="error" message={String(query.error)} />}
     {!query.isLoading && !records.length && <Empty />}
     <Tree treeData={toAntd(nodes)} expandedKeys={expanded} onExpand={(keys) => setExpanded(keys.map(String))} onSelect={(keys) => { const id = String(keys[0] ?? ""); if (id) navigate("/" + resource + "/" + id); }} />
-    {orphans.length > 0 && <Alert type="warning" showIcon style={{ marginTop: 16 }} message={orphans.length + " node(s) have a missing or cyclic parent"} />}
+    {orphans.length > 0 && <Alert type="warning" showIcon style={{ marginTop: 16 }} message={translate("qiy.treeOrphans", { nodes: orphans.length })} />}
   </Card>;
 }
 `,
@@ -1242,7 +1243,8 @@ import { t, resolveLocale, type QiyLocale } from "../i18n";
    const value = result.data?.value;
    const precision = field?.type === "Money" || field?.type === "Decimal" ? 2 : 0;
    const label = field ? translate(field.labelKey, {}, field.label) : metric.field ?? "";
-   return <Col xs={24} sm={12} lg={metric.span}><Card title={<Space><Icon style={{ color: token.colorPrimary }} /><span>{translate(metric.labelKey, {}, metric.label)}</span></Space>} loading={query.isLoading}><MetricDescription metric={metric} />{query.error ? <Typography.Text type="danger">{String(query.error)}</Typography.Text> : <Statistic value={value ?? 0} precision={precision} suffix={<Typography.Text type="secondary" style={{ fontSize: 12 }}>{(metric.agg ?? "sum") + " · " + label}</Typography.Text>} />}{value === null && !query.isLoading && !query.error && <Typography.Text type="secondary">{translate("qiy.noData", {}, "No data")}</Typography.Text>}</Card></Col>;
+   const aggKey = ({ sum: "qiy.aggSum", avg: "qiy.aggAvg", min: "qiy.aggMin", max: "qiy.aggMax" } as const)[metric.agg ?? "sum"];
+   return <Col xs={24} sm={12} lg={metric.span}><Card title={<Space><Icon style={{ color: token.colorPrimary }} /><span>{translate(metric.labelKey, {}, metric.label)}</span></Space>} loading={query.isLoading}><MetricDescription metric={metric} />{query.error ? <Typography.Text type="danger">{String(query.error)}</Typography.Text> : <Statistic value={value ?? 0} precision={precision} suffix={<Typography.Text type="secondary" style={{ fontSize: 12 }}>{translate(aggKey, {}, metric.agg ?? "sum") + " · " + label}</Typography.Text>} />}{value === null && !query.isLoading && !query.error && <Typography.Text type="secondary">{translate("qiy.noData", {}, "No data")}</Typography.Text>}</Card></Col>;
  }
  function ResourceSummary({ metric }: { metric: DashboardMetric }) {
    if (metric.type === "distribution") return <DistributionSummary metric={metric} />;
@@ -1274,7 +1276,92 @@ export type QiyLocale = string;
 export const supportedLocales: string[] = ${JSON.stringify([...new Set(["zh-CN", "en-US", ...Object.keys(options.messages?.locales ?? {})])])};
 export const languageOptions = supportedLocales.map((value) => ({ value, label: new Intl.DisplayNames([value], { type: "language" }).of(value) ?? value }));
 export function resolveLocale(value: string | undefined): QiyLocale { return value && supportedLocales.includes(value) ? value : defaultMessageLocale; }
-export const localeMessages = { "zh-CN": { new: "新建", edit: "编辑", view: "查看", back: "返回列表", delete: "删除", batchDelete: "批量删除", actions: "操作", visibleColumns: "显示列", confirmDelete: "确认删除选中记录？", deleted: "删除成功", unknownResource: "未知资源", detail: "详情", language: "语言", save: "保存", cancel: "取消", deleteSuccess: "删除成功", quickAccess: "快速访问", upload: "上传文件", overview: "概览", overviewDescription: "从数据资源快速进入业务管理。", profile: "个人中心", filters: "筛选", search: "搜索", matchAll: "全部满足", matchAny: "任一满足", commaSeparated: "（逗号分隔）", forbidden: "没有访问该页面的权限", noData: "暂无数据", vectorData: "向量数据" }, "en-US": { new: "New", edit: "Edit", view: "View", back: "Back to list", delete: "Delete", batchDelete: "Batch delete", actions: "Actions", visibleColumns: "Columns", confirmDelete: "Delete selected records?", deleted: "Deleted", unknownResource: "Unknown resource", detail: "Detail", language: "Language", save: "Save", cancel: "Cancel", deleteSuccess: "Deleted", quickAccess: "Quick access", upload: "Upload file", overview: "Overview", overviewDescription: "Jump into your data resources from one place.", profile: "Profile", filters: "Filters", search: "Search", matchAll: "Match all", matchAny: "Match any", commaSeparated: " (comma separated)", forbidden: "You are not allowed to open this page", noData: "No data", vectorData: "Vector data" } } as const;
+/**
+ * Built-in chrome dictionary. Every value is keyed by the suffix of a
+ * \`qiy.<key>\` message, so \`t(locale, key)\` and \`translate("qiy.<key>")\` both
+ * resolve it, and a project \`messages\` block can override any entry with the
+ * same qiy.* key. Values using {{name}} placeholders are interpolated by i18next.
+ */
+export const localeMessages = {
+  "zh-CN": {
+    new: "新建", edit: "编辑", view: "查看", back: "返回列表", delete: "删除", batchDelete: "批量删除", actions: "操作",
+    visibleColumns: "显示列", confirmDelete: "确认删除选中记录？", deleted: "删除成功", unknownResource: "未知资源", detail: "详情",
+    language: "语言", save: "保存", cancel: "取消", deleteSuccess: "删除成功", quickAccess: "快速访问", upload: "上传文件",
+    overview: "概览", overviewDescription: "从数据资源快速进入业务管理。", profile: "个人中心", filters: "筛选", search: "搜索",
+    matchAll: "全部匹配", matchAny: "任一匹配", commaSeparated: "（逗号分隔）", forbidden: "没有访问该页面的权限",
+    noData: "暂无数据", vectorData: "向量数据",
+    import: "导入 CSV", export: "导出 CSV", exportSelected: "导出选中", views: "已存视图", viewName: "视图名称",
+    saveView: "保存视图", saveToServer: "保存到服务器", shareView: "共享给所有人", publishView: "发布视图",
+    saved: "视图已保存", viewShared: "视图已共享给所有人", viewPublished: "视图已保存到服务器", deleteView: "删除视图",
+    treeView: "树视图", shared: "（共享）", importProgress: "正在导入：{{processed}}/{{total}}",
+    importedRows: "已导入 {{rows}} 行", importFailed: "导入失败", publishFailed: "发布视图失败",
+    paginationTotal: "第 {{start}}-{{end}} 条，共 {{total}} 条", perPage: "条/页", page: "页",
+    treeNodesCount: "{{nodes}} 个节点", treeOrphans: "{{nodes}} 个节点的父级缺失或成环",
+    relatedUnknown: "未知关联资源：{{resource}}",
+    auditTitle: "操作审计", auditAction: "操作", auditAuthor: "操作人", auditSystem: "系统", auditTime: "时间",
+    aggSum: "求和", aggAvg: "平均", aggMin: "最小值", aggMax: "最大值",
+    uploadFailed: "上传失败：{{status}}", createForbidden: "没有创建该资源的权限。", editForbidden: "没有编辑该资源的权限。",
+    themeColor: "主题色", themeBlue: "蓝色", themePurple: "紫色", themeGreen: "绿色", themeOrange: "橙色", themeRed: "红色",
+    colorMode: "颜色模式", colorLight: "亮色", colorDark: "暗色", colorSystem: "跟随系统",
+    profileTitle: "个人中心", account: "账号", signOut: "退出登录", username: "用户名", email: "邮箱", name: "姓名",
+    role: "角色", password: "密码", passwordSet: "已设置", passwordNotSet: "未设置", linkedMethods: "已关联登录方式",
+    noProviders: "未配置 OAuth 提供方", linked: "已关联", notLinked: "尚未关联", bind: "关联", unbind: "解除关联",
+    unlinkTitle: "解除关联 {{provider}}？", unlinkKeep: "之后可以重新关联。", unlinkLast: "这是最后一个登录方式。",
+    linkedToast: "已关联 {{provider}}", unlinkedToast: "已解除关联 {{provider}}",
+    onboardingInvalid: "此账号开通链接无效或已过期。", backToSignIn: "返回登录", finishAccount: "完成账号创建",
+    signedInWith: "已通过 {{provider}} 登录。", confirmAccount: "请确认账号信息并设置密码。", fieldRequired: "此项为必填项",
+    invalidEmail: "请输入有效的邮箱地址", confirmPassword: "确认密码",
+    passwordMin: "至少 8 个字符", passwordMismatch: "两次输入的密码不一致", createAccount: "创建账号并登录",
+    alreadyHaveAccount: "已有密码账号？", signInAction: "登录", linkProviderHint: "登录后可在个人中心关联此登录方式。",
+    loginNotConfigured: "此应用未配置认证。",
+    completingSignIn: "正在完成登录…", completingProviderSignIn: "正在完成 {{provider}} 登录…", providerLoginFailed: "{{provider}} 登录失败",
+    multiProviderHint: "请选择身份提供方登录。", noProviderConfigured: "服务器未配置身份提供方",
+    otpTitle: "Qiy Admin 登录", otpHint: "输入邮箱、手机号或模型配置的唯一登录标识，获取一次性验证码。",
+    otpIdentifier: "登录标识", otpCode: "一次性验证码", otpSend: "发送验证码", otpVerify: "验证并登录",
+    otpResend: "重新发送", otpSendFailed: "验证码发送失败",
+    oidcTitle: "Qiy Admin 登录", oidcHint: "使用 {{provider}} Authorization Code + PKCE 登录；浏览器不保存 client secret，会话过期时先尝试静默续期。",
+    oidcSignIn: "使用 {{provider}} 登录", oidcRenewing: "正在尝试静默续期…",
+  },
+  "en-US": {
+    new: "New", edit: "Edit", view: "View", back: "Back to list", delete: "Delete", batchDelete: "Batch delete", actions: "Actions",
+    visibleColumns: "Columns", confirmDelete: "Delete selected records?", deleted: "Deleted", unknownResource: "Unknown resource", detail: "Detail",
+    language: "Language", save: "Save", cancel: "Cancel", deleteSuccess: "Deleted", quickAccess: "Quick access", upload: "Upload file",
+    overview: "Overview", overviewDescription: "Jump into your data resources from one place.", profile: "Profile", filters: "Filters", search: "Search",
+    matchAll: "Match all", matchAny: "Match any", commaSeparated: " (comma separated)", forbidden: "You are not allowed to open this page",
+    noData: "No data", vectorData: "Vector data",
+    import: "Import CSV", export: "Export CSV", exportSelected: "Export selected", views: "Saved views", viewName: "View name",
+    saveView: "Save view", saveToServer: "Save to server", shareView: "Share with everyone", publishView: "Publish view",
+    saved: "View saved", viewShared: "View shared with everyone", viewPublished: "View saved to server", deleteView: "Delete view",
+    treeView: "Tree view", shared: " (shared)", importProgress: "Importing: {{processed}}/{{total}}",
+    importedRows: "{{rows}} row(s) imported", importFailed: "Import failed", publishFailed: "Publishing the view failed",
+    paginationTotal: "{{start}}-{{end}} of {{total}}", perPage: "/ page", page: "page",
+    treeNodesCount: "{{nodes}} node(s)", treeOrphans: "{{nodes}} node(s) have a missing or cyclic parent",
+    relatedUnknown: "Unknown related resource: {{resource}}",
+    auditTitle: "Audit history", auditAction: "Action", auditAuthor: "Author", auditSystem: "System", auditTime: "Time",
+    aggSum: "sum", aggAvg: "avg", aggMin: "min", aggMax: "max",
+    uploadFailed: "Upload failed: {{status}}", createForbidden: "You do not have permission to create this resource.", editForbidden: "You do not have permission to edit this resource.",
+    themeColor: "Theme color", themeBlue: "Blue", themePurple: "Purple", themeGreen: "Green", themeOrange: "Orange", themeRed: "Red",
+    colorMode: "Color mode", colorLight: "Light", colorDark: "Dark", colorSystem: "System",
+    profileTitle: "Profile", account: "Account", signOut: "Sign out", username: "Username", email: "Email", name: "Name",
+    role: "Role", password: "Password", passwordSet: "Set", passwordNotSet: "Not set", linkedMethods: "Linked sign-in methods",
+    noProviders: "No OAuth providers configured", linked: "Linked", notLinked: "Not linked yet", bind: "Bind", unbind: "Unbind",
+    unlinkTitle: "Unlink {{provider}}?", unlinkKeep: "You can link it again later.", unlinkLast: "This is your last sign-in method.",
+    linkedToast: "Linked {{provider}}", unlinkedToast: "Unlinked {{provider}}",
+    onboardingInvalid: "This onboarding link is invalid or has expired.", backToSignIn: "Back to sign in", finishAccount: "Finish creating your account",
+    signedInWith: "Signed in with {{provider}}.", confirmAccount: "Confirm the account details and choose a password.", fieldRequired: "This field is required",
+    invalidEmail: "Enter a valid email address", confirmPassword: "Confirm password",
+    passwordMin: "Use at least 8 characters", passwordMismatch: "Passwords do not match", createAccount: "Create account and sign in",
+    alreadyHaveAccount: "Already have an account with a password?", signInAction: "Sign in", linkProviderHint: "Sign in and link this provider from your profile.",
+    loginNotConfigured: "Authentication is not configured for this application.",
+    completingSignIn: "Completing sign-in…", completingProviderSignIn: "Completing {{provider}} sign-in…", providerLoginFailed: "{{provider}} sign-in failed",
+    multiProviderHint: "Choose an identity provider to sign in.", noProviderConfigured: "No identity provider is configured on the server",
+    otpTitle: "Qiy Admin sign in", otpHint: "Enter the email, phone or model identifier configured for this account to receive a one-time password.",
+    otpIdentifier: "Sign-in identifier", otpCode: "One-time password", otpSend: "Send code", otpVerify: "Verify and sign in",
+    otpResend: "Send again", otpSendFailed: "Could not send the one-time password",
+    oidcTitle: "Qiy Admin sign in", oidcHint: "Sign in with {{provider}} using Authorization Code + PKCE. No client secret is stored in the browser; expired sessions try silent renewal first.",
+    oidcSignIn: "Sign in with {{provider}}", oidcRenewing: "Trying silent renewal…",
+  },
+} as const;
 /** Localized filter operator names; project messages can override every entry with qiy.filters.mode.<mode>. */
 export const filterModeMessages: Record<QiyLocale, Record<string, string>> = {
   "zh-CN": { eq: "等于", contains: "包含", startsWith: "开头是", endsWith: "结尾是", gt: "大于", gte: "大于等于", lt: "小于", lte: "小于等于", between: "介于", in: "属于" },
@@ -1298,6 +1385,7 @@ Object.assign(refineMessages["en-US"]!, {
   "notifications.success": "Successful", "notifications.error": "Error (status code: {{statusCode}})", "notifications.undoable": "You have {{seconds}} seconds to undo",
   "notifications.createSuccess": "Successfully created {{resource}}", "notifications.createError": "There was an error creating {{resource}} (status code: {{statusCode}})", "notifications.deleteSuccess": "Successfully deleted {{resource}}", "notifications.deleteError": "Error when deleting {{resource}} (status code: {{statusCode}})", "notifications.editSuccess": "Successfully edited {{resource}}", "notifications.editError": "Error when editing {{resource}} (status code: {{statusCode}})", "notifications.importProgress": "Importing: {{processed}}/{{total}}",
   "pages.login.title": "Sign in to your account", "pages.login.signin": "Sign in", "pages.login.fields.email": "Email", "pages.login.fields.password": "Password", "pages.login.buttons.submit": "Login", "pages.login.errors.requiredEmail": "Email is required", "pages.login.errors.requiredPassword": "Password is required",
+  "pages.login.rememberMe": "Remember me", "pages.login.forgotPassword": "Forgot password?", "pages.login.noAccount": "Don't have an account?", "pages.login.signup": "Sign up", "pages.login.providers": "Or continue with",
   "pages.error.info": "You may have forgotten to add the {{action}} component to {{resource}} resource.", "pages.error.404": "Sorry, the page you visited does not exist.", "pages.error.resource404": "Are you sure you have created the {{resource}} resource.", "pages.error.backHome": "Back Home",
   "autoSave.success": "saved", "autoSave.error": "auto save failure", "autoSave.loading": "saving...", "autoSave.idle": "waiting for changes",
 });
@@ -1307,6 +1395,7 @@ Object.assign(refineMessages["zh-CN"]!, {
   "notifications.success": "操作成功", "notifications.error": "操作失败（状态码：{{statusCode}}）", "notifications.undoable": "可在 {{seconds}} 秒内撤销",
   "notifications.createSuccess": "成功创建 {{resource}}", "notifications.createError": "创建 {{resource}} 失败（状态码：{{statusCode}}）", "notifications.deleteSuccess": "成功删除 {{resource}}", "notifications.deleteError": "删除 {{resource}} 失败（状态码：{{statusCode}}）", "notifications.editSuccess": "成功修改 {{resource}}", "notifications.editError": "修改 {{resource}} 失败（状态码：{{statusCode}}）", "notifications.importProgress": "导入进度：{{processed}}/{{total}}",
   "pages.login.title": "登录账户", "pages.login.signin": "登录", "pages.login.fields.email": "邮箱", "pages.login.fields.password": "密码", "pages.login.buttons.submit": "登录", "pages.login.errors.requiredEmail": "请输入邮箱", "pages.login.errors.requiredPassword": "请输入密码",
+  "pages.login.rememberMe": "记住我", "pages.login.forgotPassword": "忘记密码？", "pages.login.noAccount": "还没有账号？", "pages.login.signup": "注册", "pages.login.providers": "或使用以下方式登录",
   "pages.error.info": "可能未为 {{resource}} 资源配置 {{action}} 组件。", "pages.error.404": "页面不存在。", "pages.error.resource404": "请确认已创建 {{resource}} 资源。", "pages.error.backHome": "返回首页",
   "autoSave.success": "已保存", "autoSave.error": "自动保存失败", "autoSave.loading": "保存中", "autoSave.idle": "等待修改",
 });
@@ -1430,7 +1519,7 @@ export default function ResourceList() {
       setServerViews(await fetchServerViews(resource.name));
       notify?.({ type: "success", message: shared ? translate("qiy.viewShared", {}, "View shared with everyone") : translate("qiy.viewPublished", {}, "View saved to server") });
     } catch (error) {
-      notify?.({ type: "error", message: error instanceof Error ? error.message : "Publishing the view failed" });
+      notify?.({ type: "error", message: error instanceof Error ? error.message : translate("qiy.publishFailed", {}, "Publishing the view failed") });
     }
   };
   const runExport = () => { if (!resource) return; setExporting(true); void downloadExport(exportUrl(resource.name, { filters, sorters, columns: visibleKeys${options.readOnly ? "" : ", ids: selectedRowKeys.map(String)"} })).catch((error) => notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) })).finally(() => setExporting(false)); };
@@ -1450,12 +1539,12 @@ export default function ResourceList() {
   </Space> });
   const deleteSelected = async () => { await removeMany({ resource: resource.name, ids: selectedRowKeys.map(String) }); setSelectedRowKeys([]); notify?.({ type: "success", message: t(locale, "deleteSuccess") }); };
   const applyFilters = (nextSearch = search, nextEnums = enumFilters, nextAdvanced = advancedFilters, nextAdvancedJoin = advancedJoin) => { const filters: Array<{ field: string; operator: string; value: string | string[] } | { operator: "and" | "or"; value: Array<{ field: string; operator: string; value: string | string[] }> }> = nextSearch ? [{ field: "__search", operator: "contains", value: nextSearch }] : []; for (const [field, value] of Object.entries(nextEnums)) if (value) filters.push({ field, operator: "eq", value }); const advanced = Object.entries(nextAdvanced).flatMap(([field, condition]) => !condition.value ? [] : [{ field, operator: condition.operator, value: condition.operator === "in" || condition.operator === "between" ? condition.value.split(",").map((item) => item.trim()) : condition.value }]); if (advanced.length === 1) filters.push(advanced[0]!); else if (advanced.length > 1) filters.push({ operator: nextAdvancedJoin, value: advanced }); setFilters(filters as never); };
-  return <List resource={resource.name} title={<Typography.Title level={3} style={{ margin: 0 }}>{translate(resource.labelKey, {}, resource.label)}</Typography.Title>} headerButtons={() => <Space wrap>${options.readOnly ? "" : '<Upload accept=".csv,text/csv" showUploadList={false} beforeUpload={(file) => { setImporting(true); void startImport(resource.name, file).then(({ jobId }) => waitForImport(resource.name, jobId, { onProgress: (progress) => notify?.({ type: "progress", message: String(progress.processed) + "/" + String(progress.total) + " row(s) imported" }) })).then((job) => { if (job.status === "failed") throw new Error(job.errors[0] ?? "Import failed"); notify?.({ type: "success", message: String(job.processed) + " row(s) imported" }); return tableQuery.refetch(); }).catch((error) => notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) })).finally(() => setImporting(false)); return Upload.LIST_IGNORE; }}><Button icon={<UploadOutlined />} loading={importing}>{translate("qiy.import", {}, "Import CSV")}</Button></Upload>'}<Button icon={<DownloadOutlined />} loading={exporting} onClick={runExport}>{${options.readOnly ? 'translate("qiy.export", {}, "Export CSV")' : 'selectedRowKeys.length > 0 ? translate("qiy.exportSelected", {}, "Export selected") + " (" + selectedRowKeys.length + ")" : translate("qiy.export", {}, "Export CSV")'}}</Button><Dropdown menu={{ items: resource.fields.filter((field) => field.type !== "Vector").map((field) => ({ key: field.name, label: <Checkbox checked={visibleKeys.includes(field.name)} onChange={(event) => setVisibleKeys((keys) => event.target.checked ? [...keys, field.name] : keys.filter((key) => key !== field.name))}>{translate(field.labelKey, {}, field.label)}</Checkbox> })) }}><Button icon={<SettingOutlined />}>{t(locale, "visibleColumns")}</Button></Dropdown><Select allowClear style={{ minWidth: 160 }} placeholder={translate("qiy.views", {}, "Saved views")} value={activeView} options={[...savedViews.map((view) => ({ value: view.id, label: view.name })), ...serverViews.map((view) => ({ value: "server:" + view.id, label: view.name + " (shared)" }))]} onChange={(value) => applySavedView(value)} /><Popover trigger="click" content={<Space direction="vertical"><Input value={viewName} placeholder={translate("qiy.viewName", {}, "View name")} onChange={(event) => setViewName(event.target.value)} onPressEnter={storeSavedView} /><Button type="primary" disabled={!viewName.trim()} onClick={storeSavedView}>{translate("qiy.save", {}, "Save")}</Button></Space>}><Button icon={<SaveOutlined />}>{translate("qiy.saveView", {}, "Save view")}</Button></Popover>{activeView && <Popover trigger="click" content={<Space direction="vertical"><Button onClick={() => void publishSavedView(false)}>{translate("qiy.saveToServer", {}, "Save to server")}</Button><Button onClick={() => void publishSavedView(true)}>{translate("qiy.shareView", {}, "Share with everyone")}</Button></Space>}><Button icon={<UploadOutlined />}>{translate("qiy.publishView", {}, "Publish view")}</Button></Popover>}
+  return <List resource={resource.name} title={<Typography.Title level={3} style={{ margin: 0 }}>{translate(resource.labelKey, {}, resource.label)}</Typography.Title>} headerButtons={() => <Space wrap>${options.readOnly ? "" : '<Upload accept=".csv,text/csv" showUploadList={false} beforeUpload={(file) => { setImporting(true); void startImport(resource.name, file).then(({ jobId }) => waitForImport(resource.name, jobId, { onProgress: (progress) => notify?.({ type: "progress", message: translate("qiy.importProgress", { processed: progress.processed, total: progress.total }) }) })).then((job) => { if (job.status === "failed") throw new Error(job.errors[0] ?? translate("qiy.importFailed", {}, "Import failed")); notify?.({ type: "success", message: translate("qiy.importedRows", { rows: job.processed }) }); return tableQuery.refetch(); }).catch((error) => notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) })).finally(() => setImporting(false)); return Upload.LIST_IGNORE; }}><Button icon={<UploadOutlined />} loading={importing}>{translate("qiy.import", {}, "Import CSV")}</Button></Upload>'}<Button icon={<DownloadOutlined />} loading={exporting} onClick={runExport}>{${options.readOnly ? 'translate("qiy.export", {}, "Export CSV")' : 'selectedRowKeys.length > 0 ? translate("qiy.exportSelected", {}, "Export selected") + " (" + selectedRowKeys.length + ")" : translate("qiy.export", {}, "Export CSV")'}}</Button><Dropdown menu={{ items: resource.fields.filter((field) => field.type !== "Vector").map((field) => ({ key: field.name, label: <Checkbox checked={visibleKeys.includes(field.name)} onChange={(event) => setVisibleKeys((keys) => event.target.checked ? [...keys, field.name] : keys.filter((key) => key !== field.name))}>{translate(field.labelKey, {}, field.label)}</Checkbox> })) }}><Button icon={<SettingOutlined />}>{t(locale, "visibleColumns")}</Button></Dropdown><Select allowClear style={{ minWidth: 160 }} placeholder={translate("qiy.views", {}, "Saved views")} value={activeView} options={[...savedViews.map((view) => ({ value: view.id, label: view.name })), ...serverViews.map((view) => ({ value: "server:" + view.id, label: view.name + translate("qiy.shared", {}, " (shared)") }))]} onChange={(value) => applySavedView(value)} /><Popover trigger="click" content={<Space direction="vertical"><Input value={viewName} placeholder={translate("qiy.viewName", {}, "View name")} onChange={(event) => setViewName(event.target.value)} onPressEnter={storeSavedView} /><Button type="primary" disabled={!viewName.trim()} onClick={storeSavedView}>{translate("qiy.save", {}, "Save")}</Button></Space>}><Button icon={<SaveOutlined />}>{translate("qiy.saveView", {}, "Save view")}</Button></Popover>{activeView && <Popover trigger="click" content={<Space direction="vertical"><Button onClick={() => void publishSavedView(false)}>{translate("qiy.saveToServer", {}, "Save to server")}</Button><Button onClick={() => void publishSavedView(true)}>{translate("qiy.shareView", {}, "Share with everyone")}</Button></Space>}><Button icon={<UploadOutlined />}>{translate("qiy.publishView", {}, "Publish view")}</Button></Popover>}
     {activeView && <Button danger onClick={removeSavedView}>{translate("qiy.deleteView", {}, "Delete view")}</Button>}${Object.keys(treeEntities).length ? `{${JSON.stringify(Object.keys(treeEntities))}.includes(resource.name) && <Link to={"/" + resource.name + "/tree"}><Button>{translate("qiy.treeView", {}, "Tree view")}</Button></Link>}` : ""}<CreateButton resource={resource.name}>{t(locale, "new")}</CreateButton></Space>}>
     <div className="qiy-list-filters" role="search" aria-label={t(locale, "filters")}><Input.Search allowClear value={search} placeholder={t(locale, "search")} onChange={(event) => setSearch(event.target.value)} onSearch={(value) => { setSearch(value); applyFilters(value); }} />{enumFields.map((field) => <Select key={field.name} allowClear value={enumFilters[field.name]} placeholder={translate(field.labelKey, {}, field.label)} options={field.enumValues?.map((item) => ({ value: item.name, label: translate(item.labelKey, {}, item.label ?? item.name) }))} onChange={(value) => { const next = { ...enumFilters, [field.name]: value }; setEnumFilters(next); applyFilters(search, next); }} />)}{advancedFields.length > 1 && <Select value={advancedJoin} style={{ minWidth: 116 }} options={[{ value: "and", label: t(locale, "matchAll") }, { value: "or", label: t(locale, "matchAny") }]} onChange={(value: "and" | "or") => { setAdvancedJoin(value); applyFilters(search, enumFilters, advancedFilters, value); }} />}{advancedFields.map((field) => { const condition = advancedFilters[field.name] ?? { operator: field.filterModes[0] ?? "eq", value: "" }; return <Space.Compact key={field.name}><Select value={condition.operator} style={{ width: 120 }} options={field.filterModes.map((mode) => ({ value: mode, label: filterModeLabel(locale, mode) }))} onChange={(operator) => { const next = { ...advancedFilters, [field.name]: { ...condition, operator } }; setAdvancedFilters(next); applyFilters(search, enumFilters, next); }} /><Input allowClear value={condition.value} placeholder={translate(field.labelKey, {}, field.label) + (condition.operator === "in" || condition.operator === "between" ? t(locale, "commaSeparated") : "")} onChange={(event) => { const next = { ...advancedFilters, [field.name]: { ...condition, value: event.target.value } }; setAdvancedFilters(next); applyFilters(search, enumFilters, next); }} /></Space.Compact>; })}</div>
     {tableQuery.error && <Alert type="error" showIcon message={String(tableQuery.error)} style={{ marginBottom: 16 }} />}
     {deletePermission?.can && selectedRowKeys.length > 0 && <Popconfirm title={t(locale, "confirmDelete")} onConfirm={() => void deleteSelected()}><Button danger icon={<DeleteOutlined />}>{t(locale, "batchDelete")} ({selectedRowKeys.length})</Button></Popconfirm>}
-    <Table<Record<string, unknown>> {...tableProps} pagination={{ ...tableProps.pagination, showSizeChanger: true, pageSizeOptions: ["10", "20", "50", "100"] }} rowSelection={deletePermission?.can ? { selectedRowKeys, onChange: setSelectedRowKeys } : undefined} rowKey="id" columns={columns} scroll={{ x: "max-content" }} />
+    <Table<Record<string, unknown>> {...tableProps} pagination={{ ...tableProps.pagination, showSizeChanger: true, pageSizeOptions: ["10", "20", "50", "100"], showTotal: (total: number, range: [number, number]) => translate("qiy.paginationTotal", { start: range[0], end: range[1], total }), locale: { items_per_page: t(locale, "perPage"), page: t(locale, "page") } }} rowSelection={deletePermission?.can ? { selectedRowKeys, onChange: setSelectedRowKeys } : undefined} rowKey="id" columns={columns} scroll={{ x: "max-content" }} />
   </List>;
 }
 `,
@@ -1642,6 +1731,85 @@ test("locale switching stores the choice and survives a reload", async () => {
   expect(t(defaultMessageLocale, "new").length).toBeGreaterThan(0);
 });
 ${localeSwitchTest}`,
+    "web/tests/chrome-i18n.test.ts": `import { expect, test } from "bun:test";
+import { createI18nProvider, filterModeLabel } from "../app/i18n";
+
+/**
+ * UI chrome (toolbars, theme controls, auth pages, pagination) ships with a
+ * built-in zh-CN/en-US dictionary and follows the same language selector as the
+ * model labels. This test keeps every key present in both locales so a missing
+ * translation shows up as a failing fallback instead of an English literal.
+ */
+const chromeKeys = [
+  "qiy.import", "qiy.export", "qiy.exportSelected", "qiy.visibleColumns", "qiy.views", "qiy.viewName",
+  "qiy.save", "qiy.saveView", "qiy.saveToServer", "qiy.shareView", "qiy.publishView", "qiy.saved",
+  "qiy.viewShared", "qiy.viewPublished", "qiy.deleteView", "qiy.shared", "qiy.importFailed", "qiy.importedRows",
+  "qiy.treeView", "qiy.auditTitle", "qiy.auditAction", "qiy.auditAuthor", "qiy.auditSystem", "qiy.auditTime",
+  "qiy.new", "qiy.edit", "qiy.delete", "qiy.batchDelete", "qiy.confirmDelete", "qiy.detail",
+  "qiy.search", "qiy.filters", "qiy.matchAll", "qiy.matchAny", "qiy.commaSeparated", "qiy.forbidden", "qiy.noData",
+  "qiy.themeColor", "qiy.themeBlue", "qiy.themePurple", "qiy.themeGreen", "qiy.themeOrange", "qiy.themeRed",
+  "qiy.colorMode", "qiy.colorLight", "qiy.colorDark", "qiy.colorSystem",
+  "qiy.profileTitle", "qiy.account", "qiy.signOut", "qiy.username", "qiy.email", "qiy.name", "qiy.role",
+  "qiy.password", "qiy.passwordSet", "qiy.passwordNotSet", "qiy.linkedMethods", "qiy.noProviders", "qiy.linked",
+  "qiy.notLinked", "qiy.bind", "qiy.unbind", "qiy.unlinkKeep", "qiy.unlinkLast",
+  "qiy.onboardingInvalid", "qiy.backToSignIn", "qiy.finishAccount", "qiy.confirmAccount", "qiy.fieldRequired",
+  "qiy.passwordMin", "qiy.passwordMismatch", "qiy.createAccount", "qiy.alreadyHaveAccount", "qiy.signInAction",
+  "qiy.linkProviderHint", "qiy.loginNotConfigured", "qiy.completingSignIn", "qiy.multiProviderHint",
+  "qiy.noProviderConfigured", "qiy.otpHint", "qiy.otpIdentifier", "qiy.otpCode", "qiy.otpSend", "qiy.otpVerify",
+  "qiy.otpResend", "qiy.oidcHint", "qiy.oidcSignIn", "qiy.oidcRenewing",
+  "qiy.createForbidden", "qiy.editForbidden", "qiy.relatedUnknown", "qiy.treeNodesCount", "qiy.treeOrphans",
+] as const;
+
+test("every chrome key resolves in zh-CN and en-US instead of falling back to English", () => {
+  const zh = createI18nProvider("zh-CN");
+  const en = createI18nProvider("en-US");
+  for (const key of chromeKeys) {
+    const fallback = "i18n-fallback-" + key;
+    expect(zh.translate(key, {}, fallback)).not.toBe(fallback);
+    expect(en.translate(key, {}, fallback)).not.toBe(fallback);
+    const zhValue = zh.translate(key, {}, fallback);
+    const enValue = en.translate(key, {}, fallback);
+    expect(typeof zhValue).toBe("string");
+    expect(typeof enValue).toBe("string");
+  }
+  // The chrome really is translated, not just present: a few stable pairs.
+  expect(zh.translate("qiy.import")).toBe("导入 CSV");
+  expect(en.translate("qiy.import")).toBe("Import CSV");
+  expect(zh.translate("qiy.export")).toBe("导出 CSV");
+  expect(zh.translate("qiy.visibleColumns")).toBe("显示列");
+  expect(zh.translate("qiy.views")).toBe("已存视图");
+  expect(zh.translate("qiy.saveView")).toBe("保存视图");
+  expect(zh.translate("qiy.search")).toBe("搜索");
+  expect(zh.translate("qiy.matchAll")).toBe("全部匹配");
+  expect(zh.translate("qiy.themeBlue")).toBe("蓝色");
+  expect(zh.translate("qiy.themePurple")).toBe("紫色");
+  expect(zh.translate("qiy.themeGreen")).toBe("绿色");
+  expect(zh.translate("qiy.themeOrange")).toBe("橙色");
+  expect(zh.translate("qiy.themeRed")).toBe("红色");
+  expect(zh.translate("qiy.colorLight")).toBe("亮色");
+  expect(zh.translate("qiy.colorDark")).toBe("暗色");
+  expect(zh.translate("qiy.colorSystem")).toBe("跟随系统");
+  expect(en.translate("qiy.colorLight")).toBe("Light");
+  expect(zh.translate("qiy.profileTitle")).toBe("个人中心");
+  expect(en.translate("qiy.profileTitle")).toBe("Profile");
+  expect(zh.translate("qiy.signOut")).toBe("退出登录");
+  expect(zh.translate("qiy.bind")).toBe("关联");
+  expect(zh.translate("qiy.unbind")).toBe("解除关联");
+  expect(zh.translate("qiy.createAccount")).toBe("创建账号并登录");
+  // Interpolated chrome (pagination/saved-view/link copy) keeps its parameters.
+  expect(zh.translate("qiy.paginationTotal", { start: 1, end: 10, total: 42 })).toBe("第 1-10 条，共 42 条");
+  expect(en.translate("qiy.paginationTotal", { start: 1, end: 10, total: 42 })).toBe("1-10 of 42");
+  expect(zh.translate("qiy.importedRows", { rows: 3 })).toBe("已导入 3 行");
+  expect(zh.translate("qiy.unlinkTitle", { provider: "Okta" })).toBe("解除关联 Okta？");
+  expect(zh.translate("filterModeLabelPlaceholder", {}, "fallback")).toBe("fallback");
+});
+
+test("filter operators and unknown keys still fall back safely", () => {
+  expect(filterModeLabel("zh-CN", "contains")).toBe("包含");
+  expect(filterModeLabel("en-US", "between")).toBe("Between");
+  expect(createI18nProvider("en-US").translate("qiy.notARealChromeKey", {}, "Fallback")).toBe("Fallback");
+});
+`,
     "web/tests/export.test.ts": `import { describe, expect, test } from "bun:test";
 import { downloadExport, encodeExportFilters, exportUrl, uploadImport } from "../app/export";
 
@@ -1875,7 +2043,7 @@ export function AuditHistory({ resource, recordId }: { resource: string; recordI
   const [page, setPage] = useState(1);
   const { translate } = useTranslation();
   const query = useLogList<{ data: AuditEntry[]; total: number }>({ resource, meta: { id: recordId, page, pageSize: 10 } });
-  return <Card title={translate("audit.title", "Audit history")} style={{ marginTop: 16 }}>{query.error ? <Alert type="error" message={query.error.message} /> : <Table<AuditEntry> rowKey="id" loading={query.isLoading} dataSource={query.data?.data ?? []} pagination={{ current: page, pageSize: 10, total: query.data?.total ?? 0, showSizeChanger: false, onChange: setPage }} columns={[{ title: translate("audit.action", "Action"), dataIndex: "action" }, { title: translate("audit.author", "Author"), render: (_, row) => row.author?.name ?? translate("audit.system", "System") }, { title: translate("audit.time", "Time"), dataIndex: "createdAt" }]} />}</Card>;
+  return <Card title={translate("qiy.auditTitle", {}, "Audit history")} style={{ marginTop: 16 }}>{query.error ? <Alert type="error" message={query.error.message} /> : <Table<AuditEntry> rowKey="id" loading={query.isLoading} dataSource={query.data?.data ?? []} pagination={{ current: page, pageSize: 10, total: query.data?.total ?? 0, showSizeChanger: false, onChange: setPage }} columns={[{ title: translate("qiy.auditAction", {}, "Action"), dataIndex: "action" }, { title: translate("qiy.auditAuthor", {}, "Author"), render: (_, row) => row.author?.name ?? translate("qiy.auditSystem", {}, "System") }, { title: translate("qiy.auditTime", {}, "Time"), dataIndex: "createdAt" }]} />}</Card>;
 }
 `;
   }
@@ -2424,9 +2592,11 @@ test("SSE subscription reconnects after the stream ends", async () => {
     );
     generated["web/app/routes/login.tsx"] = `import { Alert, Button, Card, Space, Spin, Typography } from "antd";
 import { useEffect, useState } from "react";
+import { useTranslation } from "@refinedev/core";
 import { beginProviderLogin, fetchAuthProviders, type QiyAuthProviderPublic } from "../auth/oidc-multi";
 
 export default function Login() {
+  const { translate } = useTranslation();
   const [providers, setProviders] = useState<QiyAuthProviderPublic[]>([]);
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
@@ -2435,13 +2605,13 @@ export default function Login() {
     <Card style={{ width: 420 }}>
       <Space direction="vertical" size="large" style={{ width: "100%" }}>
         <Typography.Title level={3} style={{ margin: 0 }}>Qiy Admin</Typography.Title>
-        <Typography.Text type="secondary">Choose an identity provider to sign in.</Typography.Text>
+        <Typography.Text type="secondary">{translate("qiy.multiProviderHint", {}, "Choose an identity provider to sign in.")}</Typography.Text>
         {error ? <Alert type="error" showIcon message={error} /> : null}
         {loading ? <Spin /> : null}
         <Space direction="vertical" style={{ width: "100%" }}>
           {providers.map((provider) => <Button key={provider.id} block size="large" onClick={() => void beginProviderLogin(provider)}>{provider.label}</Button>)}
         </Space>
-        {!loading && providers.length === 0 && !error ? <Alert type="warning" showIcon message="No identity provider is configured on the server" /> : null}
+        {!loading && providers.length === 0 && !error ? <Alert type="warning" showIcon message={translate("qiy.noProviderConfigured", {}, "No identity provider is configured on the server")} /> : null}
       </Space>
     </Card>
   </main>;
@@ -2468,11 +2638,13 @@ export default function AuthCallback() {
     generated["web/app/routes/auth-callback.tsx"] = `import { Alert, Card, Spin, Typography } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
+import { useTranslation } from "@refinedev/core";
 import { completeProviderCallback } from "../auth/oidc-multi";
 
 /** Finishes a provider sign-in: onboarding, linked provider or a normal session. */
 export default function AuthCallback() {
   const navigate = useNavigate();
+  const { translate } = useTranslation();
   const started = useRef(false);
   const [error, setError] = useState<string>();
   useEffect(() => {
@@ -2484,7 +2656,7 @@ export default function AuthCallback() {
       .catch((caught: unknown) => { if (active) setError(caught instanceof Error ? caught.message : String(caught)); });
     return () => { active = false; };
   }, [navigate]);
-  return <main style={{ padding: 40, display: "flex", justifyContent: "center" }}><Card style={{ width: 420 }}>{error ? <Alert type="error" showIcon message={error} /> : <><Spin /><Typography.Paragraph style={{ marginTop: 16 }}>正在完成登录… / Completing sign-in…</Typography.Paragraph></>}</Card></main>;
+  return <main style={{ padding: 40, display: "flex", justifyContent: "center" }}><Card style={{ width: 420 }}>{error ? <Alert type="error" showIcon message={error} /> : <><Spin /><Typography.Paragraph style={{ marginTop: 16 }}>{translate("qiy.completingSignIn", {}, "Completing sign-in…")}</Typography.Paragraph></>}</Card></main>;
 }
 `;
     generated["web/app/routes/auth-onboarding.tsx"] = renderOnboardingRoute({
@@ -2756,10 +2928,13 @@ export async function unbindProvider(provider: string, fetcher: typeof fetch = f
 }
 
 function renderOnboardingRoute(options: { usernameLabel: string; hasEmailField: boolean }): string {
+  // The username field is either the model's login identifier (email) or a username.
+  const usernameLabelKey = options.usernameLabel === "Email" ? "qiy.email" : "qiy.username";
   const emailField = options.hasEmailField
-    ? `        <Form.Item name="email" label="Email" rules={[{ required: true, type: "email", message: "Enter a valid email address" }]}><Input autoComplete="email" /></Form.Item>\n`
+    ? `        <Form.Item name="email" label={translate("qiy.email", {}, "Email")} rules={[{ required: true, type: "email", message: translate("qiy.invalidEmail", {}, "Enter a valid email address") }]}><Input autoComplete="email" /></Form.Item>\n`
     : "";
   return `import { Alert, Button, Card, Form, Input, Space, Typography } from "antd";
+import { useTranslation } from "@refinedev/core";
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { decodeOnboardingToken, registerOAuthUser } from "../auth/oidc-multi";
@@ -2769,10 +2944,12 @@ interface OnboardingValues { username: string; email?: string; password: string;
 /**
  * Shown after the first OAuth sign-in for an identity that has no users row.
  * The IdP username/email prefill the form; the user may adjust them and must set
- * a password so the account also works with password login.
+ * a password so the account also works with password login. All copy follows the
+ * active interface language through the generated chrome dictionary.
  */
 export default function AuthOnboarding() {
   const navigate = useNavigate();
+  const { translate } = useTranslation();
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token") ?? "";
   const claims = token ? decodeOnboardingToken(token) : null;
@@ -2791,19 +2968,19 @@ export default function AuthOnboarding() {
       setSubmitting(false);
     }
   };
-  if (!token) return <main style={{ padding: 40, display: "flex", justifyContent: "center" }}><Card style={{ width: 480 }}><Alert type="error" showIcon message="This onboarding link is invalid or has expired." /><Button style={{ marginTop: 16 }} onClick={() => navigate("/auth/login", { replace: true })}>Back to sign in</Button></Card></main>;
+  if (!token) return <main style={{ padding: 40, display: "flex", justifyContent: "center" }}><Card style={{ width: 480 }}><Alert type="error" showIcon message={translate("qiy.onboardingInvalid", {}, "This onboarding link is invalid or has expired.")} /><Button style={{ marginTop: 16 }} onClick={() => navigate("/auth/login", { replace: true })}>{translate("qiy.backToSignIn", {}, "Back to sign in")}</Button></Card></main>;
   return <main style={{ padding: 40, display: "flex", justifyContent: "center" }}><Card style={{ width: 480 }}>
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-      <Typography.Title level={3} style={{ margin: 0 }}>Finish creating your account</Typography.Title>
-      <Typography.Text type="secondary">{claims?.provider ? "Signed in with " + claims.provider + ". " : ""}Confirm the account details and choose a password.</Typography.Text>
+      <Typography.Title level={3} style={{ margin: 0 }}>{translate("qiy.finishAccount", {}, "Finish creating your account")}</Typography.Title>
+      <Typography.Text type="secondary">{claims?.provider ? translate("qiy.signedInWith", { provider: claims.provider }) : ""}{translate("qiy.confirmAccount", {}, "Confirm the account details and choose a password.")}</Typography.Text>
       {error ? <Alert type="error" showIcon message={error} /> : null}
       <Form layout="vertical" initialValues={{ username: initialUsername, email: initialEmail, password: "", confirmPassword: "" }} onFinish={(values) => void submit(values as OnboardingValues)}>
-        <Form.Item name="username" label=${JSON.stringify(options.usernameLabel)} rules={[{ required: true, message: "This field is required" }]}><Input autoComplete="username" /></Form.Item>
-${emailField}        <Form.Item name="password" label="Password" rules={[{ required: true, min: 8, message: "Use at least 8 characters" }]}><Input.Password autoComplete="new-password" /></Form.Item>
-        <Form.Item name="confirmPassword" label="Confirm password" dependencies={["password"]} rules={[{ required: true }, ({ getFieldValue }) => ({ validator: (_, value: string) => value === getFieldValue("password") ? Promise.resolve() : Promise.reject(new Error("Passwords do not match")) })]}><Input.Password autoComplete="new-password" /></Form.Item>
-        <Button type="primary" htmlType="submit" block loading={submitting}>Create account and sign in</Button>
+        <Form.Item name="username" label={translate(${JSON.stringify(usernameLabelKey)}, {}, ${JSON.stringify(options.usernameLabel)})} rules={[{ required: true, message: translate("qiy.fieldRequired", {}, "This field is required") }]}><Input autoComplete="username" /></Form.Item>
+${emailField}        <Form.Item name="password" label={translate("qiy.password", {}, "Password")} rules={[{ required: true, min: 8, message: translate("qiy.passwordMin", {}, "Use at least 8 characters") }]}><Input.Password autoComplete="new-password" /></Form.Item>
+        <Form.Item name="confirmPassword" label={translate("qiy.confirmPassword", {}, "Confirm password")} dependencies={["password"]} rules={[{ required: true }, ({ getFieldValue }) => ({ validator: (_, value: string) => value === getFieldValue("password") ? Promise.resolve() : Promise.reject(new Error(translate("qiy.passwordMismatch", {}, "Passwords do not match"))) })]}><Input.Password autoComplete="new-password" /></Form.Item>
+        <Button type="primary" htmlType="submit" block loading={submitting}>{translate("qiy.createAccount", {}, "Create account and sign in")}</Button>
       </Form>
-      <Typography.Text type="secondary">Already have an account with a password? <Typography.Link onClick={() => navigate("/auth/login", { replace: true })}>Sign in</Typography.Link> and link this provider from your profile.</Typography.Text>
+      <Typography.Text type="secondary">{translate("qiy.alreadyHaveAccount", {}, "Already have an account with a password?")} <Typography.Link onClick={() => navigate("/auth/login", { replace: true })}>{translate("qiy.signInAction", {}, "Sign in")}</Typography.Link> {translate("qiy.linkProviderHint", {}, "Sign in and link this provider from your profile.")}</Typography.Text>
     </Space>
   </Card></main>;
 }
@@ -2819,22 +2996,20 @@ function renderProfileRoute(options: { hasProviderBinding: boolean; roleEnumName
   const bindImport = options.hasProviderBinding ? 'import { beginProviderBind } from "../auth/oidc-multi";\n' : "";
   // The role tag is model data: resolve it through the declared role enum's value keys.
   const roleKey = options.roleEnumName ? `qiy.enums.${options.roleEnumName}.values.` : undefined;
-  const coreImport = roleKey ? 'import { useLogout, useNotification, useTranslation } from "@refinedev/core";' : 'import { useLogout, useNotification } from "@refinedev/core";';
-  const translateHook = roleKey ? "  const { translate } = useTranslation();\n" : "";
   const roleTag = roleKey
     ? `<Tag color="blue">{translate(${JSON.stringify(roleKey)} + identities.user.role, {}, identities.user.role)}</Tag>`
     : `<Tag color="blue">{identities.user.role}</Tag>`;
   const providerSection = options.hasProviderBinding
-    ? `    <Card title="Linked sign-in methods">
-      <List<QiyIdentityProvider> dataSource={identities.providers} locale={{ emptyText: "No OAuth providers configured" }} renderItem={(provider) => <List.Item actions={provider.bound
-        ? [<Popconfirm key="unbind" title={"Unlink " + provider.label + "?"} description={canRemove(provider) ? "You can link it again later." : "This is your last sign-in method."} disabled={!canRemove(provider)} onConfirm={() => void unbind(provider)}><Button danger loading={busy === provider.id} disabled={!canRemove(provider)}>Unbind</Button></Popconfirm>]
-        : [<Button key="bind" type="primary" loading={busy === provider.id} onClick={() => void bind(provider)}>Bind</Button>]}>
-        <List.Item.Meta title={<Space><Tag color={provider.bound ? "green" : "default"}>{provider.label}</Tag>{provider.bound ? <Typography.Text type="secondary">Linked</Typography.Text> : null}</Space>} description={provider.bound ? <Typography.Text type="secondary">{provider.email ?? provider.name ?? provider.subject ?? "Linked"}</Typography.Text> : <Typography.Text type="secondary">Not linked yet</Typography.Text>} />
+    ? `    <Card title={translate("qiy.linkedMethods", {}, "Linked sign-in methods")}>
+      <List<QiyIdentityProvider> dataSource={identities.providers} locale={{ emptyText: translate("qiy.noProviders", {}, "No OAuth providers configured") }} renderItem={(provider) => <List.Item actions={provider.bound
+        ? [<Popconfirm key="unbind" title={translate("qiy.unlinkTitle", { provider: provider.label })} description={canRemove(provider) ? translate("qiy.unlinkKeep", {}, "You can link it again later.") : translate("qiy.unlinkLast", {}, "This is your last sign-in method.")} disabled={!canRemove(provider)} onConfirm={() => void unbind(provider)}><Button danger loading={busy === provider.id} disabled={!canRemove(provider)}>{translate("qiy.unbind", {}, "Unbind")}</Button></Popconfirm>]
+        : [<Button key="bind" type="primary" loading={busy === provider.id} onClick={() => void bind(provider)}>{translate("qiy.bind", {}, "Bind")}</Button>]}>
+        <List.Item.Meta title={<Space><Tag color={provider.bound ? "green" : "default"}>{provider.label}</Tag>{provider.bound ? <Typography.Text type="secondary">{translate("qiy.linked", {}, "Linked")}</Typography.Text> : null}</Space>} description={provider.bound ? <Typography.Text type="secondary">{provider.email ?? provider.name ?? provider.subject ?? translate("qiy.linked", {}, "Linked")}</Typography.Text> : <Typography.Text type="secondary">{translate("qiy.notLinked", {}, "Not linked yet")}</Typography.Text>} />
       </List.Item>} />
     </Card>
 `
     : "";
-  return `${coreImport}
+  return `import { useLogout, useNotification, useTranslation } from "@refinedev/core";
 import { Alert, Button, Card, Descriptions, List, Popconfirm, Space, Spin, Tag, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -2843,7 +3018,8 @@ ${bindImport}import { fetchIdentities, unbindProvider, type QiyIdentities, type 
 export default function Profile() {
   const [searchParams] = useSearchParams();
   const { open } = useNotification();
-${translateHook}  const { mutate: logout } = useLogout();
+  const { translate } = useTranslation();
+  const { mutate: logout } = useLogout();
   const [identities, setIdentities] = useState<QiyIdentities>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState<string>();
@@ -2853,10 +3029,10 @@ ${translateHook}  const { mutate: logout } = useLogout();
   };
   useEffect(() => { void load(); }, []);
   const linked = searchParams.get("linked");
-  useEffect(() => { if (linked) open?.({ type: "success", message: "Linked " + linked }); }, [linked, open]);
+  useEffect(() => { if (linked) open?.({ type: "success", message: translate("qiy.linkedToast", { provider: linked }) }); }, [linked, open, translate]);
   const unbind = async (provider: QiyIdentityProvider) => {
     setBusy(provider.id);
-    try { await unbindProvider(provider.id); await load(); open?.({ type: "success", message: "Unlinked " + provider.label }); }
+    try { await unbindProvider(provider.id); await load(); open?.({ type: "success", message: translate("qiy.unlinkedToast", { provider: provider.label }) }); }
     catch (caught) { open?.({ type: "error", message: caught instanceof Error ? caught.message : String(caught) }); }
     finally { setBusy(undefined); }
   };
@@ -2870,14 +3046,14 @@ ${translateHook}  const { mutate: logout } = useLogout();
   const passwordSet = identities.password.set;
   const canRemove = (provider: QiyIdentityProvider) => passwordSet || identities.providers.some((other) => other.id !== provider.id && other.bound);
   return <Space direction="vertical" size="large" style={{ width: "100%" }}>
-    <Typography.Title level={2} style={{ margin: 0 }}>Profile</Typography.Title>
-    <Card title="Account" extra={<Button onClick={() => logout()}>Sign out</Button>}>
+    <Typography.Title level={2} style={{ margin: 0 }}>{translate("qiy.profileTitle", {}, "Profile")}</Typography.Title>
+    <Card title={translate("qiy.account", {}, "Account")} extra={<Button onClick={() => logout()}>{translate("qiy.signOut", {}, "Sign out")}</Button>}>
       <Descriptions column={1} items={[
-        { key: "username", label: "Username", children: identities.user.username },
-        { key: "email", label: "Email", children: identities.user.email },
-        { key: "name", label: "Name", children: identities.user.name },
-        { key: "role", label: "Role", children: ${roleTag} },
-        { key: "password", label: "Password", children: passwordSet ? <Tag color="green">Set</Tag> : <Tag>Not set</Tag> },
+        { key: "username", label: translate("qiy.username", {}, "Username"), children: identities.user.username },
+        { key: "email", label: translate("qiy.email", {}, "Email"), children: identities.user.email },
+        { key: "name", label: translate("qiy.name", {}, "Name"), children: identities.user.name },
+        { key: "role", label: translate("qiy.role", {}, "Role"), children: ${roleTag} },
+        { key: "password", label: translate("qiy.password", {}, "Password"), children: passwordSet ? <Tag color="green">{translate("qiy.passwordSet", {}, "Set")}</Tag> : <Tag>{translate("qiy.passwordNotSet", {}, "Not set")}</Tag> },
       ]} />
     </Card>
 ${providerSection}  </Space>;

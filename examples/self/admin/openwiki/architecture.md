@@ -236,6 +236,7 @@ The server owns validation, authorization and database transactions; the browser
 - [apps/web/tests/api-error.test.ts](../apps/web/tests/api-error.test.ts)
 - [apps/web/tests/audit-provider.test.ts](../apps/web/tests/audit-provider.test.ts)
 - [apps/web/tests/auth.test.ts](../apps/web/tests/auth.test.ts)
+- [apps/web/tests/chrome-i18n.test.ts](../apps/web/tests/chrome-i18n.test.ts)
 - [apps/web/tests/column-visibility.test.ts](../apps/web/tests/column-visibility.test.ts)
 - [apps/web/tests/data-provider.test.ts](../apps/web/tests/data-provider.test.ts)
 - [apps/web/tests/distribution.test.ts](../apps/web/tests/distribution.test.ts)
