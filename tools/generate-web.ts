@@ -121,7 +121,7 @@ async function pkceChallenge(verifier: string): Promise<string> {
 }
 
 /** Redirects to the selected provider; the user can choose any configured provider. */
-export async function beginProviderLogin(provider: QiyAuthProviderPublic, returnTo = window.location.pathname + window.location.search): Promise<void> {
+export async function beginProviderLogin(provider: QiyAuthProviderPublic, returnTo = window.location.pathname.startsWith("/auth/") ? "/" : window.location.pathname + window.location.search): Promise<void> {
   const verifier = randomValue();
   const state = randomValue();
   sessionStorage.setItem(verifierKey, verifier);

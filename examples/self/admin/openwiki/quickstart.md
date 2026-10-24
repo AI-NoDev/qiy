@@ -1,6 +1,6 @@
 # qiy-supply-chain-erp-wms: generated application
 
-Model input: `examples\self\app.qiy`. Keep this model and all include fragments available when regenerating.
+Model input: `examples/self/app.qiy`. Keep this model and all include fragments available when regenerating.
 
 Generated slice: Refine React Router SPA, Bun/Elysia API, Drizzle schemas, tests and deployment examples.
 
