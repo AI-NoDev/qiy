@@ -16,7 +16,9 @@ async function findUserById(id: string): Promise<Principal | null> {
   const rows = await db.select().from(users).where(eq(users.id, id)).limit(1);
   const row = rows[0];
   if (!row || typeof row.id !== "string" || !isRole(row.role)) return null;
-  return { id: row.id, name: String(row.displayName ?? row.email ?? row.id), role: row.role };
+  const claims: Record<string, string | number | boolean | null> = {};
+  if (row.orgId !== null && row.orgId !== undefined && row.orgId !== "") claims["org.id"] = typeof row.orgId === "boolean" || typeof row.orgId === "number" ? row.orgId : String(row.orgId);
+  return { id: row.id, name: String(row.displayName ?? row.email ?? row.id), role: row.role, ...(Object.keys(claims).length ? { claims } : {}) };
 }
 
 export function createProductionAuthenticator(): Authenticator {

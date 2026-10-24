@@ -6605,6 +6605,18 @@ export async function verifyAccessToken(token: string, secret: string, issuer: s
   } catch { return null; }
 }
 `;
+      // Local password sessions have no identity-provider token, so claims used by
+      // data scopes are resolved from the authenticated user row instead. A scope
+      // claim such as "org.id" maps to the user field "orgId" (dotted segments are
+      // camel-cased); the mapping is validated at generation time so a broken claim
+      // cannot silently produce 403 responses at runtime.
+      const localScopeClaims = [...new Set((options.scopes ?? []).map((scope) => scope.claim))].map((claim) => {
+        const fieldName = claim.replace(/\.([a-zA-Z0-9])/g, (_match: string, char: string) => char.toUpperCase());
+        const field = userEntity.fields.find((candidate) => candidate.name === claim || candidate.name === fieldName);
+        if (!field) throw new Error(`Data scope claim ${claim} needs a matching field on ${userEntity.name} (expected ${fieldName}) to resolve local password sessions`);
+        return { claim, field: field.name };
+      });
+      const localScopeClaimLines = localScopeClaims.map(({ claim, field }) => `  if (row.${field} !== null && row.${field} !== undefined && row.${field} !== "") claims[${JSON.stringify(claim)}] = typeof row.${field} === "boolean" || typeof row.${field} === "number" ? row.${field} : String(row.${field});`).join("\n");
       files["api/src/auth/local.ts"] = `import { Elysia, t } from "elysia";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
@@ -6623,7 +6635,9 @@ async function findUserById(id: string): Promise<Principal | null> {
   const rows = await db.select().from(${auth.userEntity}).where(eq(${auth.userEntity}.id, id)).limit(1);
   const row = rows[0];
   if (!row || typeof row.id !== "string" || !isRole(row.${auth.roleField})) return null;
-  return { id: row.id, name: ${principalNameExpression(userEntity, "displayName", auth.usernameField)}, role: row.${auth.roleField} };
+  const claims: Record<string, string | number | boolean | null> = {};
+${localScopeClaimLines}
+  return { id: row.id, name: ${principalNameExpression(userEntity, "displayName", auth.usernameField)}, role: row.${auth.roleField}, ...(Object.keys(claims).length ? { claims } : {}) };
 }
 
 export function createProductionAuthenticator(): Authenticator {
