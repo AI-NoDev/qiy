@@ -36,7 +36,14 @@ export QIY_OIDC_GOOGLE_CLIENT_ID=<google client id>
 浏览器登录页会列出所有已配置 Provider（未配置的自动隐藏）；服务端接受任一 Provider 的 token，并按各自映射列找到用户。
 
 
-## 本地演示（Dex OIDC，端口 8000）
+## 本地演示（两个 Dex OIDC 租户，端口 8000）
+
+示例用**两个独立的 Dex 实例**模拟两个不同的 OIDC Provider（不同 issuer），登录页会展示两个可选按钮，服务端按 token 的 `iss` 路由到对应 JWKS，并把 `keycloak` Provider 的 `sub` 映射到 `keycloakSubject` 列：
+
+| Provider | issuer | client id | 身份列 |
+| --- | --- | --- | --- |
+| okta | http://localhost:5556/dex | qiy-admin | 默认 `iss\|sub` → `subject` |
+| keycloak | http://localhost:5557/dex | qiy-keycloak | `sub` → `keycloakSubject` |
 
 ```sh
 # 1) 生成并迁移
@@ -44,22 +51,24 @@ bun run qiy generate examples/self/app.qiy examples/self/admin
 cd examples/self/admin && bun install
 cd apps/server && bun run db:generate && bun run db:migrate
 
-# 2) 用本地 Dex 作为 OIDC Provider（http://localhost:5556/dex）
-docker run -d --name qiy-dex-demo -p 5556:5556 -v "$PWD/../../dex:/etc/dex" ghcr.io/dexidp/dex:v2.41.1 dex serve /etc/dex/dex.yaml
+# 2) 两个 OIDC Provider（Dex）
+docker run -d --name qiy-dex-demo  -p 5556:5556 -v "$PWD/../../dex:/etc/dex" ghcr.io/dexidp/dex:v2.41.1 dex serve /etc/dex/dex.yaml
+docker run -d --name qiy-dex-demo2 -p 5557:5557 -v "$PWD/../../dex:/etc/dex" ghcr.io/dexidp/dex:v2.41.1 dex serve /etc/dex/keycloak.yaml
 
-# 3) API 监听 8001，Web 监听 8000（所有 Provider 回调都是 http://localhost:8000/auth/callback）
-#    .env.development 里配置：
+# 3) .env.development（API 在 8001，回调统一 http://localhost:8000/auth/callback）
 #    PORT=8001
 #    QIY_OIDC_OKTA_ISSUER=http://localhost:5556/dex
 #    QIY_OIDC_OKTA_AUDIENCE=qiy-admin
-#    QIY_OIDC_OKTA_JWKS_URL=http://localhost:5556/dex/keys
-#    QIY_OIDC_OKTA_AUTHORIZATION_URL=http://localhost:5556/dex/auth
-#    QIY_OIDC_OKTA_TOKEN_URL=http://localhost:5556/dex/token
 #    QIY_OIDC_OKTA_CLIENT_ID=qiy-admin
-#    QIY_OIDC_OKTA_REDIRECT_URI=http://localhost:8000/auth/callback
+#    ... JWKS/AUTHORIZATION/TOKEN/REDIRECT
+#    QIY_OIDC_KEYCLOAK_ISSUER=http://localhost:5557/dex
+#    QIY_OIDC_KEYCLOAK_AUDIENCE=qiy-keycloak
+#    QIY_OIDC_KEYCLOAK_CLIENT_ID=qiy-keycloak
+#    QIY_OIDC_KEYCLOAK_REDIRECT_URI=http://localhost:8000/auth/callback
 
-cd apps/server && bun --env-file=.env.development src/server.ts   # API :8001
-cd apps/web && QIY_API_PROXY=http://localhost:8001 bun run dev -- --port 8000   # Web :8000
+# 4) 启动
+cd apps/server && bun --env-file=.env.development src/server.ts     # API :8001
+cd apps/web && QIY_API_PROXY=http://localhost:8001 bun run dev -- --port 8000  # Web :8000
 ```
 
-打开 <http://localhost:8000>，登录页会列出已配置的 Provider（示例为 Okta，实际指向本地 Dex），用 `admin@example.com / admin-password` 登录。
+打开 <http://localhost:8000>，登录页列出 **Okta / Keycloak** 两个按钮，均可用 `admin@example.com / admin-password` 登录；两个 Provider 的 password grant 与 PKCE 授权码流程都已验证会返回各自真实 token 并能访问生成 API。
