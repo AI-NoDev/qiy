@@ -157,6 +157,21 @@ Qiy 会向 `QIY_OTP_DELIVERY_URL` POST `{ recipient, code, expiresIn: 300 }`，�
 
 受保护的生产 API 请求必须携带通过验证的 Bearer JWT。生产应保持 `QIY_DEV_MODE=0` 并配置所选认证 provider；没有认证配置的生成应用会拒绝生产启动，开发 preview 不能替代生产认证。
 
+## 权限 provider（permission）
+
+`permission` 声明块把原子权限、权限组（角色即权限组）、provider 来源和权限校验表达式交给生成器；语法与集合语义见 [DSL：权限](/dsl/permissions)。声明后生成服务端会多出：
+
+- `auth/permissions.ts`：`resolvePermissionSnapshot()`、`loadPermissions()`、`evaluatePermissionVerification()`，其中生效权限是「角色组 ∪ 数据库列 ∪ 已验证 id_token claims」的并集；
+- `auth/permission-routes.ts`：`GET /api/v1/auth/permissions` 与 `POST /api/v1/auth/verify-permission`；
+- `/auth/me` 追加 `permissions` 与 `groups` 字段（原有字段不变）；
+- dataflow 命令按 `allow permission` / `allow verification` 执行 403 判定；`/api/v1/commands` 从通用角色守卫中豁免，改由命令路由执行 allow 规则（角色、权限、校验表达式都在路由内判定）。
+
+数据库列契约：auth 用户实体上一个 `Text @nullable` 字段，JSON 字符串数组（也接受逗号/空格分隔文本），每项是权限值或组名；行缺失或解析失败时该来源被忽略，角色组与 claims 仍然生效。
+
+OAuth claim 契约：`permission from claim <provider> "<claim>";` 只接受 auth 块里配置的 OAuth/OIDC provider；claim 来自**已验签的 id_token**（本地密码/OTP 会话没有 claims）。claim 值可以是字符串数组或空格/逗号分隔字符串；IdP 必须真正签发该 claim（Google 需自定义 claim 映射到 `groups`，Azure AD B2C 自定义策略通常签发 `roles`；Dex 默认不签发，需要租户侧 mapper）。多 Provider 时同一条 claim 名会合并；未知值忽略。
+
+迁移路径：既有 `role` 字符串不变，把 `permission group admin/operator/viewer { ... }` 声明为角色权限集合即可获得同样的基础权限；`allow roles`、`restrict.roles`、`pages` 与 action `roles` 继续按角色执行（资源级授权迁移不在本次范围）。仓库测试 `tests/permissions.test.ts` 覆盖解析/序列化/校验/集合语义/生成集成，生成应用测试 `apps/server/tests/permissions.test.ts` 覆盖运行时 provider、真值表、HTTP 与 `/auth/me`。
+
 ## 多 Provider 登录（多选 + 每 Provider 身份字段）
 
 一个应用可以同时启用多个 OIDC Provider，登录页会列出所有已配置的 Provider 供用户选择；服务端按 token 的 `iss` 选择对应 JWKS 验签，并允许每个 Provider 映射到用户表里不同的身份字段（例如 Google 用 `sub`、OpenID 类 Provider 用 `openid` 列）。

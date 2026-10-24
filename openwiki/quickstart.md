@@ -30,6 +30,7 @@ Qiy Model
 - `examples/catalog/app.qiy` 是 V0 受限文本语法的声明式项目配置；运行 `bun run tools/generate-app.ts examples/catalog/app.qiy out/catalog-admin` 可产生完整 Bun workspace。
 - `examples/plugin-matrix/app.qiy` 是 SQLite + OIDC + Yoga 的按需 Elysia 插件组合回归模型；运行 `bun run tools/generate-app.ts examples/plugin-matrix/app.qiy tmp/v3-elysia-plugin-matrix --sync`，再在生成包中测试。JWT 测试 secret 仅供测试，生产仍须设置对应环境变量；Static 只开放 `public` 目录下文件。
 - `examples/auth-providers/` 提供 Auth0 PKCE 与 OTP 两个完整认证样例；默认 Refine 模板同时启用 `@refinedev/kbar`。外部 provider 仍需真实 tenant redirect/audience/JWKS 验收，OTP 仍需真实邮件/短信 adapter 与限流验收。
+- 权限系统：`.qiy` 新增 `permission` 声明（原子权限、权限组即角色、`&` 并集、数据库列/OAuth claim provider、六种集合比较的校验块）；生成服务端 `auth/permissions.ts` provider 与 `GET /api/v1/auth/permissions`、`POST /api/v1/auth/verify-permission`，`/auth/me` 追加 `permissions`/`groups`；dataflow 支持 `allow permission` / `allow verification`（`allow roles` 保持兼容），Web 命令按钮按生效权限隐藏。示例见 `examples/self/modules/permissions.qiy`，语法见 [DSL：权限](../docs/dsl/permissions.md)，状态见 [V3 状态](v3-status.md#权限系统原子权限--权限组--provider--校验块--命令-allow2026-10-25-完成)。
 - MPS sandbox 模型可用 `bun run tools/export-mps-qiy.ts <model.mps> <output.qiy>` 导出文本投影，再由公开 `.qiy` 生成链路创建完整 Bun workspace。ERP workflow 样例覆盖 PostgreSQL 订单、订单项、库存项、OIDC 用户/角色、彩色状态枚举、分层菜单、Dashboard 指标及预占流程，并贯通 TextGen、IR 对比及共享生成器。它仍不是完整 ERP，真实 IdP 未验收，`qiy.generator` 已验证最小 create-root mapping，业务模板仍待扩展。
 - `languages/qiy.sandbox/models/qiy.erpworkflow.mps` 是 PostgreSQL MPS ERP 切片，包含 `users`、`orders`、`orderItems`、`inventoryItems`、OIDC `AuthConfig`、彩色状态/角色枚举、订单审批关系、分层菜单、count/distribution/trend dashboard、字段级可见性、label/icon、sortable/filterable 与 `orderInventory`；先由 Bun exporter 导出 `.qiy`，再使用 `qiy generate` 或 `qiy create` 生成工作区。MPS smoke 验证旧 TextGen 的结构子集，并单独验证权威导出保留完整注释等语义。
 - `templates/admin/` 是稳定的 Turborepo + Bun 模板；`tools/generate-project.ts` 将 Qiy 模型生成的业务切片填入模板。
@@ -54,6 +55,8 @@ $env:MPS_HOME = "D:\IDE\MPS"
 ## 文档导航
 
 - [官网文档站](../docs/index.md)：`bun run docs:dev` 本地预览，`bun run docs:build` 构建静态站点；`.github/workflows/deploy-docs.yml` 会在 `main` 推送后发布到 GitHub Pages，内容覆盖指南与 DSL 参考。
+- [DSL：权限](../docs/dsl/permissions.md)：原子权限、权限组、provider 来源、校验表达式与 dataflow `allow` 形式。
+- [指南：认证与权限](../docs/guide/auth.md)：登录 provider、页面守卫与权限 provider 的生成结果。
 - [编辑器高亮与社区插件](../docs/guide/editor-support.md)：官网 Qiy TextMate 高亮、可打包的 VS Code 扩展、IntelliJ Platform 插件与 Marketplace 发布工作流。
 - [Android 国内应用商店分发](../docs/guide/android-distribution.md)：`deploy/config.ts` 的安全凭据引用、可多选平台的发布 CLI、华为/小米直连和其他渠道的独立 relay 适配器。
 - [架构与演进路线](architecture.md)：当前 MPS 结构、目标生成架构、V0/V1 和扩展边界。

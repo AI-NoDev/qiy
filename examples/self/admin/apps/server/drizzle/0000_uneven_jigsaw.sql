@@ -269,6 +269,7 @@ CREATE TABLE `users` (
 	`role` text NOT NULL,
 	`passwordHash` text,
 	`oauthProfiles` text,
+	`permissions` text,
 	`orgId` text,
 	FOREIGN KEY (`orgId`) REFERENCES `orgs`(`id`) ON UPDATE no action ON DELETE restrict
 );

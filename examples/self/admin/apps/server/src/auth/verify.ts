@@ -31,7 +31,10 @@ export function createOidcAuthenticator(options: OidcOptions): Authenticator {
     const role = user[options.roleField];
     if (role !== "admin" && role !== "operator" && role !== "viewer") return null;
     if (typeof user.id !== "string") return null;
-    const claims = Object.fromEntries(Object.entries(payload).filter(([key, value]) => key !== "iss" && key !== "aud" && key !== "exp" && key !== "iat" && key !== "nbf" && key !== "jti" && key !== "sub" && ["string", "number", "boolean"].includes(typeof value)).map(([key, value]) => [key, value as string | number | boolean]));
+    // Claims are exposed to generated policy code (data scopes, permission claim
+    // sources). Scalar claims keep their JSON type and string arrays are
+    // preserved; object claims are never trusted through this surface.
+    const claims = Object.fromEntries(Object.entries(payload).filter(([key, value]) => key !== "iss" && key !== "aud" && key !== "exp" && key !== "iat" && key !== "nbf" && key !== "jti" && key !== "sub" && (["string", "number", "boolean"].includes(typeof value) || (Array.isArray(value) && value.every((entry) => typeof entry === "string")))).map(([key, value]) => [key, value as string | number | boolean | string[]]));
     return { id: user.id, name: String(user.displayName ?? user.email ?? user.id), role, ...(Object.keys(claims).length ? { claims } : {}) } satisfies Principal;
   };
 }

@@ -13,7 +13,7 @@ export interface QiyRealtimeEventSubscription { event: string; roles: string[] }
 // Declared element types: an empty capability list must still be typed, otherwise
 // an empty const array becomes readonly never[] and the generated server fails tsc.
 export const qiyRealtimeSubscriptions: readonly QiyRealtimeSubscription[] = [{"resource":"inventory","events":["created","updated","deleted"],"roles":["admin","operator"]},{"resource":"stock_movements","events":["created"],"roles":["admin","operator"]},{"resource":"shipments","events":["created","updated"],"roles":["admin","operator"]}];
-export const qiyRealtimeEventSubscriptions: readonly QiyRealtimeEventSubscription[] = [{"event":"inventory.received","roles":["admin","operator"]},{"event":"inventory.moved","roles":["admin","operator"]},{"event":"sales.allocated","roles":["admin","operator"]},{"event":"inventory.adjusted","roles":["admin","operator"]},{"event":"sales.shipped","roles":["admin","operator"]},{"event":"inventory.transferred","roles":["admin","operator"]},{"event":"production.completed","roles":["admin","operator"]}];
+export const qiyRealtimeEventSubscriptions: readonly QiyRealtimeEventSubscription[] = [{"event":"inventory.received","roles":["admin","operator"]},{"event":"inventory.moved","roles":["admin","operator"]},{"event":"sales.allocated","roles":["admin","operator"]},{"event":"inventory.adjusted","roles":["admin","operator"]},{"event":"sales.shipped","roles":["admin","operator"]},{"event":"inventory.transferred","roles":["admin","operator"]},{"event":"production.completed","roles":["admin","operator"]},{"event":"purchasing.approved","roles":["admin","operator"]}];
 
 type AblyClient = Pick<Rest, "auth" | "channels">;
 type AblyClientFactory = () => AblyClient;

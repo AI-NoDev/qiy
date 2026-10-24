@@ -1,5 +1,29 @@
 # V3 实施状态与验收规划
 
+## 权限系统：原子权限 / 权限组 / provider / 校验块 / 命令 allow（2026-10-25 完成）
+
+**DSL/IR（已完成）：**
+
+- 新增顶层 `permission` 声明序列（`messages` 之后、`workflow`/`enum`/`entity` 之前）：`permission field Name "value" [@label/@comment]`、`permission group G { A, B }` / `permission group G = A & B`（`&` 为并集）、`permission from database field users.permissions;`、`permission from claim <oauth-provider> "<claim>";`、`permission verification V { input {...} return <expr>; }`；
+- `QiyProject.permissions` 保存字段/组/claim/database/verification；`DataflowIR` 增加 `permission`/`verification`，`QiyAction` 增加同名可选字段，`allow roles` 保持原样；
+- 解析期校验：重复权限名/值、未知组成员、自引用与环、未配置 claim provider、非 Text 或非 auth 用户实体的数据库列、未知 self 集合/input 字段、非法运算符与括号、未知 dataflow `allow` 引用、校验输入必须是 flow 的 `@required` Text/枚举字段、无 `auth` 声明权限；序列化可往返；
+- `tools/permissions.ts` 是权威实现：组展开、`resolvePermissionSnapshot`（角色组 ∪ 数据库列 ∪ claims，未知忽略）、六种集合比较 `all in`/`some in`/`not all in`/`not some in`/`=`/`!=`、`&& || !` 与括号、`missing` 诊断、claim 数组/CSV/空格解析。
+
+**生成器（已完成）：**
+
+- 服务端 `auth/permissions.ts`（运行时 provider + 数据驱动校验表达式 + 数据库列 try/catch 容错）、`auth/permission-routes.ts`（`GET /api/v1/auth/permissions`、`POST /api/v1/auth/verify-permission`）；`/auth/me` 追加 `permissions`/`groups`；
+- dataflow 命令路由按 allow 形式执行：`allow permission` 展开后要求全部权限值（403 + `errorKey: "command.forbidden"` + `missing`）、`allow verification` 用 flow 输入求值（403）、`allow roles` 保持旧行为；`/api/v1/commands` 从 guard 的通用角色判定中豁免（认证仍在 guard），命令路由成为唯一授权点，持有权限的非 admin/operator 角色可执行命令；
+- Web `app/auth.ts`：`commandPolicies` 带展开后的 `permissions` 与无输入校验表达式；`qiyAccessControlProvider` 在 `/auth/me` 带权限元数据时按生效权限隐藏按钮，否则回退角色 allow list；导航 action 同样支持；
+- 生成测试：`apps/server/tests/permissions.test.ts`（provider 快照/claim/db 解析/真值表/HTTP/`/auth/me`）、生成 dataflow 测试按 allow 形式提供授权主体、`apps/web/tests/auth.test.ts` 增加权限可见性用例。
+
+**演示与验收（已完成）：**
+
+- `examples/self/modules/permissions.qiy`：12 权限、6 组（含 `UserApiPermissionGroup`/`ManagerRole`/`SuperAdminManager = A & B` 与 admin/operator/viewer 角色组）、`users.permissions` 数据库列、Azure AD B2C/Google/Dex(keycloak) claim 映射、4 个校验块；
+- dataflow：5 条迁移为 `allow permission`、`shipSalesOrder` 为 `allow verification`、新增 `approvePurchaseOrder`（operator 403 / admin 200）、`reserveStock` 保留 `allow roles`；
+- seed 增加 `operator@example.com`/`operator-password`、`viewer@example.com`/`viewer-password` 与一张 draft 采购单；README 更新账号与权限目录；
+- 验证：仓库 `bun run check` + `bun test`（285 pass）；生成 server typecheck + `bun run test`（153 pass / 3 skip）、web typecheck + test（54 pass）+ build；`tmp/verify-permissions.ts` 对运行中的 demo 执行 47 项 HTTP 断言（三角色登录、`/auth/me`、`/auth/permissions`、校验真值表、命令 200/403、真实 Dex id_token 登录与权限并集）全部通过；
+- 限制：资源 CRUD 的 `restrict.roles`/`pages`/action `roles` 仍是角色规则（未迁移）；有输入的 `allow verification` 不在 Web 端求值（服务端仍强制）；数据库 provider 的运行时加载在生成测试中由 demo HTTP 矩阵覆盖（生成测试只断言纯契约，避免占用 auth 用户表）；Dex 默认不签发 `roles`/`groups`，claim 映射需 IdP 侧 mapper（单元测试覆盖数组/CSV/空格与组名展开）。
+
 ## 混合认证：密码 + 多 OAuth、首次登录 onboarding、账号绑定（2026-10-24 完成）
 
 **DSL/生成器（已完成）：**

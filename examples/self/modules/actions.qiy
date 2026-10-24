@@ -50,3 +50,10 @@ action completeWorkOrder {
   placement list, show;
   label "Complete work order";
 }
+
+action approvePurchaseOrder {
+  resource purchase_orders;
+  dataflow approvePurchaseOrder;
+  placement list, show;
+  label "Approve purchase order";
+}

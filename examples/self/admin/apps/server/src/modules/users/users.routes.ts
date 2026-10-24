@@ -17,6 +17,7 @@ const createUsers = t.Object({
   "displayName": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
   "role": t.Union([t.Literal("admin"), t.Literal("operator"), t.Literal("viewer")]),
   "oauthProfiles": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
+  "permissions": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
   "orgId": t.Optional(t.Union([t.String({ format: "uuid" }), t.Null()], {})),
 }, { additionalProperties: false });
 
@@ -31,6 +32,7 @@ const patchUsers = t.Object({
   "displayName": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
   "role": t.Optional(t.Union([t.Literal("admin"), t.Literal("operator"), t.Literal("viewer")])),
   "oauthProfiles": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
+  "permissions": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
   "orgId": t.Optional(t.Union([t.String({ format: "uuid" }), t.Null()], {})),
 }, { additionalProperties: false });
 
@@ -68,9 +70,9 @@ export function UsersRoutes(repository: UsersRepositoryPort, authenticate: Authe
   const privateFields = ["passwordHash"] as string[];
 const redact = (record: Record<string, unknown>) => { const safe = { ...record }; for (const field of privateFields) delete safe[field]; return safe; };
   const redactRecord = (record: Record<string, unknown>) => redact(record);
-  const sortableFields = ["id","subject","oktaSubject","keycloakSubject","googleSubject","kindeSubject","azureSubject","email","displayName","role","oauthProfiles","orgId"] as string[];
-  const filterableFields = ["id","subject","oktaSubject","keycloakSubject","googleSubject","kindeSubject","azureSubject","email","displayName","role","oauthProfiles","orgId"] as string[];
-  const filterModes = {"id":["eq","gt","gte","lt","lte","between","in"],"subject":["contains","startsWith","endsWith","eq"],"oktaSubject":["contains","startsWith","endsWith","eq"],"keycloakSubject":["contains","startsWith","endsWith","eq"],"googleSubject":["contains","startsWith","endsWith","eq"],"kindeSubject":["contains","startsWith","endsWith","eq"],"azureSubject":["contains","startsWith","endsWith","eq"],"email":["contains","startsWith","endsWith","eq"],"displayName":["contains","startsWith","endsWith","eq"],"role":["eq"],"oauthProfiles":["contains","startsWith","endsWith","eq"],"orgId":["eq","gt","gte","lt","lte","between","in"]} as Record<string, FilterOperator[]>;
+  const sortableFields = ["id","subject","oktaSubject","keycloakSubject","googleSubject","kindeSubject","azureSubject","email","displayName","role","oauthProfiles","permissions","orgId"] as string[];
+  const filterableFields = ["id","subject","oktaSubject","keycloakSubject","googleSubject","kindeSubject","azureSubject","email","displayName","role","oauthProfiles","permissions","orgId"] as string[];
+  const filterModes = {"id":["eq","gt","gte","lt","lte","between","in"],"subject":["contains","startsWith","endsWith","eq"],"oktaSubject":["contains","startsWith","endsWith","eq"],"keycloakSubject":["contains","startsWith","endsWith","eq"],"googleSubject":["contains","startsWith","endsWith","eq"],"kindeSubject":["contains","startsWith","endsWith","eq"],"azureSubject":["contains","startsWith","endsWith","eq"],"email":["contains","startsWith","endsWith","eq"],"displayName":["contains","startsWith","endsWith","eq"],"role":["eq"],"oauthProfiles":["contains","startsWith","endsWith","eq"],"permissions":["contains","startsWith","endsWith","eq"],"orgId":["eq","gt","gte","lt","lte","between","in"]} as Record<string, FilterOperator[]>;
   const resolveScope = async (request: Request) => {
     const principal = await authenticate(request);
     const scopeConfig = null as { field: string; claim: string } | null;
@@ -81,12 +83,12 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
     if (!principal || claimValue === undefined || claimValue === null || claimValue === "") throw new Error("Missing required data scope claim: " + scopeClaim);
     return { field: scopeField, value: String(claimValue) };
   };
-  const exportColumns = ["id","subject","oktaSubject","keycloakSubject","googleSubject","kindeSubject","azureSubject","email","displayName","role","oauthProfiles","orgId"] as string[];
+  const exportColumns = ["id","subject","oktaSubject","keycloakSubject","googleSubject","kindeSubject","azureSubject","email","displayName","role","oauthProfiles","permissions","orgId"] as string[];
   const exportMaxRows = () => { const value = Number(Bun.env.QIY_EXPORT_MAX_ROWS ?? 1000); return Number.isSafeInteger(value) && value >= 1 && value <= 100000 ? value : 1000; };
   // Exports stream in bounded pages so memory does not grow with the result set.
   const EXPORT_PAGE_SIZE = Math.min(250, exportMaxRows());
   // Import accepts plain scalar columns only; vectors and key lists need the API.
-  const importTypes = {"subject":"Text","oktaSubject":"Text","keycloakSubject":"Text","googleSubject":"Text","kindeSubject":"Text","azureSubject":"Text","email":"Text","displayName":"Text","role":"Text","oauthProfiles":"Text","orgId":"UUID"} as Record<string, string>;
+  const importTypes = {"subject":"Text","oktaSubject":"Text","keycloakSubject":"Text","googleSubject":"Text","kindeSubject":"Text","azureSubject":"Text","email":"Text","displayName":"Text","role":"Text","oauthProfiles":"Text","permissions":"Text","orgId":"UUID"} as Record<string, string>;
   const importColumns = Object.keys(importTypes);
   const importMaxRows = () => { const value = Number(Bun.env.QIY_IMPORT_MAX_ROWS ?? 1000); return Number.isSafeInteger(value) && value >= 1 && value <= 100000 ? value : 1000; };
   /** RFC 4180 reader: quoted fields, doubled quotes and CRLF line endings. */
@@ -497,4 +499,4 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
     }, { params: t.Object({ id: t.String({ format: "uuid" }) }) });
 }
 
-export const usersWritableFields = ["subject", "oktaSubject", "keycloakSubject", "googleSubject", "kindeSubject", "azureSubject", "email", "displayName", "role", "oauthProfiles", "orgId"] as const;
+export const usersWritableFields = ["subject", "oktaSubject", "keycloakSubject", "googleSubject", "kindeSubject", "azureSubject", "email", "displayName", "role", "oauthProfiles", "permissions", "orgId"] as const;

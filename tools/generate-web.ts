@@ -3,6 +3,7 @@ import { renderAppTemplate } from "./admin-template";
 import { validateDatabaseIR } from "./database-ir";
 import type { QiyProject } from "./qiy-project";
 import { authHasLocal, authIsHybrid, authOAuthProviders, authUsesProviderChooser } from "./qiy-project";
+import { evaluatePermissionExpression, requiredPermissionValues, type QiyPermissionExpressionIR } from "./permissions";
 
 const oidcAuthProviders = new Set(["oidc", "oauth2", "sso", "okta", "auth0", "azure-ad-b2c", "keycloak", "google", "kinde"]);
 const authProviderLabels: Record<string, string> = {
@@ -18,10 +19,12 @@ const authProviderLabels: Record<string, string> = {
   otp: "One-time password",
 };
 
-type WebOptions = Pick<QiyProject, "mode" | "integration" | "ui" | "messages" | "apiClient" | "menuGroups" | "dashboardMetrics" | "realtime" | "auth" | "workflows" | "dataflows" | "actions" | "restrictions" | "pages" | "scopes"> & { readOnly?: boolean };
+type WebOptions = Pick<QiyProject, "mode" | "integration" | "ui" | "messages" | "apiClient" | "menuGroups" | "dashboardMetrics" | "realtime" | "auth" | "permissions" | "workflows" | "dataflows" | "actions" | "restrictions" | "pages" | "scopes"> & { readOnly?: boolean };
 type GeneratedAction = {
   name: string;
   roles?: string[];
+  permission?: string[];
+  verification?: string;
   resource: string;
   placements: Array<"list" | "show">;
   batch?: boolean;
@@ -29,8 +32,8 @@ type GeneratedAction = {
   labelKey?: string;
   condition?: { field: string; operator: "==" | "!="; value: string };
   target:
-    | { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string }
-    | { kind: "dataflow"; dataflow: string; roles: string[]; confirm?: string; confirmKey?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string; commentKey?: string; labelKey: string; options?: Array<{ value: string; label: string; labelKey: string }> }> };
+    | { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string; permissions?: string[]; verification?: { name: string; expression: QiyPermissionExpressionIR } }
+    | { kind: "dataflow"; dataflow: string; roles: string[]; permissions?: string[]; verification?: { name: string; expression: QiyPermissionExpressionIR }; confirm?: string; confirmKey?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string; commentKey?: string; labelKey: string; options?: Array<{ value: string; label: string; labelKey: string }> }> };
 };
 
 /**
@@ -403,9 +406,35 @@ test("model labels switch between the declared Chinese and English dictionaries"
   const distributionField = distributionEntity?.fields.find((field) => field.enumName);
   const trendEntity = database.entities.find((entity) => entity.fields.some((field) => field.type === "DateTime"));
   const trendField = trendEntity?.fields.find((field) => field.type === "DateTime");
+  // Permission metadata drives command button visibility. `allow permission`
+  // references expand to the permission values a principal must hold; an
+  // `allow verification` can only be evaluated client-side when it declares no
+  // inputs (the server still enforces every verification on the command route).
+  const permissionModel = options.permissions && options.permissions.fields.length ? options.permissions : undefined;
+  const expandWebPermissionRefs = (references: string[] | undefined): string[] | undefined => {
+    if (!references?.length) return undefined;
+    return permissionModel ? requiredPermissionValues(permissionModel, references) : references;
+  };
+  const webVerification = (name: string | undefined): { name: string; expression: QiyPermissionExpressionIR } | undefined => {
+    if (!name || !permissionModel) return undefined;
+    const verification = permissionModel.verifications.find((candidate) => candidate.name === name);
+    if (!verification || verification.inputs.length) return undefined;
+    return { name: verification.name, expression: verification.expression };
+  };
   const actionDefinitions: GeneratedAction[] = (options.actions ?? []).map((action) => {
     const labelKey = action.labelKey ?? qiyModelKeys.actionLabel(action.name);
-    if (action.target.kind === "navigate") return { ...action, labelKey, resource: database.entities.find((entity) => entity.name === action.resource)?.tableName ?? action.resource, target: action.target };
+    if (action.target.kind === "navigate") {
+      return {
+        ...action,
+        labelKey,
+        resource: database.entities.find((entity) => entity.name === action.resource)?.tableName ?? action.resource,
+        target: {
+          ...action.target,
+          ...(action.permission?.length ? { permissions: expandWebPermissionRefs(action.permission) } : {}),
+          ...(webVerification(action.verification) ? { verification: webVerification(action.verification) } : {}),
+        },
+      };
+    }
     const target = action.target;
     const flow = options.dataflows!.find((candidate) => candidate.name === target.dataflow)!;
     const entity = database.entities.find((candidate) => candidate.tableName === action.resource || candidate.name === action.resource)!;
@@ -421,12 +450,116 @@ test("model labels switch between the declared Chinese and English dictionaries"
         url: `/api/v1/commands/${flow.name}${action.batch ? "/batch" : ""}`,
         idempotency: flow.idempotency?.required === true,
         roles: flow.roles ?? ["admin", "operator"],
+        ...(flow.permission?.length ? { permissions: expandWebPermissionRefs(flow.permission) } : {}),
+        ...(webVerification(flow.verification) ? { verification: webVerification(flow.verification) } : {}),
         idInput: source.split(".", 2)[1]!,
         inputs: flow.input.map((input) => ({ name: input.name, type: input.type, required: input.required, comment: input.comment, ...(input.commentKey && { commentKey: input.commentKey }), labelKey: input.commentKey ?? qiyModelKeys.actionInputLabel(action.name, input.name), ...(database.enums?.some((enumeration) => enumeration.name === input.type) ? { options: database.enums.find((enumeration) => enumeration.name === input.type)!.values.map((value) => ({ value: value.name, label: value.label ?? value.name, labelKey: qiyModelKeys.enumValueLabel(input.type, value.name) })) } : {}) })),
       },
     };
   });
-  const actionPolicies = actionDefinitions.flatMap((action) => action.target.kind === "dataflow" ? [{ resource: action.resource, action: action.name, roles: action.target.roles }] : action.roles ? [{ resource: action.resource, action: action.name, roles: action.roles }] : []);
+  type CommandPolicy = { resource: string; action: string; roles: string[]; permissions?: string[]; verification?: { name: string; expression: QiyPermissionExpressionIR } };
+  const actionPolicies: CommandPolicy[] = actionDefinitions.flatMap((action) => {
+    const base = { resource: action.resource, action: action.name };
+    if (action.target.kind === "dataflow") {
+      return [{
+        ...base,
+        roles: action.target.roles,
+        ...(action.target.permissions?.length ? { permissions: action.target.permissions } : {}),
+        ...(action.target.verification ? { verification: action.target.verification } : {}),
+      }];
+    }
+    const permissions = expandWebPermissionRefs(action.permission);
+    const verification = webVerification(action.verification);
+    if (!action.roles?.length && !permissions?.length && !verification) return [];
+    return [{ ...base, roles: action.roles ?? [], ...(permissions?.length ? { permissions } : {}), ...(verification ? { verification } : {}) }];
+  });
+  const commandVerifications = Object.fromEntries(actionPolicies.filter((policy) => policy.verification).map((policy) => [policy.verification!.name, policy.verification!.expression]));
+  // Model-derived permission visibility cases: the generated access control test
+  // asserts permission/verification command policies against effective identity
+  // metadata, with expectations computed by tools/permissions.ts.
+  const declaredWebPermissionValues = permissionModel ? requiredPermissionValues(permissionModel, permissionModel.fields.map((field) => field.name)) : [];
+  const allWebGroups = permissionModel?.groups.map((group) => group.name) ?? [];
+  const webPermissionPolicies = actionPolicies.filter((policy) => policy.permissions?.length || policy.verification);
+  const webPermissionCases = webPermissionPolicies.flatMap((policy) => {
+    const variants: Array<{ role: string; permissions?: string[]; groups?: string[]; expected: boolean }> = [];
+    if (policy.permissions?.length) {
+      variants.push({ role: "viewer", permissions: policy.permissions, groups: [], expected: true });
+      variants.push({ role: "viewer", permissions: [], groups: [], expected: false });
+    }
+    if (policy.verification) {
+      const expression = policy.verification.expression;
+      const evaluate = (identity: { role: string; permissions: string[]; groups: string[] }) => evaluatePermissionExpression(expression, { self: { permissions: identity.permissions, groups: identity.groups, role: identity.role }, input: {} }).allowed;
+      const admin = { role: "admin", permissions: declaredWebPermissionValues, groups: allWebGroups };
+      const viewer = { role: "viewer", permissions: [], groups: [] };
+      variants.push({ role: "admin", permissions: admin.permissions, groups: admin.groups, expected: evaluate(admin) });
+      variants.push({ role: "viewer", permissions: viewer.permissions, groups: viewer.groups, expected: evaluate(viewer) });
+    }
+    return variants.map((variant) => ({ policy, variant }));
+  });
+
+  /**
+   * Client-side command permission check. The server remains authoritative: this
+   * only hides buttons whose command would be denied. `allow permission` commands
+   * use the effective `permissions` from `/auth/me`; when the server exposes no
+   * permission metadata the generated access control falls back to the legacy
+   * role allow list. Input-free `allow verification` rules are evaluated with the
+   * same operator semantics as the server.
+   */
+  const usesCommandPermissions = actionPolicies.some((policy) => policy.permissions?.length || policy.verification);
+  const commandPolicyTypes = `type QiyPermissionOperand = { kind: "self"; set: "permissions" | "groups" | "role" } | { kind: "input"; name: string } | { kind: "literal"; value: string };
+type QiyPermissionExpression =
+  | { kind: "comparison"; operator: "all-in" | "some-in" | "not-all-in" | "not-some-in" | "equals" | "not-equals"; left: QiyPermissionOperand; right: QiyPermissionOperand }
+  | { kind: "and"; children: QiyPermissionExpression[] }
+  | { kind: "or"; children: QiyPermissionExpression[] }
+  | { kind: "not"; expression: QiyPermissionExpression };
+type QiyCommandPolicy = { resource: string; action: string; roles: string[]; permissions?: string[]; verification?: { name: string; expression: QiyPermissionExpression } };
+`;
+  const commandPolicyFunctions = usesCommandPermissions
+    ? `function permissionOperandValues(operand: QiyPermissionOperand, identity: QiyIdentity): string[] {
+  if (operand.kind === "self") {
+    if (operand.set === "role") return [identity.role ?? ""];
+    return [...(operand.set === "permissions" ? identity.permissions ?? [] : identity.groups ?? [])];
+  }
+  if (operand.kind === "literal") return [operand.value];
+  return [];
+}
+function comparePermissionKeys(operator: "all-in" | "some-in" | "not-all-in" | "not-some-in" | "equals" | "not-equals", left: readonly string[], right: readonly string[]): boolean {
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  const difference = [...leftSet].filter((entry) => !rightSet.has(entry));
+  if (operator === "all-in") return difference.length === 0;
+  if (operator === "some-in") return [...leftSet].some((entry) => rightSet.has(entry));
+  if (operator === "not-all-in") return difference.length > 0;
+  if (operator === "not-some-in") return [...leftSet].every((entry) => !rightSet.has(entry));
+  if (operator === "equals") return difference.length === 0 && rightSet.size === leftSet.size;
+  return !(difference.length === 0 && rightSet.size === leftSet.size);
+}
+function evaluatePermissionExpression(expression: QiyPermissionExpression, identity: QiyIdentity): boolean {
+  if (expression.kind === "comparison") return comparePermissionKeys(expression.operator, permissionOperandValues(expression.left, identity), permissionOperandValues(expression.right, identity));
+  if (expression.kind === "not") return !evaluatePermissionExpression(expression.expression, identity);
+  if (expression.kind === "and") return expression.children.every((child) => evaluatePermissionExpression(child, identity));
+  return expression.children.some((child) => evaluatePermissionExpression(child, identity));
+}
+function evaluateCommandPermission(command: QiyCommandPolicy, identity: QiyIdentity): { can: boolean; reason: string } | undefined {
+  if (command.verification) {
+    const expression = commandVerifications[command.verification.name];
+    if (expression) {
+      const allowed = evaluatePermissionExpression(expression, identity);
+      return allowed ? { can: true, reason: "Permission verification " + command.verification.name + " satisfied" } : { can: false, reason: "Permission verification " + command.verification.name + " denied this command" };
+    }
+  }
+  if (command.permissions?.length) {
+    if (!Array.isArray(identity.permissions)) return undefined;
+    const missing = command.permissions.filter((permission) => !identity.permissions!.includes(permission));
+    return missing.length ? { can: false, reason: "Missing permission: " + missing.join(", ") } : { can: true, reason: "Permission granted" };
+  }
+  return undefined;
+}
+`
+    : "";
+  const commandPermissionEvaluation = usesCommandPermissions
+    ? `const permissionVerdict = evaluateCommandPermission(command, identity); if (permissionVerdict) return permissionVerdict; `
+    : "";
   const generated: Record<string, string> = {
     ...template,
     "web/app/ui/theme-config.ts": `export const qiyUiConfig = ${JSON.stringify(ui, null, 2)} as const;\n`,
@@ -442,7 +575,8 @@ test("model labels switch between the declared Chinese and English dictionaries"
     ...(actionDefinitions.length ? {
       "web/app/actions.ts": `type QiyActionCondition = { field: string; operator: "==" | "!="; value: string };
 type QiyActionBase = { name: string; resource: string; placements: Array<"list" | "show">; batch?: boolean; label: string; labelKey?: string; roles?: string[]; condition?: QiyActionCondition };
-export type QiyActionDefinition = QiyActionBase & ({ target: { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string } } | { target: { kind: "dataflow"; dataflow: string; roles: string[]; confirm?: string; confirmKey?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string; commentKey?: string; labelKey: string; options?: Array<{ value: string; label: string; labelKey: string }> }> } });
+type QiyVerificationRule = { name: string; expression: unknown };
+export type QiyActionDefinition = QiyActionBase & ({ target: { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string; permissions?: string[]; verification?: QiyVerificationRule } } | { target: { kind: "dataflow"; dataflow: string; roles: string[]; permissions?: string[]; verification?: QiyVerificationRule; confirm?: string; confirmKey?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string; commentKey?: string; labelKey: string; options?: Array<{ value: string; label: string; labelKey: string }> }> } });
 export const qiyActions: QiyActionDefinition[] = ${JSON.stringify(actionDefinitions, null, 2)};
 export function actionMatchesRecord(action: QiyActionDefinition, record: Record<string, unknown>) { if (!action.condition) return true; if (!Object.prototype.hasOwnProperty.call(record, action.condition.field) || record[action.condition.field] == null) return false; const matches = record[action.condition.field] === action.condition.value; return action.condition.operator === "==" ? matches : !matches; }
 export function actionsFor(resource: string, placement: "list" | "show", record: Record<string, unknown>) { return qiyActions.filter((action) => !action.batch && action.resource === resource && action.placements.includes(placement) && actionMatchesRecord(action, record)); }
@@ -552,7 +686,7 @@ export const dashboardMetrics: DashboardMetric[] = ${JSON.stringify(localizedDas
 ${usesOidcAuth ? 'import { beginOidcLogin, beginOidcLogout, clearOidcSession, oidcSession, oidcSessionSkewMs } from "./auth/oidc-client";' : ""}${hybridAuth ? 'import { beginProviderLogin, clearSession, fetchAuthProviders } from "./auth/oidc-multi";' : ""}
 
 const tokenKey = "qiy.access_token";
-type QiyIdentity = { id?: string; name?: string; role?: string };
+type QiyIdentity = { id?: string; name?: string; role?: string; permissions?: string[]; groups?: string[] };
 const token = () => typeof window === "undefined" ? undefined : window.localStorage.getItem(tokenKey) ?? undefined;
 /** With OIDC the stored expiry decides validity so an expired token never looks authenticated. */
 const sessionUsable = () => typeof window === "undefined" ? false : ${usesOidcAuth ? `!oidcSession({ skewMs: oidcSessionSkewMs }).expired` : "Boolean(token())"};
@@ -585,8 +719,9 @@ export const qiyAuthProvider: AuthProvider = {
   getPermissions: async () => { const identity = await qiyAuthProvider.getIdentity?.({}) as QiyIdentity | null | undefined; return identity?.role ?? null; },
   onError: async (error) => error?.statusCode === 401 ? { logout: true, redirectTo: "/auth/login" } : {},
 };
-const commandPolicies: Array<{ resource: string; action: string; roles: string[] }> = ${JSON.stringify(actionPolicies)};
-${resourcePolicyDeclaration}${pageRuleDeclaration}export const qiyAccessControlProvider: AccessControlProvider = { can: async ({ resource, action }) => { const identity = await qiyAuthProvider.getIdentity?.({}) as QiyIdentity | null | undefined; if (!identity) return { can: false, reason: "Authentication required" }; ${resourcePolicyCheck}${pageRuleCheck}const command = commandPolicies.find((policy) => policy.resource === resource && policy.action === action); if (command) return { can: command.roles.includes(identity.role ?? ""), reason: "Command execution is restricted" }; if (identity.role === "admin") return { can: true }; if (resource === "users") return { can: false, reason: "User administration is restricted" }; const can = identity.role === "operator" || action === "list" || action === "show"; return can ? { can: true } : { can: false, reason: "Role " + (identity.role ?? "unknown") + " cannot " + action + " " + resource }; }, options: { buttons: { enableAccessControl: true, hideIfUnauthorized: true }, queryOptions: { staleTime: 30_000 } } };
+const commandPolicies: Array<{ resource: string; action: string; roles: string[]; permissions?: string[]; verification?: { name: string; expression: QiyPermissionExpression } }> = ${JSON.stringify(actionPolicies)};
+const commandVerifications: Record<string, QiyPermissionExpression> = ${JSON.stringify(commandVerifications)};
+${commandPolicyTypes}${commandPolicyFunctions}${resourcePolicyDeclaration}${pageRuleDeclaration}export const qiyAccessControlProvider: AccessControlProvider = { can: async ({ resource, action }) => { const identity = await qiyAuthProvider.getIdentity?.({}) as QiyIdentity | null | undefined; if (!identity) return { can: false, reason: "Authentication required" }; ${resourcePolicyCheck}${pageRuleCheck}const command = commandPolicies.find((policy) => policy.resource === resource && policy.action === action); if (command) { ${commandPermissionEvaluation}return { can: command.roles.includes(identity.role ?? ""), reason: "Command execution is restricted" }; } if (identity.role === "admin") return { can: true }; if (resource === "users") return { can: false, reason: "User administration is restricted" }; const can = identity.role === "operator" || action === "list" || action === "show"; return can ? { can: true } : { can: false, reason: "Role " + (identity.role ?? "unknown") + " cannot " + action + " " + resource }; }, options: { buttons: { enableAccessControl: true, hideIfUnauthorized: true }, queryOptions: { staleTime: 30_000 } } };
 export function qiyAuthToken(): string | undefined { return token(); }
 `,
       "web/app/routes/login.tsx": hybridAuth
@@ -699,9 +834,11 @@ const originalWindow = globalThis.window;
 const originalFetch = globalThis.fetch;
 const tokens = new Map<string, string>();
 let role = "viewer";
+let identityPermissions: string[] | undefined;
+let identityGroups: string[] | undefined;
 beforeAll(() => {
   Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: { getItem: (key: string) => tokens.get(key) ?? null, setItem: (key: string, value: string) => { tokens.set(key, value); }, removeItem: (key: string) => { tokens.delete(key); } }, sessionStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} }, location: { origin: "http://localhost", pathname: "/", search: "", assign: () => {} } } });
-  globalThis.fetch = (async (input: RequestInfo | URL) => new Response(JSON.stringify(String(input).endsWith("/auth/login") ? { accessToken: "local-test-token" } : { id: "test-user", role }), { headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => new Response(JSON.stringify(String(input).endsWith("/auth/login") ? { accessToken: "local-test-token" } : { id: "test-user", role, ...(Array.isArray(identityPermissions) ? { permissions: identityPermissions } : {}), ...(Array.isArray(identityGroups) ? { groups: identityGroups } : {}) }), { headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
 });
 afterAll(() => { Object.defineProperty(globalThis, "window", { configurable: true, value: originalWindow }); globalThis.fetch = originalFetch; });
 
@@ -735,6 +872,25 @@ test("matches each action role allowlist without an admin bypass", async () => {
   }
   tokens.clear();
   ${actionPolicies.map((policy) => `expect((await qiyAccessControlProvider.can({ resource: ${JSON.stringify(policy.resource)}, action: ${JSON.stringify(policy.action)} })).can).toBe(false);`).join("\n  ")}
+});
+` : ""}${webPermissionCases.length ? `
+const permissionCases = ${JSON.stringify(webPermissionCases.map((item) => ({ policy: { resource: item.policy.resource, action: item.policy.action }, variant: item.variant })))};
+test("permission-guarded commands follow effective permissions from /auth/me", async () => {
+  tokens.set("qiy.access_token", "permission-test-token");
+  for (const item of permissionCases) {
+    role = item.variant.role;
+    identityPermissions = item.variant.permissions;
+    identityGroups = item.variant.groups;
+    expect({ policy: item.policy, allowed: (await qiyAccessControlProvider.can({ resource: item.policy.resource, action: item.policy.action })).can }).toEqual({ policy: item.policy, allowed: item.variant.expected });
+  }
+  // Without permission metadata the generated provider keeps the legacy role allow list.
+  identityPermissions = undefined;
+  identityGroups = undefined;
+  role = "viewer";
+  for (const policy of ${JSON.stringify(webPermissionPolicies.map((policy) => ({ resource: policy.resource, action: policy.action, roles: policy.roles })))}) {
+    expect((await qiyAccessControlProvider.can({ resource: policy.resource, action: policy.action })).can).toBe(policy.roles.includes("viewer"));
+  }
+  tokens.clear();
 });
 ` : ""}
 `,

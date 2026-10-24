@@ -7,7 +7,7 @@ import type { QiyProject } from "./qiy-project";
 import { authHasLocal, authIsHybrid, authOAuthProviders, authUsesProviderChooser } from "./qiy-project";
 import type { QiyTestSuite } from "./qiy-test";
 
-type ProjectOptions = Pick<QiyProject, "comment" | "commentKey" | "mode" | "integration" | "ui" | "messages" | "dataflows" | "actions" | "apiClient" | "corsOrigins" | "elysiaPlugins" | "menuGroups" | "dashboardMetrics" | "realtime" | "storageProvider" | "auth" | "environment" | "scopes" | "restrictions" | "pages" | "workflows"> & { testSuite?: QiyTestSuite };
+type ProjectOptions = Pick<QiyProject, "comment" | "commentKey" | "mode" | "integration" | "ui" | "messages" | "dataflows" | "actions" | "apiClient" | "corsOrigins" | "elysiaPlugins" | "menuGroups" | "dashboardMetrics" | "realtime" | "storageProvider" | "auth" | "permissions" | "environment" | "scopes" | "restrictions" | "pages" | "workflows"> & { testSuite?: QiyTestSuite };
 
 export function generateProject(database: DatabaseIR, name: string, options: ProjectOptions = {}): Record<string, string> {
   if (options.realtime && !options.auth) throw new Error("Realtime requires generated authentication");

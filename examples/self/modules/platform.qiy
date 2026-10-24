@@ -62,5 +62,9 @@ entity users @label("Users") @icon(UserOutlined) @singular("User") @plural("User
   field role userRole;
   field passwordHash Text @nullable @listVisible(false) @showVisible(false) @formVisible(false);
   field oauthProfiles Text @nullable @listVisible(false) @showVisible(false) @formVisible(false);
+  # Extra permission values or group names granted to this user (JSON string array).
+  # The generated permission provider unions this column with the role group and
+  # any verified OAuth claims; see modules/permissions.qiy.
+  field permissions Text @nullable @listVisible(false) @showVisible(false) @formVisible(false);
   field orgId UUID @nullable;
 }

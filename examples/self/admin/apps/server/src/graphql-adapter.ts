@@ -152,6 +152,7 @@ export function createGraphQLAdapterResolvers(repositories: Repositories, authen
       runShipSalesOrder: async (_parent: unknown, args: any, context: { request: Request }) => root.runShipSalesOrder(args, await createGraphQLContext(authenticate, context.request)),
       runTransferInventory: async (_parent: unknown, args: any, context: { request: Request }) => root.runTransferInventory(args, await createGraphQLContext(authenticate, context.request)),
       runCompleteWorkOrder: async (_parent: unknown, args: any, context: { request: Request }) => root.runCompleteWorkOrder(args, await createGraphQLContext(authenticate, context.request)),
+      runApprovePurchaseOrder: async (_parent: unknown, args: any, context: { request: Request }) => root.runApprovePurchaseOrder(args, await createGraphQLContext(authenticate, context.request)),
     },
   };
 }

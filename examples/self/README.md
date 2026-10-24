@@ -8,7 +8,7 @@
 - **ERP**：产品、BOM、工作单（生产/领料/产出流水）、成本与价格字段（字段级 mask）、仪表盘分布/趋势指标；
 - **WMS**：组织（scope tree claim）、仓库、库位、库存（在手/预留/批次）、库存流水、上架/调拨/盘点/预留/发运等 dataflow 命令（幂等 + 审计 + 事务回滚）；
 - **实时**：库存、库存流水、发运的 realtime outbox；
-- **权限**：pages 页面级角色、restrict 字段 mask、scope 按 claim 过滤仓库；
+- **权限**：原子权限 + 权限组（角色即权限组）+ 数据库列/OAuth claim provider + 权限校验块；pages 页面级角色、restrict 字段 mask、scope 按 claim 过滤仓库仍然保留；
 - **实体显示文本（Django 风格）**：每个实体都声明 `@singular` / `@plural` / `@display` / `@tableDisplay` / `@relationDetail`，外键列显示目标记录的显示文本并链接到 Drawer/详情页，不再显示 UUID；
 - **混合登录**：`providers local, okta, keycloak, google, kinde, azure-ad-b2c;` 同时启用密码登录和 5 个 OIDC Provider；每个 Provider 映射到自己的身份列（`oktaSubject`、`keycloakSubject`、`googleSubject`、`kindeSubject`、`azureSubject`），`profileField oauthProfiles` 记录各 Provider 返回的 email/name，供个人中心展示。
 
@@ -41,6 +41,7 @@ examples/self/modules/erp/entities.qiy  # 采购单/行、收货、销售单/行
 examples/self/modules/wms/entities.qiy  # 仓库、库位、库存、库存流水、工单
 examples/self/modules/relations.qiy   # 全部 relation（必须在所有实体之后）
 examples/self/modules/messages.qiy    # zh-CN / en-US 完整词典
+examples/self/modules/permissions.qiy # 权限字段/组/provider 来源/校验块
 examples/self/modules/pages.qiy       # 页面级角色规则（在 scope/restrict 之后）
 examples/self/modules/dashboard.qiy   # 仪表盘指标
 examples/self/modules/dataflows.qiy   # 事务型业务命令
@@ -51,6 +52,7 @@ examples/self/modules/actions.qiy     # 绑定到 dataflow 的列表/详情按�
 
 ```qiy
 include "modules/messages.qiy";        // messages 在配置块之后、enum/entity 之前
+include "modules/permissions.qiy";     // permission 在 messages 之后、enum/entity 之前
 include "modules/platform.qiy";        // enum + users
 include "modules/scm/entities.qiy";
 include "modules/erp/entities.qiy";
@@ -99,14 +101,40 @@ bun run typecheck && bun run test && bun run build
 
 | 方式 | 账号 | 说明 |
 | --- | --- | --- |
-| 本地密码 | `admin@example.com` / `admin-password` | `POST /api/v1/auth/login`；seed 里的管理员，role=admin |
-| Dex A（`okta` Provider） | `admin@example.com` / `admin-password` | 已绑定 `oktaSubject`，直接登录并拿到 Qiy 会话 |
+| 本地密码 | `admin@example.com` / `admin-password` | `POST /api/v1/auth/login`；seed 里的管理员，role=admin（角色组授予全部权限） |
+| 本地密码 | `operator@example.com` / `operator-password` | seed 里的仓库操作员，role=operator；无采购审批权限，用于 403 验收 |
+| 本地密码 | `viewer@example.com` / `viewer-password` | seed 里的只读报表用户，role=viewer；仅 `report:read` |
+| Dex A（`okta` Provider） | `admin@example.com` / `admin-password` | 已绑定 `oktaSubject`，直接登录并拿到 Qiy 会话（与本地会话相同的权限并集） |
 | Dex A（`okta` Provider） | `viewer@example.com` / `viewer-password` | 未绑定任何行：用于演示登录后从 `/profile` 绑定新 Provider |
 | Dex B（`keycloak` Provider） | `admin@example.com` / `admin-password` | 已绑定 `keycloakSubject`，不同 issuer 的第二个租户 |
-| Dex B（`keycloak` Provider） | `operator@example.com` / `operator-password` | **未绑定任何行**：首次登录触发 onboarding，创建账号（默认 role=viewer） |
+| Dex B（`keycloak` Provider） | `operator@example.com` / `operator-password` | 未绑定该 Provider：首次 OAuth 登录仍会触发 onboarding（本地密码账号与 Provider 绑定互不影响） |
 | Google / Kinde / Azure AD B2C | 各自租户账号 | 首次登录同样走 onboarding；绑定/解绑规则一致 |
 
 两个 Dex 租户（issuer 分别是 `http://localhost:5556/dex` 和 `http://localhost:5557/dex`）用于本地真实 OAuth 登录；Google/Kinde/Azure 三个按钮需要各自租户可用（client id/secret 见下）。
+
+## 权限模型（permission）
+
+`modules/permissions.qiy` 声明 12 个原子权限、6 个权限组、3 个 OAuth claim 来源、1 个数据库列来源和 4 个校验块；`users` 表新增可空 `permissions` 列作为数据库 provider：
+"角色组 ∪ 数据库列 ∪ 已验证 id_token claims" 只做加法，本地密码会话没有 claims。
+
+| 角色（权限组） | 生效权限（权限值） | 说明 |
+| --- | --- | --- |
+| `admin` | 全部 12 个权限 | 组内嵌套 `SuperAdminManager = UserApiPermissionGroup & ManagerRole`（`&` 为并集） |
+| `operator` | `inventory:receive/putaway/reserve/adjust/transfer`、`sales:ship`、`workorder:complete`、`report:read` | seed 的数据库列额外给 `ReportReadPermission` + `InventoryAdjustPermission`（幂等并集） |
+| `viewer` | `report:read` | seed 的数据库列同样给 `ReportReadPermission` |
+
+示例校验块：`CanAccessUserApi`（数组输入，`all included in self.permissions`）、`CanManageUsers`（组或权限）、`CanShipOrders`（`self.role`）、`CanAdjustStock`（`Text` 输入）。
+
+dataflow 迁移矩阵：
+
+| dataflow | allow 形式 |
+| --- | --- |
+| `receiveInventory` / `putawayStock` / `adjustStock` / `transferInventory` / `completeWorkOrder` | `allow permission <Inventory...Permission>` |
+| `approvePurchaseOrder`（新增） | `allow permission PurchaseApprovePermission`（operator 403、admin 200） |
+| `shipSalesOrder` | `allow verification CanShipOrders`（operator/admin 200、viewer 403） |
+| `reserveStock` | 保留 `allow roles admin, operator;` 证明旧写法继续工作 |
+
+HTTP 验收接口：`GET /api/v1/auth/permissions`、`POST /api/v1/auth/verify-permission`，以及 `/auth/me` 新增的 `permissions` / `groups` 字段。脚本 `tmp/verify-permissions.ts`（不提交）覆盖三种角色登录、权限并集、校验真值表、dataflow 200/403 矩阵与真实 Dex token 登录。
 
 ## 本地演示（混合登录 + Ably realtime，端口 8000）
 
@@ -124,7 +152,8 @@ docker run -d --name qiy-dex-demo2 -p 5557:5557 -v "$PWD/../../dex:/etc/dex" ghc
 #    必需：QIY_AUTH_SECRET（至少 32 字符）、QIY_OIDC_DEFAULT_ROLE（默认 viewer）
 cp examples/self/dex/demo.env examples/self/admin/apps/server/.env.development
 
-# 4) 演示数据（管理员绑定两个 Dex 身份，密码 admin-password）
+# 4) 演示数据：admin/operator/viewer 三个本地账号（admin 绑定两个 Dex 身份），
+#    以及权限列与两张采购单（一张 draft 供审批权限验收）
 bun run examples/self/dex/seed.ts examples/self/admin/apps/server/qiy.sqlite
 
 # 5) 启动：API :8001，Web :8000（所有 Provider 回调都在 8000）
@@ -170,3 +199,5 @@ cd examples/self/admin/apps/web && QIY_API_PROXY=http://localhost:8001 bun run d
 ## 验收
 
 仓库内脚本 `tmp/verify-hybrid-demo.ts`（不提交）会驱动两个真实 Dex 租户完成：匿名 401、Provider 列表 5 项、密码登录、已有身份 OAuth 登录、新身份 onboarding → 注册 → `/auth/me`、绑定/解绑/最后登录方式保护。仓库测试覆盖生成器侧的 DSL、路由、鉴权与页面生成（`bun test tests/auth-providers.test.ts`）。
+
+权限矩阵由 `tmp/verify-permissions.ts`（不提交）驱动真实 Dex 与运行中的 demo：admin/operator/viewer 本地登录、`/auth/me` 与 `/auth/permissions` 并集、`/auth/verify-permission` 真值表、dataflow 的 200/403 矩阵（operator 发运 200、viewer 发运 403、operator 审批 403、admin 审批 200、viewer 预留 403），以及 Dex 真实 id_token 验签后的 OAuth 会话权限并集。生成器侧测试：`bun test tests/permissions.test.ts`；生成应用测试：`apps/server/tests/permissions.test.ts`（provider/真值表/HTTP/`/auth/me`）、`apps/web/tests/auth.test.ts`（命令按钮权限可见性）。

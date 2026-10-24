@@ -1,0 +1,96 @@
+# Permission declarations.
+#
+# Roles are permission groups: a `permission group admin { ... }` block defines
+# exactly what the local `role: admin` user can do, so the existing role strings
+# keep working. `&` is a union operator: `SuperAdminManager` holds every
+# permission of `UserApiPermissionGroup` and `ManagerRole`.
+#
+# Effective permissions are a union of three additive sources (never subtraction):
+#   1. the group whose name equals the authenticated role,
+#   2. the `users.permissions` text/JSON column (values or group names, seeded per user),
+#   3. verified OAuth id_token claims mapped below (array or space/comma separated).
+# Unknown claim/database entries are ignored. Local password sessions have no claims.
+
+permission field ApiGetUserPermission "api:getUser" @label("Read user API");
+permission field ApiPutUserPermission "api:putUser" @label("Update users");
+permission field ApiDeleteUserPermission "api:deleteUser" @label("Delete users");
+
+permission field InventoryReceivePermission "inventory:receive" @label("Receive inventory");
+permission field InventoryPutawayPermission "inventory:putaway" @label("Put away inventory");
+permission field InventoryReservePermission "inventory:reserve" @label("Reserve inventory");
+permission field InventoryAdjustPermission "inventory:adjust" @label("Adjust inventory");
+permission field InventoryTransferPermission "inventory:transfer" @label("Transfer inventory");
+
+permission field PurchaseApprovePermission "purchasing:approve" @label("Approve purchase orders");
+permission field SalesShipPermission "sales:ship" @label("Ship sales orders");
+permission field WorkOrderCompletePermission "workorder:complete" @label("Complete work orders");
+permission field ReportReadPermission "report:read" @label("Read reports");
+
+# The user's example groups: a role-style group is only a naming convention.
+permission group UserApiPermissionGroup { ApiGetUserPermission, ApiPutUserPermission }
+permission group ManagerRole { ApiPutUserPermission, ApiDeleteUserPermission }
+permission group SuperAdminManager = UserApiPermissionGroup & ManagerRole;
+
+# Backward-compatible role groups: `role admin` resolves through this group.
+permission group admin {
+  SuperAdminManager,
+  InventoryReceivePermission,
+  InventoryPutawayPermission,
+  InventoryReservePermission,
+  InventoryAdjustPermission,
+  InventoryTransferPermission,
+  PurchaseApprovePermission,
+  SalesShipPermission,
+  WorkOrderCompletePermission,
+  ReportReadPermission
+}
+
+permission group operator {
+  InventoryReceivePermission,
+  InventoryPutawayPermission,
+  InventoryReservePermission,
+  InventoryAdjustPermission,
+  InventoryTransferPermission,
+  SalesShipPermission,
+  WorkOrderCompletePermission,
+  ReportReadPermission
+}
+
+permission group viewer {
+  ReportReadPermission
+}
+
+# Provider sources. The database column is a text column holding a JSON string
+# array (a comma/space separated string is accepted too); entries may be
+# permission values or group names.
+permission from database field users.permissions;
+
+# Verified OAuth id_token claims. Azure AD B2C custom policies commonly emit
+# `roles`; Google emits `groups` through a custom claim mapping. The Dex tenant
+# (keycloak provider) must be configured to emit a `roles` claim; without it the
+# mapping is simply absent and the other sources still apply.
+permission from claim azure-ad-b2c "roles";
+permission from claim google "groups";
+permission from claim keycloak "roles";
+
+# Verification blocks: closed boolean set expressions over self.* and request input.
+# `all included in` = subset, `some included in` = intersection is non-empty,
+# `not all included in` / `not some included in` are the negations, `=` is set equality.
+permission verification CanAccessUserApi {
+  input { field permission Array<String>; }
+  return input.permission all included in self.permissions;
+}
+
+permission verification CanManageUsers {
+  input { field permission Array<String>; }
+  return input.permission all included in self.groups || input.permission all included in self.permissions;
+}
+
+permission verification CanShipOrders {
+  return self.role = "admin" || self.role = "operator";
+}
+
+permission verification CanAdjustStock {
+  input { field permission Text; }
+  return input.permission all included in self.permissions;
+}

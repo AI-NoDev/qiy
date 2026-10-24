@@ -80,6 +80,7 @@ messages {
     "qiy.resources.users.fields.role.label" "角色";
     "qiy.resources.users.fields.passwordHash.label" "密码哈希";
     "qiy.resources.users.fields.oauthProfiles.label" "OAuth 档案";
+    "qiy.resources.users.fields.permissions.label" "附加权限";
     "qiy.resources.users.fields.orgId.label" "组织";
     "qiy.resources.orgs.fields.id.label" "编号";
     "qiy.resources.orgs.fields.code.label" "编码";
@@ -259,8 +260,12 @@ messages {
     "qiy.actions.completeWorkOrder.inputs.outputQuantity.label" "产出数量";
     "qiy.actions.completeWorkOrder.inputs.warehouseId.label" "仓库";
     "qiy.actions.completeWorkOrder.inputs.productId.label" "产品";
+    "qiy.actions.approvePurchaseOrder.label" "审批采购单";
+    "qiy.actions.approvePurchaseOrder.confirm" "批准这张采购单进入收货流程？";
+    "qiy.actions.approvePurchaseOrder.inputs.purchaseOrderId.label" "采购单";
     # errors
     "errors.purchaseOrder.notApproved" "采购单必须处于已审批状态";
+    "errors.purchaseOrder.notDraft" "采购单必须处于草稿状态";
     "errors.inventory.quantityPositive" "数量必须大于 0";
     "errors.salesOrder.notAllocated" "销售单必须先完成库存分配";
     "errors.workOrder.notInProgress" "工单必须处于生产中状态";
@@ -355,6 +360,7 @@ messages {
     "qiy.resources.users.fields.role.label" "Role";
     "qiy.resources.users.fields.passwordHash.label" "Password hash";
     "qiy.resources.users.fields.oauthProfiles.label" "OAuth profiles";
+    "qiy.resources.users.fields.permissions.label" "Extra permissions";
     "qiy.resources.users.fields.orgId.label" "Organization";
     "qiy.resources.orgs.fields.id.label" "ID";
     "qiy.resources.orgs.fields.code.label" "Code";
@@ -534,8 +540,12 @@ messages {
     "qiy.actions.completeWorkOrder.inputs.outputQuantity.label" "Output quantity";
     "qiy.actions.completeWorkOrder.inputs.warehouseId.label" "Warehouse";
     "qiy.actions.completeWorkOrder.inputs.productId.label" "Product";
+    "qiy.actions.approvePurchaseOrder.label" "Approve purchase order";
+    "qiy.actions.approvePurchaseOrder.confirm" "Approve this purchase order for receiving?";
+    "qiy.actions.approvePurchaseOrder.inputs.purchaseOrderId.label" "Purchase order";
     # errors
     "errors.purchaseOrder.notApproved" "Purchase order must be approved";
+    "errors.purchaseOrder.notDraft" "Purchase order must be a draft";
     "errors.inventory.quantityPositive" "Quantity must be greater than zero";
     "errors.salesOrder.notAllocated" "The sales order must be allocated before shipping";
     "errors.workOrder.notInProgress" "The work order must be in progress";

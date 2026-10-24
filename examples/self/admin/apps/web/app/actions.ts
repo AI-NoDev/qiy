@@ -1,6 +1,7 @@
 type QiyActionCondition = { field: string; operator: "==" | "!="; value: string };
 type QiyActionBase = { name: string; resource: string; placements: Array<"list" | "show">; batch?: boolean; label: string; labelKey?: string; roles?: string[]; condition?: QiyActionCondition };
-export type QiyActionDefinition = QiyActionBase & ({ target: { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string } } | { target: { kind: "dataflow"; dataflow: string; roles: string[]; confirm?: string; confirmKey?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string; commentKey?: string; labelKey: string; options?: Array<{ value: string; label: string; labelKey: string }> }> } });
+type QiyVerificationRule = { name: string; expression: unknown };
+export type QiyActionDefinition = QiyActionBase & ({ target: { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string; permissions?: string[]; verification?: QiyVerificationRule } } | { target: { kind: "dataflow"; dataflow: string; roles: string[]; permissions?: string[]; verification?: QiyVerificationRule; confirm?: string; confirmKey?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string; commentKey?: string; labelKey: string; options?: Array<{ value: string; label: string; labelKey: string }> }> } });
 export const qiyActions: QiyActionDefinition[] = [
   {
     "name": "receiveInventory",
@@ -20,6 +21,9 @@ export const qiyActions: QiyActionDefinition[] = [
       "roles": [
         "admin",
         "operator"
+      ],
+      "permissions": [
+        "inventory:receive"
       ],
       "idInput": "inventoryId",
       "inputs": [
@@ -92,6 +96,9 @@ export const qiyActions: QiyActionDefinition[] = [
       "roles": [
         "admin",
         "operator"
+      ],
+      "permissions": [
+        "inventory:putaway"
       ],
       "idInput": "inventoryId",
       "inputs": [
@@ -188,6 +195,9 @@ export const qiyActions: QiyActionDefinition[] = [
         "admin",
         "operator"
       ],
+      "permissions": [
+        "inventory:adjust"
+      ],
       "idInput": "inventoryId",
       "inputs": [
         {
@@ -246,6 +256,9 @@ export const qiyActions: QiyActionDefinition[] = [
         "admin",
         "operator"
       ],
+      "permissions": [
+        "inventory:transfer"
+      ],
       "idInput": "inventoryId",
       "inputs": [
         {
@@ -299,6 +312,38 @@ export const qiyActions: QiyActionDefinition[] = [
         "admin",
         "operator"
       ],
+      "verification": {
+        "name": "CanShipOrders",
+        "expression": {
+          "kind": "or",
+          "children": [
+            {
+              "kind": "comparison",
+              "operator": "equals",
+              "left": {
+                "kind": "self",
+                "set": "role"
+              },
+              "right": {
+                "kind": "literal",
+                "value": "admin"
+              }
+            },
+            {
+              "kind": "comparison",
+              "operator": "equals",
+              "left": {
+                "kind": "self",
+                "set": "role"
+              },
+              "right": {
+                "kind": "literal",
+                "value": "operator"
+              }
+            }
+          ]
+        }
+      },
       "idInput": "salesOrderId",
       "inputs": [
         {
@@ -333,6 +378,9 @@ export const qiyActions: QiyActionDefinition[] = [
       "roles": [
         "admin",
         "operator"
+      ],
+      "permissions": [
+        "workorder:complete"
       ],
       "idInput": "workOrderId",
       "inputs": [
@@ -381,6 +429,40 @@ export const qiyActions: QiyActionDefinition[] = [
       ]
     },
     "labelKey": "qiy.actions.completeWorkOrder.label"
+  },
+  {
+    "name": "approvePurchaseOrder",
+    "resource": "purchase_orders",
+    "placements": [
+      "list",
+      "show"
+    ],
+    "label": "Approve purchase order",
+    "target": {
+      "kind": "dataflow",
+      "dataflow": "approvePurchaseOrder",
+      "confirm": "Approve this purchase order for receiving?",
+      "confirmKey": "qiy.actions.approvePurchaseOrder.confirm",
+      "url": "/api/v1/commands/approvePurchaseOrder",
+      "idempotency": false,
+      "roles": [
+        "admin",
+        "operator"
+      ],
+      "permissions": [
+        "purchasing:approve"
+      ],
+      "idInput": "purchaseOrderId",
+      "inputs": [
+        {
+          "name": "purchaseOrderId",
+          "type": "UUID",
+          "required": true,
+          "labelKey": "qiy.actions.approvePurchaseOrder.inputs.purchaseOrderId.label"
+        }
+      ]
+    },
+    "labelKey": "qiy.actions.approvePurchaseOrder.label"
   }
 ];
 export function actionMatchesRecord(action: QiyActionDefinition, record: Record<string, unknown>) { if (!action.condition) return true; if (!Object.prototype.hasOwnProperty.call(record, action.condition.field) || record[action.condition.field] == null) return false; const matches = record[action.condition.field] === action.condition.value; return action.condition.operator === "==" ? matches : !matches; }

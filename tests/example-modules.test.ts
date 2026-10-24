@@ -22,16 +22,41 @@ describe("modular demo model", () => {
     expect(project.name).toBe("qiy-supply-chain-erp-wms");
     expect(project.database.dialect).toBe("sqlite");
     expect(project.database.entities).toHaveLength(17);
-    expect(project.database.entities.reduce((sum, entity) => sum + entity.fields.length, 0)).toBe(104);
+    expect(project.database.entities.reduce((sum, entity) => sum + entity.fields.length, 0)).toBe(105);
     expect(project.database.enums).toHaveLength(6);
     expect(project.database.enums!.reduce((sum, enumeration) => sum + enumeration.values.length, 0)).toBe(27);
     expect(project.database.relations).toHaveLength(21);
     expect(project.pages).toHaveLength(4);
     expect(project.dashboardMetrics).toHaveLength(6);
-    expect(project.dataflows).toHaveLength(7);
-    expect(project.actions).toHaveLength(7);
+    expect(project.dataflows).toHaveLength(8);
+    expect(project.actions).toHaveLength(8);
     expect(project.auth?.providers).toEqual(["okta", "keycloak", "google", "kinde", "azure-ad-b2c"]);
     expect(project.auth?.local).toBe(true);
+  });
+
+  test("migrates commands to permission/verification rules while keeping one legacy role rule", async () => {
+    const { project } = await modularProject();
+    const permissions = project.permissions!;
+    expect(permissions.fields).toHaveLength(12);
+    expect(permissions.groups.map((group) => group.name)).toEqual([
+      "UserApiPermissionGroup", "ManagerRole", "SuperAdminManager", "admin", "operator", "viewer",
+    ]);
+    // `&` is a union: SuperAdminManager holds both groups' permissions.
+    expect(permissions.groups.find((group) => group.name === "SuperAdminManager")?.members).toEqual(["UserApiPermissionGroup", "ManagerRole"]);
+    expect(permissions.database).toEqual({ entity: "users", field: "permissions" });
+    expect(permissions.claims).toEqual([
+      { provider: "azure-ad-b2c", claim: "roles" },
+      { provider: "google", claim: "groups" },
+      { provider: "keycloak", claim: "roles" },
+    ]);
+    expect(permissions.verifications.map((verification) => verification.name)).toEqual(["CanAccessUserApi", "CanManageUsers", "CanShipOrders", "CanAdjustStock"]);
+    const byName = new Map(project.dataflows!.map((flow) => [flow.name, flow]));
+    expect(byName.get("shipSalesOrder")?.verification).toBe("CanShipOrders");
+    expect(byName.get("receiveInventory")?.permission).toEqual(["InventoryReceivePermission"]);
+    expect(byName.get("approvePurchaseOrder")?.permission).toEqual(["PurchaseApprovePermission"]);
+    // Backward compatibility: the legacy role form stays supported and generated.
+    expect(byName.get("reserveStock")?.roles).toEqual(["admin", "operator"]);
+    expect(byName.get("reserveStock")?.permission).toBeUndefined();
   });
 
   test("splits entities across platform, SCM, ERP and WMS modules", () => {
@@ -115,9 +140,9 @@ describe("modular demo model", () => {
       expect(resources).toContain(`"labelKey": "${qiyModelKeys.resourceLabel(entity.tableName)}"`);
       for (const field of entity.fields) expect(resources).toContain(`"labelKey": "${qiyModelKeys.fieldLabel(entity.tableName, field.name)}"`);
     }
-    // All 17 resources and 104 fields survive generation (column choices use the same list).
+    // All 17 resources and 105 fields survive generation (column choices use the same list).
     expect(resources.match(/"apiName":/g)).toHaveLength(17);
-    expect(resources.match(/"filterModes":/g)).toHaveLength(104);
+    expect(resources.match(/"filterModes":/g)).toHaveLength(105);
     // The dictionary is merged into the generated app and exercised by generated tests.
     const messages = files["apps/web/app/messages.ts"]!;
     expect(messages).toContain('"qiy.resources.products.label": "产品"');

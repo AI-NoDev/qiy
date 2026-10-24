@@ -13,6 +13,7 @@ export const users = sqliteTable("users", {
   "role": text("role").notNull(),
   "passwordHash": text("passwordHash"),
   "oauthProfiles": text("oauthProfiles"),
+  "permissions": text("permissions"),
   "orgId": text("orgId").references(() => orgs["id"], { onDelete: "restrict" }),
 });
 

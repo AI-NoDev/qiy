@@ -6,10 +6,12 @@ import { Database } from "bun:sqlite";
 const databasePath = process.argv[2] ?? "examples/self/admin/apps/server/qiy.sqlite";
 const db = new Database(databasePath);
 const passwordHash = await Bun.password.hash("admin-password", { algorithm: "argon2id" });
+const operatorPasswordHash = await Bun.password.hash("operator-password", { algorithm: "argon2id" });
+const viewerPasswordHash = await Bun.password.hash("viewer-password", { algorithm: "argon2id" });
 const now = Date.now();
 db.exec("BEGIN");
 try {
-  db.exec("DELETE FROM shipments; DELETE FROM sales_order_lines; DELETE FROM sales_orders; DELETE FROM purchase_order_lines; DELETE FROM purchase_orders; DELETE FROM stock_movements; DELETE FROM inventory; DELETE FROM bins; DELETE FROM warehouses; DELETE FROM products; DELETE FROM customers; DELETE FROM suppliers; DELETE FROM orgs; DELETE FROM users;");
+  db.exec("DELETE FROM shipments; DELETE FROM sales_order_lines; DELETE FROM sales_orders; DELETE FROM purchase_order_lines; DELETE FROM purchase_orders; DELETE FROM stock_movements; DELETE FROM inventory; DELETE FROM bins; DELETE FROM warehouses; DELETE FROM products; DELETE FROM customers; DELETE FROM suppliers; DELETE FROM work_orders; DELETE FROM orgs; DELETE FROM users;");
   const insert = (table: string, rows: Array<Record<string, unknown>>) => {
     for (const row of rows) {
       const keys = Object.keys(row);
@@ -39,6 +41,43 @@ try {
       okta: { email: "admin@example.com", name: "Dex Admin", sub: oktaSubject },
       keycloak: { email: "admin@example.com", name: "Dex Admin", sub: keycloakSubject },
     }),
+    // The admin role group already grants every permission; the column stays
+    // empty to prove that role groups alone resolve the effective permissions.
+    permissions: null,
+    orgId: "00000000-0000-4000-8000-000000000010",
+  }, {
+    // Local password accounts used by the permission matrix: the operator role
+    // group covers warehouse/sales/work-order commands but not purchasing
+    // approval; the viewer is read-only. The `permissions` column adds extra
+    // permission values on top of the role group (the database provider source).
+    id: "00000000-0000-4000-8000-000000000002",
+    subject: "local:operator@example.com",
+    oktaSubject: null,
+    keycloakSubject: null,
+    googleSubject: null,
+    kindeSubject: null,
+    azureSubject: null,
+    email: "operator@example.com",
+    displayName: "Warehouse Operator",
+    role: "operator",
+    passwordHash: operatorPasswordHash,
+    oauthProfiles: null,
+    permissions: JSON.stringify(["ReportReadPermission", "InventoryAdjustPermission"]),
+    orgId: "00000000-0000-4000-8000-000000000010",
+  }, {
+    id: "00000000-0000-4000-8000-000000000003",
+    subject: "local:viewer@example.com",
+    oktaSubject: null,
+    keycloakSubject: null,
+    googleSubject: null,
+    kindeSubject: null,
+    azureSubject: null,
+    email: "viewer@example.com",
+    displayName: "Report Viewer",
+    role: "viewer",
+    passwordHash: viewerPasswordHash,
+    oauthProfiles: null,
+    permissions: JSON.stringify(["ReportReadPermission"]),
     orgId: "00000000-0000-4000-8000-000000000010",
   }]);
   insert("suppliers", [{ id: "00000000-0000-4000-8000-000000000020", code: "SUP-1", name: "Nordic Components", email: "sales@nordic.example", leadTimeDays: 7 }]);
@@ -62,7 +101,12 @@ try {
     { id: "00000000-0000-4000-8000-000000000501", productId: "00000000-0000-4000-8000-000000000101", warehouseId: "00000000-0000-4000-8000-000000000201", binId: "00000000-0000-4000-8000-000000000301", type: "receipt", quantity: 120, reference: "PO-2025-099", occurredAt: now - 86_400_000 },
     { id: "00000000-0000-4000-8000-000000000502", productId: "00000000-0000-4000-8000-000000000102", warehouseId: "00000000-0000-4000-8000-000000000201", binId: "00000000-0000-4000-8000-000000000302", type: "adjust", quantity: 40, reference: "cycle count", occurredAt: now - 3_600_000 },
   ]);
-  insert("purchase_orders", [{ id: "00000000-0000-4000-8000-000000000601", number: "PO-2026-001", supplierId: "00000000-0000-4000-8000-000000000020", status: "approved", orderedAt: now - 172_800_000, total: 1900 }]);
+  insert("purchase_orders", [
+    { id: "00000000-0000-4000-8000-000000000601", number: "PO-2026-001", supplierId: "00000000-0000-4000-8000-000000000020", status: "approved", orderedAt: now - 172_800_000, total: 1900 },
+    // A draft order used by the permission verification matrix: only the admin
+    // holds `purchasing:approve`, so the approve command is 403 for the operator.
+    { id: "00000000-0000-4000-8000-000000000602", number: "PO-2026-002", supplierId: "00000000-0000-4000-8000-000000000020", status: "draft", orderedAt: now - 86_400_000, total: 500 },
+  ]);
   insert("purchase_order_lines", [{ id: "00000000-0000-4000-8000-000000000611", purchaseOrderId: "00000000-0000-4000-8000-000000000601", productId: "00000000-0000-4000-8000-000000000101", quantity: 200, unitCost: 9.5 }]);
   insert("sales_orders", [{ id: "00000000-0000-4000-8000-000000000701", number: "SO-2026-001", customerId: "00000000-0000-4000-8000-000000000030", status: "allocated", orderedAt: now - 86_400_000, total: 300 }]);
   insert("sales_order_lines", [{ id: "00000000-0000-4000-8000-000000000711", salesOrderId: "00000000-0000-4000-8000-000000000701", productId: "00000000-0000-4000-8000-000000000101", quantity: 20, unitPrice: 15, allocated: 20 }]);

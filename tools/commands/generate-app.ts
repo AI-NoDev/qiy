@@ -45,6 +45,7 @@ export async function generateApp(source: string, destination: string, options: 
     realtime: project.realtime,
     storageProvider: project.storageProvider,
     auth: project.auth,
+    permissions: project.permissions,
     environment: project.environment,
     scopes: project.scopes,
     restrictions: project.restrictions,

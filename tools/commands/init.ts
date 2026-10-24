@@ -168,6 +168,7 @@ export async function initApp(options: InitAppOptions): Promise<string> {
     realtime: project.realtime,
     storageProvider: project.storageProvider,
     auth: project.auth,
+    permissions: project.permissions,
     environment: project.environment,
     scopes: project.scopes,
     restrictions: project.restrictions,

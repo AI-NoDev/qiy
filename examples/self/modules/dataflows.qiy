@@ -3,7 +3,7 @@
 # modules/messages.qiy through qiy.actions.<action>.* keys.
 
 dataflow receiveInventory @label("Receive goods") @confirm("Post this receipt into stock?") @comment("Append a receipt movement and update the on-hand quantity of the target inventory record.") {
-  allow roles admin, operator;
+  allow permission InventoryReceivePermission;
   idempotency required;
   audit "inventory.received";
   input {
@@ -51,7 +51,7 @@ dataflow receiveInventory @label("Receive goods") @confirm("Post this receipt in
 }
 
 dataflow putawayStock @label("Put away") @comment("Move an inventory record into another storage bin and record the transfer.") {
-  allow roles admin, operator;
+  allow permission InventoryPutawayPermission;
   idempotency required;
   audit "inventory.putaway";
   input {
@@ -116,7 +116,7 @@ dataflow reserveStock @label("Reserve stock") @comment("Reserve an absolute quan
 }
 
 dataflow adjustStock @label("Adjust stock") @confirm("Apply this stock count?") @comment("Record a cycle count and set the counted on-hand quantity.") {
-  allow roles admin, operator;
+  allow permission InventoryAdjustPermission;
   idempotency required;
   audit "inventory.adjusted";
   input {
@@ -151,7 +151,7 @@ dataflow adjustStock @label("Adjust stock") @confirm("Apply this stock count?") 
 }
 
 dataflow shipSalesOrder @label("Ship order") @comment("Create a shipment for a sales order and mark it shipped.") {
-  allow roles admin, operator;
+  allow verification CanShipOrders;
   idempotency required;
   audit "sales.shipped";
   input {
@@ -181,7 +181,7 @@ dataflow shipSalesOrder @label("Ship order") @comment("Create a shipment for a s
 }
 
 dataflow transferInventory @label("Transfer inventory") @comment("Transfer stock between warehouses or bins with an audit movement.") {
-  allow roles admin, operator;
+  allow permission InventoryTransferPermission;
   idempotency required;
   audit "inventory.transferred";
   input {
@@ -215,7 +215,7 @@ dataflow transferInventory @label("Transfer inventory") @comment("Transfer stock
 }
 
 dataflow completeWorkOrder @label("Complete work order") @comment("Consume components and book the produced quantity, then close the work order.") {
-  allow roles admin, operator;
+  allow permission WorkOrderCompletePermission;
   idempotency required;
   audit "production.completed";
   input {
@@ -257,4 +257,25 @@ dataflow completeWorkOrder @label("Complete work order") @comment("Consume compo
     }
   }
   result { return workOrder; }
+}
+
+dataflow approvePurchaseOrder @label("Approve purchase order") @confirm("Approve this purchase order for receiving?") @comment("Approve a draft purchase order. Operators do not hold the purchasing approval permission, so this command is a permission-denied example.") {
+  allow permission PurchaseApprovePermission;
+  audit "purchasing.approved";
+  input {
+    field purchaseOrderId UUID @required;
+  }
+  context {
+    purchaseOrder = entity purchase_orders by id input.purchaseOrderId @required;
+  }
+  step approve {
+    require purchaseOrder.status == "draft" @error(t("errors.purchaseOrder.notDraft"));
+    update purchaseOrder {
+      status = "approved";
+    }
+    emit "purchasing.approved" {
+      purchaseOrderId = purchaseOrder.id;
+    }
+  }
+  result { return purchaseOrder; }
 }

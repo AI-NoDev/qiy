@@ -1,6 +1,15 @@
 import type { DatabaseIR, EntityIR, FieldIR, FilterMode } from "./database-ir";
 import type { QiyProject, DataflowIR, QiyPolicyExpression, QiyResourceRestriction, QiyRowPredicate, QiyFieldMask } from "./qiy-project";
 import { authHasLocal, authIsHybrid, authOAuthProviders, authProviderSubjectField, authUsesProviderChooser } from "./qiy-project";
+import {
+  declaredPermissionValues,
+  evaluatePermissionVerification as evaluateDeclaredVerification,
+  isPermissionModelEmpty,
+  permissionExpansionTables,
+  requiredPermissionValues,
+  resolvePermissionSnapshot,
+  type QiyPermissionModel,
+} from "./permissions";
 import { resolveQiyTestValue, type QiyTestSuite, type QiyTestScenario } from "./qiy-test";
 
 /** A data scope, optionally widened to the whole subtree of a self-referencing entity. */
@@ -3118,8 +3127,10 @@ ${adapters.map((adapter) => `  ${JSON.stringify(adapter)}: () => ({ ok: false, e
 `;
 }
 
-function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, scopes: NonNullable<QiyProject["scopes"]> = [], qiyActions: NonNullable<QiyProject["actions"]> = [], realtimeEnabled = false): string | undefined {
+function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, scopes: NonNullable<QiyProject["scopes"]> = [], qiyActions: NonNullable<QiyProject["actions"]> = [], realtimeEnabled = false, permissions?: QiyPermissionModel): string | undefined {
   if (!dataflows.length) return undefined;
+  const usesPermissions = dataflows.some((flow) => flow.permission || flow.verification);
+  if (usesPermissions && !permissions) throw new Error("Dataflow permission rules require permission declarations");
   const entities = new Map(database.entities.map((entity) => [entity.name, entity]));
   const scopeFor = (entity: EntityIR) => scopes.find((scope) => scope.resource === entity.name || scope.resource === entity.tableName);
   const synchronous = database.dialect === "sqlite";
@@ -3271,10 +3282,25 @@ function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullable<QiyPr
         throw error;
       }
 ` : "      } catch (error) { if (error instanceof DataflowFailure) return status(error.status, { error: error.message, ...(error.resource ? { resource: error.resource } : {}), ...(error.errorKey ? { errorKey: error.errorKey } : {}) }); throw error; }\n";
+    const permissionSetup = flow.permission || flow.verification ? "      const permissionSnapshot = await loadPermissions(principal);\n" : "";
+    const declaredVerification = flow.verification ? permissions?.verifications.find((candidate) => candidate.name === flow.verification) : undefined;
+    const verificationInputs = declaredVerification
+      ? `{ ${declaredVerification.inputs.map((input) => `${JSON.stringify(input.name)}: ${input.type === "Text" ? `String(body[${JSON.stringify(input.name)}])` : `[String(body[${JSON.stringify(input.name)}])]`}`).join(", ")} }`
+      : "{}";
+    const authorizationCheck = flow.permission
+      ? `${permissionSetup}      const requiredPermissions = ${JSON.stringify(requiredPermissionValues(permissions!, flow.permission))};
+      const missingPermissions = requiredPermissions.filter((permission) => !permissionSnapshot.permissions.includes(permission));
+      if (missingPermissions.length > 0) return status(403, { error: "Missing required permissions: " + missingPermissions.join(", "), errorKey: "command.forbidden", missing: missingPermissions });`
+      : flow.verification
+        ? `${permissionSetup}      const permissionVerdict = evaluatePermissionVerification(${JSON.stringify(flow.verification)}, { ...permissionSnapshot, role: principal.role }, ${verificationInputs});
+      if (!permissionVerdict.found) return status(403, { error: "Unknown permission verification ${flow.verification}" });
+      if ("error" in permissionVerdict) return status(400, { error: permissionVerdict.error });
+      if (!permissionVerdict.allowed) return status(403, { error: "Permission verification ${flow.verification} denied this command", errorKey: "command.forbidden", ...(permissionVerdict.missing.length ? { missing: permissionVerdict.missing } : {}) });`
+        : `      if (!${JSON.stringify(flow.roles ?? ["admin", "operator"])}.includes(principal.role)) return status(403, { error: "Command execution is restricted" });`;
     const singleRoute = `${generatedDocumentation(flow, "    ")}    .post(${JSON.stringify(`/${flow.name}`)}, async ({ body, request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
-      if (!${JSON.stringify(flow.roles ?? ["admin", "operator"])}.includes(principal.role)) return status(403, { error: "Command execution is restricted" });
+${authorizationCheck}
 ${scopeSetup ? `${scopeSetup}\n` : ""}${requestSetup}      let outcome;
       try {
       outcome = await db.transaction(${synchronous ? "" : "async "}(tx) => {
@@ -3309,11 +3335,19 @@ ${inputSchema}
     const batchReceiptWrite = synchronous
       ? `        tx.insert(dataflowIdempotency).values({ id: crypto.randomUUID(), actorId: principal!.id, flow: ${JSON.stringify(batchFlowName)}, requestKeyHash, requestHash, response: JSON.stringify(values) }).run();\n`
       : `        await tx.insert(dataflowIdempotency).values({ id: crypto.randomUUID(), actorId: principal!.id, flow: ${JSON.stringify(batchFlowName)}, requestKeyHash, requestHash, response: JSON.stringify(values) });\n`;
+    const batchTopCheck = flow.verification
+      ? `${permissionSetup}`
+      : authorizationCheck;
+    const batchVerificationCheck = flow.verification
+      ? `                const batchPermissionVerdict = evaluatePermissionVerification(${JSON.stringify(flow.verification)}, { ...permissionSnapshot, role: principal.role }, ${verificationInputs});
+                if (!batchPermissionVerdict.found || "error" in batchPermissionVerdict || !batchPermissionVerdict.allowed) throw new BatchDataflowFailure(403, "Permission verification ${flow.verification} denied this command", itemIndex, String(body[${JSON.stringify(batchIdInput)}]), undefined, "command.forbidden");
+`
+      : "";
     const batchRoute = `
     .post(${JSON.stringify(`/${flow.name}/batch`)}, async ({ body: batch, request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
-      if (!${JSON.stringify(flow.roles ?? ["admin", "operator"])}.includes(principal.role)) return status(403, { error: "Command execution is restricted" });
+${batchTopCheck}
 ${scopeSetup ? `${scopeSetup}\n` : ""}      const requestKey = request.headers.get("idempotency-key");
       if (!requestKey || !/^[\\x21-\\x7E]{1,128}$/.test(requestKey)) return status(400, { error: "A valid Idempotency-Key header is required" });
       if (!principal.id) return status(401, { error: "Authentication is required for idempotent commands" });
@@ -3328,7 +3362,7 @@ ${batchTransactionReplay}          const values = [];
           for (let itemIndex = 0; itemIndex < batch.items.length; itemIndex += 1) {
             const body = batch.items[itemIndex]!;
             try {
-${contextLoads}
+${batchVerificationCheck}${contextLoads}
 
 ${actions}
 
@@ -3369,6 +3403,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "../db";
  import { ${[...new Set([...dataflowEntities, ...(usesIdempotency ? ["dataflowIdempotency"] : []), ...(usesAudit ? ["auditEvents"] : []), ...(usesOutbox ? ["dataflowOutbox"] : []), ...(usesRealtimeOutbox ? ["realtimeOutbox"] : [])])].join(", ")} } from "../schema";
 import type { Authenticator } from "../auth/guard";
+${usesPermissions ? 'import { evaluatePermissionVerification, loadPermissions } from "../auth/permissions";\n' : ""}
 ${usesCalls ? 'import { invokeDataflowCall } from "./calls";\n' : ""}
 
 class DataflowFailure extends Error {
@@ -3468,8 +3503,14 @@ function dataflowFixtureValue(field: FieldIR, requires: Array<{ field: string; o
   return "null";
 }
 
-function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, qiyActions: NonNullable<QiyProject["actions"]> = [], realtimeEnabled = false): string | undefined {
+function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, qiyActions: NonNullable<QiyProject["actions"]> = [], realtimeEnabled = false, permissions?: QiyPermissionModel): string | undefined {
   if (database.dialect !== "sqlite" || !dataflows.length) return undefined;
+  // Command authorization may be role-, permission- or verification-based. The
+  // generated happy-path actor holds every declared permission so the fixture
+  // input only has to satisfy the business rules, not the authorization model.
+  const permissionPrincipal = permissions && !isPermissionModelEmpty(permissions)
+    ? `, permissions: ${JSON.stringify(declaredPermissionValues(permissions))}, groups: ${JSON.stringify(permissions.groups.map((group) => group.name))}`
+    : "";
   const entities = new Map(database.entities.map((entity) => [entity.name, entity]));
   const callAdapters = dataflowCallAdapters(dataflows);
   const usedEntities = [...new Set(dataflows.flatMap((flow) => [
@@ -3580,7 +3621,9 @@ function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<Q
     } finally { dataflowCallHandlers[${JSON.stringify(firstCall.adapter)}] = previous; }
   });` : "";
     const hasMutations = flow.steps.some((step) => step.actions.some((action) => action.kind === "update" || action.kind === "create" || action.kind === "delete" || action.kind === "emit"));
-    const deniedRoles = ["viewer", ...["admin", "operator"].filter((role) => !(flow.roles ?? ["admin", "operator"]).includes(role as "admin" | "operator"))];
+    const deniedRoles = flow.roles
+      ? ["viewer", ...["admin", "operator"].filter((role) => !flow.roles!.includes(role as "admin" | "operator"))]
+      : ["viewer"];
     const authorizationTest = `
   test(${JSON.stringify(`${flow.name} rejects unauthenticated and disallowed roles before writing`)}, async () => {
     ${seed}
@@ -3598,7 +3641,7 @@ function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<Q
   test(${JSON.stringify(`${flow.name} rolls back earlier writes when a later requirement fails`)}, async () => {
     ${seed}
     const before = ${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all());
-    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: ${JSON.stringify(flow.roles?.[0] ?? "admin")} })));
+    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: ${JSON.stringify(flow.roles?.[0] ?? "admin")}${permissionPrincipal} })));
     const failed = await failureApp.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
     expect(failed.status).toBe(409);
     expect(await failed.json()).toMatchObject({ error: "qiy.test.lateFailure" });
@@ -3735,8 +3778,8 @@ ${cleanup}
 });
 
 const testRoles: Record<string, "admin" | "operator"> = ${JSON.stringify(Object.fromEntries(dataflows.map((flow) => [flow.name, flow.roles?.[0] ?? "admin"])))};
-const app = new Elysia().use(createDataflowRoutes(async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: testRoles[new URL(request.url).pathname.split("/").at(-1)!] ?? "admin" })));
-const graphqlApp = await createApp({} as Repositories, async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "GraphQL Dataflow Test", role: (request.headers.get("x-test-role") ?? "admin") as "admin" | "operator" }), false, false, undefined, true);
+const app = new Elysia().use(createDataflowRoutes(async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: testRoles[new URL(request.url).pathname.split("/").at(-1)!] ?? "admin"${permissionPrincipal} })));
+const graphqlApp = await createApp({} as Repositories, async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "GraphQL Dataflow Test", role: (request.headers.get("x-test-role") ?? "admin") as "admin" | "operator"${permissionPrincipal} }), false, false, undefined, true);
 
 describe("generated dataflow routes", () => {
 ${tests}
@@ -3748,19 +3791,25 @@ function sqliteTestIdentifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-function scenarioPrincipal(scenario: QiyTestScenario, flow: DataflowIR): string {
+function scenarioPrincipal(scenario: QiyTestScenario, flow: DataflowIR, permissionPrincipal = ""): string {
   if (scenario.identity?.kind === "anonymous") return "null";
   const identity = scenario.identity;
   const principal = identity ? {
     id: resolveQiyTestValue(scenario, identity.id), name: "Qiy Scenario", role: identity.role,
     claims: Object.fromEntries(Object.entries(identity.claims).map(([claim, value]) => [claim, resolveQiyTestValue(scenario, value)])),
   } : { id: "00000000-0000-4000-8000-000000000010", name: "Qiy Scenario", role: flow.roles?.[0] ?? "admin" };
-  return JSON.stringify(principal);
+  return identity ? JSON.stringify(principal) : JSON.stringify(principal).slice(0, -1) + `${permissionPrincipal} }`;
 }
 
-function renderQiyScenarioTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, suite?: QiyTestSuite): string | undefined {
+function scenarioPermissionPrincipal(permissions?: QiyPermissionModel): string {
+  return permissions && !isPermissionModelEmpty(permissions)
+    ? `, permissions: ${JSON.stringify(declaredPermissionValues(permissions))}, groups: ${JSON.stringify(permissions.groups.map((group) => group.name))}`
+    : "";
+}
+
+function renderQiyScenarioTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, suite?: QiyTestSuite, permissions?: QiyPermissionModel): string | undefined {
   if (!suite) return undefined;
-  if (database.dialect === "postgresql" || database.dialect === "mysql") return renderServerQiyScenarioTest(database, dataflows, suite);
+  if (database.dialect === "postgresql" || database.dialect === "mysql") return renderServerQiyScenarioTest(database, dataflows, suite, permissions);
   if (database.dialect !== "sqlite") throw new Error("Declarative app.test.qiy scenarios require sqlite, postgresql or mysql");
   const entities = new Map(database.entities.map((entity) => [entity.name, entity]));
   const selectedFlows = suite.scenarios.map((scenario) => dataflows.find((flow) => flow.name === scenario.dataflow)!);
@@ -3823,7 +3872,7 @@ function renderQiyScenarioTest(database: DatabaseIR, dataflows: NonNullable<QiyP
     const outboxExpectations = (scenario.expectedOutbox ?? []).map((expectation) => `expect(client.query<{ total: number }, [string]>("SELECT COUNT(*) AS total FROM dataflow_outbox WHERE event = ?").get(${JSON.stringify(expectation.event)})?.total).toBe(${expectation.count});`).join("\n    ");
     return `  test(${JSON.stringify(scenario.name)}, async () => {
     ${seed}
-    const app = new Elysia().use(createDataflowRoutes(async () => (${scenarioPrincipal(scenario, flow)})));
+    const app = new Elysia().use(createDataflowRoutes(async () => (${scenarioPrincipal(scenario, flow, scenarioPermissionPrincipal(permissions))})));
     const response = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${scenario.dataflow}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
     expect(response.status).toBe(${scenario.expectedStatus});
     const payload = await response.json();${payloadExpectation}
@@ -3853,7 +3902,7 @@ ${tests}
 `;
 }
 
-function renderServerQiyScenarioTest(database: DatabaseIR, dataflows: DataflowIR[], suite: QiyTestSuite): string {
+function renderServerQiyScenarioTest(database: DatabaseIR, dataflows: DataflowIR[], suite: QiyTestSuite, permissions?: QiyPermissionModel): string {
   const orderedEntities: EntityIR[] = [];
   const visiting = new Set<string>();
   const visit = (entity: EntityIR) => {
@@ -3896,7 +3945,7 @@ function renderServerQiyScenarioTest(database: DatabaseIR, dataflows: DataflowIR
     const outboxExpectations = (scenario.expectedOutbox ?? []).map((expectation, index) => `const outbox${index} = await db.select({ total: count() }).from(schema.dataflowOutbox).where(eq(schema.dataflowOutbox.event, ${JSON.stringify(expectation.event)}));\n    expect(Number(outbox${index}[0]?.total)).toBe(${expectation.count});`).join("\n    ");
     return `  test(${JSON.stringify(scenario.name)}, async () => {
     ${seed}
-    const app = new Elysia().use(createDataflowRoutes(async () => (${scenarioPrincipal(scenario, flow)})));
+    const app = new Elysia().use(createDataflowRoutes(async () => (${scenarioPrincipal(scenario, flow, scenarioPermissionPrincipal(permissions))})));
     const response = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${scenario.dataflow}`)}, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(${JSON.stringify(input)}) }));
     expect(response.status).toBe(${scenario.expectedStatus});
     const payload = await response.json();
@@ -3939,7 +3988,396 @@ ${scenarios}
 `;
 }
 
-export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "storageProvider" | "auth" | "scopes" | "restrictions" | "pages" | "corsOrigins" | "elysiaPlugins" | "workflows" | "dataflows" | "actions" | "realtime"> & { testSuite?: QiyTestSuite } = {}): Record<string, string> {
+/**
+ * Generated permission provider (`api/src/auth/permissions.ts`). Resolution is a
+ * union of the role group, the configured database permission column and the
+ * verified id_token claims; verification expressions are data-driven so the same
+ * HTTP/command checks run in every generated app.
+ */
+function renderPermissionModule(auth: NonNullable<QiyProject["auth"]>, permissions: QiyPermissionModel): string {
+  const expansion = permissionExpansionTables(permissions);
+  const claimSources = permissions.claims ?? [];
+  const databaseSource = permissions.database;
+  const schemaName = auth.userEntity;
+  const dbImports = databaseSource
+    ? `import { eq } from "drizzle-orm";\nimport { db } from "../db";\nimport { ${schemaName} } from "../schema";\n`
+    : "";
+  const databaseLoad = databaseSource
+    ? `  let databasePermissions: string[] | undefined;
+  try {
+    const rows = await db.select({ value: ${schemaName}.${databaseSource.field} }).from(${schemaName}).where(eq(${schemaName}.id, principal.id)).limit(1);
+    databasePermissions = normalizeDatabasePermissionColumn(rows[0]?.value);
+  } catch {
+    // A missing row/table must not break /auth/me: the role group and verified
+    // claims still apply, and the database source only ever adds permissions.
+    databasePermissions = undefined;
+  }
+`
+    : "";
+  const verifications = Object.fromEntries(permissions.verifications.map((verification) => [verification.name, { inputs: verification.inputs, expression: verification.expression }]));
+  return `import type { Principal } from "./guard";
+${dbImports}
+export interface QiyPermissionSnapshot { permissions: string[]; groups: string[] }
+
+/** Permission field name -> permission value. */
+const PERMISSION_FIELD_VALUES: Record<string, string> = ${JSON.stringify(expansion.fieldValues)};
+/** Declared permission values: provider entries are values or group names. */
+const PERMISSION_DECLARED_VALUES: readonly string[] = ${JSON.stringify(declaredPermissionValues(permissions))};
+/** Permission group name -> member permission field or group names. */
+const PERMISSION_GROUPS: Record<string, string[]> = ${JSON.stringify(expansion.groups)};
+/** Verified id_token claim sources declared with \`permission from claim\`. */
+const PERMISSION_CLAIM_SOURCES: Array<{ provider: string; claim: string }> = ${JSON.stringify(claimSources)};
+
+function splitPermissionEntries(value: string): string[] {
+  return [...new Set(value.split(/[\\s,]+/).map((entry) => entry.trim()).filter(Boolean))];
+}
+
+/** Claim values may be a string array, one comma/space separated string, or one string. */
+export function normalizeClaimPermissionValues(value: unknown): string[] {
+  if (Array.isArray(value)) return [...new Set(value.filter((entry): entry is string => typeof entry === "string"))];
+  if (typeof value !== "string") return [];
+  return splitPermissionEntries(value);
+}
+
+/** The database permission column is a JSON string array; separated text is accepted too. */
+export function normalizeDatabasePermissionColumn(value: unknown): string[] {
+  if (Array.isArray(value)) return [...new Set(value.filter((entry): entry is string => typeof entry === "string"))];
+  if (typeof value !== "string") return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      return Array.isArray(parsed) ? [...new Set(parsed.filter((entry): entry is string => typeof entry === "string"))] : [];
+    } catch { return []; }
+  }
+  return splitPermissionEntries(trimmed);
+}
+
+function expandPermissionEntry(entry: string, values: Set<string>, groups: Set<string>, visiting: Set<string>): void {
+  const fieldValue = PERMISSION_FIELD_VALUES[entry];
+  if (fieldValue !== undefined) { values.add(fieldValue); return; }
+  const members = PERMISSION_GROUPS[entry];
+  if (!members || visiting.has(entry)) return;
+  visiting.add(entry);
+  groups.add(entry);
+  for (const member of members) expandPermissionEntry(member, values, groups, visiting);
+  visiting.delete(entry);
+}
+
+export function expandPermissionEntries(entries: Iterable<string>): QiyPermissionSnapshot {
+  const values = new Set<string>();
+  const groups = new Set<string>();
+  for (const entry of entries) expandPermissionEntry(entry, values, groups, new Set());
+  return { permissions: [...values].sort(), groups: [...groups].sort() };
+}
+
+export function resolvePermissionSnapshot(source: { role: string; claims?: Principal["claims"]; databasePermissions?: readonly string[] }): QiyPermissionSnapshot {
+  const values = new Set<string>();
+  const groups = new Set<string>();
+  expandPermissionEntry(source.role, values, groups, new Set());
+  for (const entry of source.databasePermissions ?? []) {
+    if (PERMISSION_DECLARED_VALUES.includes(entry)) values.add(entry);
+    else expandPermissionEntry(entry, values, groups, new Set());
+  }
+  for (const claimSource of PERMISSION_CLAIM_SOURCES) {
+    for (const entry of normalizeClaimPermissionValues(source.claims?.[claimSource.claim])) {
+      if (PERMISSION_DECLARED_VALUES.includes(entry)) values.add(entry);
+      else expandPermissionEntry(entry, values, groups, new Set());
+    }
+  }
+  return { permissions: [...values].sort(), groups: [...groups].sort() };
+}
+
+/** Effective permissions for the authenticated principal; never throws for missing rows. */
+export async function loadPermissions(principal: Principal): Promise<QiyPermissionSnapshot> {
+${databaseLoad}  return resolvePermissionSnapshot({ role: principal.role, ...(principal.claims ? { claims: principal.claims } : {})${databaseSource ? ", databasePermissions" : ""} });
+}
+
+export type QiyPermissionVerdict = { allowed: boolean; missing: string[] };
+type QiyPermissionInputType = "Text" | "Array<String>";
+type QiyPermissionOperand = { kind: "self"; set: "permissions" | "groups" | "role" } | { kind: "input"; name: string } | { kind: "literal"; value: string };
+type QiyPermissionExpression =
+  | { kind: "comparison"; operator: "all-in" | "some-in" | "not-all-in" | "not-some-in" | "equals" | "not-equals"; left: QiyPermissionOperand; right: QiyPermissionOperand }
+  | { kind: "and"; children: QiyPermissionExpression[] }
+  | { kind: "or"; children: QiyPermissionExpression[] }
+  | { kind: "not"; expression: QiyPermissionExpression };
+
+const PERMISSION_VERIFICATIONS: Record<string, { inputs: Array<{ name: string; type: QiyPermissionInputType }>; expression: QiyPermissionExpression }> = ${JSON.stringify(verifications)};
+export const permissionVerificationNames: string[] = Object.keys(PERMISSION_VERIFICATIONS).sort();
+
+function operandValues(operand: QiyPermissionOperand, self: QiyPermissionSnapshot & { role: string }, input: Record<string, string[]>): string[] {
+  if (operand.kind === "self") return operand.set === "role" ? [self.role] : [...(operand.set === "permissions" ? self.permissions : self.groups)];
+  if (operand.kind === "literal") return [operand.value];
+  return [...(input[operand.name] ?? [])];
+}
+
+export function comparePermissionSets(operator: "all-in" | "some-in" | "not-all-in" | "not-some-in" | "equals" | "not-equals", left: readonly string[], right: readonly string[]): QiyPermissionVerdict {
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  const difference = [...leftSet].filter((entry) => !rightSet.has(entry)).sort();
+  if (operator === "all-in") return { allowed: difference.length === 0, missing: difference };
+  if (operator === "some-in") { const shared = [...leftSet].filter((entry) => rightSet.has(entry)); return { allowed: shared.length > 0, missing: shared.length > 0 ? [] : difference }; }
+  if (operator === "not-all-in") return { allowed: difference.length > 0, missing: [] };
+  if (operator === "not-some-in") { const shared = [...leftSet].filter((entry) => rightSet.has(entry)).sort(); return { allowed: shared.length === 0, missing: shared }; }
+  if (operator === "equals") {
+    const symmetric = [...new Set([...difference, ...[...rightSet].filter((entry) => !leftSet.has(entry))])].sort();
+    return { allowed: symmetric.length === 0, missing: symmetric };
+  }
+  return { allowed: !(difference.length === 0 && rightSet.size === leftSet.size), missing: [] };
+}
+
+function evaluatePermissionExpression(expression: QiyPermissionExpression, self: QiyPermissionSnapshot & { role: string }, input: Record<string, string[]>): QiyPermissionVerdict {
+  const evaluate = (node: QiyPermissionExpression): QiyPermissionVerdict => {
+    if (node.kind === "comparison") return comparePermissionSets(node.operator, operandValues(node.left, self, input), operandValues(node.right, self, input));
+    if (node.kind === "not") { const inner = evaluate(node.expression); return { allowed: !inner.allowed, missing: inner.allowed ? [] : inner.missing }; }
+    const results = node.children.map(evaluate);
+    if (node.kind === "and") { const failed = results.filter((result) => !result.allowed); return { allowed: failed.length === 0, missing: failed.flatMap((result) => result.missing) }; }
+    return { allowed: results.some((result) => result.allowed), missing: results.some((result) => result.allowed) ? [] : results.flatMap((result) => result.missing) };
+  };
+  const verdict = evaluate(expression);
+  return { allowed: verdict.allowed, missing: verdict.allowed ? [] : [...new Set(verdict.missing)].sort() };
+}
+
+/**
+ * Evaluates one declared verification. Unknown names report \`found: false\`;
+ * invalid input shapes report \`error\` so the HTTP route can answer 400; extra
+ * input fields are ignored. Declared inputs are required.
+ */
+export function evaluatePermissionVerification(
+  name: string,
+  self: QiyPermissionSnapshot & { role: string },
+  input: Record<string, unknown>,
+): { found: false } | { found: true; allowed: boolean; missing: string[] } | { found: true; error: string } {
+  const verification = PERMISSION_VERIFICATIONS[name];
+  if (!verification) return { found: false };
+  const normalized: Record<string, string[]> = {};
+  for (const declared of verification.inputs) {
+    const value = input[declared.name];
+    if (value === undefined) return { found: true, error: "Verification " + name + " requires input field " + declared.name };
+    if (declared.type === "Text") {
+      if (typeof value !== "string") return { found: true, error: "Verification " + name + " input field " + declared.name + " must be a string" };
+      normalized[declared.name] = [value];
+    } else {
+      if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) return { found: true, error: "Verification " + name + " input field " + declared.name + " must be an array of strings" };
+      normalized[declared.name] = [...(value as string[])];
+    }
+  }
+  const verdict = evaluatePermissionExpression(verification.expression, self, normalized);
+  return { found: true, allowed: verdict.allowed, missing: verdict.missing };
+}
+`;
+}
+
+/** Generated HTTP surface for permissions: current snapshot and verification checks. */
+function renderPermissionRoutes(): string {
+  return `import { Elysia, t } from "elysia";
+import type { Authenticator } from "./guard";
+import { evaluatePermissionVerification, loadPermissions, permissionVerificationNames } from "./permissions";
+
+export function createPermissionRoutes(authenticate: Authenticator) {
+  return new Elysia({ prefix: "/api/v1/auth" })
+    .get("/permissions", async ({ request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      return await loadPermissions(principal);
+    })
+    .post("/verify-permission", async ({ body, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      if (!permissionVerificationNames.includes(body.verification)) return status(400, { error: "Unknown permission verification: " + body.verification });
+      const snapshot = await loadPermissions(principal);
+      const verdict = evaluatePermissionVerification(body.verification, { ...snapshot, role: principal.role }, body.input ?? {});
+      if (!verdict.found) return status(400, { error: "Unknown permission verification: " + body.verification });
+      if ("error" in verdict) return status(400, { error: verdict.error });
+      return verdict.allowed ? { allowed: true } : { allowed: false, missing: verdict.missing };
+    }, { body: t.Object({ verification: t.String({ minLength: 1, maxLength: 120 }), input: t.Optional(t.Record(t.String(), t.Any())) }) });
+}
+`;
+}
+
+/**
+ * Generated permission tests. Expected provider snapshots and verification
+ * verdicts are computed at generation time with tools/permissions.ts and asserted
+ * against the generated runtime module, so the two implementations cannot drift.
+ */
+function renderPermissionTest(database: DatabaseIR, permissions: QiyPermissionModel): string {
+  const roles = ["admin", "operator", "viewer"].filter((role) => permissions.groups.some((group) => group.name === role));
+  const snapshots = Object.fromEntries(roles.map((role) => [role, resolvePermissionSnapshot(permissions, { role })]));
+  const sampleValues = declaredPermissionValues(permissions);
+  const positiveValue = sampleValues[0] ?? "qiy:permission";
+  const pool = sampleValues.length > 1 ? sampleValues : [positiveValue];
+  const verificationCases = permissions.verifications.flatMap((verification) => {
+    const samples: Array<Record<string, unknown>> = [];
+    const build = (values: string[]) => Object.fromEntries(verification.inputs.map((input, index) => [input.name, input.type === "Text" ? values[index] : [values[index]]]));
+    if (verification.inputs.every((input) => input.type === "Text")) {
+      samples.push(build(pool.slice(0, verification.inputs.length).concat(Array(Math.max(0, verification.inputs.length - pool.length)).fill(positiveValue))));
+      samples.push(build(Array(verification.inputs.length).fill("qiy:unknown-permission")));
+    } else {
+      samples.push(build(Array(verification.inputs.length).fill(positiveValue)));
+      samples.push(build(Array(verification.inputs.length).fill("qiy:unknown-permission")));
+      if (pool.length > 1) samples.push(build(Array(verification.inputs.length).fill(pool[1])));
+    }
+    return roles.flatMap((role) => samples.map((input) => {
+      const snapshot = snapshots[role]!;
+      const verdict = evaluateDeclaredVerification(permissions, verification.name, { permissions: snapshot.permissions, groups: snapshot.groups, role }, input);
+      if (!verdict.found || "error" in verdict) throw new Error(`Permission verification ${verification.name}: cannot build a generated test case`);
+      return {
+        role,
+        verification: verification.name,
+        input,
+        expected: { found: true, allowed: verdict.allowed, missing: verdict.missing },
+      };
+    }));
+  });
+  const textOnlyVerification = permissions.verifications.find((verification) => verification.inputs.length > 0 && verification.inputs.every((input) => input.type === "Text"));
+  const arrayOnlyVerification = permissions.verifications.find((verification) => verification.inputs.length > 0 && verification.inputs.every((input) => input.type === "Array<String>"));
+  const invalidInputChecks = [
+    textOnlyVerification ? `expect((await post({ verification: ${JSON.stringify(textOnlyVerification.name)}, input: {} })).status).toBe(400);` : "",
+    textOnlyVerification ? `expect((await post({ verification: ${JSON.stringify(textOnlyVerification.name)}, input: ${JSON.stringify(Object.fromEntries(textOnlyVerification.inputs.map((input) => [input.name, 7])))} })).status).toBe(400);` : "",
+    arrayOnlyVerification ? `expect((await post({ verification: ${JSON.stringify(arrayOnlyVerification.name)}, input: ${JSON.stringify(Object.fromEntries(arrayOnlyVerification.inputs.map((input) => [input.name, "not-an-array"])))} })).status).toBe(400);` : "",
+  ].filter(Boolean).join("\n    ");
+  // The database loader is covered end-to-end by the HTTP acceptance matrix
+  // against a seeded database; generated tests assert the pure contract because a
+  // generated test cannot own the auth user table without racing other suites.
+  const databaseTest = "";
+  const dataset = JSON.stringify({
+    snapshots: Object.fromEntries(roles.map((role) => [role, snapshots[role]])),
+    cases: verificationCases,
+    positiveValue,
+    firstVerification: permissions.verifications[0]?.name ?? "Unknown",
+    hasDatabaseSource: Boolean(permissions.database),
+  }, null, 2);
+  return `import { describe, expect, test } from "bun:test";
+import { Elysia } from "elysia";
+${databaseTest ? 'import { client } from "../src/db";' : ""}
+import { createApp, type Repositories } from "../src/app";
+import { createPermissionRoutes } from "../src/auth/permission-routes";
+import {
+  evaluatePermissionVerification,
+  loadPermissions,
+  normalizeClaimPermissionValues,
+  normalizeDatabasePermissionColumn,
+  permissionVerificationNames,
+  resolvePermissionSnapshot,
+} from "../src/auth/permissions";
+
+interface PermissionSnapshot { permissions: string[]; groups: string[] }
+interface PermissionCase { role: string; verification: string; input: Record<string, unknown>; expected: { found: true; allowed: boolean; missing: string[] } }
+const dataset = ${dataset} as {
+  snapshots: Record<string, PermissionSnapshot>;
+  cases: PermissionCase[];
+  positiveValue: string;
+  firstVerification: string;
+  textInputVerification?: string;
+  arrayInputVerification?: string;
+  hasDatabaseSource: boolean;
+};
+
+const principal = (role: string) => ({ id: "00000000-0000-4000-8000-000000000010", name: role, role: role as "admin" | "operator" | "viewer" });
+const authenticate = async (request: Request) => {
+  const role = request.headers.get("x-test-role");
+  return role ? principal(role) : null;
+};
+const app = new Elysia().use(createPermissionRoutes(authenticate));
+const request = (path: string, role: string | undefined, init: RequestInit = {}) => app.handle(new Request("http://localhost" + path, { ...init, headers: { ...(role ? { "x-test-role": role } : {}), ...(init.headers ?? {}) } }));
+
+describe("generated permission provider", () => {
+  test("resolves role-group permissions without any claims or database rows", () => {
+${roles.map((role) => `    expect(resolvePermissionSnapshot({ role: ${JSON.stringify(role)} })).toEqual(${JSON.stringify(snapshots[role])});`).join("\n") || "    expect(resolvePermissionSnapshot({ role: \"admin\" })).toEqual({ permissions: [], groups: [] });"}
+  });
+
+  test("claim values accept arrays, comma-separated text and space-separated text", () => {
+    expect(normalizeClaimPermissionValues(["a", "b"])).toEqual(["a", "b"]);
+    expect(normalizeClaimPermissionValues("a,b")).toEqual(["a", "b"]);
+    expect(normalizeClaimPermissionValues("a b")).toEqual(["a", "b"]);
+    expect(normalizeClaimPermissionValues(7)).toEqual([]);
+    expect(normalizeClaimPermissionValues([1, true, "a"])).toEqual(["a"]);
+  });
+
+  test("the database permission column accepts JSON arrays and separated text, failing closed on garbage", () => {
+    expect(normalizeDatabasePermissionColumn('["GroupOne","api:getUser"]')).toEqual(["GroupOne", "api:getUser"]);
+    expect(normalizeDatabasePermissionColumn("GroupOne, api:getUser")).toEqual(["GroupOne", "api:getUser"]);
+    expect(normalizeDatabasePermissionColumn("  ")).toEqual([]);
+    expect(normalizeDatabasePermissionColumn("[not-json")).toEqual([]);
+    expect(normalizeDatabasePermissionColumn(null)).toEqual([]);
+  });
+${permissions.claims?.length ? `  test("verified claim sources are only trusted when the claim is present", () => {
+${permissions.claims.map((claim) => `    expect(resolvePermissionSnapshot({ role: "viewer", claims: { ${JSON.stringify(claim.claim)}: dataset.positiveValue } }).permissions).toContain(dataset.positiveValue);`).join("\n")}
+    expect(resolvePermissionSnapshot({ role: "viewer", claims: { "qiy-unrelated": "x" } })).toEqual(resolvePermissionSnapshot({ role: "viewer" }));
+  });` : ""}${permissions.database ? `  test("database permission entries are unioned with the role group", () => {
+    const expected = resolvePermissionSnapshot({ role: "viewer", databasePermissions: [dataset.positiveValue, "qiy-unknown-group"] });
+    expect(expected).toEqual(resolvePermissionSnapshot({ role: "viewer", databasePermissions: [dataset.positiveValue] }));
+    expect(expected.groups).not.toContain("qiy-unknown-group");
+  });` : ""}
+${permissions.verifications.length ? `  test("verification truth table matches the declared expressions", () => {
+    for (const testCase of dataset.cases) {
+      const self = { ...dataset.snapshots[testCase.role]!, role: testCase.role };
+      expect({ verification: testCase.verification, input: testCase.input, verdict: evaluatePermissionVerification(testCase.verification, self, testCase.input) }).toEqual({ verification: testCase.verification, input: testCase.input, verdict: testCase.expected });
+    }
+  });
+
+  test("unknown verification names are rejected", () => {
+    expect(evaluatePermissionVerification("QiyUnknownVerification", { permissions: [], groups: [], role: "viewer" }, {})).toEqual({ found: false });
+  });` : ""}
+});
+
+describe("generated permission HTTP routes", () => {
+  test("GET /api/v1/auth/permissions returns the effective snapshot for the bearer", async () => {
+    for (const role of Object.keys(dataset.snapshots)) {
+      const response = await request("/api/v1/auth/permissions", role);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(dataset.snapshots[role]!);
+    }
+    expect((await request("/api/v1/auth/permissions", undefined)).status).toBe(401);
+  });
+${permissions.verifications.length ? `  test("POST /api/v1/auth/verify-permission answers the same verdicts as the provider", async () => {
+    for (const testCase of dataset.cases) {
+      const response = await request("/api/v1/auth/verify-permission", testCase.role, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ verification: testCase.verification, input: testCase.input }) });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(testCase.expected.allowed ? { allowed: true } : { allowed: false, missing: testCase.expected.missing });
+    }
+  });
+
+  test("POST /api/v1/auth/verify-permission rejects unknown verifications and malformed input", async () => {
+    const post = (body: unknown, role = "admin") => request("/api/v1/auth/verify-permission", role, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    expect((await post({ verification: "QiyUnknownVerification", input: {} })).status).toBe(400);
+    ${invalidInputChecks}
+    expect((await request("/api/v1/auth/verify-permission", undefined, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ verification: "QiyUnknownVerification" }) })).status).toBe(401);
+  });
+
+  test("extra verification input fields are ignored", async () => {
+    const testCase = dataset.cases[0]!;
+    const response = await request("/api/v1/auth/verify-permission", testCase.role, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ verification: testCase.verification, input: { ...testCase.input, qiyExtra: "ignored" } }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(testCase.expected.allowed ? { allowed: true } : { allowed: false, missing: testCase.expected.missing });
+  });` : ""}
+});
+${databaseTest ? `\ndescribe("generated database permission source", () => {${databaseTest}});\n` : ""}
+describe("generated /auth/me permission metadata", () => {
+  test("includes effective permissions and groups without removing the principal fields", async () => {
+    const repository = { distribution: async () => [], trend: async () => [], list: async () => ({ data: [], total: 0 }), one: async () => undefined, create: async () => ({}), update: async () => undefined, delete: async () => undefined, deleteMany: async () => [] };
+    const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
+    const application = await createApp(repositories, authenticate, false, false);
+    for (const role of Object.keys(dataset.snapshots)) {
+      const response = await application.handle(new Request("http://localhost/api/v1/auth/me", { headers: { "x-test-role": role } }));
+      expect(response.status).toBe(200);
+      const payload = await response.json() as { id: string; name: string; role: string; permissions: string[]; groups: string[] };
+      expect(payload.id).toBe("00000000-0000-4000-8000-000000000010");
+      expect(payload.role).toBe(role);
+      expect({ permissions: payload.permissions, groups: payload.groups }).toEqual(dataset.snapshots[role]!);
+    }
+  });
+
+  test("exposes the declared verification names", async () => {
+    expect(permissionVerificationNames).toEqual(${JSON.stringify(permissions.verifications.map((verification) => verification.name).sort())});
+    expect(await loadPermissions(principal("admin"))).toBeTruthy();
+  });
+});
+`;
+}
+
+export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "storageProvider" | "auth" | "permissions" | "scopes" | "restrictions" | "pages" | "corsOrigins" | "elysiaPlugins" | "workflows" | "dataflows" | "actions" | "realtime"> & { testSuite?: QiyTestSuite } = {}): Record<string, string> {
   if (options.realtime && !options.auth) throw new Error("Realtime requires generated authentication");
   const errors = validateDatabaseIR(database);
   if (errors.length) throw new Error(errors.join("\n"));
@@ -4009,6 +4447,21 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
   const providerChooserAuth = Boolean(auth && authUsesProviderChooser(auth));
   const multiProviderAuth = Boolean(auth && providerChooserAuth && !hybridAuth);
   const singleOidcAuth = Boolean(auth && hasOidcAuth && !providerChooserAuth);
+  // Permission declarations need generated authentication to resolve a principal.
+  const permissions = options.permissions && !isPermissionModelEmpty(options.permissions) ? options.permissions : undefined;
+  if (permissions && !auth) errors.push("Permission declarations require a generated auth block");
+  if (permissions && permissions.fields.length === 0) errors.push("Permission declarations require at least one permission field");
+  if (permissions?.claims?.length && oidcProviders.length === 0) errors.push("Permission claim sources require at least one OAuth/OIDC provider");
+  for (const claim of permissions?.claims ?? []) {
+    if (!oidcProviders.includes(claim.provider as (typeof oidcProviders)[number])) errors.push(`Permission claim source ${claim.provider}: provider is not configured`);
+  }
+  if (permissions?.database) {
+    const userEntity = database.entities.find((entity) => entity.name === auth?.userEntity);
+    const field = userEntity?.fields.find((candidate) => candidate.name === permissions.database!.field);
+    if (!userEntity) errors.push(`Permission database source: unknown auth user entity ${auth?.userEntity ?? "(missing)"}`);
+    else if (!field) errors.push(`Permission database source: unknown field ${userEntity.name}.${permissions.database.field}`);
+    else if (field.type !== "Text") errors.push(`Permission database source: ${userEntity.name}.${permissions.database.field} must be a Text column`);
+  }
   const realtimeResources = new Set<string>();
   for (const subscription of options.realtime?.resources ?? []) {
     const entity = database.entities.find((candidate) => candidate.name === subscription.resource || candidate.tableName === subscription.resource);
@@ -4250,7 +4703,7 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
   const apps = database.entities.map((entity) => `    .use(${modelName(entity)}Routes(repositories.${entity.name}, authenticate))`).join("\n");
   const interfaces = database.entities.map((entity) => `  ${entity.name}: import("./modules/${entity.name}/${entity.name}.contract").${modelName(entity)}Repository;`).join("\n");
   const orderWorkflow = renderOrderWorkflow(database, options.scopes ?? [], options.workflows?.includes("orderInventory"));
-  const dataflowRoutes = renderDataflowRoutes(database, options.dataflows ?? [], options.scopes ?? [], options.actions ?? [], options.realtime !== undefined);
+  const dataflowRoutes = renderDataflowRoutes(database, options.dataflows ?? [], options.scopes ?? [], options.actions ?? [], options.realtime !== undefined, permissions);
   const protectedResources = JSON.stringify([
     ...database.entities.map((entity) => ({ path: entity.tableName, query: entity.name })),
     { path: "files", query: "files" },
@@ -4890,6 +5343,7 @@ const close = async () => { client.close(); };
  import { registerPlugins } from "./plugins";
  import { createGraphQLRoutes } from "./graphql";
  import { createAuthorizationGuard, type Authenticator } from "./auth/guard";
+ ${permissions ? 'import { loadPermissions } from "./auth/permissions";' : ""}
  ${options.realtime ? 'import { createRealtimeRoutes } from "./realtime";' : ""}
  ${imports}
 
@@ -4915,10 +5369,16 @@ export async function createApp(repositories: Repositories, authenticate: Authen
    const configuredOrigins = ${JSON.stringify(options.corsOrigins ?? [])} as string[];
    const environmentOrigins = Bun.env.QIY_CORS_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean) ?? [];
    const allowedOrigins = normalizeCorsOrigins(corsOrigins ?? (environmentOrigins.length > 0 ? environmentOrigins : configuredOrigins));
-   const guard = createAuthorizationGuard(authenticate, ${protectedResources}, ${pageRules}, ${JSON.stringify(hybridAuth ? ["/api/v1/auth/providers", "/api/v1/auth/exchange", "/api/v1/auth/oauth/register"] : multiProviderAuth ? ["/api/v1/auth/providers", "/api/v1/auth/exchange"] : [])});
+   const guard = createAuthorizationGuard(authenticate, ${protectedResources}, ${pageRules}, ${JSON.stringify(hybridAuth ? ["/api/v1/auth/providers", "/api/v1/auth/exchange", "/api/v1/auth/oauth/register"] : multiProviderAuth ? ["/api/v1/auth/providers", "/api/v1/auth/exchange"] : [])}, ${JSON.stringify(dataflowRoutes ? ["commands"] : [])});
   const routes = (new Elysia({ prefix: "/api/v1" }) as any)
     .get("/health", () => ({ ok: true }))
-    .get("/auth/me", async ({ request }: { request: Request }) => authenticate(request))
+    .get("/auth/me", async ({ request }: { request: Request }) => {
+      const principal = await authenticate(request);
+      if (!principal) return null;${permissions ? `
+      // Effective permissions are always additive: role group, database column and verified claims.
+      const permissionSnapshot = await loadPermissions(principal);
+      return { ...principal, permissions: permissionSnapshot.permissions, groups: permissionSnapshot.groups };` : ""}
+    })
  ${apps};
  ${orderWorkflow ? '   const workflow = includeWorkflows ? (await import("./workflows/order")).createOrderWorkflowRoutes(authenticate) : undefined;' : ''}
  ${dataflowRoutes ? '   const dataflows = includeDataflows ? (await import("./dataflows")).createDataflowRoutes(authenticate) : undefined;' : ''}
@@ -4927,11 +5387,13 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     ${hasLocalAuth ? 'const authRoutes = (await import("./auth/local")).createLocalAuthRoutes();' : auth?.provider === "otp" ? 'const authRoutes = (await import("./auth/otp")).createOtpAuthRoutes();' : ''}
     ${hasLocalAuth ? 'const accountRoutes = (await import("./auth/account")).createAccountRoutes(authenticate);' : ''}
     ${hybridAuth ? 'const authProviderRoutes = (await import("./auth/oidc")).createHybridAuthRoutes(authenticate);' : multiProviderAuth ? 'const authProviderRoutes = (await import("./auth/oidc")).createAuthProviderRoutes();' : ''}
+    ${permissions ? 'const permissionRoutes = (await import("./auth/permission-routes")).createPermissionRoutes(authenticate);' : ''}
     const application = new Elysia().use(allowedOrigins.length > 0 ? cors({ origin: allowedOrigins, credentials: false, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key"] }) : new Elysia()).onRequest(({ request }) => guard(request)).use(openapi({ path: "/api/v1/openapi", documentation: { info: { title: "Qiy Admin API", version: "1.0.0" } } })).use(routes)${options.elysiaPlugins?.graphqlAdapter && options.elysiaPlugins.graphqlAdapter !== "native" ? '' : '.use(createGraphQLRoutes(repositories, authenticate))'};
     let composed = application;
     ${hasLocalAuth || auth?.provider === "otp" ? "composed = composed.use(authRoutes);" : ""}
     ${hasLocalAuth ? "composed = composed.use(accountRoutes);" : ""}
     ${hybridAuth || multiProviderAuth ? "composed = composed.use(authProviderRoutes);" : ""}
+    ${permissions ? "composed = composed.use(permissionRoutes);" : ""}
     ${orderWorkflow ? "composed = workflow ? composed.use(workflow) : composed;" : ""}
     ${dataflowRoutes ? "composed = dataflows ? composed.use(dataflows) : composed;" : ""}
     ${options.realtime ? "composed = composed.use(realtime);" : ""}
@@ -5633,7 +6095,7 @@ console.log(\`Local-only Qiy preview: http://127.0.0.1:\${server.port}\`);
   if (dataflowCallExtensions) files["api/src/extensions/dataflow-calls.ts"] = dataflowCallExtensions;
   const realtimeOutboxTest = options.realtime ? renderSqliteRealtimeOutboxTest(database, options.realtime) : undefined;
   if (realtimeOutboxTest) files["api/tests/realtime-outbox-transaction.test.ts"] = realtimeOutboxTest;
-  const dataflowTest = renderSqliteDataflowTest(database, options.dataflows ?? [], options.actions ?? [], options.realtime !== undefined);
+  const dataflowTest = renderSqliteDataflowTest(database, options.dataflows ?? [], options.actions ?? [], options.realtime !== undefined, permissions);
   if (dataflowTest) {
     files["api/tests/dataflow.test.ts"] = dataflowTest;
     const failureFlows = (options.dataflows ?? []).map((flow) => {
@@ -5652,10 +6114,10 @@ console.log(\`Local-only Qiy preview: http://127.0.0.1:\${server.port}\`);
       const numericInput = input?.type === "Integer" || database.enums?.some((enumeration) => enumeration.name === input?.type);
       return { ...flow, steps: [...flow.steps, { name: "qiyTestLateFailure", order: Math.max(...flow.steps.map((step) => step.order)) + 1, actions: [{ kind: "require" as const, left: `${last.context}.${numericInput ? binding.id.split(":")[0] : value.field}`, operator: "!=" as const, right: numericInput ? "00000000-0000-4000-8000-000000000001" : value.source === "input" ? "Qiy fixture reason" : value.value, error: "qiy.test.lateFailure" }] }] };
     });
-    files["api/tests/fixtures/dataflow-failure.ts"] = renderDataflowRoutes(database, failureFlows, options.scopes ?? [], [], options.realtime !== undefined)!
-      .replaceAll('"../db"', '"../../src/db"').replaceAll('"../schema"', '"../../src/schema"').replaceAll('"../auth/guard"', '"../../src/auth/guard"').replaceAll('"./calls"', '"../../src/dataflows/calls"');
+    files["api/tests/fixtures/dataflow-failure.ts"] = renderDataflowRoutes(database, failureFlows, options.scopes ?? [], [], options.realtime !== undefined, permissions)!
+      .replaceAll('"../db"', '"../../src/db"').replaceAll('"../schema"', '"../../src/schema"').replaceAll('"../auth/guard"', '"../../src/auth/guard"').replaceAll('"../auth/permissions"', '"../../src/auth/permissions"').replaceAll('"./calls"', '"../../src/dataflows/calls"');
   }
-  const scenarioTest = renderQiyScenarioTest(database, options.dataflows ?? [], options.testSuite);
+  const scenarioTest = renderQiyScenarioTest(database, options.dataflows ?? [], options.testSuite, permissions);
   if (scenarioTest) files["api/tests/qiy-scenarios.test.ts"] = scenarioTest;
   if (orderWorkflow) {
     files["api/src/workflows/order.ts"] = orderWorkflow;
@@ -5777,6 +6239,11 @@ try {
 }
 `;
   if (auth) {
+    if (permissions) {
+      files["api/src/auth/permissions.ts"] = renderPermissionModule(auth, permissions);
+      files["api/src/auth/permission-routes.ts"] = renderPermissionRoutes();
+      files["api/tests/permissions.test.ts"] = renderPermissionTest(database, permissions);
+    }
     if (hybridAuth) {
       files["api/src/auth/oidc.ts"] = renderHybridAuthModule(auth, database);
       files["api/src/auth/hybrid.ts"] = renderHybridAuthenticatorModule();
@@ -7158,4 +7625,3 @@ export function createHybridAuthRoutes(authenticate: Authenticator) {
 }
 `;
 }
-

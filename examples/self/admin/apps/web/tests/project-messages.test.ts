@@ -65,6 +65,7 @@ test("switches model descriptions and falls back to the configured default local
   expect(createI18nProvider("zh-CN").translate("qiy.resources.users.fields.role.label")).toBe("角色");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.users.fields.passwordHash.label")).toBe("密码哈希");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.users.fields.oauthProfiles.label")).toBe("OAuth 档案");
+  expect(createI18nProvider("zh-CN").translate("qiy.resources.users.fields.permissions.label")).toBe("附加权限");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.users.fields.orgId.label")).toBe("组织");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.orgs.fields.id.label")).toBe("编号");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.orgs.fields.code.label")).toBe("编码");
@@ -241,7 +242,11 @@ test("switches model descriptions and falls back to the configured default local
   expect(createI18nProvider("zh-CN").translate("qiy.actions.completeWorkOrder.inputs.outputQuantity.label")).toBe("产出数量");
   expect(createI18nProvider("zh-CN").translate("qiy.actions.completeWorkOrder.inputs.warehouseId.label")).toBe("仓库");
   expect(createI18nProvider("zh-CN").translate("qiy.actions.completeWorkOrder.inputs.productId.label")).toBe("产品");
+  expect(createI18nProvider("zh-CN").translate("qiy.actions.approvePurchaseOrder.label")).toBe("审批采购单");
+  expect(createI18nProvider("zh-CN").translate("qiy.actions.approvePurchaseOrder.confirm")).toBe("批准这张采购单进入收货流程？");
+  expect(createI18nProvider("zh-CN").translate("qiy.actions.approvePurchaseOrder.inputs.purchaseOrderId.label")).toBe("采购单");
   expect(createI18nProvider("zh-CN").translate("errors.purchaseOrder.notApproved")).toBe("采购单必须处于已审批状态");
+  expect(createI18nProvider("zh-CN").translate("errors.purchaseOrder.notDraft")).toBe("采购单必须处于草稿状态");
   expect(createI18nProvider("zh-CN").translate("errors.inventory.quantityPositive")).toBe("数量必须大于 0");
   expect(createI18nProvider("zh-CN").translate("errors.salesOrder.notAllocated")).toBe("销售单必须先完成库存分配");
   expect(createI18nProvider("zh-CN").translate("errors.workOrder.notInProgress")).toBe("工单必须处于生产中状态");
@@ -330,6 +335,7 @@ test("switches model descriptions and falls back to the configured default local
   expect(createI18nProvider("en-US").translate("qiy.resources.users.fields.role.label")).toBe("Role");
   expect(createI18nProvider("en-US").translate("qiy.resources.users.fields.passwordHash.label")).toBe("Password hash");
   expect(createI18nProvider("en-US").translate("qiy.resources.users.fields.oauthProfiles.label")).toBe("OAuth profiles");
+  expect(createI18nProvider("en-US").translate("qiy.resources.users.fields.permissions.label")).toBe("Extra permissions");
   expect(createI18nProvider("en-US").translate("qiy.resources.users.fields.orgId.label")).toBe("Organization");
   expect(createI18nProvider("en-US").translate("qiy.resources.orgs.fields.id.label")).toBe("ID");
   expect(createI18nProvider("en-US").translate("qiy.resources.orgs.fields.code.label")).toBe("Code");
@@ -506,7 +512,11 @@ test("switches model descriptions and falls back to the configured default local
   expect(createI18nProvider("en-US").translate("qiy.actions.completeWorkOrder.inputs.outputQuantity.label")).toBe("Output quantity");
   expect(createI18nProvider("en-US").translate("qiy.actions.completeWorkOrder.inputs.warehouseId.label")).toBe("Warehouse");
   expect(createI18nProvider("en-US").translate("qiy.actions.completeWorkOrder.inputs.productId.label")).toBe("Product");
+  expect(createI18nProvider("en-US").translate("qiy.actions.approvePurchaseOrder.label")).toBe("Approve purchase order");
+  expect(createI18nProvider("en-US").translate("qiy.actions.approvePurchaseOrder.confirm")).toBe("Approve this purchase order for receiving?");
+  expect(createI18nProvider("en-US").translate("qiy.actions.approvePurchaseOrder.inputs.purchaseOrderId.label")).toBe("Purchase order");
   expect(createI18nProvider("en-US").translate("errors.purchaseOrder.notApproved")).toBe("Purchase order must be approved");
+  expect(createI18nProvider("en-US").translate("errors.purchaseOrder.notDraft")).toBe("Purchase order must be a draft");
   expect(createI18nProvider("en-US").translate("errors.inventory.quantityPositive")).toBe("Quantity must be greater than zero");
   expect(createI18nProvider("en-US").translate("errors.salesOrder.notAllocated")).toBe("The sales order must be allocated before shipping");
   expect(createI18nProvider("en-US").translate("errors.workOrder.notInProgress")).toBe("The work order must be in progress");
@@ -595,6 +605,7 @@ test("switches model descriptions and falls back to the configured default local
   expect(projectMessage("en-US", "qiy.resources.users.fields.role.label")).toBe("Role");
   expect(projectMessage("en-US", "qiy.resources.users.fields.passwordHash.label")).toBe("Password hash");
   expect(projectMessage("en-US", "qiy.resources.users.fields.oauthProfiles.label")).toBe("OAuth profiles");
+  expect(projectMessage("en-US", "qiy.resources.users.fields.permissions.label")).toBe("Extra permissions");
   expect(projectMessage("en-US", "qiy.resources.users.fields.orgId.label")).toBe("Organization");
   expect(projectMessage("en-US", "qiy.resources.orgs.fields.id.label")).toBe("ID");
   expect(projectMessage("en-US", "qiy.resources.orgs.fields.code.label")).toBe("Code");
@@ -771,7 +782,11 @@ test("switches model descriptions and falls back to the configured default local
   expect(projectMessage("en-US", "qiy.actions.completeWorkOrder.inputs.outputQuantity.label")).toBe("Output quantity");
   expect(projectMessage("en-US", "qiy.actions.completeWorkOrder.inputs.warehouseId.label")).toBe("Warehouse");
   expect(projectMessage("en-US", "qiy.actions.completeWorkOrder.inputs.productId.label")).toBe("Product");
+  expect(projectMessage("en-US", "qiy.actions.approvePurchaseOrder.label")).toBe("Approve purchase order");
+  expect(projectMessage("en-US", "qiy.actions.approvePurchaseOrder.confirm")).toBe("Approve this purchase order for receiving?");
+  expect(projectMessage("en-US", "qiy.actions.approvePurchaseOrder.inputs.purchaseOrderId.label")).toBe("Purchase order");
   expect(projectMessage("en-US", "errors.purchaseOrder.notApproved")).toBe("Purchase order must be approved");
+  expect(projectMessage("en-US", "errors.purchaseOrder.notDraft")).toBe("Purchase order must be a draft");
   expect(projectMessage("en-US", "errors.inventory.quantityPositive")).toBe("Quantity must be greater than zero");
   expect(projectMessage("en-US", "errors.salesOrder.notAllocated")).toBe("The sales order must be allocated before shipping");
   expect(projectMessage("en-US", "errors.workOrder.notInProgress")).toBe("The work order must be in progress");

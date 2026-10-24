@@ -33,9 +33,9 @@ client.exec('DELETE FROM dataflow_outbox');
 client.exec('DELETE FROM qiy_realtime_outbox');
 });
 
-const testRoles: Record<string, "admin" | "operator"> = {"receiveInventory":"admin","putawayStock":"admin","reserveStock":"admin","adjustStock":"admin","shipSalesOrder":"admin","transferInventory":"admin","completeWorkOrder":"admin"};
-const app = new Elysia().use(createDataflowRoutes(async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: testRoles[new URL(request.url).pathname.split("/").at(-1)!] ?? "admin" })));
-const graphqlApp = await createApp({} as Repositories, async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "GraphQL Dataflow Test", role: (request.headers.get("x-test-role") ?? "admin") as "admin" | "operator" }), false, false, undefined, true);
+const testRoles: Record<string, "admin" | "operator"> = {"receiveInventory":"admin","putawayStock":"admin","reserveStock":"admin","adjustStock":"admin","shipSalesOrder":"admin","transferInventory":"admin","completeWorkOrder":"admin","approvePurchaseOrder":"admin"};
+const app = new Elysia().use(createDataflowRoutes(async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: testRoles[new URL(request.url).pathname.split("/").at(-1)!] ?? "admin", permissions: ["api:getUser","api:putUser","api:deleteUser","inventory:receive","inventory:putaway","inventory:reserve","inventory:adjust","inventory:transfer","purchasing:approve","sales:ship","workorder:complete","report:read"], groups: ["UserApiPermissionGroup","ManagerRole","SuperAdminManager","admin","operator","viewer"] })));
+const graphqlApp = await createApp({} as Repositories, async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "GraphQL Dataflow Test", role: (request.headers.get("x-test-role") ?? "admin") as "admin" | "operator", permissions: ["api:getUser","api:putUser","api:deleteUser","inventory:receive","inventory:putaway","inventory:reserve","inventory:adjust","inventory:transfer","purchasing:approve","sales:ship","workorder:complete","report:read"], groups: ["UserApiPermissionGroup","ManagerRole","SuperAdminManager","admin","operator","viewer"] }), false, false, undefined, true);
 
 describe("generated dataflow routes", () => {
 test("replays a successful command without a second audit event", async () => {
@@ -125,7 +125,7 @@ test("replays a successful command without a second audit event", async () => {
     await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "total": 1 } as any);
     await db.insert(inventory).values({ "id": "00000000-0000-4000-8000-000000000001", "inventoryKey": "Qiy fixture", "warehouseId": "00000000-0000-4000-8000-000000000001", "binId": "00000000-0000-4000-8000-000000000001", "productId": "00000000-0000-4000-8000-000000000001", "quantity": 1, "reserved": 1, "lotCode": "Qiy fixture", "updatedAt": new Date(0) } as any);
     const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
-    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: "admin" })));
+    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: "admin", permissions: ["api:getUser","api:putUser","api:deleteUser","inventory:receive","inventory:putaway","inventory:reserve","inventory:adjust","inventory:transfer","purchasing:approve","sales:ship","workorder:complete","report:read"], groups: ["UserApiPermissionGroup","ManagerRole","SuperAdminManager","admin","operator","viewer"] })));
     const failed = await failureApp.handle(new Request("http://localhost/api/v1/commands/receiveInventory", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": "qiy-test-key" }, body: JSON.stringify({"purchaseOrderId":"00000000-0000-4000-8000-000000000001","productId":"00000000-0000-4000-8000-000000000001","warehouseId":"00000000-0000-4000-8000-000000000001","binId":"00000000-0000-4000-8000-000000000001","inventoryId":"00000000-0000-4000-8000-000000000001","quantity":7,"newOnHand":7,"reference":"Qiy fixture reason"}) }));
     expect(failed.status).toBe(409);
     expect(await failed.json()).toMatchObject({ error: "qiy.test.lateFailure" });
@@ -255,7 +255,7 @@ test("replays a successful command without a second audit event", async () => {
   test("putawayStock rolls back earlier writes when a later requirement fails", async () => {
     await db.insert(inventory).values({ "id": "00000000-0000-4000-8000-000000000001", "inventoryKey": "Qiy fixture", "warehouseId": "00000000-0000-4000-8000-000000000001", "binId": "00000000-0000-4000-8000-000000000001", "productId": "00000000-0000-4000-8000-000000000001", "quantity": 1, "reserved": 1, "lotCode": "Qiy fixture", "updatedAt": new Date(0) } as any);
     const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
-    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: "admin" })));
+    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: "admin", permissions: ["api:getUser","api:putUser","api:deleteUser","inventory:receive","inventory:putaway","inventory:reserve","inventory:adjust","inventory:transfer","purchasing:approve","sales:ship","workorder:complete","report:read"], groups: ["UserApiPermissionGroup","ManagerRole","SuperAdminManager","admin","operator","viewer"] })));
     const failed = await failureApp.handle(new Request("http://localhost/api/v1/commands/putawayStock", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": "qiy-test-key" }, body: JSON.stringify({"inventoryId":"00000000-0000-4000-8000-000000000001","targetBinId":"00000000-0000-4000-8000-000000000001","quantity":7,"productId":"00000000-0000-4000-8000-000000000001","warehouseId":"00000000-0000-4000-8000-000000000001"}) }));
     expect(failed.status).toBe(409);
     expect(await failed.json()).toMatchObject({ error: "qiy.test.lateFailure" });
@@ -376,7 +376,7 @@ test("replays a successful command without a second audit event", async () => {
     await db.insert(inventory).values({ "id": "00000000-0000-4000-8000-000000000001", "inventoryKey": "Qiy fixture", "warehouseId": "00000000-0000-4000-8000-000000000001", "binId": "00000000-0000-4000-8000-000000000001", "productId": "00000000-0000-4000-8000-000000000001", "quantity": 1, "reserved": 1, "lotCode": "Qiy fixture", "updatedAt": new Date(0) } as any);
     await db.insert(sales_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "customerId": "00000000-0000-4000-8000-000000000001", "status": "draft", "orderedAt": new Date(0), "total": 1 } as any);
     const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
-    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: "admin" })));
+    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: "admin", permissions: ["api:getUser","api:putUser","api:deleteUser","inventory:receive","inventory:putaway","inventory:reserve","inventory:adjust","inventory:transfer","purchasing:approve","sales:ship","workorder:complete","report:read"], groups: ["UserApiPermissionGroup","ManagerRole","SuperAdminManager","admin","operator","viewer"] })));
     const failed = await failureApp.handle(new Request("http://localhost/api/v1/commands/reserveStock", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": "qiy-test-key" }, body: JSON.stringify({"inventoryId":"00000000-0000-4000-8000-000000000001","reservedQuantity":7,"salesOrderId":"00000000-0000-4000-8000-000000000001"}) }));
     expect(failed.status).toBe(409);
     expect(await failed.json()).toMatchObject({ error: "qiy.test.lateFailure" });
@@ -477,7 +477,7 @@ test("replays a successful command without a second audit event", async () => {
   test("adjustStock rolls back earlier writes when a later requirement fails", async () => {
     await db.insert(inventory).values({ "id": "00000000-0000-4000-8000-000000000001", "inventoryKey": "Qiy fixture", "warehouseId": "00000000-0000-4000-8000-000000000001", "binId": "00000000-0000-4000-8000-000000000001", "productId": "00000000-0000-4000-8000-000000000001", "quantity": 1, "reserved": 1, "lotCode": "Qiy fixture", "updatedAt": new Date(0) } as any);
     const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
-    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: "admin" })));
+    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: "admin", permissions: ["api:getUser","api:putUser","api:deleteUser","inventory:receive","inventory:putaway","inventory:reserve","inventory:adjust","inventory:transfer","purchasing:approve","sales:ship","workorder:complete","report:read"], groups: ["UserApiPermissionGroup","ManagerRole","SuperAdminManager","admin","operator","viewer"] })));
     const failed = await failureApp.handle(new Request("http://localhost/api/v1/commands/adjustStock", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": "qiy-test-key" }, body: JSON.stringify({"inventoryId":"00000000-0000-4000-8000-000000000001","countedQuantity":7,"reason":"Qiy fixture reason","productId":"00000000-0000-4000-8000-000000000001","warehouseId":"00000000-0000-4000-8000-000000000001","binId":"00000000-0000-4000-8000-000000000001"}) }));
     expect(failed.status).toBe(409);
     expect(await failed.json()).toMatchObject({ error: "qiy.test.lateFailure" });
@@ -580,7 +580,7 @@ test("replays a successful command without a second audit event", async () => {
   test("shipSalesOrder rolls back earlier writes when a later requirement fails", async () => {
     await db.insert(sales_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "customerId": "00000000-0000-4000-8000-000000000001", "status": "allocated", "orderedAt": new Date(0), "total": 1 } as any);
     const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
-    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: "admin" })));
+    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: "admin", permissions: ["api:getUser","api:putUser","api:deleteUser","inventory:receive","inventory:putaway","inventory:reserve","inventory:adjust","inventory:transfer","purchasing:approve","sales:ship","workorder:complete","report:read"], groups: ["UserApiPermissionGroup","ManagerRole","SuperAdminManager","admin","operator","viewer"] })));
     const failed = await failureApp.handle(new Request("http://localhost/api/v1/commands/shipSalesOrder", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": "qiy-test-key" }, body: JSON.stringify({"salesOrderId":"00000000-0000-4000-8000-000000000001","warehouseId":"00000000-0000-4000-8000-000000000001"}) }));
     expect(failed.status).toBe(409);
     expect(await failed.json()).toMatchObject({ error: "qiy.test.lateFailure" });
@@ -670,7 +670,7 @@ test("replays a successful command without a second audit event", async () => {
   test("transferInventory rolls back earlier writes when a later requirement fails", async () => {
     await db.insert(inventory).values({ "id": "00000000-0000-4000-8000-000000000001", "inventoryKey": "Qiy fixture", "warehouseId": "00000000-0000-4000-8000-000000000001", "binId": "00000000-0000-4000-8000-000000000001", "productId": "00000000-0000-4000-8000-000000000001", "quantity": 1, "reserved": 1, "lotCode": "Qiy fixture", "updatedAt": new Date(0) } as any);
     const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
-    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: "admin" })));
+    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: "admin", permissions: ["api:getUser","api:putUser","api:deleteUser","inventory:receive","inventory:putaway","inventory:reserve","inventory:adjust","inventory:transfer","purchasing:approve","sales:ship","workorder:complete","report:read"], groups: ["UserApiPermissionGroup","ManagerRole","SuperAdminManager","admin","operator","viewer"] })));
     const failed = await failureApp.handle(new Request("http://localhost/api/v1/commands/transferInventory", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": "qiy-test-key" }, body: JSON.stringify({"inventoryId":"00000000-0000-4000-8000-000000000001","targetWarehouseId":"00000000-0000-4000-8000-000000000001","targetBinId":"00000000-0000-4000-8000-000000000001","quantity":7,"productId":"00000000-0000-4000-8000-000000000001"}) }));
     expect(failed.status).toBe(409);
     expect(await failed.json()).toMatchObject({ error: "qiy.test.lateFailure" });
@@ -770,7 +770,7 @@ test("replays a successful command without a second audit event", async () => {
   test("completeWorkOrder rolls back earlier writes when a later requirement fails", async () => {
     await db.insert(work_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "productId": "00000000-0000-4000-8000-000000000001", "quantity": 1, "status": "in_progress", "plannedAt": new Date(0) } as any);
     const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
-    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: "admin" })));
+    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: "admin", permissions: ["api:getUser","api:putUser","api:deleteUser","inventory:receive","inventory:putaway","inventory:reserve","inventory:adjust","inventory:transfer","purchasing:approve","sales:ship","workorder:complete","report:read"], groups: ["UserApiPermissionGroup","ManagerRole","SuperAdminManager","admin","operator","viewer"] })));
     const failed = await failureApp.handle(new Request("http://localhost/api/v1/commands/completeWorkOrder", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": "qiy-test-key" }, body: JSON.stringify({"workOrderId":"00000000-0000-4000-8000-000000000001","componentId":"00000000-0000-4000-8000-000000000001","componentQuantity":7,"outputBinId":"00000000-0000-4000-8000-000000000001","outputQuantity":7,"warehouseId":"00000000-0000-4000-8000-000000000001","productId":"00000000-0000-4000-8000-000000000001"}) }));
     expect(failed.status).toBe(409);
     expect(await failed.json()).toMatchObject({ error: "qiy.test.lateFailure" });
@@ -800,5 +800,70 @@ test("replays a successful command without a second audit event", async () => {
       expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM audit_events").get()?.total).toBe(0);
       expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM dataflow_idempotency").get()?.total).toBe(0);
     }
+  });
+
+test("approvePurchaseOrder returns not-found and commits its supported update", async () => {
+
+    const missing = await app.handle(new Request("http://localhost/api/v1/commands/approvePurchaseOrder", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({"purchaseOrderId":"00000000-0000-4000-8000-000000000001"}) }));
+    expect(missing.status).toBe(404);
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "draft", "orderedAt": new Date(0), "total": 1 } as any);
+    const response = await app.handle(new Request("http://localhost/api/v1/commands/approvePurchaseOrder", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({"purchaseOrderId":"00000000-0000-4000-8000-000000000001"}) }));
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result).toMatchObject({ "status": "approved" });
+    
+    expect(client.query<{ total: number }, [string]>("select count(*) as total from audit_events where action = ?").get("purchasing.approved")?.total).toBe(1);
+    expect(client.query<{ total: number }, []>("select count(*) as total from dataflow_outbox").get()?.total).toBe(1);
+    expect(client.query<{ event: string }, []>("select event from dataflow_outbox limit 1").get()?.event).toBe("purchasing.approved");
+    expect(client.query<{ total: number }, []>("select count(*) as total from qiy_realtime_outbox").get()?.total).toBe(1);
+    expect(client.query<{ channel: string; type: string }, []>("select channel, type from qiy_realtime_outbox limit 1").get()).toEqual({ channel: "qiy:event:purchasing.approved", type: "purchasing.approved" });
+  });
+  test("approvePurchaseOrder executes through GraphQL with REST-equivalent idempotency", async () => {
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "draft", "orderedAt": new Date(0), "total": 1 } as any);
+    const request = (variables: Record<string, unknown>) => new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json", "X-Test-Role": "admin" }, body: JSON.stringify({ query: "mutation($input: ApprovePurchaseOrderCommandInput!) { runApprovePurchaseOrder(input: $input) { id } }", variables }) });
+    const response = await graphqlApp.handle(request({"input":{"purchaseOrderId":"00000000-0000-4000-8000-000000000001"}}));
+    expect(response.status).toBe(200);
+    const payload = await response.json() as { data?: Record<string, { id: string }>; errors?: Array<{ message: string; extensions?: { status?: number; errorKey?: string } }> };
+    expect(payload.errors).toBeUndefined();
+    expect(payload.data?.["runApprovePurchaseOrder"]?.id).toBeTruthy();
+    
+    
+  });
+  test("approvePurchaseOrder rejects unauthenticated and disallowed roles before writing", async () => {
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "draft", "orderedAt": new Date(0), "total": 1 } as any);
+    const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
+    for (const role of [null, ...["viewer"]] as const) {
+      const deniedApp = new Elysia().use(createDataflowRoutes(async () => role === null ? null : ({ id: "00000000-0000-4000-8000-000000000010", name: "Denied", role })));
+      const denied = await deniedApp.handle(new Request("http://localhost/api/v1/commands/approvePurchaseOrder", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({"purchaseOrderId":"00000000-0000-4000-8000-000000000001"}) }));
+      expect(denied.status).toBe(role === null ? 401 : 403);
+      expect(["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all())).toEqual(before);
+      expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM audit_events").get()?.total).toBe(0);
+      
+    }
+  });
+  test("approvePurchaseOrder rolls back when audit_events insertion fails and allows retry", async () => {
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "draft", "orderedAt": new Date(0), "total": 1 } as any);
+    const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
+    client.exec("CREATE TRIGGER qiy_fail_insert BEFORE INSERT ON audit_events BEGIN SELECT RAISE(ABORT, 'forced failure'); END");
+    try {
+      const failed = await app.handle(new Request("http://localhost/api/v1/commands/approvePurchaseOrder", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({"purchaseOrderId":"00000000-0000-4000-8000-000000000001"}) }));
+      expect(failed.status).toBe(500);
+      expect(["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all())).toEqual(before);
+      expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM audit_events").get()?.total).toBe(0);
+      
+    } finally { client.exec("DROP TRIGGER qiy_fail_insert"); }
+    const retry = await app.handle(new Request("http://localhost/api/v1/commands/approvePurchaseOrder", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({"purchaseOrderId":"00000000-0000-4000-8000-000000000001"}) }));
+    expect(retry.status).toBe(200);
+  });
+  test("approvePurchaseOrder rolls back earlier writes when a later requirement fails", async () => {
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "draft", "orderedAt": new Date(0), "total": 1 } as any);
+    const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
+    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: "admin", permissions: ["api:getUser","api:putUser","api:deleteUser","inventory:receive","inventory:putaway","inventory:reserve","inventory:adjust","inventory:transfer","purchasing:approve","sales:ship","workorder:complete","report:read"], groups: ["UserApiPermissionGroup","ManagerRole","SuperAdminManager","admin","operator","viewer"] })));
+    const failed = await failureApp.handle(new Request("http://localhost/api/v1/commands/approvePurchaseOrder", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({"purchaseOrderId":"00000000-0000-4000-8000-000000000001"}) }));
+    expect(failed.status).toBe(409);
+    expect(await failed.json()).toMatchObject({ error: "qiy.test.lateFailure" });
+    expect(["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all())).toEqual(before);
+    expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM audit_events").get()?.total).toBe(0);
+    expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM qiy_realtime_outbox").get()?.total).toBe(0);
   });
 });

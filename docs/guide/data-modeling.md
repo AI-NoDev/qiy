@@ -92,4 +92,21 @@ database postgresql {
 
 支持 `postgresql`、`sqlite`、`mysql`。Vector 必须有 pgvector 扩展且 dimension 大于 0；Decimal / Money 的 precision 大于 0，scale 必须在 0 到 precision 之间。无效模型会在解析/类型检查阶段报错，不会静默生成错误 schema。
 
+## 用户表的权限列（可选）
+
+权限 provider 可以把 `users` 表的一列作为额外权限来源。契约是：auth 用户实体上一个 `Text @nullable` 字段，内容为 JSON 字符串数组（也接受逗号/空格分隔文本），每项是权限值或权限组名；未知值忽略，行缺失或解析失败只影响该来源。
+
+```qiy
+entity users {
+  field id UUID @id;
+  field email Text @unique;
+  field role userRole;
+  field permissions Text @nullable @listVisible(false) @showVisible(false) @formVisible(false);
+}
+
+permission from database field users.permissions;
+```
+
+该列与角色组（`permission group admin/operator/viewer`）以及已验证 OAuth claims 取并集，只做加法；不需要额外权限时可以完全不声明，生成结果与旧版本一致。完整语法见 [DSL：权限](/dsl/permissions#provider-来源)。
+
 下一步：[API 与数据源](/guide/api)、[认证与权限](/guide/auth)。

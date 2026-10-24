@@ -472,6 +472,26 @@ export const resources: ResourceDefinition[] = [
         ]
       },
       {
+        "name": "permissions",
+        "label": "permissions",
+        "labelKey": "qiy.resources.users.fields.permissions.label",
+        "type": "Text",
+        "nullable": true,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": false,
+        "formVisible": false,
+        "showVisible": false,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "contains",
+          "startsWith",
+          "endsWith",
+          "eq"
+        ]
+      },
+      {
         "name": "orgId",
         "label": "orgId",
         "labelKey": "qiy.resources.users.fields.orgId.label",

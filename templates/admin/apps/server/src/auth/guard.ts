@@ -4,7 +4,12 @@ export interface Principal {
   id: string;
   name: string;
   role: "admin" | "operator" | "viewer";
-  claims?: Record<string, string | number | boolean | null>;
+  /**
+   * Verified id_token claims. Scalar claims keep their JSON type; string arrays
+   * are preserved because identity providers commonly emit roles/groups as an
+   * array (permission claim sources accept arrays and separated strings).
+   */
+  claims?: Record<string, string | number | boolean | null | string[]>;
 }
 
 export type Authenticator = (request: Request) => Promise<Principal | null>;
@@ -64,7 +69,7 @@ function mayAccess(role: Principal["role"], resource: ProtectedResource, method:
   return role === "operator" || (role === "viewer" && method === "GET");
 }
 
-export function createAuthorizationGuard(authenticate: Authenticator, resources: ProtectedResource[], pages: PageRules = {}, publicPaths: string[] = []) {
+export function createAuthorizationGuard(authenticate: Authenticator, resources: ProtectedResource[], pages: PageRules = {}, publicPaths: string[] = [], roleGuardExemptPaths: string[] = []) {
   const byPath = new Map(resources.map((resource) => [resource.path, resource]));
   const mayUsePage = (role: Principal["role"], resource: string, action: string): boolean => {
     const rules = pages[resource];
@@ -105,6 +110,10 @@ export function createAuthorizationGuard(authenticate: Authenticator, resources:
           if (field.name.value.startsWith("__") && operation.operation === "query") continue;
           const action = queryActions.get(field.name.value);
           if (!action || (operation.operation === "mutation") !== (action.method === "POST")) return error(403, "GraphQL field is not authorized");
+          // Command mutations enforce their own role/permission/verification rules
+          // inside the command route, so the generic role guard must not pre-deny a
+          // principal that holds the required permission.
+          if (roleGuardExemptPaths.includes(action.resource.path)) continue;
           if (!mayAccess(principal.role, action.resource, action.method)) return error(403, "Permission denied");
           if (!mayUsePage(principal.role, action.resource.path, graphqlAction(field.name.value, action.resource.query))) return error(403, "Page access denied");
         }
@@ -113,6 +122,8 @@ export function createAuthorizationGuard(authenticate: Authenticator, resources:
     }
     const resource = byPath.get(path.split("/")[3] ?? "");
     if (!resource) return;
+    // Dataflow commands enforce their declared allow rules in the command route.
+    if (roleGuardExemptPaths.includes(resource.path)) return;
     if (!mayAccess(principal.role, resource, request.method)) return error(403, "Permission denied");
     const segments = path.split("/").slice(3).filter(Boolean);
     if (!mayUsePage(principal.role, resource.path, restAction(request.method, segments))) return error(403, "Page access denied");

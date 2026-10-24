@@ -24,6 +24,10 @@ index inventory_warehouse_product_idx btree(warehouseId, productId) @unique;
 index products_embedding_hnsw hnsw(embedding vector_cosine_ops);
 ```
 
+## 与权限的关系
+
+关系与外键策略本身不参与授权；它们影响 dataflow 的 `context` 加载和命令的 allow 规则。若某条命令会跨实体写入，用 [权限（permission）](/dsl/permissions#dataflow-action-的-allow-形式) 的 `allow permission` / `allow verification` 声明执行条件，而不是在生成代码里追加角色判断。
+
 方法支持 `btree`、`hnsw`、`ivfflat`。列可以带 opclass（向量索引需要）。索引属性支持 `@unique` 与 `@concurrently`。
 
 未实现的能力会在生成前报错，而不是被忽略。

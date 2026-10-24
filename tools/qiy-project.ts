@@ -1,4 +1,19 @@
 import { validateDatabaseIR, validateEntityDisplayTemplates, type DatabaseIR, type EntityIR, type FieldIR, type FilterMode, type IndexIR, type IndexColumnIR, type RelationIR } from "./database-ir";
+import {
+  formatPermissionExpression,
+  validatePermissionModel,
+  type QiyPermissionClaimIR,
+  type QiyPermissionComparisonOperator,
+  type QiyPermissionDatabaseIR,
+  type QiyPermissionExpressionIR,
+  type QiyPermissionFieldIR,
+  type QiyPermissionGroupIR,
+  type QiyPermissionInputType,
+  type QiyPermissionModel,
+  type QiyPermissionOperandIR,
+  type QiyPermissionVerificationInputIR,
+  type QiyPermissionVerificationIR,
+} from "./permissions";
 /**
  * Declarative contract for an existing host API. It describes only what the
  * generated Refine admin needs in order to talk to that API automatically: the
@@ -63,6 +78,12 @@ export interface QiyProject {
    */
   pages?: Array<{ resource: string; actions: Array<{ action: QiyPageAction; roles: QiyRole[] }>; fields?: Array<{ field: string; roles: QiyRole[] }> }>;
   workflows?: Array<"orderInventory">;
+  /**
+   * Permission declarations: atomic permission fields, permission groups (roles
+   * are groups whose name equals a role), OAuth claim/database provider sources,
+   * and permission verification expressions. See tools/permissions.ts.
+   */
+  permissions?: QiyPermissionModel;
   dataflows?: DataflowIR[];
   actions?: QiyAction[];
 }
@@ -226,6 +247,10 @@ export function authProviderClaim(auth: ResolvedAuth, provider: QiyAuthProvider)
 export interface QiyAction {
   name: string;
   roles?: Array<"admin" | "operator" | "viewer">;
+  /** `allow permission ...`: principal must hold every expanded permission value. */
+  permission?: string[];
+  /** `allow verification ...`: evaluate that permission verification for the principal. */
+  verification?: string;
   resource: string;
   placements: Array<"list" | "show">;
   batch?: boolean;
@@ -248,6 +273,10 @@ export interface DataflowIR {
   idempotency?: { required: boolean };
   audit?: string;
   roles?: Array<"admin" | "operator">;
+  /** `allow permission A, B;`: principal must hold every expanded permission value. */
+  permission?: string[];
+  /** `allow verification Name;`: evaluate a permission verification against the flow inputs. */
+  verification?: string;
   input: Array<{ name: string; type: string; required: boolean; comment?: string; commentKey?: string }>;
   context: Array<{ name: string; entity: string; id: string; required: boolean; comment?: string; commentKey?: string }>;
   steps: Array<{
@@ -299,7 +328,10 @@ export interface QiyWorkspaceConfig {
 
 export function parseQiyProject(input: string): QiyProject {
   let messages: QiyProject["messages"];
-  const pattern = /\s+|\/\/[^\r\n]*|#[^\r\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|==|!=|>=|<=|[a-zA-Z_][a-zA-Z_0-9-]*|-?\d+|[{}();,@.=<>]/g;
+  // `&&`, `||`, `!`, `&` are only used by permission declarations and
+  // verification expressions; they stay separate tokens so the rest of the
+  // grammar is unaffected.
+  const pattern = /\s+|\/\/[^\r\n]*|#[^\r\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|&&|\|\||==|!=|>=|<=|[a-zA-Z_][a-zA-Z_0-9-]*|-?\d+|[{}();,@.=<>!&|]/g;
   const tokens: string[] = []; 
   let end = 0;
   for (const match of input.matchAll(pattern)) {
@@ -377,6 +409,224 @@ export function parseQiyProject(input: string): QiyProject {
     if (translated === undefined) throw new Error(`Missing default locale message for ${purpose}: ${reference.commentKey}`);
     return { comment: translated, commentKey: reference.commentKey };
   }
+  /**
+   * Permission declarations. One `permission` keyword introduces every form:
+   *
+   *   permission field ApiGetUserPermission "api:getUser" @label("...");
+   *   permission group UserApiPermissionGroup { ApiGetUserPermission, ApiPutUserPermission }
+   *   permission group SuperAdminManager = UserApiPermissionGroup & ManagerRole;
+   *   permission from database field users.permissions;
+   *   permission from claim azure-ad-b2c "roles";
+   *   permission verification CanAccessUserApi {
+   *     input { field permission Array<String>; }
+   *     return input.permission all included in self.permissions;
+   *   }
+   *
+   * `&` is a union operator: a group is always the union of its members.
+   */
+  function permissionDeclarations(): QiyPermissionModel {
+    const fields: QiyPermissionFieldIR[] = [];
+    const groups: QiyPermissionGroupIR[] = [];
+    const claims: QiyPermissionClaimIR[] = [];
+    const verifications: QiyPermissionVerificationIR[] = [];
+    let database: QiyPermissionDatabaseIR | undefined;
+    const annotations = (context: string): { label?: { comment: string; commentKey?: string }; description?: { comment: string; commentKey?: string } } => {
+      const result: { label?: { comment: string; commentKey?: string }; description?: { comment: string; commentKey?: string } } = {};
+      while (peek() === "@") {
+        expect("@");
+        const annotation = identifier();
+        expect("(");
+        if (annotation === "label") {
+          if (result.label) throw new Error(`${context}: duplicate @label annotation`);
+          result.label = documentation(`${context} label`);
+        } else if (annotation === "comment") {
+          if (result.description) throw new Error(`${context}: duplicate @comment annotation`);
+          result.description = documentation(`${context} comment`);
+        } else throw new Error(`${context}: unsupported annotation @${annotation}`);
+        expect(")");
+      }
+      return result;
+    };
+    const documentationFields = (annotationsValue: { label?: { comment: string; commentKey?: string }; description?: { comment: string; commentKey?: string } }) => ({
+      ...(annotationsValue.label ? { label: annotationsValue.label.comment, ...(annotationsValue.label.commentKey ? { labelKey: annotationsValue.label.commentKey } : {}) } : {}),
+      ...(annotationsValue.description ? { comment: annotationsValue.description.comment, ...(annotationsValue.description.commentKey ? { commentKey: annotationsValue.description.commentKey } : {}) } : {}),
+    });
+    const operand = (): QiyPermissionOperandIR => {
+      if (peek() === "self") {
+        expect("self"); expect(".");
+        const set = identifier();
+        if (set !== "permissions" && set !== "groups" && set !== "role") throw new Error(`Permission verification: unsupported self set self.${set}`);
+        return { kind: "self", set };
+      }
+      if (peek() === "input") {
+        expect("input"); expect(".");
+        return { kind: "input", name: identifier() };
+      }
+      const token = peek();
+      if (token.startsWith("\"") || token.startsWith("'")) return { kind: "literal", value: stringLiteral() };
+      throw new Error(`Permission verification: expected self.*, input.* or a quoted string near token ${position}`);
+    };
+    const comparison = (): QiyPermissionExpressionIR => {
+      const left = operand();
+      let operator: QiyPermissionComparisonOperator;
+      if (peek() === "not") {
+        expect("not");
+        const mode = identifier();
+        if (mode !== "some" && mode !== "all") throw new Error(`Permission verification: expected some or all after not near token ${position}`);
+        if (peek() === "included") { expect("included"); expect("in"); }
+        else if (peek() === "in") expect("in");
+        else throw new Error(`Permission verification: expected included in or in near token ${position}`);
+        operator = mode === "some" ? "not-some-in" : "not-all-in";
+      } else if (peek() === "some" || peek() === "all") {
+        const mode = identifier();
+        if (peek() === "included") { expect("included"); expect("in"); }
+        else if (peek() === "in") expect("in");
+        else throw new Error(`Permission verification: expected included in or in near token ${position}`);
+        operator = mode === "some" ? "some-in" : "all-in";
+      } else if (peek() === "=") {
+        expect("=");
+        operator = "equals";
+      } else if (peek() === "!=") {
+        expect("!=");
+        operator = "not-equals";
+      } else throw new Error(`Permission verification: expected some/all included in, = or != near token ${position}`);
+      return { kind: "comparison", operator, left, right: operand() };
+    };
+    const unary = (): QiyPermissionExpressionIR => {
+      if (peek() === "!") {
+        expect("!");
+        return { kind: "not", expression: unary() };
+      }
+      if (peek() === "(") {
+        expect("(");
+        const inner = logicalOr();
+        expect(")");
+        return inner;
+      }
+      return comparison();
+    };
+    const logicalAnd = (): QiyPermissionExpressionIR => {
+      const children = [unary()];
+      while (peek() === "&&") { expect("&&"); children.push(unary()); }
+      return children.length === 1 ? children[0]! : { kind: "and", children };
+    };
+    const logicalOr = (): QiyPermissionExpressionIR => {
+      const children = [logicalAnd()];
+      while (peek() === "||") { expect("||"); children.push(logicalAnd()); }
+      return children.length === 1 ? children[0]! : { kind: "or", children };
+    };
+    while (peek() === "permission") {
+      expect("permission");
+      const keyword = identifier();
+      if (keyword === "field") {
+        const name = identifier();
+        const fieldValue = stringLiteral();
+        if (!fieldValue.trim()) throw new Error(`Permission field ${name}: value cannot be empty`);
+        const annotationValues = annotations(`Permission field ${name}`);
+        expect(";");
+        fields.push({ name, value: fieldValue, ...documentationFields(annotationValues) });
+        continue;
+      }
+      if (keyword === "group") {
+        const name = identifier();
+        const annotationValues = annotations(`Permission group ${name}`);
+        let members: string[];
+        let form: "list" | "union";
+        if (peek() === "{") {
+          form = "list";
+          expect("{");
+          members = [];
+          while (peek() !== "}") {
+            members.push(identifier());
+            if (peek() !== ",") break;
+            expect(",");
+          }
+          expect("}");
+          if (peek() === ";") expect(";");
+        } else {
+          form = "union";
+          expect("=");
+          members = [identifier()];
+          while (peek() === "&") { expect("&"); members.push(identifier()); }
+          expect(";");
+        }
+        groups.push({ name, members, form, ...documentationFields(annotationValues) });
+        continue;
+      }
+      if (keyword === "from") {
+        const source = identifier();
+        if (source === "database") {
+          expect("field");
+          const entity = identifier();
+          expect(".");
+          const field = identifier();
+          expect(";");
+          if (database) throw new Error("Permission from database: duplicate database source declaration");
+          database = { entity, field };
+          continue;
+        }
+        if (source === "claim") {
+          const provider = identifier();
+          const claimName = peek().startsWith("\"") || peek().startsWith("'") ? stringLiteral() : identifier();
+          expect(";");
+          claims.push({ provider, claim: claimName });
+          continue;
+        }
+        throw new Error(`Permission from: expected claim or database near token ${position}`);
+      }
+      if (keyword === "verification") {
+        const name = identifier();
+        const annotationValues = annotations(`Permission verification ${name}`);
+        const inputs: QiyPermissionVerificationInputIR[] = [];
+        let expression: QiyPermissionExpressionIR | undefined;
+        expect("{");
+        while (peek() !== "}") {
+          const section = identifier();
+          if (section === "input") {
+            expect("{");
+            while (peek() !== "}") {
+              expect("field");
+              const inputName = identifier();
+              const typeName = identifier();
+              let inputType: QiyPermissionInputType;
+              if (typeName === "Text") inputType = "Text";
+              else if (typeName === "Array") {
+                expect("<");
+                const innerType = identifier();
+                expect(">");
+                if (innerType !== "String") throw new Error(`Permission verification ${name}: Array requires String (Array<String>) near token ${position}`);
+                inputType = "Array<String>";
+              } else throw new Error(`Permission verification ${name}: unsupported input type ${typeName}`);
+              expect(";");
+              inputs.push({ name: inputName, type: inputType });
+            }
+            expect("}");
+            continue;
+          }
+          if (section === "return") {
+            if (expression) throw new Error(`Permission verification ${name}: duplicate return statement`);
+            expression = logicalOr();
+            expect(";");
+            continue;
+          }
+          throw new Error(`Permission verification ${name}: unsupported section ${section}`);
+        }
+        expect("}");
+        if (peek() === ";") expect(";");
+        if (!expression) throw new Error(`Permission verification ${name}: requires a return statement`);
+        verifications.push({ name, inputs, expression, ...documentationFields(annotationValues) });
+        continue;
+      }
+      throw new Error(`Unsupported permission declaration ${keyword}`);
+    }
+    return {
+      fields,
+      groups,
+      ...(claims.length ? { claims } : {}),
+      ...(database ? { database } : {}),
+      verifications,
+    };
+  }
   function dataflow(): DataflowIR {
     expect("dataflow");
     const name = identifier();
@@ -406,6 +656,8 @@ export function parseQiyProject(input: string): QiyProject {
     let idempotency: DataflowIR["idempotency"];
     let audit: string | undefined;
     let roles: DataflowIR["roles"];
+    let permission: DataflowIR["permission"];
+    let verification: DataflowIR["verification"];
     let seenInput = false;
     let seenContext = false;
     let seenResult = false;
@@ -414,19 +666,40 @@ export function parseQiyProject(input: string): QiyProject {
     while (peek() !== "}") {
       const section = identifier();
       if (section === "allow") {
-        if (roles) throw new Error(`Dataflow ${name}: duplicate allow roles declaration`);
-        expect("roles");
-        roles = [];
-        do {
-          const role = identifier();
-          if (role !== "admin" && role !== "operator") throw new Error(`Dataflow ${name}: unsupported command role ${role}`);
-          if (roles.includes(role)) throw new Error(`Dataflow ${name}: duplicate command role ${role}`);
-          roles.push(role);
-          if (peek() !== ",") break;
-          expect(",");
-        } while (true);
-        expect(";");
-        continue;
+        if (roles || permission || verification) throw new Error(`Dataflow ${name}: duplicate allow declaration`);
+        const allowKind = identifier();
+        if (allowKind === "roles") {
+          roles = [];
+          do {
+            const role = identifier();
+            if (role !== "admin" && role !== "operator") throw new Error(`Dataflow ${name}: unsupported command role ${role}`);
+            if (roles.includes(role)) throw new Error(`Dataflow ${name}: duplicate command role ${role}`);
+            roles.push(role);
+            if (peek() !== ",") break;
+            expect(",");
+          } while (true);
+          expect(";");
+          continue;
+        }
+        if (allowKind === "permission") {
+          const required: string[] = [];
+          do {
+            const reference = identifier();
+            if (required.includes(reference)) throw new Error(`Dataflow ${name}: duplicate permission ${reference}`);
+            required.push(reference);
+            if (peek() !== ",") break;
+            expect(",");
+          } while (true);
+          expect(";");
+          permission = required;
+          continue;
+        }
+        if (allowKind === "verification") {
+          verification = identifier();
+          expect(";");
+          continue;
+        }
+        throw new Error(`Dataflow ${name}: allow must be roles, permission or verification`);
       }
       if (section === "idempotency") {
         if (idempotency) throw new Error(`Dataflow ${name}: duplicate idempotency declaration`);
@@ -629,6 +902,8 @@ export function parseQiyProject(input: string): QiyProject {
       ...(idempotency && { idempotency }),
       ...(audit !== undefined && { audit }),
       ...(roles && { roles }),
+      ...(permission && { permission }),
+      ...(verification !== undefined && { verification }),
       input,
       context,
       steps,
@@ -647,6 +922,8 @@ export function parseQiyProject(input: string): QiyProject {
     let confirmKey: string | undefined;
     let manualComment: { comment: string; commentKey?: string } | undefined;
     let roles: QiyAction["roles"];
+    let permission: QiyAction["permission"];
+    let verification: QiyAction["verification"];
     let condition: QiyAction["condition"];
     let batch = false;
     const placements: QiyAction["placements"] = [];
@@ -671,17 +948,31 @@ export function parseQiyProject(input: string): QiyProject {
         condition = { field, operator, value: stringLiteral() };
       }
       else if (property === "allow") {
-        if (roles) throw new Error(`Action ${name}: duplicate allow roles declaration`);
-        expect("roles");
-        roles = [];
-        do {
-          const role = identifier();
-          if (role !== "admin" && role !== "operator" && role !== "viewer") throw new Error(`Action ${name}: unsupported role ${role}`);
-          if (roles.includes(role)) throw new Error(`Action ${name}: duplicate role ${role}`);
-          roles.push(role);
-          if (peek() !== ",") break;
-          expect(",");
-        } while (true);
+        if (roles || permission || verification) throw new Error(`Action ${name}: duplicate allow declaration`);
+        const allowKind = identifier();
+        if (allowKind === "roles") {
+          roles = [];
+          do {
+            const role = identifier();
+            if (role !== "admin" && role !== "operator" && role !== "viewer") throw new Error(`Action ${name}: unsupported role ${role}`);
+            if (roles.includes(role)) throw new Error(`Action ${name}: duplicate role ${role}`);
+            roles.push(role);
+            if (peek() !== ",") break;
+            expect(",");
+          } while (true);
+        } else if (allowKind === "permission") {
+          const required: string[] = [];
+          do {
+            const reference = identifier();
+            if (required.includes(reference)) throw new Error(`Action ${name}: duplicate permission ${reference}`);
+            required.push(reference);
+            if (peek() !== ",") break;
+            expect(",");
+          } while (true);
+          permission = required;
+        } else if (allowKind === "verification") {
+          verification = identifier();
+        } else throw new Error(`Action ${name}: allow must be roles, permission or verification`);
       }
       else if (property === "placement") {
         do {
@@ -704,6 +995,8 @@ export function parseQiyProject(input: string): QiyProject {
     if (Boolean(dataflowName) === Boolean(navigatePath)) throw new Error(`Action ${name}: exactly one of dataflow or navigate is required`);
     if (dataflowName) {
       if (roles) throw new Error(`Action ${name}: declare roles on the dataflow instead`);
+      if (permission) throw new Error(`Action ${name}: declare allow permission on the dataflow instead`);
+      if (verification) throw new Error(`Action ${name}: declare allow verification on the dataflow instead`);
       if (manualComment !== undefined) throw new Error(`Action ${name}: page manual is only valid for navigate actions`);
       return { name, resource, placements, ...(batch && { batch }), label: label ?? "", ...(labelKey && { labelKey }), ...(condition && { condition }), target: { kind: "dataflow", dataflow: dataflowName, ...(confirm !== undefined && { confirm }), ...(confirmKey && { confirmKey }) } };
     }
@@ -711,7 +1004,7 @@ export function parseQiyProject(input: string): QiyProject {
     if (batch) throw new Error(`Action ${name}: batch is only valid for dataflow actions`);
     if (!label) throw new Error(`Action ${name}: label is required`);
     if (!manualComment?.comment) throw new Error(`Action ${name}: navigate actions require page manual @comment(...)`);
-    return { name, ...(roles && { roles }), resource, placements, label, ...(labelKey && { labelKey }), ...(condition && { condition }), target: { kind: "navigate", path: navigatePath!, page: "manual", ...manualComment } };
+    return { name, ...(roles && { roles }), ...(permission && { permission }), ...(verification !== undefined && { verification }), resource, placements, label, ...(labelKey && { labelKey }), ...(condition && { condition }), target: { kind: "navigate", path: navigatePath!, page: "manual", ...manualComment } };
   }
   function validateCorsOrigins(origins: string[]): string[] {
     for (const origin of origins) {
@@ -1781,6 +2074,8 @@ export function parseQiyProject(input: string): QiyProject {
     if (!locales[defaultLocale]) throw new Error(`Missing default message locale ${defaultLocale}`);
     messages = { defaultLocale, locales };
   }
+  let permissions: QiyProject["permissions"];
+  if (peek() === "permission") permissions = permissionDeclarations();
   if (applicationDescription) applicationDescription = resolveDocumentation(applicationDescription, "application comment");
   if (databaseDescription) databaseDescription = resolveDocumentation(databaseDescription, "database comment");
   const workflows: NonNullable<QiyProject["workflows"]> = [];
@@ -1909,6 +2204,16 @@ export function parseQiyProject(input: string): QiyProject {
       if (field.type === "Vector") throw new Error(`Restrict ${entity.name}: Vector field ${mask.field} cannot be masked`);
     }
   }
+  if (permissions) {
+    const permissionErrors = validatePermissionModel(permissions, {
+      oauthProviders: auth ? authOAuthProviders(auth) : [],
+      allProviders: auth ? [auth.provider, ...(auth.providers ?? [])].filter((provider) => provider !== "local" && provider !== "otp") : [],
+      entities,
+      ...(auth?.userEntity ? { userEntity: auth.userEntity } : {}),
+      hasAuth: Boolean(auth),
+    });
+    if (permissionErrors.length) throw new Error(permissionErrors.join("\n"));
+  }
   const menuGroups: NonNullable<QiyProject["menuGroups"]> = [];
   if (peek() === "menu") {
     expect("menu"); expect("{");
@@ -1928,6 +2233,25 @@ export function parseQiyProject(input: string): QiyProject {
     if (dataflowNames.has(flow.name)) throw new Error(`Duplicate dataflow ${flow.name}`);
     dataflowNames.add(flow.name);
     const inputNames = new Set(flow.input.map((field) => field.name));
+    const permissionFieldNames = new Set(permissions?.fields.map((field) => field.name) ?? []);
+    const permissionGroupNames = new Set(permissions?.groups.map((group) => group.name) ?? []);
+    if (flow.permission) {
+      if (!permissions) throw new Error(`Dataflow ${flow.name}: allow permission requires permission declarations`);
+      for (const reference of flow.permission) {
+        if (!permissionFieldNames.has(reference) && !permissionGroupNames.has(reference)) throw new Error(`Dataflow ${flow.name}: unknown permission field or group ${reference}`);
+      }
+    }
+    if (flow.verification) {
+      if (!permissions) throw new Error(`Dataflow ${flow.name}: allow verification requires permission declarations`);
+      const declaredVerification = permissions.verifications.find((candidate) => candidate.name === flow.verification);
+      if (!declaredVerification) throw new Error(`Dataflow ${flow.name}: unknown permission verification ${flow.verification}`);
+      for (const declaredInput of declaredVerification.inputs) {
+        const flowInput = flow.input.find((field) => field.name === declaredInput.name);
+        if (!flowInput) throw new Error(`Dataflow ${flow.name}: permission verification ${declaredVerification.name} input ${declaredInput.name} has no matching dataflow input`);
+        if (!flowInput.required) throw new Error(`Dataflow ${flow.name}: permission verification ${declaredVerification.name} input ${declaredInput.name} must be @required`);
+        if (flowInput.type !== "Text" && !enumNames.has(flowInput.type)) throw new Error(`Dataflow ${flow.name}: permission verification ${declaredVerification.name} input ${declaredInput.name} requires a Text or enum dataflow input`);
+      }
+    }
     const contextByName = new Map<string, { entity: string }>(flow.context.map((binding) => [binding.name, { entity: binding.entity }]));
     const deletedContexts = new Set<string>();
     for (const binding of flow.context) {
@@ -2082,6 +2406,22 @@ export function parseQiyProject(input: string): QiyProject {
       }
     }
     if (item.roles && !auth) throw new Error(`Action ${item.name}: allow roles requires generated authentication; integration permissions belong in the host access-control adapter`);
+    if (item.permission) {
+      if (!auth) throw new Error(`Action ${item.name}: allow permission requires generated authentication`);
+      if (!permissions) throw new Error(`Action ${item.name}: allow permission requires permission declarations`);
+      const fieldNames = new Set(permissions.fields.map((field) => field.name));
+      const groupNames = new Set(permissions.groups.map((group) => group.name));
+      for (const reference of item.permission) {
+        if (!fieldNames.has(reference) && !groupNames.has(reference)) throw new Error(`Action ${item.name}: unknown permission field or group ${reference}`);
+      }
+    }
+    if (item.verification) {
+      if (!auth) throw new Error(`Action ${item.name}: allow verification requires generated authentication`);
+      if (!permissions) throw new Error(`Action ${item.name}: allow verification requires permission declarations`);
+      const declaredVerification = permissions.verifications.find((candidate) => candidate.name === item.verification);
+      if (!declaredVerification) throw new Error(`Action ${item.name}: unknown permission verification ${item.verification}`);
+      if (declaredVerification.inputs.length) throw new Error(`Action ${item.name}: permission verification ${declaredVerification.name} requires inputs and cannot guard a navigate action`);
+    }
     if (item.target.kind === "dataflow") {
       const target = item.target;
       const flow = dataflows.find((candidate) => candidate.name === target.dataflow);
@@ -2127,10 +2467,10 @@ export function parseQiyProject(input: string): QiyProject {
   }
   expect("}");
   expect("<end>");
-  if (mode === "integration" && (corsOrigins || elysiaPlugins || storageProvider || auth || environment || scopes.length || restrictions.length || workflows.length || dataflows.length)) {
+  if (mode === "integration" && (corsOrigins || elysiaPlugins || storageProvider || auth || environment || scopes.length || restrictions.length || workflows.length || dataflows.length || permissions)) {
     throw new Error("application mode integration cannot configure generated server features; use integration auth and host adapters instead.");
   }
-  return { name: packageName, ...(applicationDescription && applicationDescription), database: { ...(databaseDescription && databaseDescription), dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}) }, ...(mode && { mode }), ...(integration && { integration }), ...(workspace && { workspace }), ...(ui && { ui }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(auth && { auth }), ...(environment && { environment }), ...(messages && { messages }), ...(scopes.length ? { scopes } : {}), ...(restrictions.length ? { restrictions } : {}), ...(pages.length ? { pages } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(dashboardMetrics.length && { dashboardMetrics }), ...(realtime && { realtime }), ...(dataflows.length && { dataflows }), ...(actions.length && { actions }) };
+  return { name: packageName, ...(applicationDescription && applicationDescription), database: { ...(databaseDescription && databaseDescription), dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}) }, ...(mode && { mode }), ...(integration && { integration }), ...(workspace && { workspace }), ...(ui && { ui }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(auth && { auth }), ...(environment && { environment }), ...(messages && { messages }), ...(permissions && { permissions }), ...(scopes.length ? { scopes } : {}), ...(restrictions.length ? { restrictions } : {}), ...(pages.length ? { pages } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(dashboardMetrics.length && { dashboardMetrics }), ...(realtime && { realtime }), ...(dataflows.length && { dataflows }), ...(actions.length && { actions }) };
 }
 
 function normalizePackageName(name: string): string {
@@ -2157,6 +2497,16 @@ function qiyComment(target: { comment?: string; commentKey?: string }): string {
 export function serializeQiyProject(project: QiyProject): string {
   const errors = validateDatabaseIR(project.database);
   if (errors.length) throw new Error(errors.join("`n"));
+  if (project.permissions) {
+    const permissionErrors = validatePermissionModel(project.permissions, {
+      oauthProviders: project.auth ? authOAuthProviders(project.auth) : [],
+      allProviders: project.auth ? [project.auth.provider, ...(project.auth.providers ?? [])].filter((provider) => provider !== "local" && provider !== "otp") : [],
+      entities: project.database.entities,
+      ...(project.auth?.userEntity ? { userEntity: project.auth.userEntity } : {}),
+      hasAuth: Boolean(project.auth),
+    });
+    if (permissionErrors.length) throw new Error(permissionErrors.join("`n"));
+  }
   const name = normalizePackageName(project.name);
   if (!/^[a-z][a-z0-9-]*$/.test(name)) throw new Error("Qiy project name must normalize to a lowercase package name");
   const applicationAnnotation = project.comment !== undefined ? ` @comment(${qiyComment(project)})` : "";
@@ -2322,6 +2672,35 @@ export function serializeQiyProject(project: QiyProject): string {
     }
     lines.push("  }");
   }
+  if (project.permissions) {
+    const permissionAnnotations = (declaration: { label?: string; labelKey?: string; comment?: string; commentKey?: string }) => [
+      declaration.label !== undefined ? ` @label(${qiyComment({ comment: declaration.label, commentKey: declaration.labelKey })})` : "",
+      declaration.comment !== undefined ? ` @comment(${qiyComment({ comment: declaration.comment, commentKey: declaration.commentKey })})` : "",
+    ].join("");
+    for (const field of project.permissions.fields) {
+      lines.push(`  permission field ${qiyIdentifier(field.name, "Permission field")} ${qiyString(field.value)}${permissionAnnotations(field)};`);
+    }
+    for (const group of project.permissions.groups) {
+      const declaration = `  permission group ${qiyIdentifier(group.name, "Permission group")}${permissionAnnotations(group)}`;
+      if (group.form === "union") lines.push(`${declaration} = ${group.members.map((member) => qiyIdentifier(member, "Permission group member")).join(" & ")};`);
+      else lines.push(`${declaration} { ${group.members.map((member) => qiyIdentifier(member, "Permission group member")).join(", ")} }`);
+    }
+    for (const claim of project.permissions.claims ?? []) {
+      lines.push(`  permission from claim ${qiyIdentifier(claim.provider, "Permission claim provider")} ${qiyClaim(claim.claim)};`);
+    }
+    if (project.permissions.database) {
+      lines.push(`  permission from database field ${qiyIdentifier(project.permissions.database.entity, "Permission database entity")}.${qiyIdentifier(project.permissions.database.field, "Permission database field")};`);
+    }
+    for (const verification of project.permissions.verifications) {
+      lines.push(`  permission verification ${qiyIdentifier(verification.name, "Permission verification")}${permissionAnnotations(verification)} {`);
+      if (verification.inputs.length) {
+        lines.push("    input {");
+        for (const input of verification.inputs) lines.push(`      field ${qiyIdentifier(input.name, "Permission verification input")} ${input.type};`);
+        lines.push("    }");
+      }
+      lines.push(`    return ${formatPermissionExpression(verification.expression)};`, "  }");
+    }
+  }
   for (const workflow of project.workflows ?? []) lines.push(`  workflow ${qiyIdentifier(workflow, "Workflow name")};`);
   for (const enumeration of project.database.enums ?? []) {
     lines.push(`  enum ${qiyIdentifier(enumeration.name, "Enum name")}${enumeration.comment !== undefined ? ` @comment(${qiyComment(enumeration)})` : ""} {`);
@@ -2464,6 +2843,8 @@ export function serializeQiyProject(project: QiyProject): string {
     ].join("");
     lines.push(`  dataflow ${qiyIdentifier(flow.name, "Dataflow name")}${annotations} {`);
     if (flow.roles) lines.push(`    allow roles ${flow.roles.join(", ")};`);
+    else if (flow.permission) lines.push(`    allow permission ${flow.permission.map((reference) => qiyIdentifier(reference, "Dataflow permission")).join(", ")};`);
+    else if (flow.verification) lines.push(`    allow verification ${qiyIdentifier(flow.verification, "Dataflow permission verification")};`);
     if (flow.idempotency?.required) lines.push("    idempotency required;");
     if (flow.audit !== undefined) lines.push(`    audit ${qiyString(flow.audit)};`);
     lines.push("    input {");
@@ -2522,6 +2903,8 @@ export function serializeQiyProject(project: QiyProject): string {
   for (const action of project.actions ?? []) {
     lines.push(`  action ${qiyIdentifier(action.name, "Action name")} {`);
     if (action.roles) lines.push(`    allow roles ${action.roles.join(", ")};`);
+    else if (action.permission) lines.push(`    allow permission ${action.permission.map((reference) => qiyIdentifier(reference, "Action permission")).join(", ")};`);
+    else if (action.verification) lines.push(`    allow verification ${qiyIdentifier(action.verification, "Action permission verification")};`);
     lines.push(`    resource ${qiyIdentifier(action.resource, "Action resource")};`);
     if (action.target.kind === "dataflow") {
       lines.push(`    dataflow ${qiyIdentifier(action.target.dataflow, "Action dataflow")};`);

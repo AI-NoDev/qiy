@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c2bb2044-a19c-495f-b5e7-f3fbec4fb585",
+  "id": "13c0af89-7a66-44d0-8527-a6bce094aa4d",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "attachments": {
@@ -1794,6 +1794,13 @@
         },
         "oauthProfiles": {
           "name": "oauthProfiles",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "permissions": {
+          "name": "permissions",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

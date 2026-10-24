@@ -280,6 +280,16 @@ QIY_OIDC_GOOGLE_CLIENT_SECRET=...
 
 真实厂商（Google/Kinde/Azure）第一次 OAuth 登录同样会进入 `/auth/onboarding`，回调地址见 [examples/self/README.md](https://github.com/AI-NoDev/qiy/blob/main/examples/self/README.md)。
 
+## 3g. 权限 claim（roles / groups）映射
+
+`permission from claim <provider> "<claim>";` 读取的是**已验证 id_token** 上的 claim；provider 必须出现在 auth 块的 OAuth/OIDC 列表里。claim 值可以是字符串数组，或空格/逗号分隔字符串；每项按权限值或权限组名展开，未知值忽略。要真正生效，IdP 必须签发该 claim：
+
+- **Azure AD B2C**：在自定义策略/用户流中签发 `roles` claim（字符串数组或分隔字符串），然后 `permission from claim azure-ad-b2c "roles";`；
+- **Google**：Google 默认不返回 `groups`，需要通过自定义 claim 映射/后端代理把组成员写入 id_token 的 `groups`（或 `roles`），再声明 `permission from claim google "groups";`；
+- **Dex（本地验收租户）**：Dex 默认只签发 `iss/sub/aud/exp/iat/email/name` 等标准 claim，不签发 `roles`/`groups`；演示里的 `permission from claim keycloak "roles";` 需要在该 Dex 租户配置自定义 connector/mapper 后才会产生条目。未配置时映射自然为空，角色组与数据库列仍然生效（demo 的 HTTP 验收脚本会验证 Dex token 可正常登录并得到与本地会话一致的权限并集）。
+
+本地快速验收：`bun run tmp/verify-permissions.ts`（仓库 tmp 脚本，不提交）会用 Dex 密码流签发真实 id_token，验证生成服务端仍能验签、映射身份、接受 OAuth 会话并返回 `/auth/permissions`；claim 展开本身由 `tests/permissions.test.ts` 与生成应用的 `apps/server/tests/permissions.test.ts` 覆盖。
+
 ## 4. 真实 Ably（需要 API Key）
 
 Ably 没有本地服务器，必须用真实账号：

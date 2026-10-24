@@ -3,7 +3,7 @@ import { qiyApiError } from "./api-error";
 import { resources, resourceNames } from "./resources";
 
 const allowed = new Set<string>(resourceNames);
-const dataflowCommands = new Set<string>(["/api/v1/commands/receiveInventory","/api/v1/commands/putawayStock","/api/v1/commands/reserveStock","/api/v1/commands/adjustStock","/api/v1/commands/shipSalesOrder","/api/v1/commands/transferInventory","/api/v1/commands/completeWorkOrder"]);
+const dataflowCommands = new Set<string>(["/api/v1/commands/receiveInventory","/api/v1/commands/putawayStock","/api/v1/commands/reserveStock","/api/v1/commands/adjustStock","/api/v1/commands/shipSalesOrder","/api/v1/commands/transferInventory","/api/v1/commands/completeWorkOrder","/api/v1/commands/approvePurchaseOrder"]);
 const api = "/api/v1";
 type QiyFetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 function authHeaders(): Record<string, string> { const token = typeof window === "undefined" ? undefined : window.localStorage.getItem("qiy.access_token"); return token ? { Authorization: `Bearer ${token}` } : {}; }

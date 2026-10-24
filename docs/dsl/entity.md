@@ -132,3 +132,7 @@ entity products {
 当前 operator：`eq`、`contains`、`startsWith`、`endsWith`、`gt`、`gte`、`lt`、`lte`、`between`、`in`。REST 继续兼容旧的等值对象过滤参数；高级条件使用 clause 数组。GraphQL 使用 `QiyFilterInput`，未提供 operator 时默认为 `eq`。服务端会按字段声明重复校验，不接受前端自行构造的未授权字段或 operator。
 
 REST DataProvider 同时保留 Refine 的嵌套 `and`/`or` 条件组；服务端会递归验证每个叶子、限制深度为 8 层及总叶子数为 50，再映射为 Drizzle 条件。GraphQL 仍使用平铺 `QiyFilterInput`（顶层 AND），因为 GraphQL 不允许递归 input 定义。保存的用户筛选视图仍在 V3 待办中。
+
+## 与权限的关系
+
+字段本身不声明权限。若要让 `users` 表额外承载权限（`permission from database field users.permissions;`），声明一个 `Text @nullable` 字段存放 JSON 字符串数组即可；角色组的解析仍是主路径，该列只做加法。完整语法见 [权限（permission）](/dsl/permissions#provider-来源)。

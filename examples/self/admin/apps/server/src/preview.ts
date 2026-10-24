@@ -4,7 +4,7 @@ import { createHandler } from "./http";
 
 const repositories: Repositories = {
 users: (() => {
-    const records: Array<Record<string, unknown>> = [{ "id": "00000000-0000-4000-8000-000000000001", "subject": "Demo users", "oktaSubject": "Demo users", "keycloakSubject": "Demo users", "googleSubject": "Demo users", "kindeSubject": "Demo users", "azureSubject": "Demo users", "email": "Demo users", "displayName": "Demo users", "role": "admin", "passwordHash": "Demo users", "oauthProfiles": "Demo users", "orgId": null }];
+    const records: Array<Record<string, unknown>> = [{ "id": "00000000-0000-4000-8000-000000000001", "subject": "Demo users", "oktaSubject": "Demo users", "keycloakSubject": "Demo users", "googleSubject": "Demo users", "kindeSubject": "Demo users", "azureSubject": "Demo users", "email": "Demo users", "displayName": "Demo users", "role": "admin", "passwordHash": "Demo users", "oauthProfiles": "Demo users", "permissions": "Demo users", "orgId": null }];
     const visible = (record: Record<string, unknown>, scope?: { field: string; value: string }) => !scope || record[scope.field] === scope.value;
     return {
       async distribution(field: string, scope?: { field: string; value: string }) { const counts = new Map<string, number>(); for (const record of records.filter((item) => visible(item, scope))) { const value = String(record[field] ?? ""); counts.set(value, (counts.get(value) ?? 0) + 1); } return [...counts].map(([value, count]) => ({ value, count })); },

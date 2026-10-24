@@ -4,6 +4,7 @@ import { Elysia } from "elysia";
  import { registerPlugins } from "./plugins";
  import { createGraphQLRoutes } from "./graphql";
  import { createAuthorizationGuard, type Authenticator } from "./auth/guard";
+ import { loadPermissions } from "./auth/permissions";
  import { createRealtimeRoutes } from "./realtime";
  import { UsersRoutes } from "./modules/users/users.routes";
 import { OrgsRoutes } from "./modules/orgs/orgs.routes";
@@ -61,10 +62,16 @@ export async function createApp(repositories: Repositories, authenticate: Authen
    const configuredOrigins = [] as string[];
    const environmentOrigins = Bun.env.QIY_CORS_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean) ?? [];
    const allowedOrigins = normalizeCorsOrigins(corsOrigins ?? (environmentOrigins.length > 0 ? environmentOrigins : configuredOrigins));
-   const guard = createAuthorizationGuard(authenticate, [{"path":"users","query":"users"},{"path":"orgs","query":"orgs"},{"path":"suppliers","query":"suppliers"},{"path":"customers","query":"customers"},{"path":"products","query":"products"},{"path":"boms","query":"boms"},{"path":"purchase_orders","query":"purchase_orders"},{"path":"purchase_order_lines","query":"purchase_order_lines"},{"path":"receipts","query":"receipts"},{"path":"sales_orders","query":"sales_orders"},{"path":"sales_order_lines","query":"sales_order_lines"},{"path":"shipments","query":"shipments"},{"path":"warehouses","query":"warehouses"},{"path":"bins","query":"bins"},{"path":"inventory","query":"inventory"},{"path":"stock_movements","query":"stock_movements"},{"path":"work_orders","query":"work_orders"},{"path":"files","query":"files"},{"path":"commands","query":"commands","mutations":["runReceiveInventory","runPutawayStock","runReserveStock","runAdjustStock","runShipSalesOrder","runTransferInventory","runCompleteWorkOrder"]}], {"inventory":{"list":["admin","operator"],"show":["admin","operator"],"create":["admin","operator"],"edit":["admin","operator"],"delete":["admin"]},"stock_movements":{"list":["admin","operator"],"show":["admin","operator"],"create":["admin","operator"],"edit":["admin"],"delete":["admin"]},"purchase_orders":{"list":["admin","operator"],"show":["admin","operator"],"create":["admin","operator"],"edit":["admin","operator"],"delete":["admin"]},"sales_orders":{"list":["admin","operator"],"show":["admin","operator"],"create":["admin","operator"],"edit":["admin","operator"],"delete":["admin"]}}, ["/api/v1/auth/providers","/api/v1/auth/exchange","/api/v1/auth/oauth/register"]);
+   const guard = createAuthorizationGuard(authenticate, [{"path":"users","query":"users"},{"path":"orgs","query":"orgs"},{"path":"suppliers","query":"suppliers"},{"path":"customers","query":"customers"},{"path":"products","query":"products"},{"path":"boms","query":"boms"},{"path":"purchase_orders","query":"purchase_orders"},{"path":"purchase_order_lines","query":"purchase_order_lines"},{"path":"receipts","query":"receipts"},{"path":"sales_orders","query":"sales_orders"},{"path":"sales_order_lines","query":"sales_order_lines"},{"path":"shipments","query":"shipments"},{"path":"warehouses","query":"warehouses"},{"path":"bins","query":"bins"},{"path":"inventory","query":"inventory"},{"path":"stock_movements","query":"stock_movements"},{"path":"work_orders","query":"work_orders"},{"path":"files","query":"files"},{"path":"commands","query":"commands","mutations":["runReceiveInventory","runPutawayStock","runReserveStock","runAdjustStock","runShipSalesOrder","runTransferInventory","runCompleteWorkOrder","runApprovePurchaseOrder"]}], {"inventory":{"list":["admin","operator"],"show":["admin","operator"],"create":["admin","operator"],"edit":["admin","operator"],"delete":["admin"]},"stock_movements":{"list":["admin","operator"],"show":["admin","operator"],"create":["admin","operator"],"edit":["admin"],"delete":["admin"]},"purchase_orders":{"list":["admin","operator"],"show":["admin","operator"],"create":["admin","operator"],"edit":["admin","operator"],"delete":["admin"]},"sales_orders":{"list":["admin","operator"],"show":["admin","operator"],"create":["admin","operator"],"edit":["admin","operator"],"delete":["admin"]}}, ["/api/v1/auth/providers","/api/v1/auth/exchange","/api/v1/auth/oauth/register"], ["commands"]);
   const routes = (new Elysia({ prefix: "/api/v1" }) as any)
     .get("/health", () => ({ ok: true }))
-    .get("/auth/me", async ({ request }: { request: Request }) => authenticate(request))
+    .get("/auth/me", async ({ request }: { request: Request }) => {
+      const principal = await authenticate(request);
+      if (!principal) return null;
+      // Effective permissions are always additive: role group, database column and verified claims.
+      const permissionSnapshot = await loadPermissions(principal);
+      return { ...principal, permissions: permissionSnapshot.permissions, groups: permissionSnapshot.groups };
+    })
      .use(UsersRoutes(repositories.users, authenticate))
     .use(OrgsRoutes(repositories.orgs, authenticate))
     .use(SuppliersRoutes(repositories.suppliers, authenticate))
@@ -89,11 +96,13 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     const authRoutes = (await import("./auth/local")).createLocalAuthRoutes();
     const accountRoutes = (await import("./auth/account")).createAccountRoutes(authenticate);
     const authProviderRoutes = (await import("./auth/oidc")).createHybridAuthRoutes(authenticate);
+    const permissionRoutes = (await import("./auth/permission-routes")).createPermissionRoutes(authenticate);
     const application = new Elysia().use(allowedOrigins.length > 0 ? cors({ origin: allowedOrigins, credentials: false, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key"] }) : new Elysia()).onRequest(({ request }) => guard(request)).use(openapi({ path: "/api/v1/openapi", documentation: { info: { title: "Qiy Admin API", version: "1.0.0" } } })).use(routes).use(createGraphQLRoutes(repositories, authenticate));
     let composed = application;
     composed = composed.use(authRoutes);
     composed = composed.use(accountRoutes);
     composed = composed.use(authProviderRoutes);
+    composed = composed.use(permissionRoutes);
     
     composed = dataflows ? composed.use(dataflows) : composed;
     composed = composed.use(realtime);

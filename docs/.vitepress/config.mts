@@ -162,6 +162,7 @@ export default defineConfig({
             { text: "relation / index", link: "/dsl/relation-index" },
             { text: "enum / menu / dashboard", link: "/dsl/enum-menu-dashboard" },
             { text: "dataflow", link: "/dsl/dataflow" },
+            { text: "权限（permission）", link: "/dsl/permissions" },
             { text: "action", link: "/dsl/actions" },
             { text: "realtime", link: "/dsl/realtime" },
           ],

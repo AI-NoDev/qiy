@@ -30,6 +30,7 @@ application qiy-erp-admin @comment("Operations administration") {
 | `relation` | 实体关系与外键策略 |
 | `scope` | 单字段租户数据范围 |
 | `restrict` | 记录级条件与字段脱敏；与 `scope` 叠加，不替代它 |
+| `permission` | 原子权限、权限组（角色即权限组）、provider 来源与权限校验表达式 |
 | `menu` | 菜单分组与层级 |
 | `dashboard` | 概览页指标 |
 | `dataflow` | 声明式服务端业务命令；当前可执行受限的加载、条件校验与事务更新 |
@@ -179,5 +180,6 @@ bun run tools/generate-app.ts <source> <output-dir> [--sync]
 - [relation 与 index](/dsl/relation-index)：关系与索引
 - [enum / menu / dashboard](/dsl/enum-menu-dashboard)：界面配置
 - [dataflow](/dsl/dataflow)：可执行子集、生命周期与后续路线
+- [权限（permission）](/dsl/permissions)：原子权限、权限组、provider 来源与校验表达式
 - [action](/dsl/actions)：列表/详情操作、命令确认与手写业务页扩展
 - [realtime](/dsl/realtime)：资源订阅、角色 capability 与 Refine LiveProvider

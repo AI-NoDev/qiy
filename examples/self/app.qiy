@@ -9,6 +9,7 @@ qiy v0;
 #   modules/wms/entities.qiy      warehouses, bins, inventory, movements, work orders
 #   modules/relations.qiy         every relation (parser order: after all entities)
 #   modules/messages.qiy          complete zh-CN / en-US dictionary for model labels
+#   modules/permissions.qiy       permission fields, groups, provider sources and verifications
 #   modules/pages.qiy             page-level role rules (after scope/restrict)
 #   modules/dashboard.qiy         dashboard metric cards
 #   modules/dataflows.qiy         transactional business commands
@@ -60,6 +61,10 @@ application qiy-supply-chain-erp-wms {
 
   # Messages must follow the configuration blocks and stay before enums/entities.
   include "modules/messages.qiy";
+
+  # Permission declarations follow messages (they can use @label messages) and
+  # precede enums/entities (they are validated against the declared users table).
+  include "modules/permissions.qiy";
 
   # Shared enums come first, then one entity module per domain.
   include "modules/platform.qiy";

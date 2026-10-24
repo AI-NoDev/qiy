@@ -3,6 +3,8 @@ import { and, eq } from "drizzle-orm";
 import { db } from "../db";
  import { purchase_orders, inventory, stock_movements, sales_orders, shipments, work_orders, dataflowIdempotency, auditEvents, dataflowOutbox, realtimeOutbox } from "../schema";
 import type { Authenticator } from "../auth/guard";
+import { evaluatePermissionVerification, loadPermissions } from "../auth/permissions";
+
 
 
 class DataflowFailure extends Error {
@@ -26,7 +28,10 @@ export function createDataflowRoutes(authenticate: Authenticator) {
     .post("/receiveInventory", async ({ body, request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
-      if (!["admin","operator"].includes(principal.role)) return status(403, { error: "Command execution is restricted" });
+      const permissionSnapshot = await loadPermissions(principal);
+      const requiredPermissions = ["inventory:receive"];
+      const missingPermissions = requiredPermissions.filter((permission) => !permissionSnapshot.permissions.includes(permission));
+      if (missingPermissions.length > 0) return status(403, { error: "Missing required permissions: " + missingPermissions.join(", "), errorKey: "command.forbidden", missing: missingPermissions });
       const requestKey = request.headers.get("idempotency-key");
       if (!requestKey || !/^[\x21-\x7E]{1,128}$/.test(requestKey)) return status(400, { error: "A valid Idempotency-Key header is required" });
       if (!principal?.id) return status(401, { error: "Authentication is required for idempotent commands" });
@@ -98,7 +103,10 @@ export function createDataflowRoutes(authenticate: Authenticator) {
     .post("/putawayStock", async ({ body, request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
-      if (!["admin","operator"].includes(principal.role)) return status(403, { error: "Command execution is restricted" });
+      const permissionSnapshot = await loadPermissions(principal);
+      const requiredPermissions = ["inventory:putaway"];
+      const missingPermissions = requiredPermissions.filter((permission) => !permissionSnapshot.permissions.includes(permission));
+      if (missingPermissions.length > 0) return status(403, { error: "Missing required permissions: " + missingPermissions.join(", "), errorKey: "command.forbidden", missing: missingPermissions });
       const requestKey = request.headers.get("idempotency-key");
       if (!requestKey || !/^[\x21-\x7E]{1,128}$/.test(requestKey)) return status(400, { error: "A valid Idempotency-Key header is required" });
       if (!principal?.id) return status(401, { error: "Authentication is required for idempotent commands" });
@@ -212,7 +220,10 @@ export function createDataflowRoutes(authenticate: Authenticator) {
     .post("/adjustStock", async ({ body, request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
-      if (!["admin","operator"].includes(principal.role)) return status(403, { error: "Command execution is restricted" });
+      const permissionSnapshot = await loadPermissions(principal);
+      const requiredPermissions = ["inventory:adjust"];
+      const missingPermissions = requiredPermissions.filter((permission) => !permissionSnapshot.permissions.includes(permission));
+      if (missingPermissions.length > 0) return status(403, { error: "Missing required permissions: " + missingPermissions.join(", "), errorKey: "command.forbidden", missing: missingPermissions });
       const requestKey = request.headers.get("idempotency-key");
       if (!requestKey || !/^[\x21-\x7E]{1,128}$/.test(requestKey)) return status(400, { error: "A valid Idempotency-Key header is required" });
       if (!principal?.id) return status(401, { error: "Authentication is required for idempotent commands" });
@@ -266,7 +277,11 @@ export function createDataflowRoutes(authenticate: Authenticator) {
     .post("/shipSalesOrder", async ({ body, request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
-      if (!["admin","operator"].includes(principal.role)) return status(403, { error: "Command execution is restricted" });
+      const permissionSnapshot = await loadPermissions(principal);
+      const permissionVerdict = evaluatePermissionVerification("CanShipOrders", { ...permissionSnapshot, role: principal.role }, {  });
+      if (!permissionVerdict.found) return status(403, { error: "Unknown permission verification CanShipOrders" });
+      if ("error" in permissionVerdict) return status(400, { error: permissionVerdict.error });
+      if (!permissionVerdict.allowed) return status(403, { error: "Permission verification CanShipOrders denied this command", errorKey: "command.forbidden", ...(permissionVerdict.missing.length ? { missing: permissionVerdict.missing } : {}) });
       const requestKey = request.headers.get("idempotency-key");
       if (!requestKey || !/^[\x21-\x7E]{1,128}$/.test(requestKey)) return status(400, { error: "A valid Idempotency-Key header is required" });
       if (!principal?.id) return status(401, { error: "Authentication is required for idempotent commands" });
@@ -317,7 +332,10 @@ export function createDataflowRoutes(authenticate: Authenticator) {
     .post("/transferInventory", async ({ body, request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
-      if (!["admin","operator"].includes(principal.role)) return status(403, { error: "Command execution is restricted" });
+      const permissionSnapshot = await loadPermissions(principal);
+      const requiredPermissions = ["inventory:transfer"];
+      const missingPermissions = requiredPermissions.filter((permission) => !permissionSnapshot.permissions.includes(permission));
+      if (missingPermissions.length > 0) return status(403, { error: "Missing required permissions: " + missingPermissions.join(", "), errorKey: "command.forbidden", missing: missingPermissions });
       const requestKey = request.headers.get("idempotency-key");
       if (!requestKey || !/^[\x21-\x7E]{1,128}$/.test(requestKey)) return status(400, { error: "A valid Idempotency-Key header is required" });
       if (!principal?.id) return status(401, { error: "Authentication is required for idempotent commands" });
@@ -370,7 +388,10 @@ export function createDataflowRoutes(authenticate: Authenticator) {
     .post("/completeWorkOrder", async ({ body, request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
-      if (!["admin","operator"].includes(principal.role)) return status(403, { error: "Command execution is restricted" });
+      const permissionSnapshot = await loadPermissions(principal);
+      const requiredPermissions = ["workorder:complete"];
+      const missingPermissions = requiredPermissions.filter((permission) => !permissionSnapshot.permissions.includes(permission));
+      if (missingPermissions.length > 0) return status(403, { error: "Missing required permissions: " + missingPermissions.join(", "), errorKey: "command.forbidden", missing: missingPermissions });
       const requestKey = request.headers.get("idempotency-key");
       if (!requestKey || !/^[\x21-\x7E]{1,128}$/.test(requestKey)) return status(400, { error: "A valid Idempotency-Key header is required" });
       if (!principal?.id) return status(401, { error: "Authentication is required for idempotent commands" });
@@ -421,5 +442,41 @@ export function createDataflowRoutes(authenticate: Authenticator) {
       "outputQuantity": t.Integer({ minimum: -2147483648, maximum: 2147483647 }),
       "warehouseId": t.String({ format: "uuid" }),
       "productId": t.String({ format: "uuid" }),
-    }, { additionalProperties: false }), detail: { summary: "Complete work order", description: "Consume components and book the produced quantity, then close the work order.", tags: ["Dataflow"] } });
+    }, { additionalProperties: false }), detail: { summary: "Complete work order", description: "Consume components and book the produced quantity, then close the work order.", tags: ["Dataflow"] } })
+    /**
+     * Approve a draft purchase order. Operators do not hold the purchasing approval permission, so this command is a permission-denied example.
+     */
+    .post("/approvePurchaseOrder", async ({ body, request, status }) => {
+      const principal = await authenticate(request);
+      if (!principal) return status(401, { error: "Authentication required" });
+      const permissionSnapshot = await loadPermissions(principal);
+      const requiredPermissions = ["purchasing:approve"];
+      const missingPermissions = requiredPermissions.filter((permission) => !permissionSnapshot.permissions.includes(permission));
+      if (missingPermissions.length > 0) return status(403, { error: "Missing required permissions: " + missingPermissions.join(", "), errorKey: "command.forbidden", missing: missingPermissions });
+      let outcome;
+      try {
+      outcome = await db.transaction((tx) => {
+
+        let context0 = tx.select().from(purchase_orders).where(eq(purchase_orders["id"], body["purchaseOrderId"])).limit(1).get();
+        if (!context0) throw new DataflowFailure(404, "Not found", "purchase_orders");
+
+        if (!(context0["status"] == "draft")) throw new DataflowFailure(409, "采购单必须处于草稿状态", undefined, "errors.purchaseOrder.notDraft");
+        {
+        const updated = tx.update(purchase_orders).set({ "status": "approved" }).where(eq(purchase_orders.id, context0.id)).returning().get();
+        if (!updated) throw new DataflowFailure(404, "Not found", "purchase_orders");
+        context0 = updated;
+        }
+        tx.insert(dataflowOutbox).values({ id: crypto.randomUUID(), actorId: principal?.id ?? null, event: "purchasing.approved", payload: JSON.stringify({ flow: "approvePurchaseOrder", "purchaseOrderId": context0["id"] }), createdAt: new Date() }).run();
+        tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:event:purchasing.approved", type: "purchasing.approved", payload: JSON.stringify({ flow: "approvePurchaseOrder", "purchaseOrderId": context0["id"] }), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }).run();
+
+        const value = context0;
+        tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: principal?.id ?? null, action: "purchasing.approved", resource: "purchase_orders", resourceId: String(value.id), metadata: JSON.stringify({ flow: "approvePurchaseOrder" }), createdAt: new Date() }).run();
+        return { kind: "ok" as const, value };
+      });
+      } catch (error) { if (error instanceof DataflowFailure) return status(error.status, { error: error.message, ...(error.resource ? { resource: error.resource } : {}), ...(error.errorKey ? { errorKey: error.errorKey } : {}) }); throw error; }
+
+      return outcome.value;
+    }, { body: t.Object({
+      "purchaseOrderId": t.String({ format: "uuid" }),
+    }, { additionalProperties: false }), detail: { summary: "Approve purchase order", description: "Approve a draft purchase order. Operators do not hold the purchasing approval permission, so this command is a permission-denied example.", tags: ["Dataflow"] } });
 }
