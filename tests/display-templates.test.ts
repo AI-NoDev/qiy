@@ -124,4 +124,22 @@ describe("entity display annotations", () => {
     // @display is inherited by the table cell and the drawer body.
     expect(resources.match(/"relationDetailTemplate": "\{\$\.body\}"/g)).toHaveLength(1);
   });
+
+  test("validates Date and Time placeholders and routes them through the shared formatter", () => {
+    const temporal = entity({ fields: [...entity().fields, { name: "dueDate", type: "Date" }, { name: "shiftStart", type: "Time" }] });
+    expect(validateDisplayTemplate("{$.dueDate} {$.shiftStart}", temporal, "display")).toEqual([]);
+    expect(validateDisplayTemplate("{$.dueDate}", temporal, "tableDisplay")).toEqual([]);
+    const project = parseQiyProject(`qiy v0; application display {
+      database sqlite {}
+      entity jobs @tableDisplay("{$.dueDate} {$.shiftStart}") {
+        field id UUID @id;
+        field dueDate Date;
+        field shiftStart Time;
+      }
+    }`);
+    const files = generateWeb(project.database, project);
+    expect(files["web/app/resources.ts"]).toContain('"tableDisplayTemplate": "{$.dueDate} {$.shiftStart}"');
+    expect(files["web/app/display-template.ts"]).toContain("formatFieldValue(field.type, value, options.locale)");
+    expect(files["web/tests/display-template.test.ts"]).toContain("Date/Time placeholders use the same localized formatter");
+  });
 });

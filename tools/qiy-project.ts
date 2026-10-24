@@ -1021,7 +1021,7 @@ export function parseQiyProject(input: string): QiyProject {
     expect("field");
     const name = identifier();
     const type = identifier();
-    if (!["UUID", "Text", "Integer", "Decimal", "Money", "DateTime", "File", "Files", "Vector"].includes(type) && !enumNames.has(type)) throw new Error(`Unsupported field type ${type}`);
+    if (!["UUID", "Text", "Integer", "Decimal", "Money", "Date", "Time", "DateTime", "File", "Files", "Vector"].includes(type) && !enumNames.has(type)) throw new Error(`Unsupported field type ${type}`);
     const result: FieldIR = { name, type: type as FieldIR["type"] };
     if (enumNames.has(type)) { result.type = "Text"; result.enumName = type; }
     if (peek() === "(") {
@@ -2163,8 +2163,8 @@ export function parseQiyProject(input: string): QiyProject {
       const field = entity.fields.find((candidate) => candidate.name === row.field);
       if (!field) throw new Error(`Restrict ${entity.name}: unknown row condition field ${row.field}`);
       if (field.primaryKey) throw new Error(`Restrict ${entity.name}: row conditions cannot target primary key ${row.field}`);
-      if (row.source === "values" && !["Text", "Integer", "Decimal", "Money", "DateTime"].includes(field.type) && !field.enumName) {
-        throw new Error(`Restrict ${entity.name}: row value comparisons require Text, enum, Integer, Decimal, Money or DateTime field ${row.field}`);
+      if (row.source === "values" && !["Text", "Integer", "Decimal", "Money", "Date", "Time", "DateTime"].includes(field.type) && !field.enumName) {
+        throw new Error(`Restrict ${entity.name}: row value comparisons require Text, enum, Integer, Decimal, Money, Date, Time or DateTime field ${row.field}`);
       }
       if (row.source === "claim" && field.nullable) throw new Error(`Restrict ${entity.name}: row condition on nullable field ${row.field} is not supported`);
     };
@@ -2174,7 +2174,7 @@ export function parseQiyProject(input: string): QiyProject {
     const comparisonClass = (type: string, enumName?: string): string | undefined => {
       if (enumName || type === "Text" || type === "UUID") return "text";
       if (type === "Integer" || type === "Decimal" || type === "Money") return "number";
-      if (type === "DateTime") return "date";
+      if (type === "DateTime" || type === "Date" || type === "Time") return "date";
       return undefined;
     };
     const validateExpression = (node: QiyPolicyExpression) => {
@@ -2187,7 +2187,7 @@ export function parseQiyProject(input: string): QiyProject {
         if (left.primaryKey || right.primaryKey) throw new Error(`Restrict ${entity.name}: cross-field comparisons cannot target a primary key`);
         const leftClass = comparisonClass(left.type, left.enumName);
         const rightClass = comparisonClass(right.type, right.enumName);
-        if (!leftClass || !rightClass) throw new Error(`Restrict ${entity.name}: cross-field comparison requires Text, enum, Integer, Decimal, Money or DateTime fields`);
+        if (!leftClass || !rightClass) throw new Error(`Restrict ${entity.name}: cross-field comparison requires Text, enum, Integer, Decimal, Money, Date, Time or DateTime fields`);
         if (leftClass !== rightClass) throw new Error(`Restrict ${entity.name}: ${node.field} (${left.type}) and ${node.otherField} (${right.type}) are not comparable`);
         if ((node.operator === "<" || node.operator === "<=" || node.operator === ">" || node.operator === ">=") && leftClass === "text" && left.type === "UUID") throw new Error(`Restrict ${entity.name}: UUID fields only support == and !=`);
         return;

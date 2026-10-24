@@ -7,11 +7,11 @@ import { createApp, type Repositories } from "../src/app";
 import { createDataflowRoutes as createFailureRoutes } from "./fixtures/dataflow-failure";
 
 beforeAll(() => {
-client.exec("CREATE TABLE IF NOT EXISTS purchase_orders (\"id\" text primary key, \"number\" text not null, \"supplierId\" text not null, \"status\" text not null, \"orderedAt\" integer not null, \"total\" real not null)");
+client.exec("CREATE TABLE IF NOT EXISTS purchase_orders (\"id\" text primary key, \"number\" text not null, \"supplierId\" text not null, \"status\" text not null, \"orderedAt\" integer not null, \"expectedDate\" text not null, \"total\" real not null)");
 client.exec("CREATE TABLE IF NOT EXISTS inventory (\"id\" text primary key, \"inventoryKey\" text not null, \"warehouseId\" text not null, \"binId\" text not null, \"productId\" text not null, \"quantity\" integer not null, \"reserved\" integer not null, \"lotCode\" text, \"updatedAt\" integer)");
 client.exec("CREATE TABLE IF NOT EXISTS stock_movements (\"id\" text primary key, \"productId\" text not null, \"warehouseId\" text not null, \"binId\" text not null, \"type\" text not null, \"quantity\" integer not null, \"reference\" text, \"occurredAt\" integer)");
 client.exec("CREATE TABLE IF NOT EXISTS sales_orders (\"id\" text primary key, \"number\" text not null, \"customerId\" text not null, \"status\" text not null, \"orderedAt\" integer not null, \"total\" real not null)");
-client.exec("CREATE TABLE IF NOT EXISTS shipments (\"id\" text primary key, \"salesOrderId\" text not null, \"warehouseId\" text not null, \"status\" text not null, \"shippedAt\" integer)");
+client.exec("CREATE TABLE IF NOT EXISTS shipments (\"id\" text primary key, \"salesOrderId\" text not null, \"warehouseId\" text not null, \"status\" text not null, \"shippedAt\" integer, \"departureTime\" text)");
 client.exec("CREATE TABLE IF NOT EXISTS work_orders (\"id\" text primary key, \"number\" text not null, \"productId\" text not null, \"quantity\" integer not null, \"status\" text not null, \"plannedAt\" integer not null)");
 client.exec("CREATE TABLE IF NOT EXISTS audit_events (id text primary key, actorId text, action text not null, resource text not null, resourceId text, metadata text, createdAt integer not null)");
 client.exec("CREATE TABLE IF NOT EXISTS dataflow_idempotency (id text primary key, actorId text not null, flow text not null, requestKeyHash text not null, requestHash text not null, response text not null, UNIQUE(actorId, flow, requestKeyHash))");
@@ -43,7 +43,7 @@ test("replays a successful command without a second audit event", async () => {
     expect(missingKey.status).toBe(400);
     const missing = await app.handle(new Request("http://localhost/api/v1/commands/receiveInventory", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": "qiy-test-key" }, body: JSON.stringify({"purchaseOrderId":"00000000-0000-4000-8000-000000000001","productId":"00000000-0000-4000-8000-000000000001","warehouseId":"00000000-0000-4000-8000-000000000001","binId":"00000000-0000-4000-8000-000000000001","inventoryId":"00000000-0000-4000-8000-000000000001","quantity":7,"newOnHand":7,"reference":"Qiy fixture reason"}) }));
     expect(missing.status).toBe(404);
-    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "total": 1 } as any);
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "expectedDate": "2026-11-30", "total": 1 } as any);
     await db.insert(inventory).values({ "id": "00000000-0000-4000-8000-000000000001", "inventoryKey": "Qiy fixture", "warehouseId": "00000000-0000-4000-8000-000000000001", "binId": "00000000-0000-4000-8000-000000000001", "productId": "00000000-0000-4000-8000-000000000001", "quantity": 1, "reserved": 1, "lotCode": "Qiy fixture", "updatedAt": new Date(0) } as any);
     const response = await app.handle(new Request("http://localhost/api/v1/commands/receiveInventory", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": "qiy-test-key" }, body: JSON.stringify({"purchaseOrderId":"00000000-0000-4000-8000-000000000001","productId":"00000000-0000-4000-8000-000000000001","warehouseId":"00000000-0000-4000-8000-000000000001","binId":"00000000-0000-4000-8000-000000000001","inventoryId":"00000000-0000-4000-8000-000000000001","quantity":7,"newOnHand":7,"reference":"Qiy fixture reason"}) }));
     expect(response.status).toBe(200);
@@ -63,7 +63,7 @@ test("replays a successful command without a second audit event", async () => {
     expect(client.query<{ channel: string; type: string }, []>("select channel, type from qiy_realtime_outbox limit 1").get()).toEqual({ channel: "qiy:event:inventory.received", type: "inventory.received" });
   });
   test("receiveInventory executes through GraphQL with REST-equivalent idempotency", async () => {
-    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "total": 1 } as any);
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "expectedDate": "2026-11-30", "total": 1 } as any);
     await db.insert(inventory).values({ "id": "00000000-0000-4000-8000-000000000001", "inventoryKey": "Qiy fixture", "warehouseId": "00000000-0000-4000-8000-000000000001", "binId": "00000000-0000-4000-8000-000000000001", "productId": "00000000-0000-4000-8000-000000000001", "quantity": 1, "reserved": 1, "lotCode": "Qiy fixture", "updatedAt": new Date(0) } as any);
     const request = (variables: Record<string, unknown>) => new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json", "X-Test-Role": "admin" }, body: JSON.stringify({ query: "mutation($input: ReceiveInventoryCommandInput!, $key: String!) { runReceiveInventory(input: $input, idempotencyKey: $key) { id } }", variables }) });
     const response = await graphqlApp.handle(request({"input":{"purchaseOrderId":"00000000-0000-4000-8000-000000000001","productId":"00000000-0000-4000-8000-000000000001","warehouseId":"00000000-0000-4000-8000-000000000001","binId":"00000000-0000-4000-8000-000000000001","inventoryId":"00000000-0000-4000-8000-000000000001","quantity":7,"newOnHand":7,"reference":"Qiy fixture reason"},"key":"graphql-receiveInventory-key"}));
@@ -78,7 +78,7 @@ test("replays a successful command without a second audit event", async () => {
     expect(conflictPayload.errors?.[0]?.extensions?.status).toBe(409);
   });
   test("receiveInventory rejects unauthenticated and disallowed roles before writing", async () => {
-    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "total": 1 } as any);
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "expectedDate": "2026-11-30", "total": 1 } as any);
     await db.insert(inventory).values({ "id": "00000000-0000-4000-8000-000000000001", "inventoryKey": "Qiy fixture", "warehouseId": "00000000-0000-4000-8000-000000000001", "binId": "00000000-0000-4000-8000-000000000001", "productId": "00000000-0000-4000-8000-000000000001", "quantity": 1, "reserved": 1, "lotCode": "Qiy fixture", "updatedAt": new Date(0) } as any);
     const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
     for (const role of [null, ...["viewer"]] as const) {
@@ -91,7 +91,7 @@ test("replays a successful command without a second audit event", async () => {
     }
   });
   test("receiveInventory rolls back when audit_events insertion fails and allows retry", async () => {
-    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "total": 1 } as any);
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "expectedDate": "2026-11-30", "total": 1 } as any);
     await db.insert(inventory).values({ "id": "00000000-0000-4000-8000-000000000001", "inventoryKey": "Qiy fixture", "warehouseId": "00000000-0000-4000-8000-000000000001", "binId": "00000000-0000-4000-8000-000000000001", "productId": "00000000-0000-4000-8000-000000000001", "quantity": 1, "reserved": 1, "lotCode": "Qiy fixture", "updatedAt": new Date(0) } as any);
     const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
     client.exec("CREATE TRIGGER qiy_fail_insert BEFORE INSERT ON audit_events BEGIN SELECT RAISE(ABORT, 'forced failure'); END");
@@ -107,7 +107,7 @@ test("replays a successful command without a second audit event", async () => {
   });
 
   test("receiveInventory rolls back when dataflow_idempotency insertion fails and allows retry", async () => {
-    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "total": 1 } as any);
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "expectedDate": "2026-11-30", "total": 1 } as any);
     await db.insert(inventory).values({ "id": "00000000-0000-4000-8000-000000000001", "inventoryKey": "Qiy fixture", "warehouseId": "00000000-0000-4000-8000-000000000001", "binId": "00000000-0000-4000-8000-000000000001", "productId": "00000000-0000-4000-8000-000000000001", "quantity": 1, "reserved": 1, "lotCode": "Qiy fixture", "updatedAt": new Date(0) } as any);
     const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
     client.exec("CREATE TRIGGER qiy_fail_insert BEFORE INSERT ON dataflow_idempotency BEGIN SELECT RAISE(ABORT, 'forced failure'); END");
@@ -122,7 +122,7 @@ test("replays a successful command without a second audit event", async () => {
     expect(retry.status).toBe(200);
   });
   test("receiveInventory rolls back earlier writes when a later requirement fails", async () => {
-    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "total": 1 } as any);
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "expectedDate": "2026-11-30", "total": 1 } as any);
     await db.insert(inventory).values({ "id": "00000000-0000-4000-8000-000000000001", "inventoryKey": "Qiy fixture", "warehouseId": "00000000-0000-4000-8000-000000000001", "binId": "00000000-0000-4000-8000-000000000001", "productId": "00000000-0000-4000-8000-000000000001", "quantity": 1, "reserved": 1, "lotCode": "Qiy fixture", "updatedAt": new Date(0) } as any);
     const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
     const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: "admin", permissions: ["api:getUser","api:putUser","api:deleteUser","inventory:receive","inventory:putaway","inventory:reserve","inventory:adjust","inventory:transfer","purchasing:approve","sales:ship","workorder:complete","report:read"], groups: ["UserApiPermissionGroup","ManagerRole","SuperAdminManager","admin","operator","viewer"] })));
@@ -134,7 +134,7 @@ test("replays a successful command without a second audit event", async () => {
     expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM qiy_realtime_outbox").get()?.total).toBe(0);
   });
   test("receiveInventory rejects invalid Integer input quantity without writes", async () => {
-    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "total": 1 } as any);
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "expectedDate": "2026-11-30", "total": 1 } as any);
     await db.insert(inventory).values({ "id": "00000000-0000-4000-8000-000000000001", "inventoryKey": "Qiy fixture", "warehouseId": "00000000-0000-4000-8000-000000000001", "binId": "00000000-0000-4000-8000-000000000001", "productId": "00000000-0000-4000-8000-000000000001", "quantity": 1, "reserved": 1, "lotCode": "Qiy fixture", "updatedAt": new Date(0) } as any);
     const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
     for (const invalid of [-2147483649,2147483648,1.5,"invalid",null]) {
@@ -147,7 +147,7 @@ test("replays a successful command without a second audit event", async () => {
   });
 
   test("receiveInventory rejects invalid Integer input newOnHand without writes", async () => {
-    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "total": 1 } as any);
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "expectedDate": "2026-11-30", "total": 1 } as any);
     await db.insert(inventory).values({ "id": "00000000-0000-4000-8000-000000000001", "inventoryKey": "Qiy fixture", "warehouseId": "00000000-0000-4000-8000-000000000001", "binId": "00000000-0000-4000-8000-000000000001", "productId": "00000000-0000-4000-8000-000000000001", "quantity": 1, "reserved": 1, "lotCode": "Qiy fixture", "updatedAt": new Date(0) } as any);
     const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
     for (const invalid of [-2147483649,2147483648,1.5,"invalid",null]) {
@@ -159,7 +159,7 @@ test("replays a successful command without a second audit event", async () => {
     }
   });
   test("receiveInventory rejects numeric business rule 1 without writes or receipts", async () => {
-    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "total": 1 } as any);
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "approved", "orderedAt": new Date(0), "expectedDate": "2026-11-30", "total": 1 } as any);
     await db.insert(inventory).values({ "id": "00000000-0000-4000-8000-000000000001", "inventoryKey": "Qiy fixture", "warehouseId": "00000000-0000-4000-8000-000000000001", "binId": "00000000-0000-4000-8000-000000000001", "productId": "00000000-0000-4000-8000-000000000001", "quantity": 1, "reserved": 1, "lotCode": "Qiy fixture", "updatedAt": new Date(0) } as any);
     const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
     const rejected = await app.handle(new Request("http://localhost/api/v1/commands/receiveInventory", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": "qiy-test-key" }, body: JSON.stringify({ ...{"purchaseOrderId":"00000000-0000-4000-8000-000000000001","productId":"00000000-0000-4000-8000-000000000001","warehouseId":"00000000-0000-4000-8000-000000000001","binId":"00000000-0000-4000-8000-000000000001","inventoryId":"00000000-0000-4000-8000-000000000001","quantity":7,"newOnHand":7,"reference":"Qiy fixture reason"}, "quantity": 0 }) }));
@@ -806,7 +806,7 @@ test("approvePurchaseOrder returns not-found and commits its supported update", 
 
     const missing = await app.handle(new Request("http://localhost/api/v1/commands/approvePurchaseOrder", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({"purchaseOrderId":"00000000-0000-4000-8000-000000000001"}) }));
     expect(missing.status).toBe(404);
-    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "draft", "orderedAt": new Date(0), "total": 1 } as any);
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "draft", "orderedAt": new Date(0), "expectedDate": "2026-11-30", "total": 1 } as any);
     const response = await app.handle(new Request("http://localhost/api/v1/commands/approvePurchaseOrder", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({"purchaseOrderId":"00000000-0000-4000-8000-000000000001"}) }));
     expect(response.status).toBe(200);
     const result = await response.json();
@@ -819,7 +819,7 @@ test("approvePurchaseOrder returns not-found and commits its supported update", 
     expect(client.query<{ channel: string; type: string }, []>("select channel, type from qiy_realtime_outbox limit 1").get()).toEqual({ channel: "qiy:event:purchasing.approved", type: "purchasing.approved" });
   });
   test("approvePurchaseOrder executes through GraphQL with REST-equivalent idempotency", async () => {
-    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "draft", "orderedAt": new Date(0), "total": 1 } as any);
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "draft", "orderedAt": new Date(0), "expectedDate": "2026-11-30", "total": 1 } as any);
     const request = (variables: Record<string, unknown>) => new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json", "X-Test-Role": "admin" }, body: JSON.stringify({ query: "mutation($input: ApprovePurchaseOrderCommandInput!) { runApprovePurchaseOrder(input: $input) { id } }", variables }) });
     const response = await graphqlApp.handle(request({"input":{"purchaseOrderId":"00000000-0000-4000-8000-000000000001"}}));
     expect(response.status).toBe(200);
@@ -830,7 +830,7 @@ test("approvePurchaseOrder returns not-found and commits its supported update", 
     
   });
   test("approvePurchaseOrder rejects unauthenticated and disallowed roles before writing", async () => {
-    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "draft", "orderedAt": new Date(0), "total": 1 } as any);
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "draft", "orderedAt": new Date(0), "expectedDate": "2026-11-30", "total": 1 } as any);
     const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
     for (const role of [null, ...["viewer"]] as const) {
       const deniedApp = new Elysia().use(createDataflowRoutes(async () => role === null ? null : ({ id: "00000000-0000-4000-8000-000000000010", name: "Denied", role })));
@@ -842,7 +842,7 @@ test("approvePurchaseOrder returns not-found and commits its supported update", 
     }
   });
   test("approvePurchaseOrder rolls back when audit_events insertion fails and allows retry", async () => {
-    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "draft", "orderedAt": new Date(0), "total": 1 } as any);
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "draft", "orderedAt": new Date(0), "expectedDate": "2026-11-30", "total": 1 } as any);
     const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
     client.exec("CREATE TRIGGER qiy_fail_insert BEFORE INSERT ON audit_events BEGIN SELECT RAISE(ABORT, 'forced failure'); END");
     try {
@@ -856,7 +856,7 @@ test("approvePurchaseOrder returns not-found and commits its supported update", 
     expect(retry.status).toBe(200);
   });
   test("approvePurchaseOrder rolls back earlier writes when a later requirement fails", async () => {
-    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "draft", "orderedAt": new Date(0), "total": 1 } as any);
+    await db.insert(purchase_orders).values({ "id": "00000000-0000-4000-8000-000000000001", "number": "Qiy fixture", "supplierId": "00000000-0000-4000-8000-000000000001", "status": "draft", "orderedAt": new Date(0), "expectedDate": "2026-11-30", "total": 1 } as any);
     const before = ["purchase_orders","inventory","stock_movements","sales_orders","shipments","work_orders"].map((table) => client.query("SELECT * FROM " + table).all());
     const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: "admin", permissions: ["api:getUser","api:putUser","api:deleteUser","inventory:receive","inventory:putaway","inventory:reserve","inventory:adjust","inventory:transfer","purchasing:approve","sales:ship","workorder:complete","report:read"], groups: ["UserApiPermissionGroup","ManagerRole","SuperAdminManager","admin","operator","viewer"] })));
     const failed = await failureApp.handle(new Request("http://localhost/api/v1/commands/approvePurchaseOrder", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({"purchaseOrderId":"00000000-0000-4000-8000-000000000001"}) }));

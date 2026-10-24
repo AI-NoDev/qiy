@@ -1,4 +1,4 @@
-export type FieldType = "UUID" | "Text" | "Integer" | "Decimal" | "Money" | "DateTime" | "File" | "Files" | "Vector";
+export type FieldType = "UUID" | "Text" | "Integer" | "Decimal" | "Money" | "Date" | "Time" | "DateTime" | "File" | "Files" | "Vector";
 export interface ResourceEnumValue { name: string; label?: string; labelKey: string; color?: string; icon?: string; comment?: string; commentKey?: string; }
 export interface ResourceEnumDefinition { name: string; label?: string; labelKey?: string; comment?: string; commentKey?: string; values: ResourceEnumValue[]; }
 export interface ResourceField { name: string; label: string; labelKey: string; comment?: string; commentKey?: string; type: FieldType; nullable: boolean; primaryKey: boolean; visible: boolean; listVisible: boolean; formVisible: boolean; showVisible: boolean; sortable: boolean; filterable: boolean; filterModes: string[]; enumName?: string; enumValues?: ResourceEnumValue[]; relation?: { resource: string; labelField: string }; icon?: string; dimension?: number; uploadMode?: "binary" | "base64" | "both"; maxBytes?: number; mimeTypes?: string[]; maxFiles?: number; /** Page-level layout: the field is only rendered for these roles. */ roles?: string[]; }
@@ -1427,6 +1427,29 @@ export const resources: ResourceDefinition[] = [
         ]
       },
       {
+        "name": "expectedDate",
+        "label": "expectedDate",
+        "labelKey": "qiy.resources.purchase_orders.fields.expectedDate.label",
+        "type": "Date",
+        "nullable": false,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ]
+      },
+      {
         "name": "total",
         "label": "total",
         "labelKey": "qiy.resources.purchase_orders.fields.total.label",
@@ -2201,6 +2224,29 @@ export const resources: ResourceDefinition[] = [
         "label": "shippedAt",
         "labelKey": "qiy.resources.shipments.fields.shippedAt.label",
         "type": "DateTime",
+        "nullable": true,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "eq",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "between",
+          "in"
+        ]
+      },
+      {
+        "name": "departureTime",
+        "label": "departureTime",
+        "labelKey": "qiy.resources.shipments.fields.departureTime.label",
+        "type": "Time",
         "nullable": true,
         "primaryKey": false,
         "visible": true,

@@ -101,4 +101,22 @@ describe("shipments CRUD", () => {
 
 
 
+
+  test("rejects an invalid Time value for departureTime", async () => {
+    records.clear();
+    const invalid = await app.handle(new Request(endpoint + "/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...({ "salesOrderId": "00000000-0000-4000-8000-000000000002", "warehouseId": "00000000-0000-4000-8000-000000000002", "status": "Example" } as Record<string, unknown>), "departureTime": "25:61:00" }) }));
+    expect(invalid.status).toBe(400);
+    expect(String((await invalid.json() as { error?: string }).error)).toContain("departureTime");
+    const created = await app.handle(new Request(endpoint + "/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "salesOrderId": "00000000-0000-4000-8000-000000000002", "warehouseId": "00000000-0000-4000-8000-000000000002", "status": "Example" }) }));
+    expect(created.status).toBe(201);
+    const record = await created.json() as { id: string };
+    const patched = await app.handle(new Request(endpoint + "/" + record.id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "departureTime": "25:61:00" }) }));
+    expect(patched.status).toBe(400);
+  });
+  test("normalizes a HH:mm Time value to HH:mm:ss", async () => {
+    records.clear();
+    const created = await app.handle(new Request(endpoint + "/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...({ "salesOrderId": "00000000-0000-4000-8000-000000000002", "warehouseId": "00000000-0000-4000-8000-000000000002", "status": "Example" } as Record<string, unknown>), "departureTime": "08:30" }) }));
+    expect(created.status).toBe(201);
+    expect((await created.json() as Record<string, unknown>)["departureTime"]).toBe("08:30:00");
+  });
 });

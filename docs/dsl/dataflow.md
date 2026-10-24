@@ -333,7 +333,7 @@ scenario approve-review {
 ```
 
 - `application` 必须与主模型一致；scenario、fixture alias、字段和 input 都在生成前检查重复与引用；
-- `given` 必须提供实体全部非空字段，值必须符合 UUID/Text/Integer/Decimal/DateTime/enum 的受支持测试表示；
+- `given` 必须提供实体全部非空字段，值必须符合 UUID/Text/Integer/Decimal/Date/Time/DateTime/enum 的受支持测试表示（`Date` 用 `"YYYY-MM-DD"`、`Time` 用 `"HH:mm:ss"`、`DateTime` 用毫秒时间戳）；
 - `when dataflow` 只能调用主模型已声明的流程，必填 input 不可遗漏，输入可引用 fixture 的已给定字段；
 - `expect status` 必填；还可写 `expect errorKey == "...";` 和多个 `expect alias.field == value;`；
 - 场景测试复用生成的认证角色、幂等 header、事务路由和同步 `call` adapter 契约，不绕过生产 Dataflow 实现。

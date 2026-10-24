@@ -178,7 +178,7 @@ boms: (() => {
     };
   })(),
 purchase_orders: (() => {
-    const records: Array<Record<string, unknown>> = [{ "id": "00000000-0000-4000-8000-000000000001", "number": "Demo purchase_orders", "supplierId": null, "status": "draft", "orderedAt": new Date().toISOString(), "total": "49.90" }];
+    const records: Array<Record<string, unknown>> = [{ "id": "00000000-0000-4000-8000-000000000001", "number": "Demo purchase_orders", "supplierId": null, "status": "draft", "orderedAt": new Date().toISOString(), "expectedDate": "2026-11-30", "total": "49.90" }];
     const visible = (record: Record<string, unknown>, scope?: { field: string; value: string }) => !scope || record[scope.field] === scope.value;
     return {
       async distribution(field: string, scope?: { field: string; value: string }) { const counts = new Map<string, number>(); for (const record of records.filter((item) => visible(item, scope))) { const value = String(record[field] ?? ""); counts.set(value, (counts.get(value) ?? 0) + 1); } return [...counts].map(([value, count]) => ({ value, count })); },
@@ -323,7 +323,7 @@ sales_order_lines: (() => {
     };
   })(),
 shipments: (() => {
-    const records: Array<Record<string, unknown>> = [{ "id": "00000000-0000-4000-8000-000000000001", "salesOrderId": null, "warehouseId": null, "status": "Demo shipments", "shippedAt": new Date().toISOString() }];
+    const records: Array<Record<string, unknown>> = [{ "id": "00000000-0000-4000-8000-000000000001", "salesOrderId": null, "warehouseId": null, "status": "Demo shipments", "shippedAt": new Date().toISOString(), "departureTime": "08:30:00" }];
     const visible = (record: Record<string, unknown>, scope?: { field: string; value: string }) => !scope || record[scope.field] === scope.value;
     return {
       async distribution(field: string, scope?: { field: string; value: string }) { const counts = new Map<string, number>(); for (const record of records.filter((item) => visible(item, scope))) { const value = String(record[field] ?? ""); counts.set(value, (counts.get(value) ?? 0) + 1); } return [...counts].map(([value, count]) => ({ value, count })); },

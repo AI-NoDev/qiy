@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import type { Authenticator, Principal } from "../../auth/guard";
+import { QiyTemporalValueError } from "../../temporal";
 import { createShipmentsService } from "./shipments.service";
 import { claimImportJob, createImportJob, isImportJobCancelled, listImportJobs, readImportJob, releaseStaleImportJobs, requestImportJobCancel, updateImportJob } from "../../import-jobs";
 import { claimExportJob, createExportJob, listExportJobs, readExportJob, updateExportJob } from "../../export-jobs";
@@ -11,6 +12,7 @@ const createShipments = t.Object({
   "warehouseId": t.String({ format: "uuid" }),
   "status": t.String({ minLength: 1 }),
   "shippedAt": t.Optional(t.Union([t.String({ format: "date-time" }), t.Null()], {})),
+  "departureTime": t.Optional(t.Union([t.String({ minLength: 1, maxLength: 40 }), t.Null()], {})),
 }, { additionalProperties: false });
 
 const patchShipments = t.Object({
@@ -18,6 +20,7 @@ const patchShipments = t.Object({
   "warehouseId": t.Optional(t.String({ format: "uuid" })),
   "status": t.Optional(t.String({ minLength: 1 })),
   "shippedAt": t.Optional(t.Union([t.String({ format: "date-time" }), t.Null()], {})),
+  "departureTime": t.Optional(t.Union([t.String({ minLength: 1, maxLength: 40 }), t.Null()], {})),
 }, { additionalProperties: false });
 
 export interface ShipmentsRepository {
@@ -53,9 +56,9 @@ export interface ListQuery {
 export function ShipmentsRoutes(repository: ShipmentsRepositoryPort, authenticate: Authenticator = async () => null) {
   const redact = (record: Record<string, unknown>) => record;
   const redactRecord = (record: Record<string, unknown>) => redact(record);
-  const sortableFields = ["id","salesOrderId","warehouseId","status","shippedAt"] as string[];
-  const filterableFields = ["id","salesOrderId","warehouseId","status","shippedAt"] as string[];
-  const filterModes = {"id":["eq","gt","gte","lt","lte","between","in"],"salesOrderId":["eq","gt","gte","lt","lte","between","in"],"warehouseId":["eq","gt","gte","lt","lte","between","in"],"status":["contains","startsWith","endsWith","eq"],"shippedAt":["eq","gt","gte","lt","lte","between","in"]} as Record<string, FilterOperator[]>;
+  const sortableFields = ["id","salesOrderId","warehouseId","status","shippedAt","departureTime"] as string[];
+  const filterableFields = ["id","salesOrderId","warehouseId","status","shippedAt","departureTime"] as string[];
+  const filterModes = {"id":["eq","gt","gte","lt","lte","between","in"],"salesOrderId":["eq","gt","gte","lt","lte","between","in"],"warehouseId":["eq","gt","gte","lt","lte","between","in"],"status":["contains","startsWith","endsWith","eq"],"shippedAt":["eq","gt","gte","lt","lte","between","in"],"departureTime":["eq","gt","gte","lt","lte","between","in"]} as Record<string, FilterOperator[]>;
   const resolveScope = async (request: Request) => {
     const principal = await authenticate(request);
     const scopeConfig = null as { field: string; claim: string } | null;
@@ -66,12 +69,12 @@ export function ShipmentsRoutes(repository: ShipmentsRepositoryPort, authenticat
     if (!principal || claimValue === undefined || claimValue === null || claimValue === "") throw new Error("Missing required data scope claim: " + scopeClaim);
     return { field: scopeField, value: String(claimValue) };
   };
-  const exportColumns = ["id","salesOrderId","warehouseId","status","shippedAt"] as string[];
+  const exportColumns = ["id","salesOrderId","warehouseId","status","shippedAt","departureTime"] as string[];
   const exportMaxRows = () => { const value = Number(Bun.env.QIY_EXPORT_MAX_ROWS ?? 1000); return Number.isSafeInteger(value) && value >= 1 && value <= 100000 ? value : 1000; };
   // Exports stream in bounded pages so memory does not grow with the result set.
   const EXPORT_PAGE_SIZE = Math.min(250, exportMaxRows());
   // Import accepts plain scalar columns only; vectors and key lists need the API.
-  const importTypes = {"salesOrderId":"UUID","warehouseId":"UUID","status":"Text","shippedAt":"DateTime"} as Record<string, string>;
+  const importTypes = {"salesOrderId":"UUID","warehouseId":"UUID","status":"Text","shippedAt":"DateTime","departureTime":"Time"} as Record<string, string>;
   const importColumns = Object.keys(importTypes);
   const importMaxRows = () => { const value = Number(Bun.env.QIY_IMPORT_MAX_ROWS ?? 1000); return Number.isSafeInteger(value) && value >= 1 && value <= 100000 ? value : 1000; };
   /** RFC 4180 reader: quoted fields, doubled quotes and CRLF line endings. */
@@ -97,6 +100,8 @@ export function ShipmentsRoutes(repository: ShipmentsRepositoryPort, authenticat
     if (value === "") return null;
     if (importTypes[field] === "Integer") { const parsed = Number(value); if (!Number.isFinite(parsed)) throw new Error("Column " + field + " must be an integer"); return parsed; }
     if (importTypes[field] === "DateTime") { const parsed = new Date(value); if (Number.isNaN(parsed.getTime())) throw new Error("Column " + field + " must be an ISO date-time"); return parsed; }
+    if (importTypes[field] === "Date") { const parsed = new Date(value + "T00:00:00Z"); if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) throw new Error("Column " + field + " must be a YYYY-MM-DD date"); return value; }
+    if (importTypes[field] === "Time") { const match = /^([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9]))?$/.exec(value); if (!match) throw new Error("Column " + field + " must be a HH:mm:ss time"); return match[1] + ":" + match[2] + ":" + (match[3] ?? "00"); }
     return value;
   };
   const importWorkerId = crypto.randomUUID();
@@ -234,7 +239,7 @@ export function ShipmentsRoutes(repository: ShipmentsRepositoryPort, authenticat
   };
   const service = createShipmentsService(repository);
   return new Elysia({ prefix: "/shipments" })
-    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)
+    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined).onError(({ error, status }) => error instanceof QiyTemporalValueError ? status(400, { error: error.message }) : undefined)
     .get("/aggregate", async ({ query, status, request }) => {
       if (!["sum", "avg", "min", "max"].includes(query.op)) return status(400, { error: "Unsupported aggregate operator" });
       if (!([] as string[]).includes(query.field)) return status(400, { error: "Unsupported aggregate field" });
@@ -476,4 +481,4 @@ export function ShipmentsRoutes(repository: ShipmentsRepositoryPort, authenticat
     }, { params: t.Object({ id: t.String({ format: "uuid" }) }) });
 }
 
-export const shipmentsWritableFields = ["salesOrderId", "warehouseId", "status", "shippedAt"] as const;
+export const shipmentsWritableFields = ["salesOrderId", "warehouseId", "status", "shippedAt", "departureTime"] as const;

@@ -104,14 +104,18 @@ try {
     { id: "00000000-0000-4000-8000-000000000502", productId: "00000000-0000-4000-8000-000000000102", warehouseId: "00000000-0000-4000-8000-000000000201", binId: "00000000-0000-4000-8000-000000000302", type: "adjust", quantity: 40, reference: "cycle count", occurredAt: now - 3_600_000 },
   ]);
   insert("purchase_orders", [
-    { id: "00000000-0000-4000-8000-000000000601", number: "PO-2026-001", supplierId: "00000000-0000-4000-8000-000000000020", status: "approved", orderedAt: now - 172_800_000, total: 1900 },
+    // `expectedDate` exercises the Date field type: the form renders a DatePicker
+    // and the API stores the plain `YYYY-MM-DD` text contract.
+    { id: "00000000-0000-4000-8000-000000000601", number: "PO-2026-001", supplierId: "00000000-0000-4000-8000-000000000020", status: "approved", orderedAt: now - 172_800_000, expectedDate: "2026-12-05", total: 1900 },
     // A draft order used by the permission verification matrix: only the admin
     // holds `purchasing:approve`, so the approve command is 403 for the operator.
-    { id: "00000000-0000-4000-8000-000000000602", number: "PO-2026-002", supplierId: "00000000-0000-4000-8000-000000000020", status: "draft", orderedAt: now - 86_400_000, total: 500 },
+    { id: "00000000-0000-4000-8000-000000000602", number: "PO-2026-002", supplierId: "00000000-0000-4000-8000-000000000020", status: "draft", orderedAt: now - 86_400_000, expectedDate: "2026-12-18", total: 500 },
   ]);
   insert("purchase_order_lines", [{ id: "00000000-0000-4000-8000-000000000611", purchaseOrderId: "00000000-0000-4000-8000-000000000601", productId: "00000000-0000-4000-8000-000000000101", quantity: 200, unitCost: 9.5 }]);
   insert("sales_orders", [{ id: "00000000-0000-4000-8000-000000000701", number: "SO-2026-001", customerId: "00000000-0000-4000-8000-000000000030", status: "allocated", orderedAt: now - 86_400_000, total: 300 }]);
   insert("sales_order_lines", [{ id: "00000000-0000-4000-8000-000000000711", salesOrderId: "00000000-0000-4000-8000-000000000701", productId: "00000000-0000-4000-8000-000000000101", quantity: 20, unitPrice: 15, allocated: 20 }]);
+  // `departureTime` exercises the Time field type (TimePicker, `HH:mm:ss` text).
+  insert("shipments", [{ id: "00000000-0000-4000-8000-000000000721", salesOrderId: "00000000-0000-4000-8000-000000000701", warehouseId: "00000000-0000-4000-8000-000000000201", status: "shipped", shippedAt: now - 3_600_000, departureTime: "09:30:00" }]);
   insert("work_orders", [{ id: "00000000-0000-4000-8000-000000000801", number: "WO-2026-001", productId: "00000000-0000-4000-8000-000000000101", quantity: 50, status: "in_progress", plannedAt: now + 86_400_000 }]);
   db.exec("COMMIT");
   console.log("seeded demo data into", databasePath);

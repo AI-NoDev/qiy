@@ -7,6 +7,7 @@ entity purchase_orders @label("Purchase orders") @icon(FileTextOutlined) @singul
   field supplierId UUID;
   field status purchaseStatus;
   field orderedAt DateTime;
+  field expectedDate Date;
   field total Decimal(12,2);
 }
 
@@ -50,4 +51,5 @@ entity shipments @label("Shipments") @icon(CarOutlined) @singular("Shipment") @p
   field warehouseId UUID;
   field status Text;
   field shippedAt DateTime @nullable;
+  field departureTime Time @nullable;
 }

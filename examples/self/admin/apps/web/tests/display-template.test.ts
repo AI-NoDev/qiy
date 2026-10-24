@@ -53,4 +53,15 @@ describe("display templates", () => {
     expect(relationDetailHtml(resource, {})).toBe("<b></b><br>");
     expect(relationDetailHtml(undefined, { name: "Ada" })).toBe("");
   });
+
+  test("Date/Time placeholders use the same localized formatter as list and detail cells", () => {
+    const temporalFields = [
+      { name: "dueDate", type: "Date", label: "Due", labelKey: "due", nullable: false, primaryKey: false, visible: true, listVisible: true, formVisible: true, showVisible: true, sortable: true, filterable: true, filterModes: ["eq"] },
+      { name: "shiftStart", type: "Time", label: "Shift", labelKey: "shift", nullable: false, primaryKey: false, visible: true, listVisible: true, formVisible: true, showVisible: true, sortable: true, filterable: true, filterModes: ["eq"] },
+    ] as unknown as ResourceField[];
+    expect(plainTextTemplate("{$.dueDate}", { dueDate: "2026-11-30" }, { fields: temporalFields, locale: "en-US" })).toContain("2026");
+    expect(plainTextTemplate("{$.shiftStart}", { shiftStart: "08:30:00" }, { fields: temporalFields, locale: "zh-CN" })).toBe("08:30:00");
+    // Unparsable values fall back to the raw stored string instead of disappearing.
+    expect(plainTextTemplate("{$.dueDate}", { dueDate: "not-a-date" }, { fields: temporalFields, locale: "en-US" })).toBe("not-a-date");
+  });
 });

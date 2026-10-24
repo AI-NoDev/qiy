@@ -43,6 +43,8 @@ function scalarMatches(project: QiyProject, type: string, value: QiyTestScalar):
   if (type === "Integer") return typeof value === "number" && Number.isSafeInteger(value) && value >= -2147483648 && value <= 2147483647;
   if (type === "Decimal" || type === "Money") return typeof value === "number" && Number.isFinite(value);
   if (type === "DateTime") return typeof value === "number" && Number.isSafeInteger(value);
+  if (type === "Date") return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  if (type === "Time") return typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(value);
   if (type === "Boolean") return typeof value === "boolean";
   return false;
 }

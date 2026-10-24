@@ -11,6 +11,9 @@ function column(field: FieldIR, relation?: RelationIR): string {
     case "File": declaration = `text(${name})`; break;
     case "Files": declaration = `text(${name}, { mode: "json" }).$type<string[]>()`; break;
     case "Integer": declaration = `integer(${name})`; break;
+    // Date and Time keep the wire contract verbatim: `YYYY-MM-DD` and `HH:mm:ss` text.
+    case "Date":
+    case "Time": declaration = `text(${name})`; break;
     case "DateTime": declaration = `integer(${name}, { mode: "timestamp_ms" })`; break;
     case "Decimal":
     case "Money": declaration = `real(${name})`; break;

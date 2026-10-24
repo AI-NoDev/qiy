@@ -27,6 +27,7 @@ const chromeKeys = [
   "qiy.noProviderConfigured", "qiy.otpHint", "qiy.otpIdentifier", "qiy.otpCode", "qiy.otpSend", "qiy.otpVerify",
   "qiy.otpResend", "qiy.oidcHint", "qiy.oidcSignIn", "qiy.oidcRenewing",
   "qiy.createForbidden", "qiy.editForbidden", "qiy.relatedUnknown", "qiy.treeNodesCount", "qiy.treeOrphans",
+  "qiy.pickDate", "qiy.pickTime", "qiy.pickDateTime",
 ] as const;
 
 test("every chrome key resolves in zh-CN and en-US instead of falling back to English", () => {

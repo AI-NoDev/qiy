@@ -110,6 +110,41 @@ describe("PostgreSQL Database IR", () => {
     expect(mysql).toContain('bigint("createdAt", { mode: "number" }).notNull().$defaultFn(() => Date.now())');
   });
 
+  test("renders Date and Time text contracts for supported dialects", async () => {
+    const database = copy();
+    database.entities[0]!.fields = database.entities[0]!.fields.filter((field) => field.type !== "Vector");
+    database.entities[0]!.indexes = database.entities[0]!.indexes?.filter((index) => index.method === "btree");
+    database.extensions = [];
+    database.entities[0]!.fields.push({ name: "dueDate", type: "Date", nullable: false }, { name: "shiftStart", type: "Time", nullable: false });
+    expect(validateDatabaseIR(database)).toEqual([]);
+    const { generateDrizzlePostgres } = await import("../tools/drizzle-pg");
+    const { generateDrizzleSqlite } = await import("../tools/drizzle-sqlite");
+    const { generateDrizzleMysql } = await import("../tools/drizzle-mysql");
+    const postgres = generateDrizzlePostgres(database);
+    expect(postgres).toContain('date("dueDate", { mode: "string" })');
+    expect(postgres).toContain('time("shiftStart")');
+    database.dialect = "sqlite";
+    const sqlite = generateDrizzleSqlite(database);
+    expect(sqlite).toContain('"dueDate": text("dueDate").notNull()');
+    expect(sqlite).toContain('"shiftStart": text("shiftStart").notNull()');
+    database.dialect = "mysql";
+    const mysql = generateDrizzleMysql(database);
+    expect(mysql).toContain('date("dueDate", { mode: "string" })');
+    expect(mysql).toContain('time("shiftStart")');
+    expect(mysql).toMatch(/import \{[^}]*\bdate\b[^}]*\} from "drizzle-orm\/mysql-core"/);
+    expect(mysql).toMatch(/import \{[^}]*\btime\b[^}]*\} from "drizzle-orm\/mysql-core"/);
+  });
+
+  test("accepts Date and Time display template placeholders", async () => {
+    const { DISPLAY_TEMPLATE_FIELD_TYPES, validateDisplayTemplate } = await import("../tools/database-ir");
+    expect(DISPLAY_TEMPLATE_FIELD_TYPES.has("Date")).toBe(true);
+    expect(DISPLAY_TEMPLATE_FIELD_TYPES.has("Time")).toBe(true);
+    expect(DISPLAY_TEMPLATE_FIELD_TYPES.has("DateTime")).toBe(true);
+    expect(DISPLAY_TEMPLATE_FIELD_TYPES.has("File")).toBe(false);
+    const entity = { name: "orders", fields: [{ name: "id", type: "UUID" as const, primaryKey: true }, { name: "dueDate", type: "Date" as const }, { name: "shiftStart", type: "Time" as const }] };
+    expect(validateDisplayTemplate("{$.dueDate} {$.shiftStart}", entity, "display")).toEqual([]);
+  });
+
   test("rejects relations with missing entities and fields", () => {
     const database = copy();
     database.relations = [{ name: "productCategory", fromEntity: "products", fromField: "missing", toEntity: "categories", toField: "id", cardinality: "one" }];

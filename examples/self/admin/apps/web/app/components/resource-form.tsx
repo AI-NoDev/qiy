@@ -3,7 +3,9 @@ import { Alert, Button, Form, Input, InputNumber, Select, Space, Tag, Upload } f
 import { canSeeField, type ResourceDefinition, type ResourceEnumValue, type ResourceField } from "../resources";
 import { qiyIcons } from "../icons";
 import { useGetIdentity, useTranslation } from "@refinedev/core";
+import { isDateFieldType } from "../date-fields";
 import { RelationSelect } from "./relation-field";
+import { DateFieldInput } from "./date-field";
 
 function EnumLabel({ item }: { item: ResourceEnumValue }) {
   const { translate } = useTranslation();
@@ -62,14 +64,21 @@ function FileInput({ field, resource, resourceId }: { field: ResourceField; reso
 export function ResourceForm({ resource, id }: { resource: ResourceDefinition; id?: string }) {
   const { data: identity } = useGetIdentity<{ role?: string }>(); const fields = resource.fields.filter((field) => field.formVisible && !field.primaryKey && field.type !== "Vector" && canSeeField(field, identity?.role));
   const { translate } = useTranslation();
+  // Picker placeholders are form chrome, so they are translated instead of being
+  // hardcoded English; DateFieldInput otherwise falls back to the format string.
+  const temporalPlaceholders = {
+    Date: translate("qiy.pickDate", {}, "Select date"),
+    Time: translate("qiy.pickTime", {}, "Select time"),
+    DateTime: translate("qiy.pickDateTime", {}, "Select date and time"),
+  } as const;
   // Create/edit titles and buttons use the entity's singular name (`@singular`),
   // falling back to the resource label so models without the annotation keep working.
   const singular = translate(resource.singularKey, {}, translate(resource.labelKey, {}, resource.singular));
   const { formProps, saveButtonProps, query, onFinish } = useForm<Record<string, unknown>>({ resource: resource.name, id, action: id ? "edit" : "create", redirect: "list" });
   const content = <>
     {query?.isError && <Alert type="error" showIcon message={String(query.error)} />}
-    <Form {...formProps} layout="vertical" validateMessages={{ required: translate("qiy.requiredWithLabel", {}, "${label} is required") }} style={{ maxWidth: 720 }} onFinish={(values) => { const record = values as Record<string, unknown>; return onFinish(Object.fromEntries(fields.flatMap((field) => { const value = record[field.name]; return (value === undefined || value === "") && field.nullable ? [] : [[field.name, field.type === "Integer" ? Number(value) : value]]; }))); }}>
-      {fields.map((field) => <Form.Item key={field.name} name={field.name} label={translate(field.labelKey, {}, field.label)} tooltip={field.commentKey ? translate(field.commentKey, {}, field.comment) : field.comment} rules={[{ required: !field.nullable }]}>{field.type === "File" || field.type === "Files" ? <FileInput field={field} resource={resource.name} resourceId={id} /> : field.relation ? <RelationSelect relation={field.relation} fieldName={field.name} /> : field.enumValues ? <Select options={field.enumValues.map((item) => ({ value: item.name, label: <EnumLabel item={item} /> }))} /> : field.type === "Integer" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>)}
+    <Form {...formProps} layout="vertical" validateMessages={{ required: translate("qiy.requiredWithLabel", {}, "${label} is required") }} style={{ maxWidth: 720 }} onFinish={(values) => { const record = values as Record<string, unknown>; return onFinish(Object.fromEntries(fields.flatMap((field) => { const value = record[field.name]; return (value === undefined || value === null || value === "") && field.nullable ? [] : [[field.name, field.type === "Integer" ? Number(value) : value]]; }))); }}>
+      {fields.map((field) => <Form.Item key={field.name} name={field.name} label={translate(field.labelKey, {}, field.label)} tooltip={field.commentKey ? translate(field.commentKey, {}, field.comment) : field.comment} rules={[{ required: !field.nullable }]}>{field.type === "File" || field.type === "Files" ? <FileInput field={field} resource={resource.name} resourceId={id} /> : field.relation ? <RelationSelect relation={field.relation} fieldName={field.name} /> : field.enumValues ? <Select options={field.enumValues.map((item) => ({ value: item.name, label: <EnumLabel item={item} /> }))} /> : isDateFieldType(field.type) ? <DateFieldInput type={field.type} placeholder={temporalPlaceholders[field.type]} /> : field.type === "Integer" ? <InputNumber style={{ width: "100%" }} /> : <Input />}</Form.Item>)}
     </Form>
   </>;
   return id

@@ -10,6 +10,7 @@
 - **实时**：库存、库存流水、发运的 realtime outbox；
 - **权限**：原子权限 + 权限组（角色即权限组）+ 数据库列/OAuth claim provider + 权限校验块；pages 页面级角色、restrict 字段 mask、scope 按 claim 过滤仓库仍然保留；
 - **实体显示文本（Django 风格）**：每个实体都声明 `@singular` / `@plural` / `@display` / `@tableDisplay` / `@relationDetail`，外键列显示目标记录的显示文本并链接到 Drawer/详情页，不再显示 UUID；
+- **日期与时间类型**：采购单 `expectedDate Date`、发运 `departureTime Time` 与既有的 `orderedAt` / `shippedAt` / `plannedAt` 等 `DateTime` 字段一起演示三种时间粒度 —— 创建/编辑表单分别渲染日期 picker、时间 picker、日期时间 picker，列表/详情按当前语言格式化，seed 提供真实值，服务端对非法日期/时间返回 400；
 - **混合登录**：`providers local, okta, keycloak, google, kinde, azure-ad-b2c;` 同时启用密码登录和 5 个 OIDC Provider；每个 Provider 映射到自己的身份列（`oktaSubject`、`keycloakSubject`、`googleSubject`、`kindeSubject`、`azureSubject`），`profileField oauthProfiles` 记录各 Provider 返回的 email/name，供个人中心展示。
 
 ```qiy
@@ -169,7 +170,8 @@ docker run -d --name qiy-dex-demo2 -p 5557:5557 -v "$PWD/../../dex:/etc/dex" ghc
 cp examples/self/dex/demo.env examples/self/admin/apps/server/.env.development
 
 # 4) 演示数据：admin/operator/viewer 三个本地账号（admin 绑定两个 Dex 身份），
-#    以及权限列与两张采购单（一张 draft 供审批权限验收）
+#    以及权限列、两张采购单（一张 draft 供审批权限验收；含 expectedDate 日期）
+#    和一条带 departureTime 时间的发运单
 bun run examples/self/dex/seed.ts examples/self/admin/apps/server/qiy.sqlite
 
 # 5) 启动：API :8001，Web :8000（所有 Provider 回调都在 8000）
@@ -211,6 +213,20 @@ cd examples/self/admin/apps/web && QIY_API_PROXY=http://localhost:8001 bun run d
 - **Azure AD B2C / Entra External ID**：回调 `http://localhost:8000/oauth/azure`；必须是该租户里的**本地账号**（`@outlook.com` 等个人 Microsoft 账号会被拒绝）。
 
 > 回调路径任意（`/auth/callback`、`/oauth/google`、`/oauth/kinde`、`/oauth/azure` 都可以），生成 Web 用通配路由 `oauth/*` 统一落到回调组件；StrictMode 双执行已处理。
+
+## 日期与时间字段（Date / Time / DateTime）
+
+| 资源 | 字段 | 类型 | 表单 | seed 值 |
+| --- | --- | --- | --- | --- |
+| 采购单 `purchase_orders` | `expectedDate` | `Date` | `DatePicker`（`YYYY-MM-DD`） | `PO-2026-001` → `2026-12-05`、`PO-2026-002` → `2026-12-18` |
+| 采购单 `purchase_orders` | `orderedAt` | `DateTime` | `DatePicker showTime`（`YYYY-MM-DD HH:mm:ss`） | 下单时间戳 |
+| 发运单 `shipments` | `departureTime` | `Time` | `TimePicker`（`HH:mm:ss`） | `09:30:00` |
+| 发运单 `shipments` | `shippedAt` | `DateTime` | `DatePicker showTime` | 发运时间戳 |
+| 工单 `work_orders` | `plannedAt` | `DateTime` | `DatePicker showTime` | 计划时间戳 |
+
+- picker 页面：`/purchase_orders/create`、`/purchase_orders/:id/edit`、`/shipments/create`、`/shipments/:id/edit`；`/work_orders/:id/edit` 继续演示 `DateTime`。
+- HTTP 契约：REST `POST /api/v1/purchase_orders/` 接受 `expectedDate: "2026-11-30"` 与 `orderedAt` ISO 字符串并原样读回；`2026-02-31` / `not-a-date` 返回 400 `Invalid Date value for expectedDate`。`POST /api/v1/shipments/` 接受 `departureTime: "09:30"` 并规范化为 `"09:30:00"`，`25:61:00` 返回 400。GraphQL 中两个字段都是 `String` 标量，非法日期通过 service 校验返回 GraphQL error。
+- 种子脚本 `examples/self/dex/seed.ts` 会写入上述 Date/Time 值；生成器侧回归见 `tests/temporal-fields.test.ts` 与 `apps/web/tests/date-fields.test.ts`（往返/非法输入/本地化格式）。
 
 ## 验收
 

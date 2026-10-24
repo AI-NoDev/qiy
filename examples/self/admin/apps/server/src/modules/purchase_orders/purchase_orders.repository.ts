@@ -10,7 +10,7 @@ export const Purchase_ordersRepository: Purchase_ordersRepositoryContract = {
     const columns: Record<string, any> = { "total": purchase_orders.total };
     const column = columns[field];
     if (!column) throw new Error("Unsupported aggregate field");
-    const scopeColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "total": purchase_orders.total };
+    const scopeColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "expectedDate": purchase_orders.expectedDate, "total": purchase_orders.total };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
@@ -22,7 +22,7 @@ export const Purchase_ordersRepository: Purchase_ordersRepositoryContract = {
     const columns: Record<string, any> = { "status": purchase_orders.status };
     const column = columns[field];
     if (!column) throw new Error("Unsupported distribution field");
-    const scopeColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "total": purchase_orders.total };
+    const scopeColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "expectedDate": purchase_orders.expectedDate, "total": purchase_orders.total };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     return db.select({ value: column, count: count() }).from(purchase_orders).where(and(scopeCondition)).groupBy(column);
@@ -31,7 +31,7 @@ export const Purchase_ordersRepository: Purchase_ordersRepositoryContract = {
     const columns: Record<string, any> = { "orderedAt": purchase_orders.orderedAt };
     const column = columns[field];
     if (!column || !Number.isInteger(days) || days < 1 || days > 365) throw new Error("Invalid trend query");
-    const scopeColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "total": purchase_orders.total };
+    const scopeColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "expectedDate": purchase_orders.expectedDate, "total": purchase_orders.total };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     const now = new Date();
@@ -46,12 +46,12 @@ export const Purchase_ordersRepository: Purchase_ordersRepositoryContract = {
     const searchCondition = options.search && searchableColumns.length > 0
       ? or(...searchableColumns.map((column) => like(column, "%" + options.search + "%")))
       : undefined;
-    const sortColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "total": purchase_orders.total };
+    const sortColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "expectedDate": purchase_orders.expectedDate, "total": purchase_orders.total };
     const sortColumn = options.sort ? sortColumns[options.sort] : purchase_orders.id;
     if (options.sort && !sortColumn) throw new Error("Unsupported sort field");
     const orderBy = options.order === "desc" ? desc(sortColumn) : asc(sortColumn);
-    const filterColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "total": purchase_orders.total };
-    const filterTypes = {"id":"UUID","number":"Text","supplierId":"UUID","status":"Text","orderedAt":"DateTime","total":"Decimal"} as Record<string, string>;
+    const filterColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "expectedDate": purchase_orders.expectedDate, "total": purchase_orders.total };
+    const filterTypes = {"id":"UUID","number":"Text","supplierId":"UUID","status":"Text","orderedAt":"DateTime","expectedDate":"Date","total":"Decimal"} as Record<string, string>;
     const filters = Array.isArray(options.filters) ? options.filters : Object.entries(options.filters ?? {}).map(([field, value]) => ({ field, operator: "eq" as const, value }));
     const filterClauses = (expressions: FilterExpression[]): FilterClause[] => expressions.flatMap((filter) => "field" in filter ? [filter] : filterClauses(filter.filters));
     if (filterClauses(filters as FilterExpression[]).some(({ field }) => !filterColumns[field])) throw new Error("Unsupported filter field");
@@ -80,7 +80,7 @@ export const Purchase_ordersRepository: Purchase_ordersRepositoryContract = {
     const filterExpression = (filter: FilterExpression): any => "field" in filter
       ? filterCondition(filter)
       : filter.operator === "and" ? and(...filter.filters.map(filterExpression)) : or(...filter.filters.map(filterExpression));
-    const scopeColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "total": purchase_orders.total };
+    const scopeColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "expectedDate": purchase_orders.expectedDate, "total": purchase_orders.total };
     const scopeCondition = options.scope && scopeColumns[options.scope.field] ? eq(scopeColumns[options.scope.field], options.scope.value) : undefined;
     
     const whereCondition = and(searchCondition, scopeCondition, ...(filters as FilterExpression[]).map(filterExpression));
@@ -95,7 +95,7 @@ purchase_orders
     return { data, total: totalRows[0]?.total ?? 0 };
   },
   async one(id, scope) {
-    const scopeColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "total": purchase_orders.total };
+    const scopeColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "expectedDate": purchase_orders.expectedDate, "total": purchase_orders.total };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     const [record] = await db.select().from(
@@ -118,7 +118,7 @@ purchase_orders
   },
   async update(id, values, actorId, scope) {
     return db.transaction((tx) => {
-      const scopeColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "total": purchase_orders.total };
+      const scopeColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "expectedDate": purchase_orders.expectedDate, "total": purchase_orders.total };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
       const record = tx.update(purchase_orders).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(eq(purchase_orders.id, id), scopeCondition)).returning().get();
@@ -129,7 +129,7 @@ purchase_orders
   },
   async delete(id, actorId, scope) {
     return db.transaction((tx) => {
-      const scopeColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "total": purchase_orders.total };
+      const scopeColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "expectedDate": purchase_orders.expectedDate, "total": purchase_orders.total };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
       const record = tx.delete(purchase_orders).where(and(eq(purchase_orders.id, id), scopeCondition)).returning().get();
@@ -140,7 +140,7 @@ purchase_orders
   },
   async deleteMany(ids, actorId, scope) {
     return db.transaction((tx) => {
-      const scopeColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "total": purchase_orders.total };
+      const scopeColumns: Record<string, any> = { "id": purchase_orders.id, "number": purchase_orders.number, "supplierId": purchase_orders.supplierId, "status": purchase_orders.status, "orderedAt": purchase_orders.orderedAt, "expectedDate": purchase_orders.expectedDate, "total": purchase_orders.total };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
       const deletedRows = tx.delete(purchase_orders).where(and(inArray(purchase_orders.id, ids), scopeCondition)).returning().all();

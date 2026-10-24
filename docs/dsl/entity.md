@@ -44,12 +44,13 @@ relation salesOrderCustomer sales_orders customerId customers id one;
 模板只支持三类内容：普通文本、`{$.field}` 占位符、白名单标签。生成时校验、渲染时再次白名单过滤并转义所有插值，因此不会产生 XSS。
 
 ```text
-{$.fieldName}                 标量字段插值：UUID、Text、枚举、Integer、Decimal、Money、DateTime
+{$.fieldName}                 标量字段插值：UUID、Text、枚举、Integer、Decimal、Money、Date、Time、DateTime
 <b> {$.name} </b></br>{$.code} 白名单 HTML 标签 + Django 风格换行
 ```
 
 - 占位符只能引用本实体已声明的标量字段；未知字段、`File` / `Files` / `Vector`、以及外键列（如 `{$.customerId}`）都会在生成前报错。外键由生成的关联单元格负责显示目标记录文本，而不是原始 id。
 - 枚举字段渲染为当前语言的枚举值 label；Decimal / Money 按本地化数字格式输出。
+- Date / Time / DateTime 占位符使用与列表/详情页相同的本地化格式化函数（`Intl.DateTimeFormat`，跟随当前界面语言）；无法解析的存量文本回退显示原字符串，不会丢数据。
 - 允许的标签：`br`、`b`、`strong`、`i`、`em`、`span`、`small`、`p`、`div`；不支持属性、事件处理器、`script`、其他标签、大小写混写或非 `br` 的自闭合写法。`<br>`、`<br/>`、`</br>` 都规范化为一个换行。
 - 模板按标签配对校验；未闭合或错配、悬空的 `<` / `>`、`{name}` 这类非法占位符都会给出带实体和注解名的错误信息。
 - 模板里的文本与占位符值都会 HTML 转义；模板本身的语言中性（字段引用和分隔符），不参与 i18n；单数/复数名通过 `qiy.resources.<resource>.singular` / `.plural` 翻译键切换语言。
@@ -65,10 +66,29 @@ relation salesOrderCustomer sales_orders customerId customers id one;
 | `Integer` | Integer | 整数 |
 | `Decimal(p, s)` | Decimal | 精度与小数位 |
 | `Money(p, s)` | Money | 业务金额 |
-| `DateTime` | DateTime | 时间戳 |
+| `Date` | Date | 日期，存储/传输 `YYYY-MM-DD` |
+| `Time` | Time | 时间，存储/传输 `HH:mm:ss` |
+| `DateTime` | DateTime | 时间戳（ISO date-time） |
 | `File` | File | 受保护文件 |
 | `Vector(n)` | Vector | 需要 pgvector |
 | 枚举名 | Text + enumName | 引用已声明的 enum |
+
+## 日期与时间（Date / Time / DateTime）
+
+三种时间类型服务于不同粒度，存储与传输契约保持一致，跨 sqlite / PostgreSQL / MySQL 相同：
+
+| 类型 | 存储 | REST / GraphQL / CSV 值 | 表单控件 | 列表 / 详情显示 |
+| --- | --- | --- | --- | --- |
+| `Date` | PostgreSQL `date`、MySQL `date`、SQLite `text` | `YYYY-MM-DD` | Ant Design `DatePicker`（`YYYY-MM-DD`） | 本地化日期 |
+| `Time` | PostgreSQL `time`、MySQL `time`、SQLite `text` | `HH:mm[:ss]`，服务端存 `HH:mm:ss` | `TimePicker`（`HH:mm:ss`） | 本地化时间 |
+| `DateTime` | 时间戳（`timestamp` / `datetime` / `timestamp_ms`） | ISO date-time，例如 `2026-11-30T08:30:00.000Z` | `DatePicker showTime`（`YYYY-MM-DD HH:mm:ss`） | 本地化日期+时间 |
+
+- 生成表单按类型渲染正确 picker：日期只选日期、时间只选时间、日期时间带时间面板；编辑表单会把存库字符串转回 dayjs，提交时再转回上面的字符串契约（`app/date-fields.ts` 的 `toFormValue` / `toPayloadValue`）。
+- 服务端对 `Date` / `Time` 做显式校验：非法值（如 `2026-02-31`、`25:61:00`）返回 **400** 并指出字段名；`HH:mm` 会被规范化为 `HH:mm:ss`。TypeBox 的 `date` format 过于宽松且没有本地时间 format，因此不使用它做最终校验。
+- 列表、详情页、外键抽屉与显示模板统一通过 `formatFieldValue` 使用 `Intl.DateTimeFormat` 按当前语言格式化；无法解析的历史值回退为原字符串。
+- 对 `Date` / `Time` / `DateTime` 的高级筛选在 operator 为 `eq/gt/gte/lt/lte` 时渲染对应的 picker；`in` / `between` 仍使用逗号分隔文本。
+- 排序按字符串比较（零填充的 ISO 形状天然有序）；`Date` / `Time` **不会**参与 dashboard trend 指标，trend 的 `groupBy` 仍必须是 `DateTime`；CSV 导入按同样契约校验并返回行错误。
+- 在 `.qiy` 测试场景（`given` fixture）中，`Date` / `Time` 值使用字符串字面量，并会按契约校验。
 
 ## 字段属性
 

@@ -1,5 +1,5 @@
 export type DatabaseDialect = "postgresql" | "mysql" | "sqlite";
-export type FieldType = "UUID" | "Text" | "Integer" | "Decimal" | "Money" | "DateTime" | "File" | "Files" | "Vector";
+export type FieldType = "UUID" | "Text" | "Integer" | "Decimal" | "Money" | "Date" | "Time" | "DateTime" | "File" | "Files" | "Vector";
 export type FilterMode = "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in";
 
 export interface EnumValueIR {
@@ -121,7 +121,7 @@ const reservedNames = new Set([
  */
 export const DISPLAY_TEMPLATE_TAGS = ["br", "b", "strong", "i", "em", "span", "small", "p", "div"] as const;
 /** Scalar field types a display template may interpolate; relations are rendered by the FK cell itself. */
-export const DISPLAY_TEMPLATE_FIELD_TYPES: ReadonlySet<FieldType> = new Set<FieldType>(["UUID", "Text", "Integer", "Decimal", "Money", "DateTime"]);
+export const DISPLAY_TEMPLATE_FIELD_TYPES: ReadonlySet<FieldType> = new Set<FieldType>(["UUID", "Text", "Integer", "Decimal", "Money", "Date", "Time", "DateTime"]);
 const displayTemplateTagSet = new Set<string>(DISPLAY_TEMPLATE_TAGS);
 const displayPlaceholder = /^\{\$\.([a-zA-Z_][a-zA-Z0-9_]*)\}/;
 const displayTag = /^<(\/?)([a-zA-Z][a-zA-Z0-9]*)(\/?)>/;
@@ -161,9 +161,9 @@ export function validateDisplayTemplate(template: string, entity: Pick<EntityIR,
       if (!field) {
         errors.push(`${prefix} references unknown field ${fieldName}`);
       } else if (field.type === "File" || field.type === "Files") {
-        errors.push(`${prefix} cannot interpolate ${field.type} field ${fieldName}; use Text, enum, UUID, Integer, Decimal, Money or DateTime`);
+        errors.push(`${prefix} cannot interpolate ${field.type} field ${fieldName}; use Text, enum, UUID, Integer, Decimal, Money, Date, Time or DateTime`);
       } else if (field.type === "Vector") {
-        errors.push(`${prefix} cannot interpolate Vector field ${fieldName}; use Text, enum, UUID, Integer, Decimal, Money or DateTime`);
+        errors.push(`${prefix} cannot interpolate Vector field ${fieldName}; use Text, enum, UUID, Integer, Decimal, Money, Date, Time or DateTime`);
       } else if (options.relationFields?.has(`${entity.name}.${fieldName}`)) {
         errors.push(`${prefix} cannot interpolate foreign key field ${fieldName}; reference a scalar field instead`);
       }
@@ -312,7 +312,7 @@ export function validateDatabaseIR(database: DatabaseIR): string[] {
       }
       columnNames.add(columnName);
       fields.set(field.name, field);
-      if (!["UUID", "Text", "Integer", "Decimal", "Money", "DateTime", "File", "Files", "Vector"].includes(field.type)) {
+      if (!["UUID", "Text", "Integer", "Decimal", "Money", "Date", "Time", "DateTime", "File", "Files", "Vector"].includes(field.type)) {
         errors.push(`${entity.name}.${field.name}: unsupported field type`);
         continue;
       }

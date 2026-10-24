@@ -22,7 +22,7 @@ describe("modular demo model", () => {
     expect(project.name).toBe("qiy-supply-chain-erp-wms");
     expect(project.database.dialect).toBe("sqlite");
     expect(project.database.entities).toHaveLength(17);
-    expect(project.database.entities.reduce((sum, entity) => sum + entity.fields.length, 0)).toBe(105);
+    expect(project.database.entities.reduce((sum, entity) => sum + entity.fields.length, 0)).toBe(107);
     expect(project.database.enums).toHaveLength(6);
     expect(project.database.enums!.reduce((sum, enumeration) => sum + enumeration.values.length, 0)).toBe(27);
     expect(project.database.relations).toHaveLength(21);
@@ -140,9 +140,9 @@ describe("modular demo model", () => {
       expect(resources).toContain(`"labelKey": "${qiyModelKeys.resourceLabel(entity.tableName)}"`);
       for (const field of entity.fields) expect(resources).toContain(`"labelKey": "${qiyModelKeys.fieldLabel(entity.tableName, field.name)}"`);
     }
-    // All 17 resources and 105 fields survive generation (column choices use the same list).
+    // All 17 resources and 107 fields survive generation (column choices use the same list).
     expect(resources.match(/"apiName":/g)).toHaveLength(17);
-    expect(resources.match(/"filterModes":/g)).toHaveLength(105);
+    expect(resources.match(/"filterModes":/g)).toHaveLength(107);
     // The dictionary is merged into the generated app and exercised by generated tests.
     const messages = files["apps/web/app/messages.ts"]!;
     expect(messages).toContain('"qiy.resources.products.label": "产品"');

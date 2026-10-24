@@ -1,4 +1,5 @@
 import type { ResourceDefinition, ResourceField } from "./resources";
+import { formatFieldValue, isDateFieldType } from "./date-fields";
 
 /**
  * Entity display templates (`@display`, `@tableDisplay`, `@relationDetail`) are
@@ -23,6 +24,8 @@ export interface DisplayTemplateOptions {
   translate?: DisplayTranslate;
   /** Inserted when a placeholder resolves to null, undefined or an empty string. Defaults to an empty string. */
   empty?: string;
+  /** Current UI locale used for localized Date/Time/DateTime placeholder text. */
+  locale?: string;
 }
 
 export type DisplayTemplateToken =
@@ -57,6 +60,9 @@ export function displayFieldValue(fieldName: string, record: Record<string, unkn
     const item = field.enumValues.find((candidate) => candidate.name === String(value));
     if (item) return options.translate ? options.translate(item.labelKey, {}, item.label ?? item.name) : item.label ?? item.name;
   }
+  // Date, Time and DateTime placeholders go through the same formatter as list
+  // and detail pages, so a template never prints a raw timestamp.
+  if (field && isDateFieldType(field.type)) return formatFieldValue(field.type, value, options.locale);
   if (Array.isArray(value)) return value.map((item) => String(item)).join(", ");
   if (field?.type === "Money" || field?.type === "Decimal") {
     const numeric = Number(value);
@@ -122,11 +128,11 @@ export function recordDisplayText(resource: ResourceDefinition | undefined, reco
   const fallback = labelField && resource?.fields.find((field) => field.name === labelField);
   if (fallback) {
     const fallbackValue = record[fallback.name];
-    if (fallbackValue !== undefined && fallbackValue !== null && fallbackValue !== "") return String(fallbackValue);
+    if (fallbackValue !== undefined && fallbackValue !== null && fallbackValue !== "") return displayFieldValue(fallback.name, record, resolved) ?? String(fallbackValue);
   }
   const natural = resource?.fields.find((field) => ["name", "title", "displayName", "code", "number", "sku", "email", "label", "inventoryKey"].includes(field.name));
   const naturalValue = natural ? record[natural.name] : undefined;
-  if (naturalValue !== undefined && naturalValue !== null && naturalValue !== "") return String(naturalValue);
+  if (natural && naturalValue !== undefined && naturalValue !== null && naturalValue !== "") return displayFieldValue(natural.name, record, resolved) ?? String(naturalValue);
   return record.id === undefined || record.id === null ? "" : String(record.id);
 }
 

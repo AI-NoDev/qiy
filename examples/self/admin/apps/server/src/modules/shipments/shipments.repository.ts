@@ -10,7 +10,7 @@ export const ShipmentsRepository: ShipmentsRepositoryContract = {
     const columns: Record<string, any> = {  };
     const column = columns[field];
     if (!column) throw new Error("Unsupported aggregate field");
-    const scopeColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt };
+    const scopeColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt, "departureTime": shipments.departureTime };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
@@ -22,7 +22,7 @@ export const ShipmentsRepository: ShipmentsRepositoryContract = {
     const columns: Record<string, any> = {  };
     const column = columns[field];
     if (!column) throw new Error("Unsupported distribution field");
-    const scopeColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt };
+    const scopeColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt, "departureTime": shipments.departureTime };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     return db.select({ value: column, count: count() }).from(shipments).where(and(scopeCondition)).groupBy(column);
@@ -31,7 +31,7 @@ export const ShipmentsRepository: ShipmentsRepositoryContract = {
     const columns: Record<string, any> = { "shippedAt": shipments.shippedAt };
     const column = columns[field];
     if (!column || !Number.isInteger(days) || days < 1 || days > 365) throw new Error("Invalid trend query");
-    const scopeColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt };
+    const scopeColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt, "departureTime": shipments.departureTime };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     const now = new Date();
@@ -46,12 +46,12 @@ export const ShipmentsRepository: ShipmentsRepositoryContract = {
     const searchCondition = options.search && searchableColumns.length > 0
       ? or(...searchableColumns.map((column) => like(column, "%" + options.search + "%")))
       : undefined;
-    const sortColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt };
+    const sortColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt, "departureTime": shipments.departureTime };
     const sortColumn = options.sort ? sortColumns[options.sort] : shipments.id;
     if (options.sort && !sortColumn) throw new Error("Unsupported sort field");
     const orderBy = options.order === "desc" ? desc(sortColumn) : asc(sortColumn);
-    const filterColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt };
-    const filterTypes = {"id":"UUID","salesOrderId":"UUID","warehouseId":"UUID","status":"Text","shippedAt":"DateTime"} as Record<string, string>;
+    const filterColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt, "departureTime": shipments.departureTime };
+    const filterTypes = {"id":"UUID","salesOrderId":"UUID","warehouseId":"UUID","status":"Text","shippedAt":"DateTime","departureTime":"Time"} as Record<string, string>;
     const filters = Array.isArray(options.filters) ? options.filters : Object.entries(options.filters ?? {}).map(([field, value]) => ({ field, operator: "eq" as const, value }));
     const filterClauses = (expressions: FilterExpression[]): FilterClause[] => expressions.flatMap((filter) => "field" in filter ? [filter] : filterClauses(filter.filters));
     if (filterClauses(filters as FilterExpression[]).some(({ field }) => !filterColumns[field])) throw new Error("Unsupported filter field");
@@ -80,7 +80,7 @@ export const ShipmentsRepository: ShipmentsRepositoryContract = {
     const filterExpression = (filter: FilterExpression): any => "field" in filter
       ? filterCondition(filter)
       : filter.operator === "and" ? and(...filter.filters.map(filterExpression)) : or(...filter.filters.map(filterExpression));
-    const scopeColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt };
+    const scopeColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt, "departureTime": shipments.departureTime };
     const scopeCondition = options.scope && scopeColumns[options.scope.field] ? eq(scopeColumns[options.scope.field], options.scope.value) : undefined;
     
     const whereCondition = and(searchCondition, scopeCondition, ...(filters as FilterExpression[]).map(filterExpression));
@@ -95,7 +95,7 @@ shipments
     return { data, total: totalRows[0]?.total ?? 0 };
   },
   async one(id, scope) {
-    const scopeColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt };
+    const scopeColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt, "departureTime": shipments.departureTime };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     const [record] = await db.select().from(
@@ -118,7 +118,7 @@ shipments
   },
   async update(id, values, actorId, scope) {
     return db.transaction((tx) => {
-      const scopeColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt };
+      const scopeColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt, "departureTime": shipments.departureTime };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
       const record = tx.update(shipments).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(eq(shipments.id, id), scopeCondition)).returning().get();
@@ -129,7 +129,7 @@ shipments
   },
   async delete(id, actorId, scope) {
     return db.transaction((tx) => {
-      const scopeColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt };
+      const scopeColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt, "departureTime": shipments.departureTime };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
       const record = tx.delete(shipments).where(and(eq(shipments.id, id), scopeCondition)).returning().get();
@@ -140,7 +140,7 @@ shipments
   },
   async deleteMany(ids, actorId, scope) {
     return db.transaction((tx) => {
-      const scopeColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt };
+      const scopeColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt, "departureTime": shipments.departureTime };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
       const deletedRows = tx.delete(shipments).where(and(inArray(shipments.id, ids), scopeCondition)).returning().all();

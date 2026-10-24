@@ -235,7 +235,7 @@ restrict records {
 
 - `allow roles` 限定可以使用该资源的角色。未声明时不额外限制角色。admin 不会自动绕过这里的角色列表。
 - `when <field> claim <claim>` 要求字段等于已认证 claim。claim 缺失或为空时请求返回 403，而不是返回空列表。claim 条件不能用在可空字段或主键上。
-- `when <field> ==|!=|in|notIn <values>` 与字面量比较。`==`/`!=` 只能有一个值，`in`/`notIn` 最多 64 个。字段限于 Text、enum、Integer、Decimal、Money、DateTime。字面量不匹配时该行不可见，不因此让整个请求失败。
+- `when <field> ==|!=|in|notIn <values>` 与字面量比较。`==`/`!=` 只能有一个值，`in`/`notIn` 最多 64 个。字段限于 Text、enum、Integer、Decimal、Money、Date、Time、DateTime。字面量不匹配时该行不可见，不因此让整个请求失败。
 - `mask` 对匹配的角色和 claim 状态隐藏字段。`omit` 删除响应键，`null` 返回 null，`redact` 必须给出 `replacement`。同一字段只能有一个 mask。被 mask 的字段也不能通过 REST 或 GraphQL 写入。
 - `when ( <条件> or <条件> ... )` 是**析取组**：组内 OR，组与其它 `when` 之间仍是 AND。例如 "我的租户 **或** 我自己的记录"：
 
@@ -261,7 +261,7 @@ restrict orders {
 ```
 
 - 叶子仍只能是"字段 vs claim"或"字段 vs 字面量"，或"字段 vs 字段"：`<field> ==|!=|<|<=|>|>= field <otherField>`（`<`/`<=`/`>`/`>=` 只用于跨字段；字面量比较仍用 `==`/`!=`/`in`/`notIn`）。
-- 跨字段两边必须是**同类可比字段**（Text/enum/UUID 文本类、Integer/Decimal/Money 数值类、DateTime 时间类），不能是主键；UUID 只允许 `==`/`!=`。类型不匹配在解析期失败。
+- 跨字段两边必须是**同类可比字段**（Text/enum/UUID 文本类、Integer/Decimal/Money 数值类、Date/Time/DateTime 时间类），不能是主键；UUID 只允许 `==`/`!=`。类型不匹配在解析期失败。
 - 缺 claim 的语义与析取组一致：只丢弃该分支；`not` 作用于不可用分支时**不会**变成"放行全部"——整个表达式无法求值时请求返回 403 `policy.missingClaim`。
 - 生成的 SQL 用 `and(...)`/`or(...)`/`not(...)` 与 `eq/ne/lt/lte/gt/gte` 拼装，REST / GraphQL / 导出 / 写入可见性检查共用同一 predicate。
 

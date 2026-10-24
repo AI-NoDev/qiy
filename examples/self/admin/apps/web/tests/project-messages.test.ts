@@ -98,6 +98,7 @@ test("switches model descriptions and falls back to the configured default local
   expect(createI18nProvider("zh-CN").translate("qiy.resources.purchase_orders.fields.supplierId.label")).toBe("供应商");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.purchase_orders.fields.status.label")).toBe("状态");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.purchase_orders.fields.orderedAt.label")).toBe("下单时间");
+  expect(createI18nProvider("zh-CN").translate("qiy.resources.purchase_orders.fields.expectedDate.label")).toBe("预计到货日期");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.purchase_orders.fields.total.label")).toBe("合计");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.purchase_order_lines.fields.id.label")).toBe("编号");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.purchase_order_lines.fields.purchaseOrderId.label")).toBe("采购单");
@@ -126,6 +127,7 @@ test("switches model descriptions and falls back to the configured default local
   expect(createI18nProvider("zh-CN").translate("qiy.resources.shipments.fields.warehouseId.label")).toBe("仓库");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.shipments.fields.status.label")).toBe("状态");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.shipments.fields.shippedAt.label")).toBe("发运时间");
+  expect(createI18nProvider("zh-CN").translate("qiy.resources.shipments.fields.departureTime.label")).toBe("发车时间");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.warehouses.fields.id.label")).toBe("编号");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.warehouses.fields.orgId.label")).toBe("组织");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.warehouses.fields.code.label")).toBe("编码");
@@ -368,6 +370,7 @@ test("switches model descriptions and falls back to the configured default local
   expect(createI18nProvider("en-US").translate("qiy.resources.purchase_orders.fields.supplierId.label")).toBe("Supplier");
   expect(createI18nProvider("en-US").translate("qiy.resources.purchase_orders.fields.status.label")).toBe("Status");
   expect(createI18nProvider("en-US").translate("qiy.resources.purchase_orders.fields.orderedAt.label")).toBe("Ordered at");
+  expect(createI18nProvider("en-US").translate("qiy.resources.purchase_orders.fields.expectedDate.label")).toBe("Expected date");
   expect(createI18nProvider("en-US").translate("qiy.resources.purchase_orders.fields.total.label")).toBe("Total");
   expect(createI18nProvider("en-US").translate("qiy.resources.purchase_order_lines.fields.id.label")).toBe("ID");
   expect(createI18nProvider("en-US").translate("qiy.resources.purchase_order_lines.fields.purchaseOrderId.label")).toBe("Purchase order");
@@ -396,6 +399,7 @@ test("switches model descriptions and falls back to the configured default local
   expect(createI18nProvider("en-US").translate("qiy.resources.shipments.fields.warehouseId.label")).toBe("Warehouse");
   expect(createI18nProvider("en-US").translate("qiy.resources.shipments.fields.status.label")).toBe("Status");
   expect(createI18nProvider("en-US").translate("qiy.resources.shipments.fields.shippedAt.label")).toBe("Shipped at");
+  expect(createI18nProvider("en-US").translate("qiy.resources.shipments.fields.departureTime.label")).toBe("Departure time");
   expect(createI18nProvider("en-US").translate("qiy.resources.warehouses.fields.id.label")).toBe("ID");
   expect(createI18nProvider("en-US").translate("qiy.resources.warehouses.fields.orgId.label")).toBe("Organization");
   expect(createI18nProvider("en-US").translate("qiy.resources.warehouses.fields.code.label")).toBe("Code");
@@ -638,6 +642,7 @@ test("switches model descriptions and falls back to the configured default local
   expect(projectMessage("en-US", "qiy.resources.purchase_orders.fields.supplierId.label")).toBe("Supplier");
   expect(projectMessage("en-US", "qiy.resources.purchase_orders.fields.status.label")).toBe("Status");
   expect(projectMessage("en-US", "qiy.resources.purchase_orders.fields.orderedAt.label")).toBe("Ordered at");
+  expect(projectMessage("en-US", "qiy.resources.purchase_orders.fields.expectedDate.label")).toBe("Expected date");
   expect(projectMessage("en-US", "qiy.resources.purchase_orders.fields.total.label")).toBe("Total");
   expect(projectMessage("en-US", "qiy.resources.purchase_order_lines.fields.id.label")).toBe("ID");
   expect(projectMessage("en-US", "qiy.resources.purchase_order_lines.fields.purchaseOrderId.label")).toBe("Purchase order");
@@ -666,6 +671,7 @@ test("switches model descriptions and falls back to the configured default local
   expect(projectMessage("en-US", "qiy.resources.shipments.fields.warehouseId.label")).toBe("Warehouse");
   expect(projectMessage("en-US", "qiy.resources.shipments.fields.status.label")).toBe("Status");
   expect(projectMessage("en-US", "qiy.resources.shipments.fields.shippedAt.label")).toBe("Shipped at");
+  expect(projectMessage("en-US", "qiy.resources.shipments.fields.departureTime.label")).toBe("Departure time");
   expect(projectMessage("en-US", "qiy.resources.warehouses.fields.id.label")).toBe("ID");
   expect(projectMessage("en-US", "qiy.resources.warehouses.fields.orgId.label")).toBe("Organization");
   expect(projectMessage("en-US", "qiy.resources.warehouses.fields.code.label")).toBe("Code");

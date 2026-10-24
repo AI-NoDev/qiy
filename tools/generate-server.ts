@@ -63,11 +63,91 @@ function apiFieldSchema(field: FieldIR, database: DatabaseIR): string {
     case "File": return "t.String({ minLength: 1, maxLength: 240 })";
     case "Files": return `t.Array(t.String({ minLength: 1, maxLength: 240 }), { minItems: 1, maxItems: ${field.maxFiles ?? 6} })`;
     case "Integer": return "t.Integer()";
+    // The temporal contract is validated by api/src/temporal.ts so malformed values
+    // return a documented 400 instead of TypeBox's 422: TypeBox has no strict
+    // calendar/`HH:mm:ss` format (its "date" format accepts 2026-2-3 and 2026-02-31).
+    case "Date":
+    case "Time": return "t.String({ minLength: 1, maxLength: 40 })";
     case "DateTime": return "t.String({ format: \"date-time\" })";
     case "Decimal":
     case "Money": return "t.String({ pattern: \"^-?[0-9]+(\\\\.[0-9]+)?$\" })";
     case "Vector": return `t.Array(t.Number(), { minItems: ${field.dimension}, maxItems: ${field.dimension} })`;
   }
+}
+
+/**
+ * Date and Time are text contracts shared by REST, GraphQL and CSV:
+ *   Date -> `YYYY-MM-DD`, Time -> `HH:mm:ss` (seconds default to `00`).
+ * DateTime keeps the existing ISO date-time string / timestamp column behaviour.
+ * TypeBox's registered `date` format is not strict and has no local-time format,
+ * so the generated server validates these two types explicitly.
+ */
+function renderTemporalModule(): string {
+  return `export type QiyTemporalFieldType = "Date" | "Time";
+
+export class QiyTemporalValueError extends Error {
+  readonly field: string;
+  readonly type: QiyTemporalFieldType;
+
+  constructor(field: string, type: QiyTemporalFieldType, value: unknown) {
+    const expected = type === "Date" ? "YYYY-MM-DD" : "HH:mm:ss";
+    super("Invalid " + type + " value for " + field + " (" + JSON.stringify(value ?? null) + "); expected " + expected);
+    this.name = "QiyTemporalValueError";
+    this.field = field;
+    this.type = type;
+  }
+}
+
+/** A calendar-valid date in the stored \`YYYY-MM-DD\` form. */
+export function isValidDateValue(value: string): boolean {
+  const match = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (year < 1 || month < 1 || month > 12 || day < 1) return false;
+  return day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+/** Normalizes \`HH:mm\` or \`HH:mm:ss\` to the stored \`HH:mm:ss\` form; undefined when invalid. */
+export function normalizeTimeValue(value: string): string | undefined {
+  const match = /^([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9]))?$/.exec(value);
+  return match ? match[1] + ":" + match[2] + ":" + (match[3] ?? "00") : undefined;
+}
+
+/**
+ * Validates and normalizes the declared Date/Time fields of one write payload.
+ * Absent, null and empty values are left untouched so nullable fields and PATCH
+ * bodies keep working; an invalid value throws QiyTemporalValueError (400).
+ */
+export function normalizeTemporalValues<T extends Record<string, unknown>>(values: T, types: Record<string, QiyTemporalFieldType>): T {
+  let next: Record<string, unknown> | undefined;
+  for (const [field, type] of Object.entries(types)) {
+    if (!Object.hasOwn(values, field)) continue;
+    const value = values[field];
+    if (value === null || value === undefined || value === "") continue;
+    if (typeof value !== "string") throw new QiyTemporalValueError(field, type, value);
+    if (type === "Date") {
+      if (!isValidDateValue(value)) throw new QiyTemporalValueError(field, type, value);
+      continue;
+    }
+    const normalized = normalizeTimeValue(value);
+    if (!normalized) throw new QiyTemporalValueError(field, type, value);
+    if (normalized !== value) {
+      next ??= { ...values };
+      next[field] = normalized;
+    }
+  }
+  return (next ?? values) as T;
+}
+`;
+}
+
+/** The declared Date/Time fields of an entity, in declaration order. */
+function temporalFieldsOf(entity: EntityIR): Array<[string, "Date" | "Time"]> {
+  return entity.fields
+    .filter((field): field is FieldIR & { type: "Date" | "Time" } => field.type === "Date" || field.type === "Time")
+    .map((field) => [field.name, field.type]);
 }
 
 function apiField(field: FieldIR, database: DatabaseIR): string {
@@ -513,7 +593,7 @@ function renderGraphQLTest(database: DatabaseIR, hiddenFields: string[] = []): s
   // generated schema, so neither the selection set nor the input may reference them.
   const values = visibleFields.filter((field) => !field.primaryKey && !field.nullable).map((field) => {
     const example = field.type === "Integer" ? "1" : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
-      : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
+      : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
         : field.enumName ? JSON.stringify(database.enums?.find((enumeration) => enumeration.name === field.enumName)?.values[0]?.name ?? "") : '"Example"';
     return `${JSON.stringify(field.name)}: ${example}`;
   }).join(", ");
@@ -627,7 +707,7 @@ function renderSqliteScopeTest(database: DatabaseIR, scopes: NonNullable<QiyProj
   const dateField = entity.fields.find((field) => field.type === "DateTime")?.name;
   const fields = entity.fields.filter((field) => !field.primaryKey && !field.nullable);
   const values = fields.map((field) => {
-    const value = field.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : field.type === "Integer" ? 1 : field.type === "Decimal" || field.type === "Money" ? "1.00" : field.enumName ? database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name : "Example";
+    const value = field.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : field.type === "Integer" ? 1 : field.type === "Decimal" || field.type === "Money" ? "1.00" : field.type === "Date" ? "2026-11-30" : field.type === "Time" ? "08:30:00" : field.enumName ? database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name : "Example";
     return `${JSON.stringify(field.name)}: ${field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : JSON.stringify(value)}`;
   }).join(", ");
   const columns = entity.fields.map((field) => `"${field.columnName ?? field.name}" ${field.type === "Integer" || field.type === "DateTime" ? "integer" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
@@ -682,6 +762,8 @@ ${dateField ? `  const { create${modelName(entity)}Service } = await import("../
 function previewRecord(entity: EntityIR, database: DatabaseIR, scope?: { field: string; value: string }): string {
   const values = entity.fields.map((field) => {
     if (field.type === "DateTime") return `${JSON.stringify(field.name)}: new Date().toISOString()`;
+    if (field.type === "Date") return `${JSON.stringify(field.name)}: ${JSON.stringify("2026-11-30")}`;
+    if (field.type === "Time") return `${JSON.stringify(field.name)}: ${JSON.stringify("08:30:00")}`;
     let value: unknown = null;
     if (field.name === scope?.field) value = scope.value;
     else if (field.primaryKey) value = "00000000-0000-4000-8000-000000000001";
@@ -972,7 +1054,8 @@ export function resolvePolicy(resource: string, principal: Principal | null, col
 `;
 }
 
-function renderRoutes(entity: EntityIR, database: DatabaseIR, scopes: Array<{ resource: string; field: string; claim: string }> = [], hiddenFields: string[] = [], restricted = false): string {
+function renderRoutes(entity: EntityIR, database: DatabaseIR, scopes: Array<{ resource: string; field: string; claim: string }> = [], hiddenFields: string[] = [], restricted = false, temporalErrorClass = ""): string {
+  const temporal = temporalFieldsOf(entity);
   const name = modelName(entity);
   const route = JSON.stringify(`/${entity.tableName}`);
   const scope = scopes.find((item) => item.resource === entity.name || item.resource === entity.tableName);
@@ -1007,6 +1090,11 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
   const resolveResourcePolicy = async (principal: Principal | null, request?: Request | null, scope?: { field: string; value: string }) => resolvePolicy(${JSON.stringify(entity.name)}, principal, policyColumns, scope ?? (request ? await resolveScope(request) : undefined));` : "";
   const policyErrorHandler = restricted
     ? ".onError(({ error, status }) => error instanceof QiyPolicyError ? status(error.status as 403, { error: error.message, errorKey: error.errorKey }) : undefined)"
+    : "";
+  // Malformed Date/Time payloads are rejected with a documented 400 instead of a
+  // generic 500 or TypeBox 422; the class comes from api/src/temporal.ts.
+  const temporalErrorHandler = temporalErrorClass
+    ? `.onError(({ error, status }) => error instanceof ${temporalErrorClass} ? status(400, { error: error.message }) : undefined)`
     : "";
   const redactRecordHelper = restricted
     ? `const redactRecord = (record: Record<string, unknown>, policy?: QiyPolicy) => redact(policy ? policy.mask(record) : record);`
@@ -1156,7 +1244,9 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
   const importValue = (field: string, value: string) => {
     if (value === "") return null;
     if (importTypes[field] === "Integer") { const parsed = Number(value); if (!Number.isFinite(parsed)) throw new Error("Column " + field + " must be an integer"); return parsed; }
-    if (importTypes[field] === "DateTime") { const parsed = new Date(value); if (Number.isNaN(parsed.getTime())) throw new Error("Column " + field + " must be an ISO date-time"); return parsed; }
+    if (importTypes[field] === "DateTime") { const parsed = new Date(value); if (Number.isNaN(parsed.getTime())) throw new Error("Column " + field + " must be an ISO date-time"); return parsed; }${temporal.length ? `
+    if (importTypes[field] === "Date") { const parsed = new Date(value + "T00:00:00Z"); if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(value) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) throw new Error("Column " + field + " must be a YYYY-MM-DD date"); return value; }
+    if (importTypes[field] === "Time") { const match = /^([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9]))?$/.exec(value); if (!match) throw new Error("Column " + field + " must be a HH:mm:ss time"); return match[1] + ":" + match[2] + ":" + (match[3] ?? "00"); }` : ""}
     return value;
   };
   const importWorkerId = crypto.randomUUID();
@@ -1292,7 +1382,7 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
     const result = await repository.list(query.page ?? 1, query.pageSize ?? 20, { ...query, filters, scope${restricted ? ", policy" : ""} });
     return { result, clauses: clauses.length, policy };
   };
-  return new Elysia({ prefix: ${route} })${privateInputGuard}${maskWriteGuard}\n    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)${policyErrorHandler}\n    .get("/aggregate", async ({ query, status, request }) => {
+  return new Elysia({ prefix: ${route} })${privateInputGuard}${maskWriteGuard}\n    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)${policyErrorHandler}${temporalErrorHandler}\n    .get("/aggregate", async ({ query, status, request }) => {
       ${restricted ? "const principal = await authenticate(request);\n      const policy = await resolveResourcePolicy(principal, request);\n      if (policy.maskedFields.includes(query.field)) return status(403, { error: \"Aggregating a masked field is not permitted\", errorKey: \"policy.maskedField\" });\n      " : ""}if (!["sum", "avg", "min", "max"].includes(query.op)) return status(400, { error: "Unsupported aggregate operator" });
       if (!(${JSON.stringify(entity.fields.filter((field) => ["Integer", "Decimal", "Money"].includes(field.type)).map((field) => field.name))} as string[]).includes(query.field)) return status(400, { error: "Unsupported aggregate field" });
       return repository.aggregate ? repository.aggregate(query.field, query.op as "sum" | "avg" | "min" | "max", await resolveScope(request)${restricted ? ", policy" : ""}) : { value: null, operator: query.op };
@@ -1847,7 +1937,7 @@ function renderRouteTest(entity: EntityIR, database: DatabaseIR, scopes: NonNull
   const claims = JSON.stringify(Object.fromEntries(scopes.map((scope) => [scope.claim, database.entities.find((item) => item.name === scope.resource || item.tableName === scope.resource)?.fields.find((field) => field.name === scope.field)?.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : "Example"])));
   const values = entity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => {
     const example = field.type === "Integer" ? "1" : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
-      : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
+      : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
         : field.enumName ? JSON.stringify(database.enums?.find((enumeration) => enumeration.name === field.enumName)?.values[0]?.name ?? "") : '"Example"';
     return `${JSON.stringify(field.name)}: ${example}`;
   }).join(", ");
@@ -1879,6 +1969,35 @@ function renderRouteTest(entity: EntityIR, database: DatabaseIR, scopes: NonNull
     expect(await created.json()).toEqual({ error: "Private fields cannot be written" });
     expect([...records.values()].some((record) => record[${JSON.stringify(field)}] === "attacker-controlled-hash")).toBe(false);
   });`).join("\n");
+  // Date and Time are text contracts validated in api/src/temporal.ts: a malformed
+  // value must be a documented 400 on create and update, and a bare `HH:mm` Time
+  // is normalized to the stored `HH:mm:ss` form.
+  const temporalFixtureFields = temporalFieldsOf(entity);
+  const invalidTemporalValue = (type: "Date" | "Time") => type === "Date" ? "not-a-date" : "25:61:00";
+  const temporalTests = temporalFixtureFields.map(([field, type]) => `
+  test("rejects an invalid ${type} value for ${field}", async () => {
+    records.clear();
+    const invalid = await app.handle(new Request(endpoint + "/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...({ ${values} } as Record<string, unknown>), ${JSON.stringify(field)}: ${JSON.stringify(invalidTemporalValue(type))} }) }));
+    expect(invalid.status).toBe(400);
+    expect(String((await invalid.json() as { error?: string }).error)).toContain(${JSON.stringify(field)});
+    const created = await app.handle(new Request(endpoint + "/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ${values} }) }));
+    expect(created.status).toBe(201);
+    const record = await created.json() as { id: string };
+    const patched = await app.handle(new Request(endpoint + "/" + record.id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ${JSON.stringify(field)}: ${JSON.stringify(invalidTemporalValue(type))} }) }));
+    expect(patched.status).toBe(400);
+  });`).join("\n");
+  const firstTimeField = temporalFixtureFields.find(([, type]) => type === "Time")?.[0];
+  const temporalNormalizationTest = firstTimeField
+    ? `
+  test("normalizes a HH:mm Time value to HH:mm:ss", async () => {
+    records.clear();
+    const created = await app.handle(new Request(endpoint + "/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...({ ${values} } as Record<string, unknown>), ${JSON.stringify(firstTimeField)}: "08:30" }) }));
+    expect(created.status).toBe(201);
+    expect((await created.json() as Record<string, unknown>)[${JSON.stringify(firstTimeField)}]).toBe("08:30:00");
+  });`
+    : "";
+  // Non-temporal resources keep the previous generated output byte-for-byte.
+  const temporalSection = temporalTests || temporalNormalizationTest ? `\n${temporalTests}${temporalNormalizationTest}` : "";
   return `import { describe, expect, test } from "bun:test";
 import { Elysia } from "elysia";
 import { ${name}Routes, type ${name}Repository } from "../src/routes/${entity.name}";
@@ -1981,7 +2100,7 @@ describe("${entity.tableName} CRUD", () => {
   });
 
 ${unsupportedQueryTests}
-${hiddenFieldTests}
+${hiddenFieldTests}${temporalSection}
 });
 `;
 }
@@ -3587,7 +3706,9 @@ function renderSqliteRealtimeOutboxTest(database: DatabaseIR, realtime: NonNulla
         : field.type === "Integer" ? String(variant)
           : field.type === "Decimal" || field.type === "Money" ? String(variant)
             : field.type === "DateTime" ? `new Date(${variant})`
-              : JSON.stringify(`Realtime fixture ${variant}`);
+              : field.type === "Date" ? JSON.stringify(`2026-11-${String(27 + variant).padStart(2, "0")}`)
+                : field.type === "Time" ? JSON.stringify(`0${variant}:30:00`)
+                  : JSON.stringify(`Realtime fixture ${variant}`);
     return `${JSON.stringify(field.name)}: ${value}`;
   }).join(", ");
   const repositoryName = `${modelName(entity)}Repository`;
@@ -3637,6 +3758,8 @@ function dataflowFixtureValue(field: FieldIR, requires: Array<{ field: string; o
   if (field.type === "Integer") return "1";
   if (field.type === "Decimal" || field.type === "Money") return "1";
   if (field.type === "DateTime") return "new Date(0)";
+  if (field.type === "Date") return '"2026-11-30"';
+  if (field.type === "Time") return '"08:30:00"';
   return "null";
 }
 
@@ -4693,8 +4816,8 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
         if (new Set(row.values ?? []).size !== (row.values ?? []).length) errors.push(`Restrict ${entity.name}: duplicate row value on ${row.field}`);
         if (!["==", "!=", "in", "notIn"].includes(row.operator)) errors.push(`Restrict ${entity.name}: unsupported row operator ${row.operator}`);
         if ((row.operator === "==" || row.operator === "!=") && (row.values ?? []).length !== 1) errors.push(`Restrict ${entity.name}: ${row.operator} on ${row.field} requires exactly one value`);
-        const comparable = ["Text", "Integer", "Decimal", "Money", "DateTime"].includes(field.type) || Boolean(field.enumName);
-        if (!comparable) errors.push(`Restrict ${entity.name}: value comparisons require Text, enum, Integer, Decimal, Money or DateTime field ${row.field}`);
+        const comparable = ["Text", "Integer", "Decimal", "Money", "Date", "Time", "DateTime"].includes(field.type) || Boolean(field.enumName);
+        if (!comparable) errors.push(`Restrict ${entity.name}: value comparisons require Text, enum, Integer, Decimal, Money, Date, Time or DateTime field ${row.field}`);
         if (row.operator === "in" || row.operator === "notIn") {
           if ((row.values ?? []).length > 64) errors.push(`Restrict ${entity.name}: ${row.operator} on ${row.field} accepts at most 64 values`);
         }
@@ -4899,6 +5022,7 @@ export const orderIdempotency = pgTable("order_idempotency", {
     "api/tests/saved-views.test.ts": renderSavedViewsTest(database.dialect, database.entities.map((entity) => entity.tableName)),
     "api/src/export-jobs.ts": renderExportJobsModule(database.dialect),
     "api/src/db.ts": database.dialect === "postgresql" ? `import { SQL } from "bun";\nimport { drizzle } from "drizzle-orm/bun-sql";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = new SQL(url);\nexport const db = drizzle({ client, schema });\n` : database.dialect === "sqlite" ? `import { Database } from "bun:sqlite";\nimport { drizzle } from "drizzle-orm/bun-sqlite";\nimport * as schema from "./schema";\n\nconst filename = Bun.env.DATABASE_URL ?? "./qiy.sqlite";\nexport const client = new Database(filename);\nexport const db = drizzle(client, { schema });\n` : `import mysql from "mysql2/promise";\nimport { drizzle } from "drizzle-orm/mysql2";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = mysql.createPool({ uri: url, timezone: "Z" });\nexport const db = drizzle({ client, schema, mode: "default" });\n`,
+    ...(database.entities.some((entity) => temporalFieldsOf(entity).length) ? { "api/src/temporal.ts": renderTemporalModule() } : {}),
     "api/src/schema-drift.ts": `import { isTable } from "drizzle-orm";
 import { getTableConfig } from "drizzle-orm/${database.dialect === "postgresql" ? "pg-core" : database.dialect === "mysql" ? "mysql-core" : "sqlite-core"}";
 import * as schema from "./schema";
@@ -6433,7 +6557,9 @@ export function createProductionAuthenticator() {
         const value = field.name === "displayName" ? "displayName"
           : field.type === "Integer" ? `Number(await terminal.question(${JSON.stringify(field.name + ": ")}))`
             : field.type === "DateTime" ? `new Date(await terminal.question(${JSON.stringify(field.name + " (ISO date-time): ")}))`
-              : `await terminal.question(${JSON.stringify(field.name + ": ")})`;
+              : field.type === "Date" ? `await terminal.question(${JSON.stringify(field.name + " (YYYY-MM-DD): ")})`
+                : field.type === "Time" ? `await terminal.question(${JSON.stringify(field.name + " (HH:mm:ss): ")})`
+                  : `await terminal.question(${JSON.stringify(field.name + ": ")})`;
         return `${JSON.stringify(field.name)}: ${value}`;
       }).join(",\n    ");
       files["api/src/auth/password.ts"] = `import { jwtVerify, SignJWT } from "jose";
@@ -6746,9 +6872,13 @@ export interface ListQuery {
 ${entityRestricted ? "  policy?: QiyPolicy;" : ""}
 }
 `;
-    files[`${moduleRoot}/${entity.name}.service.ts`] = `${entityRestricted ? 'import type { QiyPolicy } from "../../security/policy";\n' : ""}import type { ${modelName(entity)}Repository, ListQuery } from "./${entity.name}.contract";
+    const temporalFields = temporalFieldsOf(entity);
+    const temporalImport = temporalFields.length ? 'import { normalizeTemporalValues } from "../../temporal";\n' : "";
+    const temporalDeclaration = temporalFields.length ? `const temporalFields = ${JSON.stringify(Object.fromEntries(temporalFields))} as Record<string, "Date" | "Time">;\n` : "";
+    const normalizeWrite = (expression: string) => temporalFields.length ? `normalizeDates(normalizeTemporalValues(${expression}, temporalFields))` : `normalizeDates(${expression})`;
+    files[`${moduleRoot}/${entity.name}.service.ts`] = `${temporalImport}${entityRestricted ? 'import type { QiyPolicy } from "../../security/policy";\n' : ""}import type { ${modelName(entity)}Repository, ListQuery } from "./${entity.name}.contract";
  ${realtimeSubscription ? 'import { dispatchRealtimeOutbox } from "../../realtime";' : ""}
-const dateFields = ${JSON.stringify(entity.fields.filter((field) => field.type === "DateTime").map((field) => field.name))} as string[];
+${temporalDeclaration}const dateFields = ${JSON.stringify(entity.fields.filter((field) => field.type === "DateTime").map((field) => field.name))} as string[];
 function normalizeDates(values: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(values).map(([field, value]) => [field, dateFields.includes(field) && typeof value === "string" ? new Date(value) : value]));
 }
@@ -6763,8 +6893,8 @@ ${generatedDocumentation(entity)}export function create${modelName(entity)}Servi
     trend: (field: string, days: number, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.trend(field, days, scope${entityRestricted ? ", policy" : ""}),
     list: (page: number, pageSize: number, options?: ListQuery) => repository.list(page, pageSize, options),
     one: (id: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.one(id, scope${entityRestricted ? ", policy" : ""}),
-    create: ${realtimeEvents.has("created") ? `async (values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const record = await repository.create(normalizeDates(values), actorId, scope${entityRestricted ? ", policy" : ""}); await dispatchCommitted(); return record; }` : `(values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.create(normalizeDates(values), actorId, scope${entityRestricted ? ", policy" : ""})`},
-    update: ${realtimeEvents.has("updated") ? `async (id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const record = await repository.update(id, normalizeDates(values), actorId, scope${entityRestricted ? ", policy" : ""}); if (record) await dispatchCommitted(); return record; }` : `(id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.update(id, normalizeDates(values), actorId, scope${entityRestricted ? ", policy" : ""})`},
+    create: ${realtimeEvents.has("created") ? `async (values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const record = await repository.create(${normalizeWrite("values")}, actorId, scope${entityRestricted ? ", policy" : ""}); await dispatchCommitted(); return record; }` : `(values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.create(${normalizeWrite("values")}, actorId, scope${entityRestricted ? ", policy" : ""})`},
+    update: ${realtimeEvents.has("updated") ? `async (id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const record = await repository.update(id, ${normalizeWrite("values")}, actorId, scope${entityRestricted ? ", policy" : ""}); if (record) await dispatchCommitted(); return record; }` : `(id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.update(id, ${normalizeWrite("values")}, actorId, scope${entityRestricted ? ", policy" : ""})`},
     delete: ${realtimeEvents.has("deleted") ? `async (id: string, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const record = await repository.delete(id, actorId, scope${entityRestricted ? ", policy" : ""}); if (record) await dispatchCommitted(); return record; }` : `(id: string, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.delete(id, actorId, scope${entityRestricted ? ", policy" : ""})`},
     deleteMany: ${realtimeEvents.has("deleted") ? `async (ids: string[], actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const records = await repository.deleteMany(ids, actorId, scope${entityRestricted ? ", policy" : ""}); if (records.length) await dispatchCommitted(); return records; }` : `(ids: string[], actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.deleteMany(ids, actorId, scope${entityRestricted ? ", policy" : ""})`},
   };
@@ -6772,12 +6902,12 @@ ${generatedDocumentation(entity)}export function create${modelName(entity)}Servi
 `;
     files[`${moduleRoot}/${entity.name}.routes.ts`] = `import { Elysia, t } from "elysia";
 import type { Authenticator${entityRestricted ? "" : ", Principal"} } from "../../auth/guard";
-import { create${modelName(entity)}Service } from "./${entity.name}.service";
+${temporalFields.length ? 'import { QiyTemporalValueError } from "../../temporal";\n' : ""}import { create${modelName(entity)}Service } from "./${entity.name}.service";
 import { claimImportJob, createImportJob, isImportJobCancelled, listImportJobs, readImportJob, releaseStaleImportJobs, requestImportJobCancel, updateImportJob } from "../../import-jobs";
 import { claimExportJob, createExportJob, listExportJobs, readExportJob, updateExportJob } from "../../export-jobs";
 import type { ${modelName(entity)}Repository as ${modelName(entity)}RepositoryPort } from "./${entity.name}.contract";
 ${entityRestricted ? 'import { QiyPolicyError, resolvePolicy, type QiyPolicy } from "../../security/policy";\nimport { ' + entity.name + ' } from "../../schema";\nimport type { Principal } from "../../auth/guard";\n' : ""}
-${renderRoutes(publicEntity, database, options.scopes, hiddenFields, entityRestricted).replace(`repository: ${modelName(entity)}Repository`, `repository: ${modelName(entity)}RepositoryPort`).replace("  return new Elysia({", `  const service = create${modelName(entity)}Service(repository);\n  return new Elysia({`).replaceAll("repository.list(", "service.list(").replaceAll("repository.one(", "service.one(").replaceAll("repository.create(", "service.create(").replaceAll("repository.update(", "service.update(").replaceAll("repository.delete(", "service.delete(")}`;
+${renderRoutes(publicEntity, database, options.scopes, hiddenFields, entityRestricted, temporalFields.length ? "QiyTemporalValueError" : "").replace(`repository: ${modelName(entity)}Repository`, `repository: ${modelName(entity)}RepositoryPort`).replace("  return new Elysia({", `  const service = create${modelName(entity)}Service(repository);\n  return new Elysia({`).replaceAll("repository.list(", "service.list(").replaceAll("repository.one(", "service.one(").replaceAll("repository.create(", "service.create(").replaceAll("repository.update(", "service.update(").replaceAll("repository.delete(", "service.delete(")}`;
     files[`api/src/routes/${entity.name}.ts`] = `export { ${modelName(entity)}Routes } from "../modules/${entity.name}/${entity.name}.routes";\nexport type { ${modelName(entity)}Repository } from "../modules/${entity.name}/${entity.name}.contract";\n`;
     files[`api/tests/${entity.name}.test.ts`] = renderRouteTest(publicEntity, database, options.scopes ?? [], hiddenFields);
   }
@@ -6821,7 +6951,9 @@ ${database.entities.map((entity) => {
         : field.type === "Integer" ? 1
           : field.type === "Decimal" || field.type === "Money" ? "1.00"
             : field.type === "DateTime" ? "2026-10-06T00:00:00.000Z"
-                : field.type === "UUID" ? "00000000-0000-4000-8000-000000000002"
+              : field.type === "Date" ? "2026-11-30"
+                : field.type === "Time" ? "08:30:00"
+                  : field.type === "UUID" ? "00000000-0000-4000-8000-000000000002"
                   : field.type === "Vector" ? Array(field.dimension).fill(0)
                   : field.type === "Files" ? ["uploads/sample.pdf"]
                     : "Example";
@@ -7042,7 +7174,7 @@ ${scope ? `  const missing = await createApp(repositories, async () => ({ id: "a
   if (database.dialect === "sqlite") {
     const entity = database.entities[0]!;
     const columns = entity.fields.map((field) => `"${field.name}" ${field.type === "Integer" || field.type === "DateTime" ? "integer" : field.type === "Decimal" || field.type === "Money" ? "real" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
-    const values = entity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => `${JSON.stringify(field.name)}: ${field.enumName ? JSON.stringify(database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name) : field.type === "Integer" ? "1" : field.type === "Decimal" || field.type === "Money" ? '"1.00"' : field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"' : field.type === "Files" ? '["uploads/sample.pdf"]' : '"Example"'}`).join(", ");
+    const values = entity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => `${JSON.stringify(field.name)}: ${field.enumName ? JSON.stringify(database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name) : field.type === "Integer" ? "1" : field.type === "Decimal" || field.type === "Money" ? '"1.00"' : field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"' : field.type === "Files" ? '["uploads/sample.pdf"]' : '"Example"'}`).join(", ");
     files["api/tests/audit.test.ts"] = `import { expect, test } from "bun:test";
 
 test("SQLite CRUD audit rolls back the mutation when the audit insert fails", async () => {

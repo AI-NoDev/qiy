@@ -28,10 +28,14 @@ entity products table products @label("产品") @icon(AppstoreOutlined) {
 | `Text` | 字符串；配合枚举使用 |
 | `Integer` | 整数 |
 | `Decimal(p, s)` / `Money(p, s)` | 定点小数，`precision > 0`，`0 <= scale <= precision` |
-| `DateTime` | 时间戳 |
+| `Date` | 日期，存储/API 契约 `YYYY-MM-DD`；表单渲染日期 picker |
+| `Time` | 时间，存储/API 契约 `HH:mm:ss`；表单渲染时间 picker |
+| `DateTime` | 时间戳（ISO date-time）；表单渲染带时间的日期 picker |
 | `File` | 受保护的文件字段，生成上传/下载端点 |
 | `Vector(n)` | 向量，必须声明 `@extension(pgvector)` |
 | 枚举名 | 引用已声明的 `enum` |
+
+日期/时间三种类型共用一套字符串契约与显示格式化：生成表单按 `Date` / `Time` / `DateTime` 分别渲染 `DatePicker`、`TimePicker`、`DatePicker showTime`，编辑时把字符串转回 dayjs、提交时转回契约字符串；列表/详情/显示模板用当前语言本地化输出；服务端对非法日期/时间返回带字段名的 400。完整规则见 [entity 与 field：日期与时间](/dsl/entity#日期与时间date--time--datetime)。
 
 ## 字段属性
 

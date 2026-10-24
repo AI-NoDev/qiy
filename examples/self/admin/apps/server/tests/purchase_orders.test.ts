@@ -62,7 +62,7 @@ describe("purchase_orders CRUD", () => {
   test("creates, lists, reads, updates and deletes", async () => {
     records.clear();
     const created = await app.handle(new Request(endpoint + "/", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "number": "Example", "supplierId": "00000000-0000-4000-8000-000000000002", "status": "draft", "orderedAt": "2026-01-01T00:00:00.000Z", "total": "1.00" }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "number": "Example", "supplierId": "00000000-0000-4000-8000-000000000002", "status": "draft", "orderedAt": "2026-01-01T00:00:00.000Z", "expectedDate": "2026-11-30", "total": "1.00" }),
     }));
     expect(created.status).toBe(201);
     const record = await created.json() as { id: string };
@@ -83,10 +83,10 @@ describe("purchase_orders CRUD", () => {
     expect(deleted.status).toBe(200);
     expect((await app.handle(new Request(endpoint + "/" + record.id))).status).toBe(404);
     const firstBatchRecord = await app.handle(new Request(endpoint + "/", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "number": "Example", "supplierId": "00000000-0000-4000-8000-000000000002", "status": "draft", "orderedAt": "2026-01-01T00:00:00.000Z", "total": "1.00" }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "number": "Example", "supplierId": "00000000-0000-4000-8000-000000000002", "status": "draft", "orderedAt": "2026-01-01T00:00:00.000Z", "expectedDate": "2026-11-30", "total": "1.00" }),
     }));
     const secondBatchRecord = await app.handle(new Request(endpoint + "/", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "number": "Example", "supplierId": "00000000-0000-4000-8000-000000000002", "status": "draft", "orderedAt": "2026-01-01T00:00:00.000Z", "total": "1.00" }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "number": "Example", "supplierId": "00000000-0000-4000-8000-000000000002", "status": "draft", "orderedAt": "2026-01-01T00:00:00.000Z", "expectedDate": "2026-11-30", "total": "1.00" }),
     }));
     const firstBatchId = (await firstBatchRecord.json() as { id: string }).id;
     const secondBatchId = (await secondBatchRecord.json() as { id: string }).id;
@@ -101,4 +101,16 @@ describe("purchase_orders CRUD", () => {
 
 
 
+
+  test("rejects an invalid Date value for expectedDate", async () => {
+    records.clear();
+    const invalid = await app.handle(new Request(endpoint + "/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...({ "number": "Example", "supplierId": "00000000-0000-4000-8000-000000000002", "status": "draft", "orderedAt": "2026-01-01T00:00:00.000Z", "expectedDate": "2026-11-30", "total": "1.00" } as Record<string, unknown>), "expectedDate": "not-a-date" }) }));
+    expect(invalid.status).toBe(400);
+    expect(String((await invalid.json() as { error?: string }).error)).toContain("expectedDate");
+    const created = await app.handle(new Request(endpoint + "/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "number": "Example", "supplierId": "00000000-0000-4000-8000-000000000002", "status": "draft", "orderedAt": "2026-01-01T00:00:00.000Z", "expectedDate": "2026-11-30", "total": "1.00" }) }));
+    expect(created.status).toBe(201);
+    const record = await created.json() as { id: string };
+    const patched = await app.handle(new Request(endpoint + "/" + record.id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "expectedDate": "not-a-date" }) }));
+    expect(patched.status).toBe(400);
+  });
 });

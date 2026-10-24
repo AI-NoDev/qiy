@@ -1,5 +1,24 @@
 # V3 实施状态与验收规划
 
+## 日期与时间字段：Date / Time / DateTime 与对应的 Ant Design picker（2026-10-25 完成）
+
+**DSL/IR（已完成）：**
+
+- `FieldType` 新增标量 `Date` 与 `Time`（保留 `DateTime`）；parser 接受、serializer 往返，`DISPLAY_TEMPLATE_FIELD_TYPES` 与所有字段类型枚举（database IR 校验、web `resources.ts` FieldType、qiy 测试 fixture 校验、help/skill 文档）同步更新；
+- 存储契约跨方言一致：`Date` → PostgreSQL `date` / MySQL `date` / SQLite `text`，值为 `YYYY-MM-DD`；`Time` → PostgreSQL `time` / MySQL `time` / SQLite `text`，值为 `HH:mm:ss`；`DateTime` 保持 timestamp + ISO date-time；
+- `restrict` 字面量/跨字段比较把 Date/Time 归入时间类；dashboard trend 仍只接受 `DateTime` groupBy；qiy 测试场景 fixture 校验 `Date`/`Time` 字符串形状。
+
+**生成器（已完成）：**
+
+- 服务端：`api/src/temporal.ts`（`QiyTemporalValueError`、`isValidDateValue`、`normalizeTimeValue`、`normalizeTemporalValues`）在 service 写入路径校验，模块 routes 通过 `onError` 把非法值映射为 **400 + 字段名**；CSV 导入按同一契约校验；GraphQL 字段暴露为 `String`，服务层同样校验；Drizzle 列与迁移按方言映射；
+- Web：新增 `app/date-fields.ts`（`toFormValue` / `toPayloadValue` / `formatFieldValue`，纯函数）与 `components/date-field.tsx`（`DateFieldInput`，正确转发 `Form.Item` 注入的 `value`/`onChange`）；`resource-form.tsx` 对 `Date`/`Time`/`DateTime` 分别渲染 `DatePicker`、`TimePicker`、`DatePicker showTime`，编辑时字符串↔dayjs 双向转换；列表/详情/关联表/显示模板统一本地化格式化；`Date`/`DateTime` 的 `eq/gt/gte/lt/lte` 高级筛选也渲染 picker；新增 `qiy.pickDate`/`qiy.pickTime`/`qiy.pickDateTime` chrome 键与 `web/tests/date-fields.test.ts`。
+
+**演示与验收（已完成）：**
+
+- `examples/self`：采购单新增 `expectedDate Date`、发运单新增 `departureTime Time`，messages 增加中英 label，seed 写入真实日期/时间值；重新生成 287 文件、`db:generate`/`db:migrate`/seed 通过；
+- 验证：仓库 `bun run check` + `bun test`（296 pass，新增 `tests/temporal-fields.test.ts`）；生成 server typecheck + `bun run test`（157 pass / 3 skip）；生成 web typecheck + `bun run test`（65 pass）+ build；对运行中的 demo 执行 HTTP 断言（种子 Date/Time 读回、合法 create 201、非法 Date/Time 400 并含字段名、`HH:mm`→`HH:mm:ss`、按 Date 排序/过滤、GraphQL `String` 类型与非法值 error）全部通过；picker 页面 `/purchase_orders/create|:id/edit`、`/shipments/create|:id/edit` 返回 200；
+- 限制：`in`/`between` 的 Date 过滤仍使用逗号分隔文本（未做区间 picker）；日期显示依赖浏览器 `Intl` 本地时区；`Date`/`Time` 不参与 trend/aggregate 指标。
+
 ## 权限系统：原子权限 / 权限组 / provider / 校验块 / 命令 allow（2026-10-25 完成）
 
 **DSL/IR（已完成）：**

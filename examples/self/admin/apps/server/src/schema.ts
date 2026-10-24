@@ -64,6 +64,7 @@ export const purchase_orders = sqliteTable("purchase_orders", {
   "supplierId": text("supplierId").references(() => suppliers["id"], { onDelete: "restrict" }).notNull(),
   "status": text("status").notNull(),
   "orderedAt": integer("orderedAt", { mode: "timestamp_ms" }).notNull(),
+  "expectedDate": text("expectedDate").notNull(),
   "total": real("total").notNull(),
 });
 
@@ -107,6 +108,7 @@ export const shipments = sqliteTable("shipments", {
   "warehouseId": text("warehouseId").notNull(),
   "status": text("status").notNull(),
   "shippedAt": integer("shippedAt", { mode: "timestamp_ms" }),
+  "departureTime": text("departureTime"),
 });
 
 export const warehouses = sqliteTable("warehouses", {

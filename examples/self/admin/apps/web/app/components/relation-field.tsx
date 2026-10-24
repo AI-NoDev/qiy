@@ -6,6 +6,7 @@ import { Link } from "react-router";
 import { mergeRelationOptions, type QiyRelationOption } from "../relation-options";
 import { getResource, type ResourceDefinition, type ResourceField } from "../resources";
 import { displayFieldValue, recordDisplayText, relationDetailHtml, type DisplayTemplateOptions, type DisplayTranslate } from "../display-template";
+import { formatFieldValue } from "../date-fields";
 
 /**
  * Foreign-key rendering. A FK cell never shows a raw UUID: it shows the target
@@ -22,13 +23,13 @@ import { displayFieldValue, recordDisplayText, relationDetailHtml, type DisplayT
  * related-record tables and drawers cannot share without duplicating the fetch
  * path; each FK cell already needs its target record for the drawer body.
  */
-export function displayOptions(resource: ResourceDefinition | undefined, translate: DisplayTranslate): DisplayTemplateOptions {
-  return { fields: resource?.fields, translate };
+export function displayOptions(resource: ResourceDefinition | undefined, translate: DisplayTranslate, locale?: string): DisplayTemplateOptions {
+  return { fields: resource?.fields, translate, ...(locale ? { locale } : {}) };
 }
 
 /** Plain text label for a related record (drawer title, list cell, select option). */
-export function relatedRecordLabel(resource: ResourceDefinition | undefined, record: Record<string, unknown> | undefined, translate: DisplayTranslate, labelField?: string): string {
-  return recordDisplayText(resource, record, displayOptions(resource, translate), labelField);
+export function relatedRecordLabel(resource: ResourceDefinition | undefined, record: Record<string, unknown> | undefined, translate: DisplayTranslate, labelField?: string, locale?: string): string {
+  return recordDisplayText(resource, record, displayOptions(resource, translate, locale), labelField);
 }
 
 export function relatedEntityTitle(resource: ResourceDefinition | undefined, translate: DisplayTranslate): string {
@@ -44,14 +45,15 @@ interface RelationLinkProps {
 }
 
 function RelationLink({ target, resource, id, labelField }: RelationLinkProps) {
-  const { translate } = useTranslation();
+  const { translate, getLocale } = useTranslation();
+  const locale = getLocale();
   const [open, setOpen] = useState(false);
   const { result, query } = useOne<Record<string, unknown>>({ resource, id, queryOptions: { enabled: Boolean(resource && id), staleTime: 60_000, retry: false } });
   const record = (result?.data ?? undefined) as Record<string, unknown> | undefined;
   const display = translate as unknown as DisplayTranslate;
-  const text = relatedRecordLabel(target, record, display, labelField);
+  const text = relatedRecordLabel(target, record, display, labelField, locale);
   const title = relatedEntityTitle(target, display);
-  const detailHtml = relationDetailHtml(target, record, displayOptions(target, display));
+  const detailHtml = relationDetailHtml(target, record, displayOptions(target, display, locale));
   return (
     <>
       <Link
@@ -76,7 +78,7 @@ function RelationLink({ target, resource, id, labelField }: RelationLinkProps) {
               <Descriptions bordered size="small" column={1}>
                 {(target?.fields ?? []).filter((field) => field.showVisible && field.type !== "Vector" && field.type !== "File" && field.type !== "Files").slice(0, 8).map((field) => (
                   <Descriptions.Item key={field.name} label={translate(field.labelKey, {}, field.label)}>
-                    {field.enumValues ? <Tag>{displayFieldValue(field.name, record, displayOptions(target, display)) ?? "—"}</Tag> : String(record[field.name] ?? "—")}
+                    {field.enumValues ? <Tag>{displayFieldValue(field.name, record, displayOptions(target, display, locale)) ?? "—"}</Tag> : formatFieldValue(field.type, record[field.name], locale) || "—"}
                   </Descriptions.Item>
                 ))}
               </Descriptions>
@@ -93,8 +95,9 @@ function RelationLink({ target, resource, id, labelField }: RelationLinkProps) {
 
 /** Renders one foreign-key value. A missing relation (or empty value) degrades to plain text. */
 export function RelationCell({ field, value }: { field: ResourceField; value: unknown }) {
+  const { getLocale } = useTranslation();
   const relation = field.relation;
-  if (!relation) return <>{value === null || value === undefined || value === "" ? "—" : String(value)}</>;
+  if (!relation) return <>{formatFieldValue(field.type, value, getLocale()) || "—"}</>;
   const id = value === null || value === undefined || value === "" ? "" : String(value);
   if (!id) return <>—</>;
   return <RelationLink target={getResource(relation.resource)} resource={relation.resource} id={id} labelField={relation.labelField} />;

@@ -117,3 +117,15 @@ test("identity fixtures reject invalid roles, references, duplicates and claim t
   expect(() => validateQiyTestSuite(parseQiyTestSuite(source.replace('"tenant.id" = review.tenantId;', '"tenant.id" = 123;')), project)).toThrow("invalid value for scope claim");
   expect(() => parseQiyTestSuite(source.replace('role = "operator";', ''))).toThrow("identity requires id and role");
 });
+
+test("scenario fixtures validate Date and Time text contracts", () => {
+  const model = projectSource.replace("field note Text;", "field note Text;\n    field dueDate Date;\n    field shiftStart Time;");
+  const project = parseQiyProject(model);
+  const valid = parseQiyTestSuite(suiteSource.replace('note = "Requires policy approval";', 'note = "Requires policy approval";\n    dueDate = "2026-11-30";\n    shiftStart = "08:30:00";'));
+  validateQiyTestSuite(valid, project);
+  const generated = generateProject(project.database, project.name, { dataflows: project.dataflows, testSuite: valid })["apps/server/tests/qiy-scenarios.test.ts"]!;
+  expect(generated).toContain('"2026-11-30","08:30:00"');
+  expect(() => validateQiyTestSuite(parseQiyTestSuite(suiteSource.replace('note = "Requires policy approval";', 'note = "Requires policy approval";\n    dueDate = "30-11-2026";')), project)).toThrow("invalid value for reviews.dueDate");
+  expect(() => validateQiyTestSuite(parseQiyTestSuite(suiteSource.replace('note = "Requires policy approval";', 'note = "Requires policy approval";\n    dueDate = "2026-11-30";\n    shiftStart = "25:00";')), project)).toThrow("invalid value for reviews.shiftStart");
+  expect(() => validateQiyTestSuite(parseQiyTestSuite(suiteSource.replace('note = "Requires policy approval";', 'note = "Requires policy approval";\n    dueDate = "2026-11-30";')), project)).toThrow("requires reviews.shiftStart");
+});
