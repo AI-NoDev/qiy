@@ -12,14 +12,34 @@ OIDC、OAuth2 和企业 SSO 也可以使用 `subjectField` 映射外部身份：
 auth { provider oidc; user users; subjectField externalSubject; roleField role; }
 ```
 
+同一个应用可以同时启用密码登录和多个 OAuth Provider（混合认证）：
+
+```qiy
+auth {
+  providers local, okta, keycloak, google;
+  user users;
+  subjectField subject;
+  roleField role;
+  usernameField email;
+  passwordField passwordHash;
+  profileField oauthProfiles;
+  provider okta { subjectField oktaSubject; }
+  provider keycloak { subjectField keycloakSubject; }
+  provider google { subjectField googleSubject; }
+}
+```
+
 | 字段 | 说明 |
 | --- | --- |
-| `provider` | `local`、`otp`、`oidc`、`oauth2`、`sso`、`okta`、`auth0`、`azure-ad-b2c`、`keycloak`、`google` 或 `kinde` |
+| `provider` | `local`、`otp`、`oidc`、`oauth2`、`sso`、`okta`、`auth0`、`azure-ad-b2c`、`keycloak`、`google` 或 `kinde`。单 Provider 写法 |
+| `providers` | Provider 列表；可包含 `local`（混合认证），不能包含 `otp`、不能重复，且与单个 `provider` 互斥 |
+| `local` | 由生成器推导：`providers` 列表包含 `local` 或 `provider local` 时为 `true`；DSL 中不直接书写 |
 | `user` | 用户实体名，必须存在 |
-| `subjectField` | 外部身份 ID 映射到的字段，通常对应 `sub` |
+| `subjectField` | 外部身份 ID 映射到的字段，通常对应 `sub`。混合认证中它是必填的唯一规范身份列（onboarding 写入 `<provider>:<subject>`） |
 | `roleField` | 角色字段，通常引用枚举 |
 | `usernameField` | 本地密码或 OTP 登录标识字段；必须是唯一、非空的 Text 字段 |
 | `passwordField` | 本地密码哈希字段；只用于服务端验证，不进入 API schema |
+| `profileField` | 可选的可空 Text 字段：保存每个 Provider 返回的 email/name/sub（JSON），供个人中心展示绑定信息 |
 
 ## 用户模型
 
@@ -112,9 +132,9 @@ Qiy 会向 `QIY_OTP_DELIVERY_URL` POST `{ recipient, code, expiresIn: 300 }`，�
 
 ## 生成结果
 
-- server：本地 Argon2id 密码验证、OTP challenge/verify，或 OIDC/OAuth2/SSO 的 JWKS、issuer、audience 校验与角色守卫；
+- server：本地 Argon2id 密码验证、OTP challenge/verify，或 OIDC/OAuth2/SSO 的 JWKS、issuer、audience 校验与角色守卫；混合认证还会生成 `auth/hybrid.ts`（组合密码会话与 Provider token）、`auth/account.ts`（`GET /api/v1/auth/identities`）以及 onboarding/绑定的路由；
 - web：Refine `AuthProvider`、`AccessControlProvider`、`Authenticated` 与登录页；
-- 路由：本地 `AuthPage`、OTP 两阶段登录页，以及外部身份的 PKCE 登录与 callback 页面。
+- 路由：本地 `AuthPage`、OTP 两阶段登录页、外部身份的 PKCE 登录与 callback 页面，混合认证额外生成 `/auth/onboarding` 与 `/profile`。
 
 ## 页面级权限
 
@@ -152,7 +172,7 @@ auth {
 }
 ```
 
-- `providers` 与单个 `provider` 互斥；列表只接受 OIDC 家族 Provider（不能混入 local/otp），且不能重复；
+- `providers` 与单个 `provider` 互斥；列表只接受 OIDC 家族 Provider 和可选的 `local`（`local` 表示同时开启密码登录，见下一节），不能包含 `otp`，且不能重复；
 - `provider <id> { subjectField <field>; [claim <claim>;] }` 为该 Provider 指定用户表列与身份 claim（默认 claim 是 `sub`）；映射的 Provider 必须出现在 `providers` 中；
 - 未配置 `ISSUER/AUDIENCE/JWKS_URL` 的 Provider 会在运行时自动禁用，不会阻塞其它 Provider；
 - 生成器额外提供 `GET /api/v1/auth/providers`（只含公开字段：authorize/token URL、client id、scope、redirect URI），生成 Web 的登录页用它渲染 Provider 按钮（PKCE），回调按 Provider 完成 token 交换。
@@ -166,8 +186,46 @@ auth {
 | `QIY_OIDC_<ID>_JWKS_URL` | 是 | 该 Provider 的 JWKS 地址（便于 Keycloak/B2C 等按 policy 区分） |
 | `QIY_OIDC_<ID>_AUTHORIZATION_URL` / `_TOKEN_URL` / `_CLIENT_ID` | 登录页需要 | 公开客户端 PKCE 配置 |
 | `QIY_OIDC_<ID>_SCOPE` / `_REDIRECT_URI` / `_LOGOUT_URL` | 否 | 默认 `openid profile email`，redirect 可用全局 `QIY_OIDC_REDIRECT_URI` |
+| `QIY_OIDC_<ID>_CLIENT_SECRET` | confidential client 需要 | 只存在服务端，用于 BFF 的 code 交换；绝不放进 `VITE_*` |
 
 离线验收：`bun run tools/verify-multi-provider.ts` 会生成一个多 Provider 应用、用本地 JWKS 服务签真实 RS256 token，验证：按 issuer 路由、默认 `iss|sub` 映射、`openid` 非 sub claim 映射到专用列、未知 issuer/伪造签名拒绝、公开 Provider 列表只包含已配置项。
+
+## 混合登录：密码 + OAuth（首次登录开通与账号绑定）
+
+`providers` 列表里加 `local` 即可生成混合认证：一张 `/auth/login` 页面同时渲染 Refine `AuthPage` 的账号密码表单和所有已配置 Provider 按钮。服务端生成 `auth/hybrid.ts`，把 `issuer=qiy-admin` 的密码会话（HS256，12 小时）与按 `iss` 路由的 Provider token 合成同一个 Bearer 认证器。
+
+约束（生成器校验）：
+
+- `providers` 含 `local` 时必须同时声明 `usernameField` 与 `passwordField`；
+- 每个 OAuth Provider 必须有**自己的** `subjectField` 映射，且该列必须是**可空 + 唯一**的 Text（本地密码账号没有该 Provider 身份，绑定也需要唯一性）；
+- `subjectField`（规范身份列）仍是必填唯一列，onboarding 写入 `<provider>:<subject>`；
+- `profileField` 若声明，必须是可空 Text；
+- 用户表里除自动填充列（id/username/password/role/subject/email/displayName/profile 与各 Provider 身份列）以外的必填字段必须可空，否则 onboarding 无法创建账号，生成阶段直接报错。
+
+### 端点
+
+| 端点 | 认证 | 说明 |
+| --- | --- | --- |
+| `POST /api/v1/auth/login` | 公开 | 账号密码登录，返回 Qiy 会话 token |
+| `GET /api/v1/auth/providers` | 公开 | 返回 `{ providers, local: true }` 供登录页渲染按钮 |
+| `POST /api/v1/auth/exchange` | 公开 | BFF 完成 code 兑换与 id_token 验签；已有身份直接返回会话；新身份返回 `{ needsOnboarding: true, onboardingToken, profile }` |
+| `POST /api/v1/auth/oauth/register` | 公开 + onboarding token | `{ onboardingToken, username, email?, password }` 创建用户行、写入 Provider 身份列与密码哈希、按 `QIY_OIDC_DEFAULT_ROLE` 赋角色，返回会话 token |
+| `POST /api/v1/auth/bind` | Bearer | `{ provider, code, codeVerifier, redirectUri }` 或 `{ onboardingToken }`：把该 Provider 身份写入当前账号；身份已属于其它账号时 409 |
+| `POST /api/v1/auth/unbind` | Bearer | `{ provider }` 解绑；没有密码且没有其它绑定时 409（拒绝移除最后一个登录方式） |
+| `GET /api/v1/auth/identities` | Bearer | 账号信息、是否设置密码、每个 Provider 的绑定状态与记录的 email/name |
+
+`onboardingToken` 是 HS256 签名 JWT：`iss/aud = qiy-admin`、`typ = qiy-onboarding`、10 分钟有效，`QIY_AUTH_SECRET`（至少 32 字符）签名；注册接口只信任 token 里的身份，不信任客户端提交的 Provider/subject。
+
+### 环境变量
+
+| 变量 | 说明 |
+| --- | --- |
+| `QIY_AUTH_SECRET` | 至少 32 字符；签发密码会话与 onboarding 令牌，缺失时服务启动失败 |
+| `QIY_OIDC_DEFAULT_ROLE` | 首次 OAuth onboarding 创建账号的角色：`admin` / `operator` / `viewer`，默认 `viewer` |
+| `QIY_OIDC_<ID>_*` | 每个 Provider 的验签与 PKCE 配置，同上表 |
+
+未配置任何 Provider 的混合项目仍可用密码登录启动（`/auth/providers` 返回空按钮列表）；配置了 Provider 但没有历史用户行时，第一次 OAuth 登录会走 onboarding 而不再返回 401。
+
 
 ## 源码仓库认证验收
 

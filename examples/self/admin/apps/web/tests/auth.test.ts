@@ -11,9 +11,9 @@ beforeAll(() => {
 });
 afterAll(() => { Object.defineProperty(globalThis, "window", { configurable: true, value: originalWindow }); globalThis.fetch = originalFetch; });
 
-test("authenticates using the configured identity provider", async () => {
+test("authenticates using username and password", async () => {
   expect((await qiyAuthProvider.check({})).authenticated).toBe(false);
-  tokens.set("qiy.access_token", "test-token");
+  expect((await qiyAuthProvider.login({ username: "admin", password: "correct-password" })).success).toBe(true); expect(tokens.get("qiy.access_token")).toBe("local-test-token");
   expect((await qiyAuthProvider.check({})).authenticated).toBe(true);
 });
 

@@ -2,11 +2,11 @@ import { qiyLiveProvider } from "./providers/live-provider";
 import { auditLogProvider } from "./providers/audit-log-provider";
 import "antd/dist/reset.css";
 import "./styles.css";
-import { Select, Space, Typography, theme } from "antd";
+import { Button, Select, Space, Typography, theme } from "antd";
 import { Refine, useTranslation, type I18nProvider } from "@refinedev/core";
 import { RefineKbar, RefineKbarProvider } from "@refinedev/kbar";
 import routerProvider from "@refinedev/react-router";
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import { Link, Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useEffect, useMemo, useState } from "react";
 import { qiyIcons } from "./icons";
 import { dataProvider } from "./data-provider";
@@ -58,7 +58,7 @@ function RefineApplication({ i18nProvider }: { i18nProvider: I18nProvider }) {
       edit: `/${resource.name}/:id/edit`,
     }))]}
     options={{ syncWithLocation: true, warnWhenUnsavedChanges: true, mutationMode: "pessimistic" }}
-  >{location.pathname.startsWith("/auth/") ? <Outlet /> : <Authenticated key="protected" fallback={<Navigate to="/auth/login" replace />}> <QiyThemedLayout
+  >{location.pathname.startsWith("/auth/") || location.pathname.startsWith("/oauth/") ? <Outlet /> : <Authenticated key="protected" fallback={<Navigate to="/auth/login" replace />}> <QiyThemedLayout
     Title={({ collapsed }: { collapsed?: boolean }) => <QiyThemedTitle collapsed={collapsed ?? false} text="Qiy Admin" />}
     Header={() => <AdminHeader />}
   ><Outlet /></QiyThemedLayout></Authenticated>}<RefineKbar /></Refine></RefineKbarProvider>;
@@ -69,6 +69,7 @@ function AdminHeader() {
   const { token } = theme.useToken();
   return <header className="qiy-header" style={{ background: token.colorBgElevated, color: token.colorText, borderBottom: `1px solid ${token.colorBorderSecondary}` }}><Space wrap style={{ width: "100%", justifyContent: "flex-end" }}>
     <Typography.Text type="secondary">Qiy Admin</Typography.Text>
+    <Link to="/profile"><Button type="link">Profile</Button></Link>
     <QiyThemeControls />
     <Select aria-label="Language" value={getLocale()} onChange={(value) => void changeLocale(value)} options={languageOptions} />
   </Space></header>;

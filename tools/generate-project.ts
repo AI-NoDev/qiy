@@ -4,6 +4,7 @@ import { generateEnvironmentFiles } from "./environment-files";
 import { generateServer } from "./generate-server";
 import { generateWeb } from "./generate-web";
 import type { QiyProject } from "./qiy-project";
+import { authHasLocal, authIsHybrid, authOAuthProviders, authUsesProviderChooser } from "./qiy-project";
 import type { QiyTestSuite } from "./qiy-test";
 
 type ProjectOptions = Pick<QiyProject, "comment" | "commentKey" | "mode" | "integration" | "ui" | "messages" | "dataflows" | "actions" | "apiClient" | "corsOrigins" | "elysiaPlugins" | "menuGroups" | "dashboardMetrics" | "realtime" | "storageProvider" | "auth" | "environment" | "scopes" | "restrictions" | "pages" | "workflows"> & { testSuite?: QiyTestSuite };
@@ -35,7 +36,7 @@ export function generateProject(database: DatabaseIR, name: string, options: Pro
   if (options.elysiaPlugins?.jwt) {
     template["apps/server/tests/setup.ts"] += `Bun.env[${JSON.stringify(options.elysiaPlugins.jwt.secretEnv)}] ??= "qiy-test-only-jwt-secret";\n`;
   }
-  if (options.auth?.provider === "local" || options.auth?.provider === "otp") template["apps/server/tests/setup.ts"] += 'Bun.env.QIY_AUTH_SECRET ??= "qiy-local-auth-test-secret-value-32";\n';
+  if ((options.auth && authHasLocal(options.auth)) || options.auth?.provider === "otp") template["apps/server/tests/setup.ts"] += 'Bun.env.QIY_AUTH_SECRET ??= "qiy-local-auth-test-secret-value-32";\n';
   if (options.realtime) template["apps/server/tests/setup.ts"] += 'Bun.env.QIY_REALTIME_DISABLED = "1";\n';
   const files = { ...generateServer(database, options), ...generateWeb(database, options) };
   const apps = Object.fromEntries(Object.entries(files).map(([path, content]) => [
@@ -65,7 +66,7 @@ export function generateProject(database: DatabaseIR, name: string, options: Pro
     serverPackage.dependencies = { ...serverPackage.dependencies, ...generatedServerPackage.dependencies };
     apps["apps/server/package.json"] = `${JSON.stringify(serverPackage, null, 2)}\n`;
   }
-  if (options.auth?.provider === "local") {
+  if (options.auth && authHasLocal(options.auth)) {
     const serverPackage = JSON.parse(apps["apps/server/package.json"]!) as { scripts: Record<string, string> };
     serverPackage.scripts["auth:bootstrap-admin"] = "bun src/auth/bootstrap-admin.ts";
     serverPackage.scripts["auth:set-password"] = "bun src/auth/set-password.ts";
@@ -82,7 +83,7 @@ export function generateProject(database: DatabaseIR, name: string, options: Pro
   serverPackage.scripts["db:backup"] = "bun --env-file=.env.production src/db-backup.ts";
   serverPackage.scripts["db:restore"] = "bun --env-file=.env.production src/db-restore.ts";
   serverPackage.scripts["db:check"] = "bun --env-file=.env.development src/db-check.ts";
-  if (options.auth?.provider === "local") {
+  if (options.auth && authHasLocal(options.auth)) {
     serverPackage.scripts["auth:bootstrap-admin"] = "bun --env-file=.env.production src/auth/bootstrap-admin.ts";
     serverPackage.scripts["auth:set-password"] = "bun --env-file=.env.production src/auth/set-password.ts";
   }
@@ -357,20 +358,38 @@ function renderEnvironmentExample(
     ["QIY_STORAGE_PROVIDER", options.storageProvider ?? "local"],
     ["QIY_STORAGE_ROOT", "./storage"],
   ]);
-  if (options.auth?.provider === "local" || options.auth?.provider === "otp") values.set("QIY_AUTH_SECRET", "");
-  if (options.auth?.provider === "otp") {
+  const auth = options.auth;
+  const authOAuth = auth ? authOAuthProviders(auth) : [];
+  const providerChooser = Boolean(auth && authUsesProviderChooser(auth));
+  if (auth && authHasLocal(auth)) values.set("QIY_AUTH_SECRET", "");
+  if (auth?.provider === "otp") {
     values.set("QIY_OTP_DELIVERY_URL", "");
     values.set("QIY_OTP_DELIVERY_TOKEN", "");
     values.set("QIY_OTP_DELIVERY_TIMEOUT_MS", "10000");
     values.set("QIY_OTP_DEV_CODE", "");
   }
-  if (options.auth && options.auth.provider !== "local" && options.auth.provider !== "otp") {
-    values.set("QIY_OIDC_ISSUER", "");
-    values.set("QIY_OIDC_AUDIENCE", "");
-    values.set("QIY_OIDC_JWKS_URL", "");
+  if (auth && authOAuth.length > 0) {
     values.set("QIY_OIDC_JWKS_TIMEOUT_MS", "5000");
     values.set("QIY_OIDC_JWKS_COOLDOWN_MS", "30000");
     values.set("QIY_OIDC_JWKS_CACHE_MAX_AGE_MS", "600000");
+  }
+  if (auth && providerChooser) {
+    for (const provider of authOAuth) {
+      const suffix = provider.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+      values.set(`QIY_OIDC_${suffix}_ISSUER`, "");
+      values.set(`QIY_OIDC_${suffix}_AUDIENCE`, "");
+      values.set(`QIY_OIDC_${suffix}_JWKS_URL`, "");
+      values.set(`QIY_OIDC_${suffix}_AUTHORIZATION_URL`, "");
+      values.set(`QIY_OIDC_${suffix}_TOKEN_URL`, "");
+      values.set(`QIY_OIDC_${suffix}_CLIENT_ID`, "");
+      values.set(`QIY_OIDC_${suffix}_SCOPE`, "openid profile email");
+      values.set(`QIY_OIDC_${suffix}_REDIRECT_URI`, "");
+    }
+    if (authIsHybrid(auth)) values.set("QIY_OIDC_DEFAULT_ROLE", "viewer");
+  } else if (auth && authOAuth.length === 1) {
+    values.set("QIY_OIDC_ISSUER", "");
+    values.set("QIY_OIDC_AUDIENCE", "");
+    values.set("QIY_OIDC_JWKS_URL", "");
   }
   if (options.corsOrigins?.length) values.set("QIY_CORS_ORIGINS", options.corsOrigins.join(","));
   if (options.elysiaPlugins?.jwt) values.set(options.elysiaPlugins.jwt.secretEnv, "");
@@ -396,13 +415,15 @@ function renderEnvironmentExample(
     "# Docker Compose also loads this file; use a database hostname reachable from the container.",
     ...[...values].map(([key, value]) => `${key}=${value}`),
   ];
-  if (options.auth?.provider === "local") {
-    lines.push("", "# Required for local password auth. Generate a unique value with: openssl rand -hex 32");
+  if (auth && authHasLocal(auth)) {
+    lines.push("", "# Required for local password auth and OAuth onboarding tokens. Generate a unique value with: openssl rand -hex 32");
   }
-  if (options.auth?.provider === "otp") {
+  if (auth?.provider === "otp") {
     lines.push("", "# Required for OTP auth. Use an HTTPS delivery adapter in production; never set QIY_OTP_DEV_CODE there.");
   }
-  if (options.auth && options.auth.provider !== "local" && options.auth.provider !== "otp") {
+  if (auth && providerChooser) {
+    lines.push("", "# Required for each configured OAuth/OIDC provider (QIY_OIDC_<PROVIDER>_*). Set CLIENT_SECRET server-side only for confidential clients.", ...(authIsHybrid(auth) ? ["# QIY_OIDC_DEFAULT_ROLE is the role of accounts created by first-time OAuth onboarding (default viewer)."] : []));
+  } else if (auth && authOAuth.length === 1) {
     lines.push("", "# Required for OIDC/OAuth2/SSO access-token verification. These are issuer/JWKS settings, not OAuth client credentials.");
   }
   if (options.elysiaPlugins?.jwt) lines.push("", "# Required by the configured Elysia JWT plugin.");

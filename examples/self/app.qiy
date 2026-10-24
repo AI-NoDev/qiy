@@ -1,10 +1,11 @@
-﻿qiy v0;
+qiy v0;
 
 # Supply chain + ERP + WMS in one generated Qiy application.
 #
-# The login page lets the operator choose among every configured OIDC provider
-# (multi-select). Each provider may map its own identifier into a dedicated user
-# column: Google by `sub`, an OpenID-style provider by `openid`.
+# One login page offers password login plus every configured OIDC provider. The
+# first OAuth sign-in of an unknown identity lands on an onboarding form that
+# creates the users row (and a password); existing accounts can bind or unbind
+# additional providers from the personal center at /profile.
 application qiy-supply-chain-erp-wms {
   database sqlite {}
   api { client rest; }
@@ -26,14 +27,20 @@ application qiy-supply-chain-erp-wms {
   }
 
   auth {
-    providers oidc, oauth2, sso, okta, auth0, azure-ad-b2c, keycloak, google, kinde;
+    providers local, okta, keycloak, google, kinde, azure-ad-b2c;
     user users;
     subjectField subject;
     roleField role;
-    provider google { subjectField googleSubject; }
-    provider oidc { subjectField openidField; claim openid; }
+    usernameField email;
+    passwordField passwordHash;
+    profileField oauthProfiles;
+    provider okta { subjectField oktaSubject; }
     provider keycloak { subjectField keycloakSubject; }
+    provider google { subjectField googleSubject; }
+    provider kinde { subjectField kindeSubject; }
+    provider azure-ad-b2c { subjectField azureSubject; }
   }
+
 
   enum userRole {
     value admin label "Administrator" color red icon SafetyOutlined;
@@ -83,12 +90,16 @@ application qiy-supply-chain-erp-wms {
   entity users @label("Users") @icon(UserOutlined) {
     field id UUID @id;
     field subject Text @unique;
-    field googleSubject Text @nullable;
-    field openidField Text @nullable;
-    field keycloakSubject Text @nullable;
-    field email Text;
+    field oktaSubject Text @nullable @unique;
+    field keycloakSubject Text @nullable @unique;
+    field googleSubject Text @nullable @unique;
+    field kindeSubject Text @nullable @unique;
+    field azureSubject Text @nullable @unique;
+    field email Text @unique;
     field displayName Text @nullable;
     field role userRole;
+    field passwordHash Text @nullable @listVisible(false) @showVisible(false) @formVisible(false);
+    field oauthProfiles Text @nullable @listVisible(false) @showVisible(false) @formVisible(false);
     field orgId UUID @nullable;
   }
 

@@ -27,7 +27,7 @@ describe("GraphQL API", () => {
     expect(create.status).toBe(200);
     const created = await create.json() as { data: { createUsers: { id: string } } };
     expect(created.data.createUsers.id).toBeTruthy();
-    const list = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: "query { users { items { id subject googleSubject } total } }" }) }));
+    const list = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: "query { users { items { id subject oktaSubject } total } }" }) }));
     expect((await list.json() as { data: { users: { total: number } } }).data.users.total).toBe(1);
     const deleted = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: "mutation($id: ID!) { deleteUsers(id: $id) { id } }", variables: { id: created.data.createUsers.id } }) }));
     expect((await deleted.json() as { data: { deleteUsers: { id: string } } }).data.deleteUsers.id).toBeTruthy();

@@ -14,6 +14,8 @@ Run `bun install` at the workspace root. Available generated package commands:
 - `db:migrate:production`: `bun --env-file=.env.production src/db-migrate.ts`
 - `attachments:cleanup`: `bun src/storage/cleanup.ts`
 - `attachments:orphans`: `bun src/storage/orphans.ts`
+- `auth:bootstrap-admin`: `bun --env-file=.env.production src/auth/bootstrap-admin.ts`
+- `auth:set-password`: `bun --env-file=.env.production src/auth/set-password.ts`
 - `db:rollback`: `bun --env-file=.env.production src/db-rollback.ts`
 - `db:backup`: `bun --env-file=.env.production src/db-backup.ts`
 - `db:restore`: `bun --env-file=.env.production src/db-restore.ts`

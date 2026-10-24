@@ -41,7 +41,14 @@ export interface QiyProject {
     drizzle?: boolean;
   };
   storageProvider?: "local" | "s3";
-  auth?: { provider: QiyAuthProvider; providers?: QiyAuthProvider[]; userEntity: string; subjectField: string; providerMappings?: QiyAuthProviderMapping[]; roleField: string; usernameField?: string; passwordField?: string };
+  /**
+   * Authentication. `provider` names the single configured provider for the legacy
+   * single-provider forms (`provider local;`, `provider oidc;`, `provider otp;`).
+   * A `providers` list may mix `local` with OAuth providers: `local: true` then means
+   * password login is enabled in addition to the OAuth providers in `providers`.
+   * `providers` never contains `otp` and never contains `local`.
+   */
+  auth?: { provider: QiyAuthProvider; providers?: QiyAuthProvider[]; local?: boolean; userEntity: string; subjectField: string; providerMappings?: QiyAuthProviderMapping[]; roleField: string; usernameField?: string; passwordField?: string; profileField?: string };
   environment?: QiyEnvironmentVariable[];
   messages?: { defaultLocale: string; locales: Record<string, Record<string, string>> };
   menuGroups?: Array<{ name: string; label: string; icon?: string; parent?: string; comment?: string; commentKey?: string; resources: string[] }>;
@@ -175,6 +182,46 @@ export interface QiyAuthProviderMapping {
 }
 
 const qiyAuthProviders = new Set<QiyAuthProvider>(["local", "oidc", "oauth2", "sso", "okta", "auth0", "azure-ad-b2c", "keycloak", "google", "kinde", "otp"]);
+
+type ResolvedAuth = NonNullable<QiyProject["auth"]>;
+
+/** OAuth/OIDC providers configured for an auth block; never includes local or otp. */
+export function authOAuthProviders(auth: ResolvedAuth): QiyAuthProvider[] {
+  return auth.providers ?? (auth.provider !== "local" && auth.provider !== "otp" ? [auth.provider] : []);
+}
+
+/** True when password (local) login is enabled, alone or next to OAuth providers. */
+export function authHasLocal(auth: ResolvedAuth): boolean {
+  return auth.local === true || auth.provider === "local";
+}
+
+/**
+ * True for the mixed mode: a `providers` list that contains `local` plus at least
+ * one OAuth provider. The generated app then exposes one login page with both a
+ * password form and OAuth provider buttons, plus first-login onboarding and
+ * account binding endpoints.
+ */
+export function authIsHybrid(auth: ResolvedAuth | undefined): boolean {
+  if (!auth) return false;
+  return authHasLocal(auth) && authOAuthProviders(auth).length > 0;
+}
+
+/** True when the auth block needs the multi-provider (browser PKCE + BFF) web client. */
+export function authUsesProviderChooser(auth: ResolvedAuth | undefined): boolean {
+  if (!auth) return false;
+  return authIsHybrid(auth) || authOAuthProviders(auth).length > 1;
+}
+
+/** Effective subject column for one OAuth provider: its mapping override or the auth-level fallback. */
+export function authProviderSubjectField(auth: ResolvedAuth, provider: QiyAuthProvider): string {
+  return auth.providerMappings?.find((mapping) => mapping.provider === provider)?.subjectField ?? auth.subjectField;
+}
+
+/** Configured claim override for one OAuth provider, if any. */
+export function authProviderClaim(auth: ResolvedAuth, provider: QiyAuthProvider): string | undefined {
+  return auth.providerMappings?.find((mapping) => mapping.provider === provider)?.claim;
+}
+
 
 export interface QiyAction {
   name: string;
@@ -1541,7 +1588,7 @@ export function parseQiyProject(input: string): QiyProject {
     const providerMappings: QiyAuthProviderMapping[] = [];
     while (peek() !== "}") {
       const key = identifier();
-      if (!["provider", "providers", "user", "subjectField", "roleField", "usernameField", "passwordField"].includes(key)) throw new Error(`Unsupported auth attribute ${key}`);
+      if (!["provider", "providers", "user", "subjectField", "roleField", "usernameField", "passwordField", "profileField"].includes(key)) throw new Error(`Unsupported auth attribute ${key}`);
       if (key === "provider") {
         const providerId = identifier();
         if (peek() === "{") {
@@ -1571,7 +1618,6 @@ export function parseQiyProject(input: string): QiyProject {
         continue;
       }
       if (Object.hasOwn(attributes, key)) throw new Error(`Duplicate auth attribute ${key}`);
-      if (Object.hasOwn(attributes, key)) throw new Error(`Duplicate auth attribute ${key}`);
       if (key === "providers") {
         const list = [identifier()];
         while (peek() === ",") { expect(","); list.push(identifier()); }
@@ -1589,10 +1635,16 @@ export function parseQiyProject(input: string): QiyProject {
       if (!qiyAuthProviders.has(candidate as QiyAuthProvider)) throw new Error(`Unsupported auth provider ${candidate}`);
     }
     if (providerList && new Set(providerList).size !== providerList.length) throw new Error("Auth providers must be unique");
-    if (providerList?.some((candidate) => candidate === "local" || candidate === "otp")) throw new Error("Auth providers lists OIDC providers only (local/otp cannot be combined)");
-    const provider = attributes.provider ?? providerList?.[0] ?? "";
+    if (providerList?.includes("otp")) throw new Error("Auth providers cannot include otp; use provider otp for one-time-password login");
+    // `local` may appear in a providers list to add password login next to OAuth
+    // providers. `providers` itself never stores local or otp.
+    const listLocal = Boolean(providerList?.includes("local"));
+    const configuredOAuthProviders = (providerList ?? []).filter((candidate) => candidate !== "local") as QiyAuthProvider[];
+    const hasLocalProvider = listLocal || attributes.provider === "local";
+    const provider = attributes.provider ?? configuredOAuthProviders[0] ?? (listLocal ? "local" : "");
+    const hasOidcProvider = attributes.provider ? attributes.provider !== "local" && attributes.provider !== "otp" : configuredOAuthProviders.length > 0;
     for (const mapping of providerMappings) {
-      const configured = providerList ? providerList.includes(mapping.provider) : mapping.provider === provider;
+      const configured = providerList ? configuredOAuthProviders.includes(mapping.provider) : mapping.provider === provider;
       if (!configured) throw new Error(`Provider mapping ${mapping.provider} is not part of the configured providers`);
     }
     if (new Set(providerMappings.map((mapping) => mapping.provider)).size !== providerMappings.length) throw new Error("Provider mappings must be unique per provider");
@@ -1600,22 +1652,31 @@ export function parseQiyProject(input: string): QiyProject {
     if (!attributes.user) throw new Error("Auth requires a user entity");
     if (!attributes.roleField) throw new Error("Auth requires roleField");
     const subjectField = attributes.subjectField ?? "";
-    if (provider !== "local" && provider !== "otp" && !subjectField) throw new Error(`Auth provider ${provider} requires subjectField`);
+    if (hasOidcProvider && !subjectField) throw new Error("Auth requires subjectField for OAuth/OIDC providers");
     const usernameField = attributes.usernameField ?? "";
     const passwordField = attributes.passwordField ?? "";
-    if (provider === "local" && (!usernameField || !passwordField)) throw new Error("Auth provider local requires usernameField and passwordField");
+    if (hasLocalProvider && (!usernameField || !passwordField)) throw new Error("Auth provider local requires usernameField and passwordField");
     if (provider === "otp" && !usernameField) throw new Error("Auth provider otp requires usernameField");
     if (provider === "otp" && passwordField) throw new Error("Auth provider otp does not accept passwordField");
-    if (provider !== "local" && provider !== "otp" && (usernameField || passwordField)) throw new Error(`Auth provider ${provider} does not accept usernameField or passwordField`);
+    if (!hasLocalProvider && provider !== "otp" && (usernameField || passwordField)) throw new Error(`Auth provider ${provider} does not accept usernameField or passwordField`);
+    const profileField = attributes.profileField ?? "";
+    if (profileField && !hasOidcProvider) throw new Error("Auth profileField requires at least one OAuth/OIDC provider");
+    // A `providers` list is stored when it chooses between several OAuth providers
+    // or when it adds password login to a single OAuth provider (hybrid mode).
+    const storedProviders = configuredOAuthProviders.length > 1 || (hasLocalProvider && configuredOAuthProviders.length > 0)
+      ? configuredOAuthProviders
+      : undefined;
     auth = {
       provider: provider as QiyAuthProvider,
-      ...(providerList && providerList.length > 1 ? { providers: providerList as QiyAuthProvider[] } : {}),
+      ...(storedProviders ? { providers: storedProviders } : {}),
+      ...(hasLocalProvider ? { local: true } : {}),
       userEntity: attributes.user,
       subjectField,
       roleField: attributes.roleField,
       ...(providerMappings.length ? { providerMappings } : {}),
       ...(usernameField && { usernameField }),
       ...(passwordField && { passwordField }),
+      ...(profileField && { profileField }),
     };
   }
   let environment: QiyEnvironmentVariable[] | undefined;
@@ -2202,7 +2263,8 @@ export function serializeQiyProject(project: QiyProject): string {
   }  if (project.storageProvider) lines.push(`  storage { provider ${project.storageProvider}; }`);
   if (project.auth) {
     lines.push("  auth {");
-  if (project.auth.providers && project.auth.providers.length > 1) lines.push(`    providers ${project.auth.providers.join(", ")};`);
+  const providerList = project.auth.local ? ["local", ...(project.auth.providers ?? [])] : project.auth.providers ?? [];
+  if (providerList.length > 1) lines.push(`    providers ${providerList.join(", ")};`);
   else lines.push(`    provider ${project.auth.provider};`);
   for (const mapping of project.auth.providerMappings ?? []) lines.push(`    provider ${mapping.provider} { subjectField ${mapping.subjectField};${mapping.claim ? ` claim ${mapping.claim};` : ""} }`);
     lines.push(`    user ${qiyIdentifier(project.auth.userEntity, "Auth user entity")};`);
@@ -2210,6 +2272,7 @@ export function serializeQiyProject(project: QiyProject): string {
     lines.push(`    roleField ${qiyIdentifier(project.auth.roleField, "Auth role field")};`);
     if (project.auth.usernameField) lines.push(`    usernameField ${qiyIdentifier(project.auth.usernameField, "Auth username field")};`);
     if (project.auth.passwordField) lines.push(`    passwordField ${qiyIdentifier(project.auth.passwordField, "Auth password field")};`);
+    if (project.auth.profileField) lines.push(`    profileField ${qiyIdentifier(project.auth.profileField, "Auth profile field")};`);
     lines.push("  }");
   }
   if (project.environment?.length) {

@@ -8,23 +8,29 @@ import type { UsersRepository as UsersRepositoryPort } from "./users.contract";
 
 const createUsers = t.Object({
   "subject": t.String({ minLength: 1 }),
-  "googleSubject": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
-  "openidField": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
+  "oktaSubject": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
   "keycloakSubject": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
+  "googleSubject": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
+  "kindeSubject": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
+  "azureSubject": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
   "email": t.String({ minLength: 1 }),
   "displayName": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
   "role": t.Union([t.Literal("admin"), t.Literal("operator"), t.Literal("viewer")]),
+  "oauthProfiles": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
   "orgId": t.Optional(t.Union([t.String({ format: "uuid" }), t.Null()], {})),
 }, { additionalProperties: false });
 
 const patchUsers = t.Object({
   "subject": t.Optional(t.String({ minLength: 1 })),
-  "googleSubject": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
-  "openidField": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
+  "oktaSubject": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
   "keycloakSubject": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
+  "googleSubject": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
+  "kindeSubject": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
+  "azureSubject": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
   "email": t.Optional(t.String({ minLength: 1 })),
   "displayName": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
   "role": t.Optional(t.Union([t.Literal("admin"), t.Literal("operator"), t.Literal("viewer")])),
+  "oauthProfiles": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
   "orgId": t.Optional(t.Union([t.String({ format: "uuid" }), t.Null()], {})),
 }, { additionalProperties: false });
 
@@ -59,11 +65,12 @@ export interface ListQuery {
 }
 
 export function UsersRoutes(repository: UsersRepositoryPort, authenticate: Authenticator = async () => null) {
-  const redact = (record: Record<string, unknown>) => record;
+  const privateFields = ["passwordHash"] as string[];
+const redact = (record: Record<string, unknown>) => { const safe = { ...record }; for (const field of privateFields) delete safe[field]; return safe; };
   const redactRecord = (record: Record<string, unknown>) => redact(record);
-  const sortableFields = ["id","subject","googleSubject","openidField","keycloakSubject","email","displayName","role","orgId"] as string[];
-  const filterableFields = ["id","subject","googleSubject","openidField","keycloakSubject","email","displayName","role","orgId"] as string[];
-  const filterModes = {"id":["eq","gt","gte","lt","lte","between","in"],"subject":["contains","startsWith","endsWith","eq"],"googleSubject":["contains","startsWith","endsWith","eq"],"openidField":["contains","startsWith","endsWith","eq"],"keycloakSubject":["contains","startsWith","endsWith","eq"],"email":["contains","startsWith","endsWith","eq"],"displayName":["contains","startsWith","endsWith","eq"],"role":["eq"],"orgId":["eq","gt","gte","lt","lte","between","in"]} as Record<string, FilterOperator[]>;
+  const sortableFields = ["id","subject","oktaSubject","keycloakSubject","googleSubject","kindeSubject","azureSubject","email","displayName","role","oauthProfiles","orgId"] as string[];
+  const filterableFields = ["id","subject","oktaSubject","keycloakSubject","googleSubject","kindeSubject","azureSubject","email","displayName","role","oauthProfiles","orgId"] as string[];
+  const filterModes = {"id":["eq","gt","gte","lt","lte","between","in"],"subject":["contains","startsWith","endsWith","eq"],"oktaSubject":["contains","startsWith","endsWith","eq"],"keycloakSubject":["contains","startsWith","endsWith","eq"],"googleSubject":["contains","startsWith","endsWith","eq"],"kindeSubject":["contains","startsWith","endsWith","eq"],"azureSubject":["contains","startsWith","endsWith","eq"],"email":["contains","startsWith","endsWith","eq"],"displayName":["contains","startsWith","endsWith","eq"],"role":["eq"],"oauthProfiles":["contains","startsWith","endsWith","eq"],"orgId":["eq","gt","gte","lt","lte","between","in"]} as Record<string, FilterOperator[]>;
   const resolveScope = async (request: Request) => {
     const principal = await authenticate(request);
     const scopeConfig = null as { field: string; claim: string } | null;
@@ -74,12 +81,12 @@ export function UsersRoutes(repository: UsersRepositoryPort, authenticate: Authe
     if (!principal || claimValue === undefined || claimValue === null || claimValue === "") throw new Error("Missing required data scope claim: " + scopeClaim);
     return { field: scopeField, value: String(claimValue) };
   };
-  const exportColumns = ["id","subject","googleSubject","openidField","keycloakSubject","email","displayName","role","orgId"] as string[];
+  const exportColumns = ["id","subject","oktaSubject","keycloakSubject","googleSubject","kindeSubject","azureSubject","email","displayName","role","oauthProfiles","orgId"] as string[];
   const exportMaxRows = () => { const value = Number(Bun.env.QIY_EXPORT_MAX_ROWS ?? 1000); return Number.isSafeInteger(value) && value >= 1 && value <= 100000 ? value : 1000; };
   // Exports stream in bounded pages so memory does not grow with the result set.
   const EXPORT_PAGE_SIZE = Math.min(250, exportMaxRows());
   // Import accepts plain scalar columns only; vectors and key lists need the API.
-  const importTypes = {"subject":"Text","googleSubject":"Text","openidField":"Text","keycloakSubject":"Text","email":"Text","displayName":"Text","role":"Text","orgId":"UUID"} as Record<string, string>;
+  const importTypes = {"subject":"Text","oktaSubject":"Text","keycloakSubject":"Text","googleSubject":"Text","kindeSubject":"Text","azureSubject":"Text","email":"Text","displayName":"Text","role":"Text","oauthProfiles":"Text","orgId":"UUID"} as Record<string, string>;
   const importColumns = Object.keys(importTypes);
   const importMaxRows = () => { const value = Number(Bun.env.QIY_IMPORT_MAX_ROWS ?? 1000); return Number.isSafeInteger(value) && value >= 1 && value <= 100000 ? value : 1000; };
   /** RFC 4180 reader: quoted fields, doubled quotes and CRLF line endings. */
@@ -241,7 +248,13 @@ export function UsersRoutes(repository: UsersRepositoryPort, authenticate: Authe
     return { result, clauses: clauses.length, policy };
   };
   const service = createUsersService(repository);
-  return new Elysia({ prefix: "/users" })
+  return new Elysia({ prefix: "/users" }).onRequest(async ({ request, status }) => {
+      if (request.method !== "POST" && request.method !== "PATCH") return;
+      try {
+        const values: unknown = await request.clone().json();
+        if (values && typeof values === "object" && !Array.isArray(values) && privateFields.some((field) => Object.hasOwn(values, field))) return status(400, { error: "Private fields cannot be written" });
+      } catch { return; }
+    })
     .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)
     .get("/aggregate", async ({ query, status, request }) => {
       if (!["sum", "avg", "min", "max"].includes(query.op)) return status(400, { error: "Unsupported aggregate operator" });
@@ -484,4 +497,4 @@ export function UsersRoutes(repository: UsersRepositoryPort, authenticate: Authe
     }, { params: t.Object({ id: t.String({ format: "uuid" }) }) });
 }
 
-export const usersWritableFields = ["subject", "googleSubject", "openidField", "keycloakSubject", "email", "displayName", "role", "orgId"] as const;
+export const usersWritableFields = ["subject", "oktaSubject", "keycloakSubject", "googleSubject", "kindeSubject", "azureSubject", "email", "displayName", "role", "oauthProfiles", "orgId"] as const;

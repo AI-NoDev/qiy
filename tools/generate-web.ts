@@ -2,6 +2,7 @@ import type { DatabaseIR, FieldIR } from "./database-ir";
 import { renderAppTemplate } from "./admin-template";
 import { validateDatabaseIR } from "./database-ir";
 import type { QiyProject } from "./qiy-project";
+import { authHasLocal, authIsHybrid, authOAuthProviders, authUsesProviderChooser } from "./qiy-project";
 
 const oidcAuthProviders = new Set(["oidc", "oauth2", "sso", "okta", "auth0", "azure-ad-b2c", "keycloak", "google", "kinde"]);
 const authProviderLabels: Record<string, string> = {
@@ -121,7 +122,7 @@ async function pkceChallenge(verifier: string): Promise<string> {
 }
 
 /** Redirects to the selected provider; the user can choose any configured provider. */
-export async function beginProviderLogin(provider: QiyAuthProviderPublic, returnTo = window.location.pathname.startsWith("/auth/") ? "/" : window.location.pathname + window.location.search): Promise<void> {
+export async function beginProviderLogin(provider: QiyAuthProviderPublic, returnTo = (window.location.pathname.startsWith("/auth/") || window.location.pathname.startsWith("/oauth/")) ? "/" : window.location.pathname + window.location.search): Promise<void> {
   const verifier = randomValue();
   const state = randomValue();
   sessionStorage.setItem(verifierKey, verifier);
@@ -181,9 +182,19 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
   const ui = options.ui ?? { library: "antd", theme: "blue", themes: ["blue", "purple", "green", "orange", "red"], colorMode: "system", allowThemeSwitch: true, allowColorModeSwitch: true } as const;
   if (ui.library !== "antd") throw new Error(`Unsupported UI library ${ui.library}; only antd is implemented`);
   const treeEntities = Object.fromEntries([...new Set((options.scopes ?? []).flatMap((scope) => scope.tree ? [[scope.tree.entity, scope.tree.parentField] as const] : []))].map(([entity, parentField]) => [entity, { parentField, labelField: "name" }]));
-  const usesOidcAuth = Boolean(options.auth && oidcAuthProviders.has(options.auth.provider));
+  const authOAuthProviderIds = options.auth ? authOAuthProviders(options.auth) : [];
+  const hasLocalAuth = Boolean(options.auth && authHasLocal(options.auth));
+  const hybridAuth = Boolean(options.auth && authIsHybrid(options.auth));
+  const providerChooserAuth = Boolean(options.auth && authUsesProviderChooser(options.auth));
+  const multiProviderAuth = Boolean(options.auth && providerChooserAuth && !hybridAuth);
+  const usesOidcAuth = Boolean(options.auth && !hasLocalAuth && authOAuthProviderIds.length > 0 && oidcAuthProviders.has(options.auth.provider));
   const usesOtpAuth = options.auth?.provider === "otp";
   const authProviderLabel = options.auth ? authProviderLabels[options.auth.provider] ?? options.auth.provider : "";
+  const userEntity = options.auth ? database.entities.find((entity) => entity.name === options.auth!.userEntity) : undefined;
+  // The hybrid onboarding form asks for a separate email only when the user
+  // entity declares one that is not already the username field.
+  const onboardingEmailField = userEntity?.fields.some((field) => field.name === "email") && options.auth?.usernameField !== "email" ? "email" : null;
+  const onboardingUsernameLabel = options.auth?.usernameField === "email" ? "Email" : "Username";
   const integrationAuth = options.mode === "integration" && options.integration?.authTransport !== "none";
   const usesAuth = Boolean(options.auth || integrationAuth);
   const resourceRolePolicies = (options.restrictions ?? []).filter((restriction) => restriction.roles?.length).map((restriction) => ({ resource: restriction.resource, roles: restriction.roles }));
@@ -342,7 +353,7 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
       .replace("__QIY_AUTH_IMPORT__", usesAuth ? (options.auth ? 'import { qiyAccessControlProvider, qiyAuthProvider } from "./auth";\nimport { Authenticated } from "@refinedev/core";\nimport { Navigate, useLocation } from "react-router";' : 'import { qiyIntegrationAuthProvider } from "./host/auth";\nimport { Authenticated } from "@refinedev/core";\nimport { Navigate, useLocation } from "react-router";') : "")
       .replace("__QIY_AUTH_PROPS__", usesAuth ? (options.auth ? "authProvider={qiyAuthProvider} accessControlProvider={qiyAccessControlProvider}" : "authProvider={qiyIntegrationAuthProvider}") : "")
       .replace("__QIY_AUTH_LOCATION__", requiresAuthShell ? 'const location = useLocation(); // legacy login check: location.pathname === "/auth/login"' : "")
-      .replace("__QIY_LAYOUT_START__", requiresAuthShell ? '{location.pathname.startsWith("/auth/") ? <Outlet /> : <Authenticated key="protected" fallback={<Navigate to="/auth/login" replace />}> ' : "")
+      .replace("__QIY_LAYOUT_START__", requiresAuthShell ? '{location.pathname.startsWith("/auth/") || location.pathname.startsWith("/oauth/") ? <Outlet /> : <Authenticated key="protected" fallback={<Navigate to="/auth/login" replace />}> ' : "")
       .replace("__QIY_LAYOUT_END__", requiresAuthShell ? "</Authenticated>}" : ""),
     "web/app/routes/show.tsx": show
       .replace("__QIY_ORDER_IMPORT__", [hasOrderWorkflow ? 'import { OrderWorkflowActions } from "../features/orders/order-actions";' : "", hasRelatedResources ? 'import { RelatedRecords } from "../components/related-records";' : "", actionDefinitions.length ? 'import { BusinessActions } from "../components/business-actions";' : ""].filter(Boolean).join("\n"))
@@ -457,7 +468,7 @@ export const dashboardMetrics: DashboardMetric[] = ${JSON.stringify(dashboardMet
 `,
     ...(options.auth ? {
       "web/app/auth.ts": `import type { AccessControlProvider, AuthProvider } from "@refinedev/core";
-${usesOidcAuth ? 'import { beginOidcLogin, beginOidcLogout, clearOidcSession, oidcSession, oidcSessionSkewMs } from "./auth/oidc-client";' : ""}
+${usesOidcAuth ? 'import { beginOidcLogin, beginOidcLogout, clearOidcSession, oidcSession, oidcSessionSkewMs } from "./auth/oidc-client";' : ""}${hybridAuth ? 'import { beginProviderLogin, clearSession, fetchAuthProviders } from "./auth/oidc-multi";' : ""}
 
 const tokenKey = "qiy.access_token";
 type QiyIdentity = { id?: string; name?: string; role?: string };
@@ -465,9 +476,16 @@ const token = () => typeof window === "undefined" ? undefined : window.localStor
 /** With OIDC the stored expiry decides validity so an expired token never looks authenticated. */
 const sessionUsable = () => typeof window === "undefined" ? false : ${usesOidcAuth ? `!oidcSession({ skewMs: oidcSessionSkewMs }).expired` : "Boolean(token())"};
 export const qiyAuthProvider: AuthProvider = {
-  login: async ({ token: nextToken, username, email, password, identifier, challengeToken, code }: { token?: string; username?: string; email?: string; password?: string; identifier?: string; challengeToken?: string; code?: string }) => {
+  login: async ({ token: nextToken, username, email, password, identifier, challengeToken, code${hybridAuth ? ", providerName" : ""} }: { token?: string; username?: string; email?: string; password?: string; identifier?: string; challengeToken?: string; code?: string${hybridAuth ? "; providerName?: string" : ""} }) => {
     const loginName = username ?? email;
-    ${options.auth?.provider === "local" ? `
+    ${hybridAuth ? `if (providerName) {
+      const providers = await fetchAuthProviders();
+      const selected = providers.find((candidate) => candidate.id === providerName);
+      if (!selected) return { success: false, error: { name: "ProviderUnavailable", message: "That identity provider is not configured on the server" } };
+      await beginProviderLogin(selected);
+      return { success: true };
+    }` : ""}
+    ${hasLocalAuth ? `
     if (loginName && password) {
       const response = await fetch("/api/v1/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: loginName, password }) });
       if (!response.ok) return { success: false, error: { name: "LoginFailed", message: (await response.json().catch(() => null) as { error?: string } | null)?.error ?? "Invalid username or password" } };
@@ -478,9 +496,9 @@ export const qiyAuthProvider: AuthProvider = {
     }` : ""}
     ${usesOtpAuth ? `if (identifier && challengeToken && code) { const response = await fetch("/api/v1/auth/otp/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier, challengeToken, code }) }); const result = await response.json().catch(() => null) as { accessToken?: string; error?: string } | null; if (!response.ok || !result?.accessToken) return { success: false, error: { name: "OtpVerificationFailed", message: result?.error ?? "Invalid or expired one-time password" } }; window.localStorage.setItem(tokenKey, result.accessToken); return { success: true, redirectTo: "/" }; }` : ""}
     ${usesOidcAuth ? 'await beginOidcLogin(); return { success: true };' : 'void nextToken;'}
-    return { success: false, error: { name: "CredentialsRequired", message: ${JSON.stringify(usesOtpAuth ? "Identifier, challenge token and one-time password are required" : options.auth?.provider === "local" ? "Username and password are required" : "Identity provider login could not start")} } };
+    return { success: false, error: { name: "CredentialsRequired", message: ${JSON.stringify(usesOtpAuth ? "Identifier, challenge token and one-time password are required" : hasLocalAuth ? "Username and password are required" : "Identity provider login could not start")} } };
   },
-  logout: async () => { ${usesOidcAuth ? "clearOidcSession();" : 'window.localStorage.removeItem(tokenKey);'} ${usesOidcAuth ? "beginOidcLogout();" : ""} return { success: true, redirectTo: "/auth/login" }; },
+  logout: async () => { ${hybridAuth ? "clearSession();" : usesOidcAuth ? "clearOidcSession();" : 'window.localStorage.removeItem(tokenKey);'} ${usesOidcAuth ? "beginOidcLogout();" : ""} return { success: true, redirectTo: "/auth/login" }; },
   check: async () => sessionUsable() ? { authenticated: true } : { authenticated: false, redirectTo: "/auth/login" },
   getIdentity: async () => { const accessToken = token(); if (!accessToken) return null; const response = await fetch("/api/v1/auth/me", { headers: { Authorization: "Bearer " + accessToken } }); if (!response.ok) return null; return await response.json() as QiyIdentity; },
   getPermissions: async () => { const identity = await qiyAuthProvider.getIdentity?.({}) as QiyIdentity | null | undefined; return identity?.role ?? null; },
@@ -490,7 +508,23 @@ const commandPolicies: Array<{ resource: string; action: string; roles: string[]
 ${resourcePolicyDeclaration}${pageRuleDeclaration}export const qiyAccessControlProvider: AccessControlProvider = { can: async ({ resource, action }) => { const identity = await qiyAuthProvider.getIdentity?.({}) as QiyIdentity | null | undefined; if (!identity) return { can: false, reason: "Authentication required" }; ${resourcePolicyCheck}${pageRuleCheck}const command = commandPolicies.find((policy) => policy.resource === resource && policy.action === action); if (command) return { can: command.roles.includes(identity.role ?? ""), reason: "Command execution is restricted" }; if (identity.role === "admin") return { can: true }; if (resource === "users") return { can: false, reason: "User administration is restricted" }; const can = identity.role === "operator" || action === "list" || action === "show"; return can ? { can: true } : { can: false, reason: "Role " + (identity.role ?? "unknown") + " cannot " + action + " " + resource }; }, options: { buttons: { enableAccessControl: true, hideIfUnauthorized: true }, queryOptions: { staleTime: 30_000 } } };
 export function qiyAuthToken(): string | undefined { return token(); }
 `,
-      "web/app/routes/login.tsx": options.auth?.provider === "local"
+      "web/app/routes/login.tsx": hybridAuth
+        ? `import { AuthPage } from "@refinedev/antd";
+import { useEffect, useState } from "react";
+import { fetchAuthProviders } from "../auth/oidc-multi";
+
+/**
+ * One login page for password accounts and every OAuth provider configured on
+ * the server. AuthPage renders the credentials form; the providers prop adds one
+ * button per provider (the login mutation then starts the PKCE redirect).
+ */
+export default function Login() {
+  const [providers, setProviders] = useState<Array<{ name: string; label: string }>>([]);
+  useEffect(() => { let active = true; void fetchAuthProviders().then((list) => { if (active) setProviders(list.map((provider) => ({ name: provider.id, label: provider.label }))); }).catch(() => undefined); return () => { active = false; }; }, []);
+  return <AuthPage type="login" title="Qiy Admin" providers={providers} registerLink={false} forgotPasswordLink={false} rememberMe={false} formProps={{ layout: "vertical" }} />;
+}
+`
+        : options.auth?.provider === "local"
         ? `import { AuthPage } from "@refinedev/antd";
 export default function Login() { return <AuthPage type="login" title="Qiy Admin" registerLink={false} forgotPasswordLink={false} formProps={{ layout: "vertical" }} />; }
 `
@@ -589,9 +623,9 @@ beforeAll(() => {
 });
 afterAll(() => { Object.defineProperty(globalThis, "window", { configurable: true, value: originalWindow }); globalThis.fetch = originalFetch; });
 
-test("authenticates using ${options.auth?.provider === "local" ? "username and password" : "the configured identity provider"}", async () => {
+test("authenticates using ${hasLocalAuth ? "username and password" : "the configured identity provider"}", async () => {
   expect((await qiyAuthProvider.check({})).authenticated).toBe(false);
-  ${options.auth?.provider === "local" ? 'expect((await qiyAuthProvider.login({ username: "admin", password: "correct-password" })).success).toBe(true); expect(tokens.get("qiy.access_token")).toBe("local-test-token");' : 'tokens.set("qiy.access_token", "test-token");'}
+  ${hasLocalAuth ? 'expect((await qiyAuthProvider.login({ username: "admin", password: "correct-password" })).success).toBe(true); expect(tokens.get("qiy.access_token")).toBe("local-test-token");' : 'tokens.set("qiy.access_token", "test-token");'}
   expect((await qiyAuthProvider.check({})).authenticated).toBe(true);
 });
 
@@ -2243,12 +2277,12 @@ test("SSE subscription reconnects after the stream ends", async () => {
 `;
     }
   }
-  if (options.auth?.providers && options.auth.providers.length > 1) {
+  if (multiProviderAuth) {
     generated["web/app/auth/oidc-multi.ts"] = renderMultiProviderWebClient();
     generated["web/app/routes/oauth-callback.tsx"] = 'export { default } from "./auth-callback";';
     generated["web/app/routes.ts"] = generated["web/app/routes.ts"]!.replace(
-      '  route("auth/callback", "./routes/auth-callback.tsx"),',
-      '  route("auth/callback", "./routes/auth-callback.tsx"),\n  route("oauth/*", "./routes/oauth-callback.tsx"),',
+      '  route("auth/login", "./routes/login.tsx"),',
+      '  route("auth/login", "./routes/login.tsx"),\n  route("auth/callback", "./routes/auth-callback.tsx"),\n  route("oauth/*", "./routes/oauth-callback.tsx"),',
     );
     generated["web/app/routes/login.tsx"] = `import { Alert, Button, Card, Space, Spin, Typography } from "antd";
 import { useEffect, useState } from "react";
@@ -2289,9 +2323,423 @@ export default function AuthCallback() {
 }
 `;
   }
+  if (hybridAuth) {
+    generated["web/app/auth/oidc-multi.ts"] = renderHybridWebClient();
+    generated["web/app/auth/account.ts"] = renderAccountWebClient();
+    generated["web/app/routes/oauth-callback.tsx"] = 'export { default } from "./auth-callback";';
+    generated["web/app/routes/auth-callback.tsx"] = `import { Alert, Card, Spin, Typography } from "antd";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
+import { completeProviderCallback } from "../auth/oidc-multi";
+
+/** Finishes a provider sign-in: onboarding, linked provider or a normal session. */
+export default function AuthCallback() {
+  const navigate = useNavigate();
+  const started = useRef(false);
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    let active = true;
+    void completeProviderCallback(new URL(window.location.href))
+      .then((target) => { if (active) navigate(target, { replace: true }); })
+      .catch((caught: unknown) => { if (active) setError(caught instanceof Error ? caught.message : String(caught)); });
+    return () => { active = false; };
+  }, [navigate]);
+  return <main style={{ padding: 40, display: "flex", justifyContent: "center" }}><Card style={{ width: 420 }}>{error ? <Alert type="error" showIcon message={error} /> : <><Spin /><Typography.Paragraph style={{ marginTop: 16 }}>正在完成登录… / Completing sign-in…</Typography.Paragraph></>}</Card></main>;
+}
+`;
+    generated["web/app/routes/auth-onboarding.tsx"] = renderOnboardingRoute({
+      usernameLabel: onboardingUsernameLabel,
+      hasEmailField: Boolean(onboardingEmailField),
+    });
+    generated["web/app/routes/profile.tsx"] = renderProfileRoute({ hasProviderBinding: true });
+    generated["web/app/routes.ts"] = generated["web/app/routes.ts"]!.replace(
+      '  route("auth/login", "./routes/login.tsx"),',
+      '  route("auth/login", "./routes/login.tsx"),\n  route("auth/callback", "./routes/auth-callback.tsx"),\n  route("oauth/*", "./routes/oauth-callback.tsx"),\n  route("auth/onboarding", "./routes/auth-onboarding.tsx"),\n  route("profile", "./routes/profile.tsx"),',
+    );
+  } else if (hasLocalAuth) {
+    generated["web/app/auth/account.ts"] = renderAccountWebClient();
+    generated["web/app/routes/profile.tsx"] = renderProfileRoute({ hasProviderBinding: false });
+    generated["web/app/routes.ts"] = generated["web/app/routes.ts"]!.replace(
+      '  index("./routes/home.tsx"),',
+      '  index("./routes/home.tsx"),\n  route("profile", "./routes/profile.tsx"),',
+    );
+  }
+  if (hasLocalAuth) {
+    // The profile page is reachable from the app header for every password-based
+    // account, including local-only projects without OAuth providers.
+    generated["web/app/root.tsx"] = generated["web/app/root.tsx"]!
+      .replace('import { Select, Space, Typography, theme } from "antd";', 'import { Button, Select, Space, Typography, theme } from "antd";')
+      .replace('import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";', 'import { Link, Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";')
+      .replace("    <QiyThemeControls />", '    <Link to="/profile"><Button type="link">Profile</Button></Link>\n    <QiyThemeControls />');
+  }
 
   return generated;
 }
+
+/**
+ * Hybrid browser client: the login page and callback for a project that offers
+ * password login plus OAuth providers. Unlike the multi-provider-only client it
+ * never stores a provider token: the generated server exchanges the code and
+ * returns either a Qiy session token, a signed onboarding token (first login), or
+ * a linked-provider confirmation. Only the Qiy session token is kept in
+ * localStorage, so the API never has to accept opaque provider tokens.
+ */
+function renderHybridWebClient(): string {
+  return `export interface QiyAuthProviderPublic {
+  id: string;
+  label: string;
+  authorizationUrl: string;
+  tokenUrl?: string;
+  clientId: string;
+  scope: string;
+  redirectUri?: string;
+  logoutUrl?: string;
+}
+
+export interface QiyOnboardingProfile { sub: string; username?: string; email?: string; name?: string }
+export interface QiyOnboardingClaims { provider: string; subject: string; username?: string; email?: string; name?: string }
+export interface QiySignInUser { id: string; name: string; role: string }
+export interface QiySignInResult {
+  accessToken?: string;
+  needsOnboarding?: boolean;
+  onboardingToken?: string;
+  provider?: { id: string; label: string };
+  profile?: QiyOnboardingProfile;
+  user?: QiySignInUser;
+}
+export interface QiyPendingOnboarding { token: string; profile: QiyOnboardingProfile; provider: { id: string; label: string } }
+
+const verifierKey = "qiy.oidc.verifier";
+const stateKey = "qiy.oidc.state";
+const returnToKey = "qiy.oidc.return_to";
+const providerKey = "qiy.oidc.provider";
+const modeKey = "qiy.oidc.mode";
+const accessTokenKey = "qiy.access_token";
+const pendingOnboardingKey = "qiy.oauth.onboarding";
+
+function serverSession(): Storage { return window.localStorage; }
+function flowState(): Storage { return window.sessionStorage; }
+
+export async function fetchAuthProviders(fetcher: typeof fetch = fetch): Promise<QiyAuthProviderPublic[]> {
+  const response = await fetcher("/api/v1/auth/providers");
+  if (!response.ok) throw new Error("Failed to load the configured identity providers");
+  const payload = (await response.json()) as { providers?: QiyAuthProviderPublic[] };
+  return payload.providers ?? [];
+}
+
+function randomValue(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+}
+
+async function pkceChallenge(verifier: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  let binary = "";
+  for (const byte of new Uint8Array(digest)) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+}
+
+function safeReturnTo(value: string): string { return value.startsWith("/") && !value.startsWith("//") ? value : "/"; }
+function defaultReturnTo(): string { return (window.location.pathname.startsWith("/auth/") || window.location.pathname.startsWith("/oauth/")) ? "/" : window.location.pathname + window.location.search; }
+
+function clearPendingFlow(): void {
+  for (const key of [verifierKey, stateKey, returnToKey, providerKey, modeKey]) flowState().removeItem(key);
+}
+
+/** Clears the Qiy session and any pending OAuth flow state. */
+export function clearSession(): void {
+  serverSession().removeItem(accessTokenKey);
+  flowState().removeItem(pendingOnboardingKey);
+  clearPendingFlow();
+}
+
+async function beginProviderRedirect(provider: QiyAuthProviderPublic, returnTo: string, mode: "login" | "bind"): Promise<void> {
+  const verifier = randomValue();
+  const state = randomValue();
+  flowState().setItem(verifierKey, verifier);
+  flowState().setItem(stateKey, state);
+  flowState().setItem(returnToKey, safeReturnTo(returnTo));
+  flowState().setItem(providerKey, JSON.stringify(provider));
+  flowState().setItem(modeKey, mode);
+  const redirectUri = provider.redirectUri ?? window.location.origin + "/auth/callback";
+  const url = new URL(provider.authorizationUrl);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("client_id", provider.clientId);
+  url.searchParams.set("redirect_uri", redirectUri);
+  url.searchParams.set("scope", provider.scope || "openid profile email");
+  url.searchParams.set("state", state);
+  url.searchParams.set("code_challenge", await pkceChallenge(verifier));
+  url.searchParams.set("code_challenge_method", "S256");
+  window.location.assign(url.toString());
+}
+
+/** Starts a password-less provider sign-in. */
+export async function beginProviderLogin(provider: QiyAuthProviderPublic, returnTo = defaultReturnTo()): Promise<void> {
+  await beginProviderRedirect(provider, returnTo, "login");
+}
+
+/** Starts linking an additional provider to the signed-in account. */
+export async function beginProviderBind(providerId: string, fetcher: typeof fetch = fetch): Promise<void> {
+  const providers = await fetchAuthProviders(fetcher);
+  const provider = providers.find((candidate) => candidate.id === providerId);
+  if (!provider) throw new Error("That identity provider is not configured on the server");
+  await beginProviderRedirect(provider, "/profile", "bind");
+}
+
+/**
+ * Completes the provider callback. Login mode returns the path to continue to
+ * (the app, or /auth/onboarding for a first-time identity); bind mode links the
+ * provider to the current account and returns to the profile page.
+ */
+export async function completeProviderCallback(callbackUrl: URL, fetcher: typeof fetch = fetch): Promise<string> {
+  const storedProvider = flowState().getItem(providerKey);
+  const provider = storedProvider ? JSON.parse(storedProvider) as QiyAuthProviderPublic : null;
+  const verifier = flowState().getItem(verifierKey);
+  const expectedState = flowState().getItem(stateKey);
+  const returnTo = flowState().getItem(returnToKey) ?? "/";
+  const mode = flowState().getItem(modeKey) ?? "login";
+  if (!provider || !verifier || !expectedState) {
+    // A second StrictMode/hydration pass after a successful login should land on the app instead of showing an error.
+    if (serverSession().getItem(accessTokenKey)) return "/";
+    throw new Error("No pending sign-in for this provider");
+  }
+  const providerError = callbackUrl.searchParams.get("error");
+  if (providerError) throw new Error(callbackUrl.searchParams.get("error_description") ?? providerError);
+  if (callbackUrl.searchParams.get("state") !== expectedState) throw new Error("State mismatch in the provider callback");
+  const code = callbackUrl.searchParams.get("code");
+  if (!code) throw new Error("The provider callback did not contain an authorization code");
+  const redirectUri = provider.redirectUri ?? window.location.origin + "/auth/callback";
+  if (mode === "bind") {
+    const accessToken = serverSession().getItem(accessTokenKey);
+    const response = await fetcher("/api/v1/auth/bind", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(accessToken ? { Authorization: "Bearer " + accessToken } : {}) },
+      body: JSON.stringify({ provider: provider.id, code, codeVerifier: verifier, redirectUri }),
+    });
+    const result = await response.json().catch(() => null) as { error?: string } | null;
+    if (!response.ok) throw new Error(result?.error ?? "Linking the identity provider failed");
+    clearPendingFlow();
+    return "/profile?linked=" + encodeURIComponent(provider.id);
+  }
+  const response = await fetcher("/api/v1/auth/exchange", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: provider.id, code, codeVerifier: verifier, redirectUri }),
+  });
+  const result = await response.json().catch(() => null) as (QiySignInResult & { error?: string }) | null;
+  if (!response.ok || !result) throw new Error(result?.error ?? "The provider token exchange failed");
+  if (result.needsOnboarding && result.onboardingToken) {
+    const pending: QiyPendingOnboarding = { token: result.onboardingToken, profile: result.profile ?? { sub: "" }, provider: result.provider ?? { id: provider.id, label: provider.label } };
+    flowState().setItem(pendingOnboardingKey, JSON.stringify(pending));
+    clearPendingFlow();
+    return "/auth/onboarding?token=" + encodeURIComponent(result.onboardingToken);
+  }
+  if (!result.accessToken) throw new Error("The server did not return a session token");
+  serverSession().setItem(accessTokenKey, result.accessToken);
+  clearPendingFlow();
+  return safeReturnTo(returnTo);
+}
+
+/** Reads the pending onboarding token left by the callback, if any. */
+export function readPendingOnboarding(): QiyPendingOnboarding | null {
+  const raw = flowState().getItem(pendingOnboardingKey);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { token?: unknown; profile?: unknown; provider?: unknown };
+    if (typeof parsed.token !== "string") return null;
+    const profile = parsed.profile && typeof parsed.profile === "object" ? parsed.profile as QiyOnboardingProfile : { sub: "" };
+    const provider = parsed.provider && typeof parsed.provider === "object" ? parsed.provider as { id: string; label: string } : { id: "oidc", label: "Identity provider" };
+    return { token: parsed.token, profile, provider };
+  } catch { return null; }
+}
+
+/** The onboarding token is signed and verified by the server; the browser only reads it for prefill. */
+export function decodeOnboardingToken(token: string): QiyOnboardingClaims | null {
+  try {
+    const part = token.split(".")[1];
+    if (!part) return null;
+    const normalized = part.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded)) as Record<string, unknown>;
+    if (typeof payload.provider !== "string" || typeof payload.identitySubject !== "string") return null;
+    return {
+      provider: payload.provider,
+      subject: payload.identitySubject,
+      ...(typeof payload.username === "string" ? { username: payload.username } : {}),
+      ...(typeof payload.email === "string" ? { email: payload.email } : {}),
+      ...(typeof payload.name === "string" ? { name: payload.name } : {}),
+    };
+  } catch { return null; }
+}
+
+/** Creates the local account for a verified provider identity and stores the session. */
+export async function registerOAuthUser(input: { onboardingToken: string; username: string; email?: string; password: string }, fetcher: typeof fetch = fetch): Promise<QiySignInResult> {
+  const response = await fetcher("/api/v1/auth/oauth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+  const result = await response.json().catch(() => null) as (QiySignInResult & { error?: string }) | null;
+  if (!response.ok || !result?.accessToken) throw new Error(result?.error ?? "The account could not be created");
+  serverSession().setItem(accessTokenKey, result.accessToken);
+  flowState().removeItem(pendingOnboardingKey);
+  return result;
+}
+`;
+}
+
+/** Shared browser client for the personal-center account page (password-only and hybrid). */
+function renderAccountWebClient(): string {
+  return `export interface QiyIdentityProvider { id: string; label: string; bound: boolean; subject?: string; email?: string; name?: string }
+export interface QiyIdentitiesUser { id: string; username: string; email: string; name: string; role: string }
+export interface QiyIdentities { user: QiyIdentitiesUser; password: { set: boolean }; providers: QiyIdentityProvider[]; loginMethodCount: number }
+
+const tokenKey = "qiy.access_token";
+function bearer(): Record<string, string> {
+  const token = typeof window === "undefined" ? undefined : window.localStorage.getItem(tokenKey);
+  return token ? { Authorization: "Bearer " + token } : {};
+}
+
+/** Reads the signed-in account and every linked sign-in method from the API. */
+export async function fetchIdentities(fetcher: typeof fetch = fetch): Promise<QiyIdentities> {
+  const response = await fetcher("/api/v1/auth/identities", { headers: bearer() });
+  const result = await response.json().catch(() => null) as (QiyIdentities & { error?: string }) | null;
+  if (!response.ok || !result) throw new Error(result?.error ?? "Could not load the account profile");
+  return result;
+}
+
+/** Removes one linked provider. The server refuses to remove the last login method. */
+export async function unbindProvider(provider: string, fetcher: typeof fetch = fetch): Promise<void> {
+  const response = await fetcher("/api/v1/auth/unbind", { method: "POST", headers: { "Content-Type": "application/json", ...bearer() }, body: JSON.stringify({ provider }) });
+  const result = await response.json().catch(() => null) as { error?: string; ok?: boolean } | null;
+  if (!response.ok || !result?.ok) throw new Error(result?.error ?? "Could not unlink the identity provider");
+}
+`;
+}
+
+function renderOnboardingRoute(options: { usernameLabel: string; hasEmailField: boolean }): string {
+  const emailField = options.hasEmailField
+    ? `        <Form.Item name="email" label="Email" rules={[{ required: true, type: "email", message: "Enter a valid email address" }]}><Input autoComplete="email" /></Form.Item>\n`
+    : "";
+  return `import { Alert, Button, Card, Form, Input, Space, Typography } from "antd";
+import { useState } from "react";
+import { useNavigate, useSearchParams } from "react-router";
+import { decodeOnboardingToken, registerOAuthUser } from "../auth/oidc-multi";
+
+interface OnboardingValues { username: string; email?: string; password: string; confirmPassword: string }
+
+/**
+ * Shown after the first OAuth sign-in for an identity that has no users row.
+ * The IdP username/email prefill the form; the user may adjust them and must set
+ * a password so the account also works with password login.
+ */
+export default function AuthOnboarding() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const token = searchParams.get("token") ?? "";
+  const claims = token ? decodeOnboardingToken(token) : null;
+  const [error, setError] = useState<string>();
+  const [submitting, setSubmitting] = useState(false);
+  const initialUsername = claims?.username ?? claims?.email ?? claims?.subject ?? "";
+  const initialEmail = claims?.email ?? "";
+  const submit = async (values: OnboardingValues) => {
+    setSubmitting(true);
+    setError(undefined);
+    try {
+      await registerOAuthUser({ onboardingToken: token, username: values.username.trim(), email: (values.email ?? values.username).trim(), password: values.password });
+      navigate("/", { replace: true });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+      setSubmitting(false);
+    }
+  };
+  if (!token) return <main style={{ padding: 40, display: "flex", justifyContent: "center" }}><Card style={{ width: 480 }}><Alert type="error" showIcon message="This onboarding link is invalid or has expired." /><Button style={{ marginTop: 16 }} onClick={() => navigate("/auth/login", { replace: true })}>Back to sign in</Button></Card></main>;
+  return <main style={{ padding: 40, display: "flex", justifyContent: "center" }}><Card style={{ width: 480 }}>
+    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Typography.Title level={3} style={{ margin: 0 }}>Finish creating your account</Typography.Title>
+      <Typography.Text type="secondary">{claims?.provider ? "Signed in with " + claims.provider + ". " : ""}Confirm the account details and choose a password.</Typography.Text>
+      {error ? <Alert type="error" showIcon message={error} /> : null}
+      <Form layout="vertical" initialValues={{ username: initialUsername, email: initialEmail, password: "", confirmPassword: "" }} onFinish={(values) => void submit(values as OnboardingValues)}>
+        <Form.Item name="username" label=${JSON.stringify(options.usernameLabel)} rules={[{ required: true, message: "This field is required" }]}><Input autoComplete="username" /></Form.Item>
+${emailField}        <Form.Item name="password" label="Password" rules={[{ required: true, min: 8, message: "Use at least 8 characters" }]}><Input.Password autoComplete="new-password" /></Form.Item>
+        <Form.Item name="confirmPassword" label="Confirm password" dependencies={["password"]} rules={[{ required: true }, ({ getFieldValue }) => ({ validator: (_, value: string) => value === getFieldValue("password") ? Promise.resolve() : Promise.reject(new Error("Passwords do not match")) })]}><Input.Password autoComplete="new-password" /></Form.Item>
+        <Button type="primary" htmlType="submit" block loading={submitting}>Create account and sign in</Button>
+      </Form>
+      <Typography.Text type="secondary">Already have an account with a password? <Typography.Link onClick={() => navigate("/auth/login", { replace: true })}>Sign in</Typography.Link> and link this provider from your profile.</Typography.Text>
+    </Space>
+  </Card></main>;
+}
+`;
+}
+
+/**
+ * Personal center: account details, password status and (for hybrid projects)
+ * the linked sign-in methods with bind/unbind controls. Works for local-only
+ * accounts too; the provider list is simply empty there.
+ */
+function renderProfileRoute(options: { hasProviderBinding: boolean }): string {
+  const bindImport = options.hasProviderBinding ? 'import { beginProviderBind } from "../auth/oidc-multi";\n' : "";
+  const providerSection = options.hasProviderBinding
+    ? `    <Card title="Linked sign-in methods">
+      <List<QiyIdentityProvider> dataSource={identities.providers} locale={{ emptyText: "No OAuth providers configured" }} renderItem={(provider) => <List.Item actions={provider.bound
+        ? [<Popconfirm key="unbind" title={"Unlink " + provider.label + "?"} description={canRemove(provider) ? "You can link it again later." : "This is your last sign-in method."} disabled={!canRemove(provider)} onConfirm={() => void unbind(provider)}><Button danger loading={busy === provider.id} disabled={!canRemove(provider)}>Unbind</Button></Popconfirm>]
+        : [<Button key="bind" type="primary" loading={busy === provider.id} onClick={() => void bind(provider)}>Bind</Button>]}>
+        <List.Item.Meta title={<Space><Tag color={provider.bound ? "green" : "default"}>{provider.label}</Tag>{provider.bound ? <Typography.Text type="secondary">Linked</Typography.Text> : null}</Space>} description={provider.bound ? <Typography.Text type="secondary">{provider.email ?? provider.name ?? provider.subject ?? "Linked"}</Typography.Text> : <Typography.Text type="secondary">Not linked yet</Typography.Text>} />
+      </List.Item>} />
+    </Card>
+`
+    : "";
+  return `import { useLogout, useNotification } from "@refinedev/core";
+import { Alert, Button, Card, Descriptions, List, Popconfirm, Space, Spin, Tag, Typography } from "antd";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
+${bindImport}import { fetchIdentities, unbindProvider, type QiyIdentities, type QiyIdentityProvider } from "../auth/account";
+
+export default function Profile() {
+  const [searchParams] = useSearchParams();
+  const { open } = useNotification();
+  const { mutate: logout } = useLogout();
+  const [identities, setIdentities] = useState<QiyIdentities>();
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState<string>();
+  const load = async () => {
+    try { setIdentities(await fetchIdentities()); setError(undefined); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
+  };
+  useEffect(() => { void load(); }, []);
+  const linked = searchParams.get("linked");
+  useEffect(() => { if (linked) open?.({ type: "success", message: "Linked " + linked }); }, [linked, open]);
+  const unbind = async (provider: QiyIdentityProvider) => {
+    setBusy(provider.id);
+    try { await unbindProvider(provider.id); await load(); open?.({ type: "success", message: "Unlinked " + provider.label }); }
+    catch (caught) { open?.({ type: "error", message: caught instanceof Error ? caught.message : String(caught) }); }
+    finally { setBusy(undefined); }
+  };
+  ${options.hasProviderBinding ? `const bind = async (provider: QiyIdentityProvider) => {
+    setBusy(provider.id);
+    try { await beginProviderBind(provider.id); }
+    catch (caught) { open?.({ type: "error", message: caught instanceof Error ? caught.message : String(caught) }); setBusy(undefined); }
+  };` : ""}
+  if (error && !identities) return <Alert type="error" showIcon message={error} />;
+  if (!identities) return <Spin />;
+  const passwordSet = identities.password.set;
+  const canRemove = (provider: QiyIdentityProvider) => passwordSet || identities.providers.some((other) => other.id !== provider.id && other.bound);
+  return <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Typography.Title level={2} style={{ margin: 0 }}>Profile</Typography.Title>
+    <Card title="Account" extra={<Button onClick={() => logout()}>Sign out</Button>}>
+      <Descriptions column={1} items={[
+        { key: "username", label: "Username", children: identities.user.username },
+        { key: "email", label: "Email", children: identities.user.email },
+        { key: "name", label: "Name", children: identities.user.name },
+        { key: "role", label: "Role", children: <Tag color="blue">{identities.user.role}</Tag> },
+        { key: "password", label: "Password", children: passwordSet ? <Tag color="green">Set</Tag> : <Tag>Not set</Tag> },
+      ]} />
+    </Card>
+${providerSection}  </Space>;
+}
+`;
+}
+
 
 
 

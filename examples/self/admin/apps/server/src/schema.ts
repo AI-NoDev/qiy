@@ -3,12 +3,16 @@ import { blob, index, integer, real, sqliteTable, text, uniqueIndex } from "driz
 export const users = sqliteTable("users", {
   "id": text("id").primaryKey(),
   "subject": text("subject").notNull().unique(),
-  "googleSubject": text("googleSubject"),
-  "openidField": text("openidField"),
-  "keycloakSubject": text("keycloakSubject"),
-  "email": text("email").notNull(),
+  "oktaSubject": text("oktaSubject").unique(),
+  "keycloakSubject": text("keycloakSubject").unique(),
+  "googleSubject": text("googleSubject").unique(),
+  "kindeSubject": text("kindeSubject").unique(),
+  "azureSubject": text("azureSubject").unique(),
+  "email": text("email").notNull().unique(),
   "displayName": text("displayName"),
   "role": text("role").notNull(),
+  "passwordHash": text("passwordHash"),
+  "oauthProfiles": text("oauthProfiles"),
   "orgId": text("orgId").references(() => orgs["id"], { onDelete: "restrict" }),
 });
 

@@ -1,12 +1,28 @@
 import { randomBytes } from "node:crypto";
 import type { DatabaseIR } from "./database-ir";
 import type { QiyEnvironmentVariable, QiyProject } from "./qiy-project";
+import { authHasLocal, authIsHybrid, authOAuthProviders, authUsesProviderChooser, type QiyAuthProvider } from "./qiy-project";
 
 type Mode = "development" | "production" | "example";
 type EnvOptions = Pick<QiyProject, "apiClient" | "corsOrigins" | "elysiaPlugins" | "realtime" | "storageProvider" | "auth" | "environment">;
 
 const generatedSecret = "__QIY_GENERATE_SECRET__";
 const isOidcAuth = (provider: NonNullable<QiyProject["auth"]>["provider"]): boolean => provider !== "local" && provider !== "otp";
+
+/** Env suffix used by the generated per-provider OIDC configuration (okta -> OKTA). */
+export function providerEnvSuffix(provider: string): string {
+  return provider.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+}
+
+function providerOidcExample(provider: QiyAuthProvider): { issuer: string; jwksUrl: string; authorizationUrl: string; tokenUrl: string } {
+  const sample = oidcExample(provider);
+  return {
+    issuer: `https://${provider}.example.com/`,
+    jwksUrl: `https://${provider}.example.com/.well-known/jwks.json`,
+    authorizationUrl: sample.authorizationUrl,
+    tokenUrl: sample.tokenUrl,
+  };
+}
 
 function oidcExample(provider: NonNullable<QiyProject["auth"]>["provider"]): { authorizationUrl: string; tokenUrl: string; logoutUrl: string } {
   if (provider === "google") return { authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth", tokenUrl: "https://oauth2.googleapis.com/token", logoutUrl: "" };
@@ -39,21 +55,42 @@ function defaults(database: DatabaseIR, options: EnvOptions, mode: Mode): Map<st
     ["QIY_STORAGE_PROVIDER", options.storageProvider ?? "local"],
     ["QIY_STORAGE_ROOT", "./storage"],
   ]);
-  if (options.auth?.provider === "local" || options.auth?.provider === "otp") values.set("QIY_AUTH_SECRET", development ? generatedSecret : "");
-  if (options.auth?.provider === "otp") {
+  const auth = options.auth;
+  const oauthProviders = auth ? authOAuthProviders(auth) : [];
+  const providerChooser = Boolean(auth && authUsesProviderChooser(auth));
+  if (auth && authHasLocal(auth)) values.set("QIY_AUTH_SECRET", development ? generatedSecret : "");
+  if (auth?.provider === "otp") {
     values.set("QIY_OTP_DELIVERY_URL", "");
     values.set("QIY_OTP_DELIVERY_TOKEN", "");
     values.set("QIY_OTP_DELIVERY_TIMEOUT_MS", "10000");
     values.set("QIY_OTP_DEV_CODE", development ? "246810" : "");
   }
-  if (options.auth && isOidcAuth(options.auth.provider)) {
-    values.set("QIY_OIDC_ISSUER", example ? "https://identity.example.com/" : "");
-    values.set("QIY_OIDC_AUDIENCE", example ? "qiy-admin" : "");
-    values.set("QIY_OIDC_JWKS_URL", example ? "https://identity.example.com/.well-known/jwks.json" : "");
+  if (auth && oauthProviders.length > 0) {
     values.set("QIY_OIDC_JWKS_TIMEOUT_MS", "5000");
     values.set("QIY_OIDC_JWKS_COOLDOWN_MS", "30000");
     values.set("QIY_OIDC_JWKS_CACHE_MAX_AGE_MS", "600000");
   }
+  if (auth && providerChooser) {
+    // Multi-provider and hybrid projects read one QIY_OIDC_<PROVIDER>_* block per
+    // configured provider; the public login page lists only blocks that are set.
+    for (const provider of oauthProviders) {
+      const suffix = providerEnvSuffix(provider);
+      const sample = providerOidcExample(provider);
+      values.set(`QIY_OIDC_${suffix}_ISSUER`, example ? sample.issuer : "");
+      values.set(`QIY_OIDC_${suffix}_AUDIENCE`, example ? "qiy-admin" : "");
+      values.set(`QIY_OIDC_${suffix}_JWKS_URL`, example ? sample.jwksUrl : "");
+      values.set(`QIY_OIDC_${suffix}_AUTHORIZATION_URL`, example ? sample.authorizationUrl : "");
+      values.set(`QIY_OIDC_${suffix}_TOKEN_URL`, example ? sample.tokenUrl : "");
+      values.set(`QIY_OIDC_${suffix}_CLIENT_ID`, example ? "qiy-admin-spa" : "");
+      values.set(`QIY_OIDC_${suffix}_SCOPE`, "openid profile email");
+      values.set(`QIY_OIDC_${suffix}_REDIRECT_URI`, example ? "https://admin.example.com/auth/callback" : "");
+    }
+  } else if (auth && oauthProviders.length === 1) {
+    values.set("QIY_OIDC_ISSUER", example ? "https://identity.example.com/" : "");
+    values.set("QIY_OIDC_AUDIENCE", example ? "qiy-admin" : "");
+    values.set("QIY_OIDC_JWKS_URL", example ? "https://identity.example.com/.well-known/jwks.json" : "");
+  }
+  if (auth && authIsHybrid(auth)) values.set("QIY_OIDC_DEFAULT_ROLE", "viewer");
   if (options.corsOrigins?.length) values.set("QIY_CORS_ORIGINS", options.corsOrigins.join(","));
   if (options.elysiaPlugins?.jwt) values.set(options.elysiaPlugins.jwt.secretEnv, development ? generatedSecret : "");
   if (options.elysiaPlugins?.cron?.length) values.set("QIY_CRON_ENABLED", "0");
@@ -104,11 +141,16 @@ function serverEnvironment(database: DatabaseIR, options: EnvOptions, mode: Mode
     "# This file is generated from the application's .qiy model.",
     ...[...values].map(([key, value]) => `${key}=${value}`),
   ];
-  if (options.auth && isOidcAuth(options.auth.provider)) {
+  if (options.auth && isOidcAuth(options.auth.provider) && !authUsesProviderChooser(options.auth)) {
     lines.push("", "# Configure the issuer, audience and JWKS URL for the selected OIDC/OAuth2/SSO provider.");
     if (mode === "example") lines.push("# These settings validate access tokens; they are not OAuth client credentials.");
   }
-  if (options.auth?.provider === "local") lines.push("", "# QIY_AUTH_SECRET is generated for development. Set a unique 32-byte value in production.");
+  if (options.auth && authUsesProviderChooser(options.auth)) {
+    lines.push("", "# One QIY_OIDC_<PROVIDER>_* block per configured provider; only complete blocks appear on the public login page.");
+    if (mode === "example") lines.push("# These settings validate provider tokens; they are not OAuth client credentials.", "# Set QIY_OIDC_<PROVIDER>_CLIENT_SECRET server-side only for confidential clients; never expose it in VITE_* variables.");
+    if (authIsHybrid(options.auth)) lines.push("# QIY_OIDC_DEFAULT_ROLE is the role for accounts created by first-time OAuth onboarding (default viewer).");
+  }
+  if (options.auth && authHasLocal(options.auth)) lines.push("", "# QIY_AUTH_SECRET is generated for development. Set a unique 32-byte value in production; it signs password sessions and OAuth onboarding tokens.");
   if (options.auth?.provider === "otp") lines.push("", "# OTP uses QIY_AUTH_SECRET to sign challenges and access tokens. Configure an HTTPS delivery adapter in production; QIY_OTP_DEV_CODE is development-only.");
   if (options.elysiaPlugins?.jwt) lines.push("", `# ${options.elysiaPlugins.jwt.secretEnv} is required by the configured Elysia JWT plugin.`);
   if (options.storageProvider === "s3") lines.push("", "# Set the QIY_S3_* values above for Bun's S3-compatible storage adapter.");
@@ -123,7 +165,10 @@ function serverEnvironment(database: DatabaseIR, options: EnvOptions, mode: Mode
 
 function webEnvironment(options: EnvOptions, mode: Mode): string {
   const values = new Map<string, string>([["VITE_QIY_API_TRANSPORT", options.apiClient ?? "rest"]]);
-  if (options.auth && isOidcAuth(options.auth.provider)) {
+  // Multi-provider and hybrid login pages read the provider list from the server,
+  // so only the legacy single-provider client needs VITE_QIY_* settings.
+  const singleOidc = options.auth && isOidcAuth(options.auth.provider) && !authUsesProviderChooser(options.auth);
+  if (singleOidc && options.auth) {
     const sample = oidcExample(options.auth.provider);
     const useSample = mode === "example";
     values.set("VITE_QIY_AUTHORIZATION_URL", useSample ? sample.authorizationUrl : "");
@@ -140,7 +185,7 @@ function webEnvironment(options: EnvOptions, mode: Mode): string {
   }
   return [
     `# Qiy ${mode} frontend environment.`,
-    ...(options.auth && isOidcAuth(options.auth.provider) ? ["# Configure a public SPA client with Authorization Code + PKCE. Never put a client secret in VITE_* variables."] : []),
+    ...(singleOidc ? ["# Configure a public SPA client with Authorization Code + PKCE. Never put a client secret in VITE_* variables."] : []),
     ...[...values].map(([key, value]) => `${key}=${value}`),
     "",
   ].join("\n");

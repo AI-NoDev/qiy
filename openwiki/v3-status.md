@@ -1,5 +1,42 @@
 # V3 实施状态与验收规划
 
+## 混合认证：密码 + 多 OAuth、首次登录 onboarding、账号绑定（2026-10-24 完成）
+
+**DSL/生成器（已完成）：**
+
+- `auth` 的 `providers` 列表现在允许混入 `local`（`providers local, okta, keycloak, ...;`），`provider local;` / `provider oidc;` / `providers a, b;` 等旧写法保持原语义；`providers local;` 归一化为纯密码模式；
+- 新增可选 `profileField`（可空 Text）保存每个 Provider 的 email/name/sub JSON；IR 增加 `auth.local`，派生辅助函数 `authHasLocal/authIsHybrid/authOAuthProviders/authUsesProviderChooser` 统一各生成分支；
+- 混合模式校验：每个 OAuth Provider 必须有独立映射列且为**可空 + 唯一** Text；`subjectField` 仍是必填唯一规范列；`usernameField/passwordField` 必填；`profileField` 必须可空；用户表其它必填列必须可由 onboarding 自动填充，否则生成阶段报错；
+- 服务端生成 `auth/hybrid.ts`（密码 HS256 会话 + Provider `iss` 路由组合认证器）、`auth/oidc.ts`（扩展的 exchange/onboarding/bind/unbind）、`auth/account.ts`（`GET /api/v1/auth/identities`）；`/api/v1/auth/oauth/register` 等公开路径加入 guard 白名单，`bind/unbind/identities` 需要 Bearer；
+- Web 生成一张 `/auth/login`（Refine `AuthPage` 凭据表单 + `/api/v1/auth/providers` 动态 Provider 按钮）、`/auth/callback` 与 `/oauth/*`、`/auth/onboarding`（IdP username/email 预填、强制 ≥8 位密码）、`/profile`（账号信息、绑定状态、bind/unbind、最后登录方式保护），并在 header 提供 Profile 入口；纯本地密码项目也生成 profile 页与 identities 端点；
+- 环境变量：`QIY_AUTH_SECRET`（混合模式必需）、`QIY_OIDC_DEFAULT_ROLE`（onboarding 默认角色，默认 viewer）、每 Provider `QIY_OIDC_<ID>_*`；`providers` 混合/多选项目的 Web 不再输出无用的 `VITE_QIY_*`，服务端 `.env.example` 按 Provider 生成 `QIY_OIDC_<ID>_*` 模板。
+
+**新端点：**
+
+| 端点 | 认证 | 作用 |
+| --- | --- | --- |
+| `POST /api/v1/auth/exchange` | 公开 | 已有身份 → Qiy 会话 token；新身份 → `needsOnboarding` + 10 分钟 HS256 `onboardingToken` + IdP profile，不再 401 |
+| `POST /api/v1/auth/oauth/register` | onboarding token | 创建 users 行（Provider 身份列 + Argon2id 密码 + 默认角色）并直接签发会话 |
+| `POST /api/v1/auth/bind` | Bearer | 把新 Provider 身份写入当前账号；身份属于其它账号时 409 |
+| `POST /api/v1/auth/unbind` | Bearer | 解绑；没有密码且无其它绑定时 409（拒绝移除最后登录方式） |
+| `GET /api/v1/auth/identities` | Bearer | 账号、密码状态、各 Provider 绑定状态与记录 email/name |
+
+**examples/self demo（已完成并通过端到端验收）：**
+
+- `app.qiy` 切为 `providers local, okta, keycloak, google, kinde, azure-ad-b2c;` + 5 个独立身份列 + `profileField oauthProfiles`；seed 的管理员同时绑定两个 Dex 租户身份且保留 `admin@example.com / admin-password`；
+- Dex 租户 B 新增 `operator@example.com / operator-password`（无预置用户行）用于 onboarding，租户 A 新增 `viewer@example.com / viewer-password` 用于绑定演示；
+- `examples/self/dex/demo.env.example` 增加 `QIY_AUTH_SECRET` 与 `QIY_OIDC_DEFAULT_ROLE`（真实 secret 仍在 gitignored 的 `demo.env`/`.env.development`）；
+- 重新生成 270 文件，`db:generate/db:migrate/seed` 通过；生成服务 `bun run typecheck` 通过、**132 pass / 3 skip / 0 fail**；生成 Web `bun run typecheck`、`bun run build` 通过、**37 pass / 0 fail**；
+- 真实 Dex 端到端（API :8001 + Web :8000 + Dex :5556/:5557）：匿名 401、`/auth/providers` 5 Provider + local、密码登录、已有身份 OAuth 会话 `/auth/me` 200（原 401 bug 回归）、新身份 onboarding → 注册 → 会话、`/auth/bind`（重复身份 409）、`/auth/unbind`、最后登录方式 409、真实 Dex id_token 兼容路径，全部通过；
+- 仓库侧：`bun run check` 通过；`bun test` **231 pass / 0 fail**（`tests/auth-providers.test.ts` 新增混合认证解析/生成/校验断言；两个 qiy-include 生成测试补 20s 超时以避免机器负载下的 5s 默认超时抖动）。
+
+**仍待真实验收/未实现：**
+
+- Google / Kinde / Azure AD B2C 的浏览器登录仍需各自租户回调登记与人工登录一次（本地只验收了 Provider 列表与 BFF 交换代码路径；Dex 两个租户为全自动验收）；
+- 未实现 onboarding/bind 请求的限流与一次性消费（onboardingToken 有 10 分钟有效期与签名校验，但同一 token 在有效期内可重复提交；注册会用唯一约束拒绝重复创建）；
+- 身份规范化没有做 email 自动合并：同一自然人的不同 Provider 身份在首次登录时仍会各自 onboarding，需要用户主动在 `/profile` 绑定；
+- `profileField` 展示的 email/name 来自 id_token/access_token 的 claim；未调用 userinfo 端点补全。
+
 ## 多 Provider 认证 + 供应链/ERP/WMS 一体化（2026-10-24 完成）
 
 **多 Provider 登录（多选 + 每 Provider 身份字段）已实现并验收：**

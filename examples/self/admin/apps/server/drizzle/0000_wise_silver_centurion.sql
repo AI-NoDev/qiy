@@ -259,17 +259,27 @@ CREATE UNIQUE INDEX `suppliers_code_unique` ON `suppliers` (`code`);--> statemen
 CREATE TABLE `users` (
 	`id` text PRIMARY KEY NOT NULL,
 	`subject` text NOT NULL,
-	`googleSubject` text,
-	`openidField` text,
+	`oktaSubject` text,
 	`keycloakSubject` text,
+	`googleSubject` text,
+	`kindeSubject` text,
+	`azureSubject` text,
 	`email` text NOT NULL,
 	`displayName` text,
 	`role` text NOT NULL,
+	`passwordHash` text,
+	`oauthProfiles` text,
 	`orgId` text,
 	FOREIGN KEY (`orgId`) REFERENCES `orgs`(`id`) ON UPDATE no action ON DELETE restrict
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `users_subject_unique` ON `users` (`subject`);--> statement-breakpoint
+CREATE UNIQUE INDEX `users_oktaSubject_unique` ON `users` (`oktaSubject`);--> statement-breakpoint
+CREATE UNIQUE INDEX `users_keycloakSubject_unique` ON `users` (`keycloakSubject`);--> statement-breakpoint
+CREATE UNIQUE INDEX `users_googleSubject_unique` ON `users` (`googleSubject`);--> statement-breakpoint
+CREATE UNIQUE INDEX `users_kindeSubject_unique` ON `users` (`kindeSubject`);--> statement-breakpoint
+CREATE UNIQUE INDEX `users_azureSubject_unique` ON `users` (`azureSubject`);--> statement-breakpoint
+CREATE UNIQUE INDEX `users_email_unique` ON `users` (`email`);--> statement-breakpoint
 CREATE TABLE `warehouses` (
 	`id` text PRIMARY KEY NOT NULL,
 	`orgId` text NOT NULL,

@@ -248,6 +248,38 @@ bun run tools/verify-azure-b2c-browser.ts
 
 脚本会打印授权 URL 并在 `http://localhost:3000/login` 等待回调，用 PKCE 换真实 `id_token`，再交给 `verify-azure-b2c.ts` 完成生成服务验签、`iss|sub` 用户映射与角色断言。若 3000 端口被占用，用 `QIY_AZURE_REDIRECT_URI` + `QIY_AZURE_BROWSER_PORT`（并在应用里登记同一 redirect URI）。
 
+## 3g. 混合认证（密码 + 多 Provider，onboarding 与账号绑定）
+
+`examples/self` 是混合认证的真实联调环境：同一张 `users` 表存放密码哈希与每个 Provider 的身份列，登录页同时提供密码表单和 5 个 Provider 按钮（两个真实 Dex 租户 + Google/Kinde/Azure）。
+
+服务端环境变量（`examples/self/dex/demo.env` → `apps/server/.env.development`，全部保留在本地、不入库）：
+
+```dotenv
+# 签发密码会话与首次 OAuth onboarding 的短时令牌（>=32 字符）
+QIY_AUTH_SECRET=<openssl rand -hex 32>
+# onboarding 创建账号的默认角色：admin / operator / viewer
+QIY_OIDC_DEFAULT_ROLE=viewer
+
+# 每个 Provider 一组 QIY_OIDC_<ID>_*：ISSUER/AUDIENCE/JWKS_URL 必填，
+# AUTHORIZATION_URL/TOKEN_URL/CLIENT_ID/SCOPE/REDIRECT_URI 供登录页 PKCE，
+# CLIENT_SECRET 只留在服务端供 BFF 兑换 code。
+QIY_OIDC_OKTA_ISSUER=http://localhost:5556/dex
+QIY_OIDC_KEYCLOAK_ISSUER=http://localhost:5557/dex
+QIY_OIDC_GOOGLE_CLIENT_SECRET=...
+```
+
+验收链路（脚本 `tmp/verify-hybrid-demo.ts`，需要两个 Dex 容器与 demo API/Web 在运行）：
+
+1. 匿名请求 `GET /api/v1/products`、`/api/v1/auth/me`、`/api/v1/auth/identities` 均 401；
+2. `GET /api/v1/auth/providers` 返回 `local: true` 和 5 个已配置 Provider；
+3. `admin@example.com / admin-password` 密码登录 → `/auth/me` 200（admin）；
+4. 已有身份（Dex 的 `admin@example.com`）走真实 Authorization Code + PKCE → `POST /api/v1/auth/exchange` 返回会话 token，`/auth/me` 200——这就是旧版「OAuth 用户没有 users 行导致 401」的回归验收；
+5. 新身份（Dex B 的 `operator@example.com`）exchange 返回 `needsOnboarding` + `onboardingToken`（不是 401）→ `/auth/oauth/register` 设置密码并创建账号（默认 viewer）→ `/auth/me` 200；
+6. 已登录账号 `POST /api/v1/auth/bind` 绑定第二个 Provider；重复身份 409；`POST /api/v1/auth/unbind` 解绑；只剩 Provider 身份且没有密码时解绑返回 409（拒绝移除最后登录方式）；
+7. 未过期的真实 Provider `id_token` 仍可被服务端按 `iss` 路由验签（兼容旧的纯 Provider token 客户端）。
+
+真实厂商（Google/Kinde/Azure）第一次 OAuth 登录同样会进入 `/auth/onboarding`，回调地址见 [examples/self/README.md](https://github.com/AI-NoDev/qiy/blob/main/examples/self/README.md)。
+
 ## 4. 真实 Ably（需要 API Key）
 
 Ably 没有本地服务器，必须用真实账号：

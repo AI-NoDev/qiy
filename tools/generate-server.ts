@@ -1,5 +1,6 @@
 import type { DatabaseIR, EntityIR, FieldIR, FilterMode } from "./database-ir";
 import type { QiyProject, DataflowIR, QiyPolicyExpression, QiyResourceRestriction, QiyRowPredicate, QiyFieldMask } from "./qiy-project";
+import { authHasLocal, authIsHybrid, authOAuthProviders, authProviderSubjectField, authUsesProviderChooser } from "./qiy-project";
 import { resolveQiyTestValue, type QiyTestSuite, type QiyTestScenario } from "./qiy-test";
 
 /** A data scope, optionally widened to the whole subtree of a self-referencing entity. */
@@ -3998,6 +3999,16 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
     if (!/^[a-z][a-z0-9_-]*$/.test(entity.tableName)) errors.push(`${entity.name}: route path must be lowercase and URL-safe`);
   }
   const auth = options.auth;
+  // Authentication modes are derived once so every generation branch agrees:
+  // local-only (password), hybrid (password + OAuth), legacy single OAuth and
+  // multi-provider OAuth.
+  const hasLocalAuth = Boolean(auth && authHasLocal(auth));
+  const oidcProviders = auth ? authOAuthProviders(auth) : [];
+  const hasOidcAuth = oidcProviders.length > 0;
+  const hybridAuth = Boolean(auth && authIsHybrid(auth));
+  const providerChooserAuth = Boolean(auth && authUsesProviderChooser(auth));
+  const multiProviderAuth = Boolean(auth && providerChooserAuth && !hybridAuth);
+  const singleOidcAuth = Boolean(auth && hasOidcAuth && !providerChooserAuth);
   const realtimeResources = new Set<string>();
   for (const subscription of options.realtime?.resources ?? []) {
     const entity = database.entities.find((candidate) => candidate.name === subscription.resource || candidate.tableName === subscription.resource);
@@ -4190,16 +4201,42 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
     const subject = user?.fields.find((field) => field.name === auth.subjectField);
     const role = user?.fields.find((field) => field.name === auth.roleField);
     if (!user) errors.push(`Auth: unknown user entity ${auth.userEntity}`);
-    if (auth.provider === "local" || auth.provider === "otp") {
+    if (hasLocalAuth) {
       const username = user?.fields.find((field) => field.name === auth.usernameField);
       if (!username || username.type !== "Text" || username.nullable || !username.unique) errors.push("Auth: usernameField must be a required unique Text field");
-      if (auth.provider === "local") {
-        const password = user?.fields.find((field) => field.name === auth.passwordField);
-        if (!password || !["Text"].includes(password.type) || !password.nullable) errors.push("Auth: passwordField must be a nullable Text field storing the password hash");
-        if (username && password && username.name === password.name) errors.push("Auth: usernameField and passwordField must be different fields");
-      }
-    } else if (!subject || subject.type !== "Text" || subject.nullable || !subject.unique) {
+      const password = user?.fields.find((field) => field.name === auth.passwordField);
+      if (!password || !["Text"].includes(password.type) || !password.nullable) errors.push("Auth: passwordField must be a nullable Text field storing the password hash");
+      if (username && password && username.name === password.name) errors.push("Auth: usernameField and passwordField must be different fields");
+    }
+    if (hasOidcAuth && (!subject || subject.type !== "Text" || subject.nullable || !subject.unique)) {
       errors.push("Auth: subjectField must be a required unique Text field");
+    }
+    // Hybrid projects store one identifier per OAuth provider in its own users
+    // column. Binding needs a per-provider identity that can be null, so the
+    // mapped columns must be nullable and unique.
+    if (hybridAuth) {
+      for (const provider of oidcProviders) {
+        if (authProviderSubjectField(auth, provider) === auth.subjectField && !auth.providerMappings?.some((mapping) => mapping.provider === provider)) {
+          errors.push(`Auth: provider ${provider} needs its own nullable subjectField mapping when local password login is combined with OAuth`);
+          continue;
+        }
+        const column = user?.fields.find((field) => field.name === authProviderSubjectField(auth, provider));
+        if (!column) { errors.push(`Auth: provider ${provider} maps to unknown user field ${authProviderSubjectField(auth, provider)}`); continue; }
+        if (column.type !== "Text") errors.push(`Auth: provider ${provider} subjectField must be a Text field`);
+        if (!column.nullable) errors.push(`Auth: provider ${provider} subjectField ${column.name} must be nullable so accounts can exist without that binding`);
+        if (!column.unique) errors.push(`Auth: provider ${provider} subjectField ${column.name} must be unique`);
+      }
+    }
+    if (auth.profileField) {
+      const profile = user?.fields.find((field) => field.name === auth.profileField);
+      if (!profile || profile.type !== "Text" || !profile.nullable) errors.push("Auth: profileField must be a nullable Text field storing per-provider profile metadata");
+    }
+    if (hasLocalAuth && hasOidcAuth) {
+      // First OAuth login creates a users row. Every required non-id column must
+      // be populated by the generated onboarding endpoint.
+      const autoFields = new Set([auth.usernameField, auth.passwordField, auth.roleField, auth.subjectField, auth.profileField, ...oidcProviders.map((provider) => authProviderSubjectField(auth, provider)), "email", "displayName", "name"].filter((value): value is string => Boolean(value)));
+      const uncovered = (user?.fields ?? []).filter((field) => !field.primaryKey && !field.nullable && !autoFields.has(field.name));
+      if (uncovered.length) errors.push(`Auth: OAuth onboarding cannot populate required user fields: ${uncovered.map((field) => field.name).join(", ")}; make them nullable`);
     }
     const roleValues = database.enums?.find((item) => item.name === role?.enumName)?.values.map((item) => item.name);
     if (!role || !roleValues || !["admin", "operator", "viewer"].every((value) => roleValues.includes(value)) || roleValues.some((value) => !["admin", "operator", "viewer"].includes(value))) errors.push("Auth: roleField must be an enum with admin, operator and viewer values");
@@ -4878,7 +4915,7 @@ export async function createApp(repositories: Repositories, authenticate: Authen
    const configuredOrigins = ${JSON.stringify(options.corsOrigins ?? [])} as string[];
    const environmentOrigins = Bun.env.QIY_CORS_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean) ?? [];
    const allowedOrigins = normalizeCorsOrigins(corsOrigins ?? (environmentOrigins.length > 0 ? environmentOrigins : configuredOrigins));
-   const guard = createAuthorizationGuard(authenticate, ${protectedResources}, ${pageRules}, ${JSON.stringify(auth?.providers && auth.providers.length > 1 ? ["/api/v1/auth/providers", "/api/v1/auth/exchange"] : [])});
+   const guard = createAuthorizationGuard(authenticate, ${protectedResources}, ${pageRules}, ${JSON.stringify(hybridAuth ? ["/api/v1/auth/providers", "/api/v1/auth/exchange", "/api/v1/auth/oauth/register"] : multiProviderAuth ? ["/api/v1/auth/providers", "/api/v1/auth/exchange"] : [])});
   const routes = (new Elysia({ prefix: "/api/v1" }) as any)
     .get("/health", () => ({ ok: true }))
     .get("/auth/me", async ({ request }: { request: Request }) => authenticate(request))
@@ -4887,12 +4924,14 @@ export async function createApp(repositories: Repositories, authenticate: Authen
  ${dataflowRoutes ? '   const dataflows = includeDataflows ? (await import("./dataflows")).createDataflowRoutes(authenticate) : undefined;' : ''}
     ${options.realtime ? "const realtime = createRealtimeRoutes(authenticate);" : ""}
     const storage = includeStorage ? (await import("./storage/routes")).createStorageRoutes(authenticate) : undefined;
-    ${auth?.provider === "local" ? 'const authRoutes = (await import("./auth/local")).createLocalAuthRoutes();' : auth?.provider === "otp" ? 'const authRoutes = (await import("./auth/otp")).createOtpAuthRoutes();' : ''}
-    ${auth?.providers && auth.providers.length > 1 ? 'const authProviderRoutes = (await import("./auth/oidc")).createAuthProviderRoutes();' : ''}
+    ${hasLocalAuth ? 'const authRoutes = (await import("./auth/local")).createLocalAuthRoutes();' : auth?.provider === "otp" ? 'const authRoutes = (await import("./auth/otp")).createOtpAuthRoutes();' : ''}
+    ${hasLocalAuth ? 'const accountRoutes = (await import("./auth/account")).createAccountRoutes(authenticate);' : ''}
+    ${hybridAuth ? 'const authProviderRoutes = (await import("./auth/oidc")).createHybridAuthRoutes(authenticate);' : multiProviderAuth ? 'const authProviderRoutes = (await import("./auth/oidc")).createAuthProviderRoutes();' : ''}
     const application = new Elysia().use(allowedOrigins.length > 0 ? cors({ origin: allowedOrigins, credentials: false, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key"] }) : new Elysia()).onRequest(({ request }) => guard(request)).use(openapi({ path: "/api/v1/openapi", documentation: { info: { title: "Qiy Admin API", version: "1.0.0" } } })).use(routes)${options.elysiaPlugins?.graphqlAdapter && options.elysiaPlugins.graphqlAdapter !== "native" ? '' : '.use(createGraphQLRoutes(repositories, authenticate))'};
     let composed = application;
-    ${auth?.provider === "local" || auth?.provider === "otp" ? "composed = composed.use(authRoutes);" : ""}
-    ${auth?.providers && auth.providers.length > 1 ? "composed = composed.use(authProviderRoutes);" : ""}
+    ${hasLocalAuth || auth?.provider === "otp" ? "composed = composed.use(authRoutes);" : ""}
+    ${hasLocalAuth ? "composed = composed.use(accountRoutes);" : ""}
+    ${hybridAuth || multiProviderAuth ? "composed = composed.use(authProviderRoutes);" : ""}
     ${orderWorkflow ? "composed = workflow ? composed.use(workflow) : composed;" : ""}
     ${dataflowRoutes ? "composed = dataflows ? composed.use(dataflows) : composed;" : ""}
     ${options.realtime ? "composed = composed.use(realtime);" : ""}
@@ -4903,7 +4942,7 @@ export async function createApp(repositories: Repositories, authenticate: Authen
 }
 `,
     "api/src/modules/index.ts": database.entities.map((entity) => `export { ${modelName(entity)}Routes } from "./${entity.name}/${entity.name}.routes";`).join("\n") + "\n",
-    "api/src/graphql.ts": renderGraphQL(scopedDatabase, options.auth?.provider === "local" ? { [options.auth.userEntity]: [options.auth.passwordField!] } : {}, options.dataflows ?? [], options.actions ?? [], (options.realtime?.resources ?? []).flatMap((resource) => {
+    "api/src/graphql.ts": renderGraphQL(scopedDatabase, hasLocalAuth ? { [options.auth!.userEntity]: [options.auth!.passwordField!] } : {}, options.dataflows ?? [], options.actions ?? [], (options.realtime?.resources ?? []).flatMap((resource) => {
       const entity = scopedDatabase.entities.find((candidate) => candidate.name === resource.resource || candidate.tableName === resource.resource);
       return entity ? [entity] : [];
     })),
@@ -5559,7 +5598,7 @@ test("reports cleanup failures without a silent cron callback", async () => {
     "api/src/server.ts": `import { resolve } from "node:path";
 import { createApp } from "./app";
 import { createHandler } from "./http";
-${auth ? `import { createProductionAuthenticator } from ${auth.provider === "local" ? '"./auth/local"' : auth.provider === "otp" ? '"./auth/otp"' : '"./auth/oidc"'};` : ''}
+${auth ? `import { createProductionAuthenticator } from ${hybridAuth ? '"./auth/hybrid"' : hasLocalAuth ? '"./auth/local"' : auth.provider === "otp" ? '"./auth/otp"' : '"./auth/oidc"'};` : ''}
 ${options.realtime ? 'import { startRealtimeOutboxWorker } from "./realtime";' : ''}
 ${repositoryImports}
 
@@ -5738,9 +5777,12 @@ try {
 }
 `;
   if (auth) {
-    if (auth.providers && auth.providers.length > 1) {
+    if (hybridAuth) {
+      files["api/src/auth/oidc.ts"] = renderHybridAuthModule(auth, database);
+      files["api/src/auth/hybrid.ts"] = renderHybridAuthenticatorModule();
+    } else if (multiProviderAuth) {
       files["api/src/auth/oidc.ts"] = renderMultiProviderOidcModule(auth);
-    } else if (auth.provider !== "local" && auth.provider !== "otp") files["api/src/auth/oidc.ts"] = `import { createRemoteJWKSet } from "jose";
+    } else if (singleOidcAuth) files["api/src/auth/oidc.ts"] = `import { createRemoteJWKSet } from "jose";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { ${auth.userEntity} } from "../schema";
@@ -5773,12 +5815,15 @@ export function createProductionAuthenticator() {
   });
 }
 `;
-    if (auth.provider === "local") {
+    if (hasLocalAuth) {
       const usernameField = auth.usernameField!;
       const passwordField = auth.passwordField!;
       const userEntity = database.entities.find((entity) => entity.name === auth.userEntity)!;
-      const bootstrapFields = userEntity.fields.filter((field) => !field.primaryKey && !field.nullable && ![usernameField, passwordField, auth.roleField].includes(field.name));
+      const bootstrapFields = userEntity.fields.filter((field) => !field.primaryKey && !field.nullable && ![usernameField, passwordField, auth.roleField].includes(field.name) && !(hybridAuth && field.name === auth.subjectField));
       const bootstrapHasDisplayName = bootstrapFields.some((field) => field.name === "displayName");
+      // A hybrid account needs the required canonical subject column too; it is
+      // derived instead of prompted because no OAuth identity exists yet.
+      const bootstrapCanonicalSubject = hybridAuth ? `${JSON.stringify(auth.subjectField)}: "local:" + username, ` : "";
       const bootstrapValues = bootstrapFields.map((field) => {
         const value = field.name === "displayName" ? "displayName"
           : field.type === "Integer" ? `Number(await terminal.question(${JSON.stringify(field.name + ": ")}))`
@@ -5913,7 +5958,7 @@ try {
   if (!username) throw new Error("Username is required");
   ${bootstrapHasDisplayName ? 'const displayName = (await terminal.question("Display name: ")).trim() || username;' : ""}
   const password = await terminal.question("Password (minimum 8 characters): ");
-  const values = { ${JSON.stringify(usernameField)}: username, ${JSON.stringify(auth.roleField)}: "admin", ${JSON.stringify(passwordField)}: await hashPassword(password), ${bootstrapValues} };
+  const values = { ${JSON.stringify(usernameField)}: username, ${JSON.stringify(auth.roleField)}: "admin", ${JSON.stringify(passwordField)}: await hashPassword(password), ${bootstrapCanonicalSubject}${bootstrapValues} };
   await db.insert(${auth.userEntity}).values({ ...values, id: crypto.randomUUID() } as typeof ${auth.userEntity}.$inferInsert);
   console.log("Initial admin account created for " + username);
 } finally { terminal.close(); }
@@ -6021,6 +6066,8 @@ import { createOtpAuthRoutes } from "../src/auth/otp";
 test("issues and verifies a short-lived OTP challenge without exposing a production code", async () => { Bun.env.QIY_AUTH_SECRET = "qiy-otp-test-secret-value-at-least-32"; Bun.env.QIY_DEV_MODE = "1"; Bun.env.QIY_OTP_DEV_CODE = "246810"; const sent: Array<{ identifier: string; code: string }> = []; const user = { id: "user-1", ${JSON.stringify(usernameField)}: "admin@example.com", ${JSON.stringify(auth.roleField)}: "admin" } as any; const principal = { id: "user-1", name: "Admin", role: "admin" } as const; const app = new Elysia().use(createOtpAuthRoutes(async (identifier) => identifier === "admin@example.com" ? user : null, async (identifier, code) => { sent.push({ identifier, code }); }, async (id) => id === "user-1" ? principal : null)); const request = await app.handle(new Request("http://localhost/api/v1/auth/otp/request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier: "admin@example.com" }) })); expect(request.status).toBe(200); const challenge = await request.json() as { challengeToken: string; devCode?: string }; expect(challenge.devCode).toBe("246810"); expect(sent).toEqual([{ identifier: "admin@example.com", code: "246810" }]); const verify = (code: string) => app.handle(new Request("http://localhost/api/v1/auth/otp/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier: "admin@example.com", challengeToken: challenge.challengeToken, code }) })); expect((await verify("wrong")).status).toBe(401); const success = await verify("246810"); expect(success.status).toBe(200); expect((await success.json() as { accessToken: string }).accessToken.length).toBeGreaterThan(40); });
 `;
     }
+    if (hasLocalAuth) files["api/src/auth/account.ts"] = renderAccountModule(auth, database);
+    if (hybridAuth) files["api/tests/hybrid-auth.test.ts"] = renderHybridAuthTest(auth);
     files["api/tests/auth.test.ts"] = `import { expect, test } from "bun:test";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { createOidcAuthenticator } from "../src/auth/verify";
@@ -6051,7 +6098,7 @@ test("verifies issuer, audience and rotating JWKS keys before resolving subject"
     const realtimeEvents = new Set(realtimeSubscription?.events ?? []);
     const realtimeMasked = realtimeSubscription ? maskedRealtimeFields(normalizedRestrictions.find((restriction) => restriction.resource === entity.name), realtimeSubscription.roles) : [];
     const realtimeClaim = realtimeSubscription?.claim;
-    const hiddenFields = options.auth?.provider === "local" && entity.name === options.auth.userEntity ? [options.auth.passwordField!] : [];
+    const hiddenFields = hasLocalAuth && entity.name === options.auth!.userEntity ? [options.auth!.passwordField!] : [];
     const publicEntity = hiddenFields.length ? { ...entity, fields: entity.fields.filter((field) => !hiddenFields.includes(field.name)) } : entity;
     const entityRestricted = normalizedRestrictions.some((restriction) => restriction.resource === entity.name);
     files[`${moduleRoot}/${entity.name}.repository.ts`] = `import { and, asc, avg, count, desc, eq, gt, gte, lt, lte, max, min, sql, sum, ${database.dialect === "postgresql" ? "ilike" : "like"}, inArray, or } from "drizzle-orm";
@@ -6129,7 +6176,7 @@ ${renderRoutes(publicEntity, database, options.scopes, hiddenFields, entityRestr
     files[`api/src/routes/${entity.name}.ts`] = `export { ${modelName(entity)}Routes } from "../modules/${entity.name}/${entity.name}.routes";\nexport type { ${modelName(entity)}Repository } from "../modules/${entity.name}/${entity.name}.contract";\n`;
     files[`api/tests/${entity.name}.test.ts`] = renderRouteTest(publicEntity, database, options.scopes ?? [], hiddenFields);
   }
-  files["api/tests/graphql.test.ts"] = renderGraphQLTest(scopedDatabase, options.auth?.provider === "local" && database.entities[0]!.name === options.auth.userEntity ? [options.auth.passwordField!] : []);
+  files["api/tests/graphql.test.ts"] = renderGraphQLTest(scopedDatabase, hasLocalAuth && database.entities[0]!.name === options.auth!.userEntity ? [options.auth!.passwordField!] : []);
   files["api/tests/graphql-schema.test.ts"] = `import { expect, test } from "bun:test";
 import { buildSchema, isObjectType, isInputObjectType, validateSchema } from "graphql";
 import { graphqlTypeDefs } from "../src/graphql";
@@ -6138,7 +6185,7 @@ test("generated GraphQL schema satisfies the GraphQL type system", () => {
   expect(validateSchema(buildSchema(graphqlTypeDefs)).map((error) => error.message)).toEqual([]);
 });
 ${database.entities.map((entity) => {
-    const hidden = options.auth?.provider === "local" && options.auth.userEntity === entity.name ? [options.auth.passwordField!] : [];
+    const hidden = hasLocalAuth && options.auth!.userEntity === entity.name ? [options.auth!.passwordField!] : [];
     const fields = entity.fields.filter((field) => field.comment !== undefined && !hidden.includes(field.name));
     if (entity.comment === undefined && !fields.length) return "";
     return `\ntest(${JSON.stringify(`${entity.name} GraphQL descriptions match the model`)}, () => {
@@ -6409,7 +6456,7 @@ test("SQLite CRUD audit rolls back the mutation when the audit insert fails", as
 });
 `;
   }
-  const documentedFields = (entity: EntityIR) => entity.fields.filter((field) => !field.primaryKey && field.comment !== undefined && !(options.auth?.provider === "local" && entity.name === options.auth.userEntity && field.name === options.auth.passwordField));
+  const documentedFields = (entity: EntityIR) => entity.fields.filter((field) => !field.primaryKey && field.comment !== undefined && !(hasLocalAuth && entity.name === options.auth!.userEntity && field.name === options.auth!.passwordField));
   const describedEntities = database.entities.filter((entity) => entity.comment !== undefined || documentedFields(entity).length);
   const describedDataflows = (options.dataflows ?? []).filter((flow) => flow.label !== undefined || flow.comment !== undefined);
   if (describedEntities.length || describedDataflows.length) {
@@ -6576,3 +6623,539 @@ function renderMultiProviderOidcModule(auth: NonNullable<QiyProject["auth"]>): s
   lines.push("}");
   return lines.join("\n") + "\n";
 }
+
+/**
+ * Composes the password authenticator and the OAuth provider authenticator into
+ * one bearer authenticator for hybrid apps. Password (`qiy-admin` HS256) sessions
+ * are checked first; provider tokens are routed by their `iss` claim.
+ */
+function renderHybridAuthenticatorModule(): string {
+  return `import { createProductionAuthenticator as createLocalAuthenticator } from "./local";
+import { createProductionAuthenticator as createProviderAuthenticator } from "./oidc";
+import type { Authenticator } from "./guard";
+
+/**
+ * Hybrid authentication: signed password sessions (issuer "qiy-admin") and
+ * OAuth/OIDC provider tokens share one bearer authenticator. The provider side
+ * only verifies tokens whose issuer matches a configured provider, so an
+ * unknown or forged token is never accepted.
+ */
+export function createProductionAuthenticator(): Authenticator {
+  const local = createLocalAuthenticator();
+  const providers = createProviderAuthenticator();
+  return async (request) => (await local(request)) ?? (await providers(request));
+}
+`;
+}
+
+/**
+ * GET /api/v1/auth/identities: the signed-in account plus every configured
+ * login method. Bind/unbind uses the per-provider subject columns as the binding
+ * store, so this module only reads them (plus the optional profile metadata
+ * column that remembers the email/name returned by the provider).
+ */
+function renderAccountModule(auth: NonNullable<QiyProject["auth"]>, database: DatabaseIR): string {
+  const user = database.entities.find((entity) => entity.name === auth.userEntity)!;
+  const providerIdentities = (auth.providers ?? []).map((provider) => ({ id: provider, label: providerLabel(provider), subjectField: authProviderSubjectField(auth, provider) }));
+  const emailField = user.fields.some((field) => field.name === "email") && auth.usernameField !== "email" ? "email" : null;
+  const displayNameField = ["displayName", "name"].find((name) => user.fields.some((field) => field.name === name)) ?? null;
+  return `import { eq } from "drizzle-orm";
+import { Elysia } from "elysia";
+import { db } from "../db";
+import { ${auth.userEntity} } from "../schema";
+import type { Authenticator } from "./guard";
+
+interface QiyProviderIdentitySummary { id: string; label: string; bound: boolean; subject?: string; email?: string; name?: string }
+interface QiyProfileMetadata { email?: string; name?: string; sub?: string }
+
+const providerIdentities: Array<{ id: string; label: string; subjectField: string }> = ${JSON.stringify(providerIdentities)};
+const USERNAME_FIELD = ${JSON.stringify(auth.usernameField)};
+const PASSWORD_FIELD = ${JSON.stringify(auth.passwordField)};
+const ROLE_FIELD = ${JSON.stringify(auth.roleField)};
+const PROFILE_FIELD: string | null = ${JSON.stringify(auth.profileField ?? null)};
+const EMAIL_FIELD: string | null = ${JSON.stringify(emailField)};
+const DISPLAY_NAME_FIELD: string | null = ${JSON.stringify(displayNameField)};
+
+function readProfiles(record: Record<string, unknown>): Record<string, QiyProfileMetadata> {
+  if (!PROFILE_FIELD) return {};
+  const raw = record[PROFILE_FIELD];
+  if (typeof raw !== "string" || raw.trim() === "") return {};
+  try { const parsed = JSON.parse(raw) as unknown; return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, QiyProfileMetadata> : {}; } catch { return {}; }
+}
+
+export function createAccountRoutes(authenticate: Authenticator) {
+  return new Elysia({ prefix: "/api/v1/auth" }).get("/identities", async (context: any) => {
+    const { request, set } = context;
+    const principal = await authenticate(request);
+    if (!principal) { set.status = 401; return { error: "Authentication required" }; }
+    const rows = await db.select().from(${auth.userEntity}).where(eq(${auth.userEntity}.id, principal.id)).limit(1);
+    const row = rows[0];
+    if (!row) { set.status = 401; return { error: "Unknown account" }; }
+    const record = row as unknown as Record<string, unknown>;
+    const profiles = readProfiles(record);
+    const username = String(record[USERNAME_FIELD] ?? "");
+    const email = EMAIL_FIELD ? String(record[EMAIL_FIELD] ?? username) : username;
+    const name = DISPLAY_NAME_FIELD ? String(record[DISPLAY_NAME_FIELD] ?? username) : username;
+    const passwordSet = Boolean(record[PASSWORD_FIELD]);
+    const providers: QiyProviderIdentitySummary[] = providerIdentities.map((provider) => {
+      const subject = record[provider.subjectField];
+      const metadata = profiles[provider.id];
+      return { id: provider.id, label: provider.label, bound: typeof subject === "string" && subject !== "", ...(typeof subject === "string" && subject !== "" ? { subject } : {}), ...(metadata?.email ? { email: metadata.email } : {}), ...(metadata?.name ? { name: metadata.name } : {}) };
+    });
+    const loginMethodCount = providers.filter((provider) => provider.bound).length + (passwordSet ? 1 : 0);
+    return { user: { id: String(record.id), username, email, name, role: String(record[ROLE_FIELD] ?? "") }, password: { set: passwordSet }, providers, loginMethodCount };
+  });
+}
+`;
+}
+
+/**
+ * Generated unit test for the onboarding-token contract. It does not need a
+ * database or an identity provider, so it runs with the other generated tests.
+ */
+function renderHybridAuthTest(auth: NonNullable<QiyProject["auth"]>): string {
+  const provider = (auth.providers ?? ["oidc"])[0]!;
+  return `import { expect, test } from "bun:test";
+import { SignJWT } from "jose";
+import { createOnboardingToken, readOnboardingToken } from "../src/auth/oidc";
+
+const secret = "qiy-hybrid-auth-test-secret-value-at-least-32";
+
+test("signs and verifies a short-lived provider onboarding token", async () => {
+  Bun.env.QIY_AUTH_SECRET = secret;
+  const token = await createOnboardingToken({ provider: ${JSON.stringify(provider)}, subject: "subject-1", username: "new@example.test", email: "new@example.test", name: "New User" });
+  const claims = await readOnboardingToken(token);
+  expect(claims.provider).toBe(${JSON.stringify(provider)});
+  expect(claims.subject).toBe("subject-1");
+  expect(claims.email).toBe("new@example.test");
+});
+
+test("rejects a tampered, expired or foreign onboarding token", async () => {
+  Bun.env.QIY_AUTH_SECRET = secret;
+  const token = await createOnboardingToken({ provider: ${JSON.stringify(provider)}, subject: "subject-1" });
+  await expect(readOnboardingToken(token + "x")).rejects.toThrow();
+  const foreign = await new SignJWT({ typ: "qiy-onboarding", provider: ${JSON.stringify(provider)}, identitySubject: "subject-1" }).setProtectedHeader({ alg: "HS256" }).setIssuer("qiy-admin").setAudience("qiy-admin").setIssuedAt().setExpirationTime("10m").sign(new TextEncoder().encode("a-different-secret-that-is-long-enough-32"));
+  await expect(readOnboardingToken(foreign)).rejects.toThrow();
+  const expired = await new SignJWT({ typ: "qiy-onboarding", provider: ${JSON.stringify(provider)}, identitySubject: "subject-1" }).setProtectedHeader({ alg: "HS256" }).setIssuer("qiy-admin").setAudience("qiy-admin").setIssuedAt(Math.floor(Date.now() / 1000) - 3600).setExpirationTime(Math.floor(Date.now() / 1000) - 1800).sign(new TextEncoder().encode(secret));
+  await expect(readOnboardingToken(expired)).rejects.toThrow();
+});
+`;
+}
+
+function providerLabel(provider: string): string {
+  const labels: Record<string, string> = {
+    oidc: "OpenID Connect", oauth2: "OAuth2", sso: "SSO", okta: "Okta", auth0: "Auth0",
+    "azure-ad-b2c": "Azure AD B2C", keycloak: "Keycloak", google: "Google", kinde: "Kinde",
+  };
+  return labels[provider] ?? provider;
+}
+
+/**
+ * Hybrid auth server module (`auth/oidc.ts` for a project that combines password
+ * login with OAuth providers). It keeps the multi-provider configuration and
+ * issuer routing, and adds:
+ *  - POST /api/v1/auth/exchange  -> session token, or needsOnboarding + signed onboarding token
+ *  - POST /api/v1/auth/oauth/register -> create the users row and sign in
+ *  - POST /api/v1/auth/bind       -> link an additional provider to the current account
+ *  - POST /api/v1/auth/unbind     -> remove a provider, refusing the last login method
+ *  - GET  /api/v1/auth/providers  -> public provider list for the login page
+ * Account reads live in ./account (GET /api/v1/auth/identities).
+ */
+function renderHybridAuthModule(auth: NonNullable<QiyProject["auth"]>, database: DatabaseIR): string {
+  const user = database.entities.find((entity) => entity.name === auth.userEntity)!;
+  const providerIds = auth.providers ?? [];
+  const mappings = Object.fromEntries((auth.providerMappings ?? [])
+    .filter((mapping) => providerIds.includes(mapping.provider))
+    .map((mapping) => [mapping.provider, { subjectField: mapping.subjectField, ...(mapping.claim ? { claim: mapping.claim } : {}) }]));
+  const roleValues = database.enums?.find((item) => item.name === user.fields.find((field) => field.name === auth.roleField)?.enumName)?.values.map((item) => item.name);
+  const emailField = user.fields.some((field) => field.name === "email") && auth.usernameField !== "email" ? "email" : null;
+  const displayNameField = ["displayName", "name"].find((name) => user.fields.some((field) => field.name === name)) ?? null;
+  const nameExpression = principalNameExpression(user, displayNameField ?? undefined, auth.usernameField);
+  const labels = Object.fromEntries(providerIds.map((provider) => [provider, providerLabel(provider)]));
+  return `import { createRemoteJWKSet, jwtVerify, SignJWT, type JWTVerifyGetKey } from "jose";
+import { eq } from "drizzle-orm";
+import { Elysia } from "elysia";
+import { db } from "../db";
+import { ${auth.userEntity} } from "../schema";
+import { createOidcAuthenticator } from "./verify";
+import { hashPassword, isRole, signAccessToken, type Role } from "./password";
+import type { Authenticator } from "./guard";
+
+const ISSUER = "qiy-admin";
+const TOKEN_TTL_SECONDS = 43200;
+const ONBOARDING_TTL = "10m";
+const DEFAULT_SUBJECT_FIELD = ${JSON.stringify(auth.subjectField)};
+const USERNAME_FIELD = ${JSON.stringify(auth.usernameField)};
+const PASSWORD_FIELD = ${JSON.stringify(auth.passwordField)};
+const ROLE_FIELD = ${JSON.stringify(auth.roleField)};
+const PROFILE_FIELD: string | null = ${JSON.stringify(auth.profileField ?? null)};
+const EMAIL_FIELD: string | null = ${JSON.stringify(emailField)};
+const DISPLAY_NAME_FIELD: string | null = ${JSON.stringify(displayNameField)};
+const ALLOWED_ROLES: readonly string[] = ${JSON.stringify(roleValues ?? ["admin", "operator", "viewer"])};
+const DEFAULT_ROLE_ENV = "QIY_OIDC_DEFAULT_ROLE";
+
+export interface QiyOidcProviderConfig {
+  id: string; label: string; issuer: string; audience: string; jwksUrl: string;
+  authorizationUrl?: string; tokenUrl?: string; clientId?: string; scope: string; redirectUri?: string; logoutUrl?: string; clientSecret?: string;
+  subjectField?: string; claim?: string;
+}
+
+export interface QiyProviderIdentity { provider: string; subject: string; username?: string; email?: string; name?: string }
+export interface QiyOnboardingClaims { provider: string; subject: string; username?: string; email?: string; name?: string }
+interface QiyProviderTokens { accessToken?: string; idToken?: string }
+interface QiyProfileMetadata { email?: string; name?: string; sub?: string }
+type UserRow = typeof ${auth.userEntity}.$inferSelect;
+
+const providerIds = ${JSON.stringify(providerIds)} as const;
+const providerLabels: Record<string, string> = ${JSON.stringify(labels)};
+const providerMappings: Record<string, { subjectField: string; claim?: string }> = ${JSON.stringify(mappings)};
+
+function envSuffix(id: string): string { return id.toUpperCase().replace(/[^A-Z0-9]/g, "_"); }
+function readEnv(name: string): string | undefined { const value = Bun.env[name]; return value && value.trim() !== "" ? value.trim() : undefined; }
+function providerEnv(id: string, suffix: string): string | undefined { return readEnv("QIY_OIDC_" + envSuffix(id) + "_" + suffix); }
+
+export function providerConfigs(): QiyOidcProviderConfig[] {
+  return providerIds.flatMap((id) => {
+    const issuer = providerEnv(id, "ISSUER");
+    const audience = providerEnv(id, "AUDIENCE");
+    const jwksUrl = providerEnv(id, "JWKS_URL");
+    if (!issuer || !audience || !jwksUrl) return [];
+    const mapping = providerMappings[id];
+    return [{ id, label: providerLabels[id] ?? id, issuer, audience, jwksUrl,
+      authorizationUrl: providerEnv(id, "AUTHORIZATION_URL"), tokenUrl: providerEnv(id, "TOKEN_URL"),
+      clientId: providerEnv(id, "CLIENT_ID"), scope: providerEnv(id, "SCOPE") ?? "openid profile email",
+      redirectUri: providerEnv(id, "REDIRECT_URI") ?? readEnv("QIY_OIDC_REDIRECT_URI"), logoutUrl: providerEnv(id, "LOGOUT_URL"),
+      clientSecret: providerEnv(id, "CLIENT_SECRET"),
+      ...(mapping ? { subjectField: mapping.subjectField, ...(mapping.claim ? { claim: mapping.claim } : {}) } : {}) }];
+  });
+}
+
+export function publicAuthProviders() {
+  return providerConfigs().filter((config) => config.authorizationUrl && config.clientId).map((config) => ({
+    id: config.id, label: config.label, authorizationUrl: config.authorizationUrl!, clientId: config.clientId!,
+    tokenUrl: config.tokenUrl, scope: config.scope, redirectUri: config.redirectUri, ...(config.logoutUrl ? { logoutUrl: config.logoutUrl } : {}),
+  }));
+}
+
+function authSecret(): string {
+  const value = Bun.env.QIY_AUTH_SECRET;
+  if (!value || value.length < 32) throw new Error("QIY_AUTH_SECRET must be at least 32 characters for hybrid password and OAuth authentication");
+  return value;
+}
+
+/** Default role for accounts created through first-time OAuth onboarding. */
+export function defaultRole(): Role {
+  const configured = Bun.env[DEFAULT_ROLE_ENV]?.trim();
+  const role = configured && configured !== "" ? configured : "viewer";
+  if (!ALLOWED_ROLES.includes(role) || !isRole(role)) throw new Error(DEFAULT_ROLE_ENV + " must be one of " + ALLOWED_ROLES.join(", "));
+  return role;
+}
+
+function positiveInteger(name: string, fallback: number, minimum: number): number {
+  const raw = Bun.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < minimum) throw new Error(name + " must be an integer of at least " + minimum);
+  return value;
+}
+
+const providerKeySets = new Map<string, JWTVerifyGetKey>();
+function providerKeySet(config: QiyOidcProviderConfig): JWTVerifyGetKey {
+  const existing = providerKeySets.get(config.id);
+  if (existing) return existing;
+  const keySet = createRemoteJWKSet(new URL(config.jwksUrl), {
+    timeoutDuration: positiveInteger("QIY_OIDC_JWKS_TIMEOUT_MS", 5000, 1),
+    cooldownDuration: positiveInteger("QIY_OIDC_JWKS_COOLDOWN_MS", 30000, 0),
+    cacheMaxAge: positiveInteger("QIY_OIDC_JWKS_CACHE_MAX_AGE_MS", 600000, 1),
+  });
+  providerKeySets.set(config.id, keySet);
+  return keySet;
+}
+
+function providerAudiences(config: QiyOidcProviderConfig): string[] {
+  return [...new Set([config.audience, config.clientId].filter((value): value is string => typeof value === "string" && value.length > 0))];
+}
+
+function claimString(payload: Record<string, unknown>, names: string[]): string | undefined {
+  for (const name of names) { const value = payload[name]; if (typeof value === "string" && value.trim() !== "") return value.trim(); }
+  return undefined;
+}
+
+/** Matches ./verify: a mapped provider uses sub (or its claim); an unmapped provider uses issuer|sub. */
+function mappedSubject(config: QiyOidcProviderConfig, payload: Record<string, unknown>): string | null {
+  if (config.claim) { const value = payload[config.claim]; return typeof value === "string" && value !== "" ? value : null; }
+  if (config.subjectField) return typeof payload.sub === "string" && payload.sub !== "" ? payload.sub : null;
+  return typeof payload.sub === "string" && payload.sub !== "" && typeof payload.iss === "string" ? payload.iss + "|" + payload.sub : null;
+}
+
+function identityFromPayload(config: QiyOidcProviderConfig, payload: Record<string, unknown>): QiyProviderIdentity | null {
+  const subject = mappedSubject(config, payload);
+  if (!subject) return null;
+  const username = claimString(payload, ["preferred_username", "username", "email"]);
+  const email = claimString(payload, ["email"]);
+  const name = claimString(payload, ["name", "display_name", "preferred_username", "given_name"]);
+  return { provider: config.id, subject, ...(username ? { username } : {}), ...(email ? { email } : {}), ...(name ? { name } : {}) };
+}
+
+async function exchangeAuthorizationCode(config: QiyOidcProviderConfig, input: { code: string; codeVerifier?: string; redirectUri?: string }): Promise<QiyProviderTokens> {
+  if (!config.tokenUrl || !config.clientId) throw new Error("The provider token endpoint and client id are required");
+  const form = new URLSearchParams({ grant_type: "authorization_code", code: input.code, client_id: config.clientId, redirect_uri: input.redirectUri ?? config.redirectUri ?? "" });
+  if (input.codeVerifier) form.set("code_verifier", input.codeVerifier);
+  if (config.clientSecret) form.set("client_secret", config.clientSecret);
+  const response = await fetch(config.tokenUrl, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: form.toString() });
+  const tokens = (await response.json().catch(() => ({}))) as { access_token?: string; id_token?: string; error?: string };
+  if (!response.ok || !tokens.access_token) throw new Error(tokens.error ?? "The provider token exchange failed");
+  return { accessToken: tokens.access_token, ...(tokens.id_token ? { idToken: tokens.id_token } : {}) };
+}
+
+async function resolveProviderIdentity(config: QiyOidcProviderConfig, tokens: QiyProviderTokens): Promise<QiyProviderIdentity> {
+  const candidates = [tokens.idToken, tokens.accessToken].filter((value): value is string => typeof value === "string" && value.length > 0);
+  let failure = "the identity provider did not return a verifiable token";
+  for (const token of candidates) {
+    try {
+      const { payload } = await jwtVerify(token, providerKeySet(config), { issuer: config.issuer, audience: providerAudiences(config), algorithms: ["RS256", "ES256"] });
+      const identity = identityFromPayload(config, payload as Record<string, unknown>);
+      if (identity) return identity;
+      failure = "the identity provider token did not contain an identity subject";
+    } catch (error) { failure = error instanceof Error ? error.message : String(error); }
+  }
+  throw new Error("The identity provider token could not be verified: " + failure);
+}
+
+function userColumn(name: string): Parameters<typeof eq>[0] | undefined {
+  return (${auth.userEntity} as unknown as Record<string, Parameters<typeof eq>[0]>)[name];
+}
+
+async function findUserById(id: string): Promise<UserRow | null> {
+  const rows = await db.select().from(${auth.userEntity}).where(eq(${auth.userEntity}.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+async function findUserBySubject(config: QiyOidcProviderConfig, subject: string): Promise<UserRow | null> {
+  const columnName = config.subjectField ?? DEFAULT_SUBJECT_FIELD;
+  const column = userColumn(columnName);
+  if (!column) throw new Error("Auth mapping references an unknown user field: " + columnName);
+  const rows = await db.select().from(${auth.userEntity}).where(eq(column, subject)).limit(2);
+  return rows.length === 1 ? rows[0] ?? null : null;
+}
+
+function roleOf(row: UserRow): Role {
+  const role = (row as unknown as Record<string, unknown>)[ROLE_FIELD];
+  if (!isRole(role)) throw new Error("The user account has an invalid role");
+  return role;
+}
+
+function readProfiles(row: UserRow): Record<string, QiyProfileMetadata> {
+  if (!PROFILE_FIELD) return {};
+  const raw = (row as unknown as Record<string, unknown>)[PROFILE_FIELD];
+  if (typeof raw !== "string" || raw.trim() === "") return {};
+  try { const parsed = JSON.parse(raw) as unknown; return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, QiyProfileMetadata> : {}; } catch { return {}; }
+}
+
+function profileMetadata(identity: QiyProviderIdentity): QiyProfileMetadata {
+  return { ...(identity.email ? { email: identity.email } : {}), ...(identity.name ? { name: identity.name } : {}), sub: identity.subject };
+}
+
+async function issueSession(row: UserRow) {
+  const role = roleOf(row);
+  return {
+    accessToken: await signAccessToken({ id: row.id, role }, authSecret(), ISSUER),
+    tokenType: "Bearer" as const,
+    expiresIn: TOKEN_TTL_SECONDS,
+    user: { id: row.id, name: ${nameExpression}, role },
+  };
+}
+
+/** Short-lived signed token that lets a verified provider identity finish registration. */
+export async function createOnboardingToken(identity: QiyProviderIdentity): Promise<string> {
+  return await new SignJWT({ typ: "qiy-onboarding", provider: identity.provider, identitySubject: identity.subject, ...(identity.username ? { username: identity.username } : {}), ...(identity.email ? { email: identity.email } : {}), ...(identity.name ? { name: identity.name } : {}) })
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(identity.provider + ":" + identity.subject)
+    .setIssuer(ISSUER)
+    .setAudience(ISSUER)
+    .setIssuedAt()
+    .setExpirationTime(ONBOARDING_TTL)
+    .sign(new TextEncoder().encode(authSecret()));
+}
+
+export async function readOnboardingToken(token: string): Promise<QiyOnboardingClaims> {
+  const { payload } = await jwtVerify(token, new TextEncoder().encode(authSecret()), { issuer: ISSUER, audience: ISSUER, algorithms: ["HS256"] });
+  if (payload.typ !== "qiy-onboarding" || typeof payload.provider !== "string" || typeof payload.identitySubject !== "string") throw new Error("Invalid or expired onboarding token");
+  return {
+    provider: payload.provider,
+    subject: payload.identitySubject,
+    ...(typeof payload.username === "string" && payload.username !== "" ? { username: payload.username } : {}),
+    ...(typeof payload.email === "string" && payload.email !== "" ? { email: payload.email } : {}),
+    ...(typeof payload.name === "string" && payload.name !== "" ? { name: payload.name } : {}),
+  };
+}
+
+function validEmail(value: string): boolean { return /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(value); }
+
+export function createProductionAuthenticator(): Authenticator {
+  const configs = providerConfigs();
+  if (configs.length === 0) return async () => null;
+  const authenticators = configs.map((config) => ({
+    issuer: config.issuer.replace(/\\/+$/, ""),
+    authenticate: createOidcAuthenticator({ issuer: config.issuer, audience: config.audience,
+      keySet: providerKeySet(config), roleField: ROLE_FIELD,
+      ...(config.claim ? { subject: (payload: Record<string, unknown>) => typeof payload[config.claim!] === "string" && payload[config.claim!] !== "" ? String(payload[config.claim!]) : null } : config.subjectField ? { subject: (payload: Record<string, unknown>) => typeof payload.sub === "string" && payload.sub !== "" ? String(payload.sub) : null } : {}),
+      async findUser(externalSubject) {
+        const column = userColumn(config.subjectField ?? DEFAULT_SUBJECT_FIELD);
+        if (!column) throw new Error("Auth mapping references an unknown user field: " + (config.subjectField ?? DEFAULT_SUBJECT_FIELD));
+        const rows = await db.select().from(${auth.userEntity}).where(eq(column, externalSubject)).limit(2);
+        return rows.length === 1 ? rows[0]! : null;
+      },
+    }),
+  }));
+  // Password sessions use the "qiy-admin" issuer and are handled by ./local;
+  // provider tokens are routed by their unverified issuer first and then verified
+  // against that provider's JWKS only.
+  return async (request) => {
+    const match = /^Bearer ([^\\s]+)$/.exec(request.headers.get("authorization") ?? "");
+    if (!match) return null;
+    let issuer: string | undefined;
+    try { const payload = JSON.parse(Buffer.from(match[1]!.split(".")[1] ?? "", "base64url").toString()) as { iss?: string }; issuer = payload.iss; } catch { return null; }
+    if (!issuer) return null;
+    const normalized = issuer.replace(/\\/+$/, "");
+    if (normalized === ISSUER) return null;
+    const selected = authenticators.find((candidate) => candidate.issuer === normalized);
+    if (!selected) return null;
+    try { return await selected.authenticate(request); } catch { return null; }
+  };
+}
+
+function providerForRequest(provider: string | undefined): QiyOidcProviderConfig | undefined {
+  return provider ? providerConfigs().find((candidate) => candidate.id === provider) : undefined;
+}
+
+export function createHybridAuthRoutes(authenticate: Authenticator) {
+  return new Elysia({ prefix: "/api/v1/auth" })
+    .get("/providers", () => ({ providers: publicAuthProviders(), local: true }))
+    .post("/exchange", async (context: any) => {
+      const { body, set } = context;
+      const input = (body ?? {}) as { provider?: string; code?: string; codeVerifier?: string; redirectUri?: string };
+      const config = providerForRequest(input.provider);
+      if (!config || !config.tokenUrl || !config.clientId || typeof input.code !== "string" || input.code === "") { set.status = 400; return { error: "invalid token exchange request" }; }
+      let identity: QiyProviderIdentity;
+      try {
+        identity = await resolveProviderIdentity(config, await exchangeAuthorizationCode(config, { code: input.code, ...(input.codeVerifier ? { codeVerifier: input.codeVerifier } : {}), ...(input.redirectUri ? { redirectUri: input.redirectUri } : {}) }));
+      } catch (error) { set.status = 401; return { error: error instanceof Error ? error.message : "The provider token exchange failed" }; }
+      const existing = await findUserBySubject(config, identity.subject);
+      if (existing) return await issueSession(existing);
+      return {
+        needsOnboarding: true,
+        onboardingToken: await createOnboardingToken(identity),
+        provider: { id: config.id, label: config.label },
+        profile: { sub: identity.subject, ...(identity.username ? { username: identity.username } : {}), ...(identity.email ? { email: identity.email } : {}), ...(identity.name ? { name: identity.name } : {}) },
+      };
+    })
+    .post("/oauth/register", async (context: any) => {
+      const { body, set } = context;
+      const input = (body ?? {}) as { onboardingToken?: string; username?: string; email?: string; password?: string };
+      const token = typeof input.onboardingToken === "string" ? input.onboardingToken : "";
+      const username = typeof input.username === "string" ? input.username.trim() : "";
+      const email = typeof input.email === "string" ? input.email.trim() : "";
+      const password = typeof input.password === "string" ? input.password : "";
+      if (!token || !username || !password) { set.status = 400; return { error: "An onboarding token, username and password are required" }; }
+      let claims: QiyOnboardingClaims;
+      try { claims = await readOnboardingToken(token); } catch { set.status = 401; return { error: "The onboarding session is invalid or has expired. Start the provider sign-in again." }; }
+      const config = providerForRequest(claims.provider);
+      if (!config) { set.status = 400; return { error: "The identity provider is no longer configured" }; }
+      if (USERNAME_FIELD === "email" && !validEmail(username)) { set.status = 400; return { error: "Enter a valid email address" }; }
+      const subjectFieldName = config.subjectField ?? DEFAULT_SUBJECT_FIELD;
+      if (await findUserBySubject(config, claims.subject)) { set.status = 409; return { error: "This identity is already registered. Sign in with that provider instead." }; }
+      const usernameColumn = userColumn(USERNAME_FIELD);
+      if (!usernameColumn) { set.status = 500; return { error: "The generated auth configuration is missing its username field" }; }
+      if ((await db.select({ id: ${auth.userEntity}.id }).from(${auth.userEntity}).where(eq(usernameColumn, username)).limit(1)).length > 0) { set.status = 409; return { error: "That " + USERNAME_FIELD + " is already registered" }; }
+      const emailValue = email || username;
+      if (EMAIL_FIELD === "email" && !validEmail(emailValue)) { set.status = 400; return { error: "Enter a valid email address" }; }
+      if (EMAIL_FIELD) {
+        const emailColumn = userColumn(EMAIL_FIELD);
+        if (emailColumn && (await db.select({ id: ${auth.userEntity}.id }).from(${auth.userEntity}).where(eq(emailColumn, emailValue)).limit(1)).length > 0) { set.status = 409; return { error: "That email is already registered" }; }
+      }
+      let passwordHash: string;
+      try { passwordHash = await hashPassword(password); } catch (error) { set.status = 400; return { error: error instanceof Error ? error.message : "Password must be at least 8 characters" }; }
+      const role = defaultRole();
+      const id = crypto.randomUUID();
+      const displayName = claims.name && claims.name.trim() !== "" ? claims.name.trim() : username;
+      const values: Record<string, unknown> = {
+        id,
+        [USERNAME_FIELD]: username,
+        [PASSWORD_FIELD]: passwordHash,
+        [ROLE_FIELD]: role,
+        [DEFAULT_SUBJECT_FIELD]: claims.provider + ":" + claims.subject,
+        [subjectFieldName]: claims.subject,
+      };
+      if (EMAIL_FIELD) values[EMAIL_FIELD] = emailValue;
+      if (DISPLAY_NAME_FIELD) values[DISPLAY_NAME_FIELD] = displayName;
+      if (PROFILE_FIELD) values[PROFILE_FIELD] = JSON.stringify({ [claims.provider]: profileMetadata({ provider: claims.provider, subject: claims.subject, ...(claims.username ? { username: claims.username } : {}), ...(claims.email ? { email: claims.email } : {}), ...(claims.name ? { name: claims.name } : {}) }) });
+      try {
+        await db.insert(${auth.userEntity}).values(values as typeof ${auth.userEntity}.$inferInsert);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (/unique|duplicate/i.test(message)) { set.status = 409; return { error: "That account already exists. Sign in or bind the provider from your profile." }; }
+        console.error("OAuth onboarding failed", error);
+        set.status = 500;
+        return { error: "Could not create the account" };
+      }
+      return {
+        accessToken: await signAccessToken({ id, role }, authSecret(), ISSUER),
+        tokenType: "Bearer" as const,
+        expiresIn: TOKEN_TTL_SECONDS,
+        user: { id, name: displayName, role },
+      };
+    })
+    .post("/bind", async (context: any) => {
+      const { body, request, set } = context;
+      const principal = await authenticate(request);
+      if (!principal) { set.status = 401; return { error: "Authentication required" }; }
+      const input = (body ?? {}) as { provider?: string; code?: string; codeVerifier?: string; redirectUri?: string; onboardingToken?: string };
+      let config: QiyOidcProviderConfig | undefined;
+      let identity: QiyProviderIdentity | undefined;
+      try {
+        if (typeof input.onboardingToken === "string" && input.onboardingToken !== "") {
+          const claims = await readOnboardingToken(input.onboardingToken);
+          config = providerForRequest(claims.provider);
+          identity = { provider: claims.provider, subject: claims.subject, ...(claims.username ? { username: claims.username } : {}), ...(claims.email ? { email: claims.email } : {}), ...(claims.name ? { name: claims.name } : {}) };
+        } else {
+          config = providerForRequest(input.provider);
+          if (!config || typeof input.code !== "string" || input.code === "") { set.status = 400; return { error: "invalid provider link request" }; }
+          identity = await resolveProviderIdentity(config, await exchangeAuthorizationCode(config, { code: input.code, ...(input.codeVerifier ? { codeVerifier: input.codeVerifier } : {}), ...(input.redirectUri ? { redirectUri: input.redirectUri } : {}) }));
+        }
+      } catch (error) { set.status = 401; return { error: error instanceof Error ? error.message : "Could not verify the provider identity" }; }
+      if (!config || !identity) { set.status = 400; return { error: "invalid provider link request" }; }
+      const subjectFieldName = config.subjectField ?? DEFAULT_SUBJECT_FIELD;
+      const existing = await findUserBySubject(config, identity.subject);
+      if (existing && existing.id !== principal.id) { set.status = 409; return { error: "This " + config.label + " identity is already linked to another account" }; }
+      const row = await findUserById(principal.id);
+      if (!row) { set.status = 401; return { error: "Unknown account" }; }
+      const values: Record<string, unknown> = { [subjectFieldName]: identity.subject };
+      if (PROFILE_FIELD) { const profiles = readProfiles(row); profiles[config.id] = profileMetadata(identity); values[PROFILE_FIELD] = JSON.stringify(profiles); }
+      await db.update(${auth.userEntity}).set(values as Partial<typeof ${auth.userEntity}.$inferInsert>).where(eq(${auth.userEntity}.id, principal.id));
+      return { ok: true, provider: config.id, label: config.label, bound: true };
+    })
+    .post("/unbind", async (context: any) => {
+      const { body, request, set } = context;
+      const principal = await authenticate(request);
+      if (!principal) { set.status = 401; return { error: "Authentication required" }; }
+      const input = (body ?? {}) as { provider?: string };
+      const config = providerForRequest(input.provider);
+      if (!config) { set.status = 400; return { error: "Unknown identity provider" }; }
+      const row = await findUserById(principal.id);
+      if (!row) { set.status = 401; return { error: "Unknown account" }; }
+      const record = row as unknown as Record<string, unknown>;
+      const subjectFieldName = config.subjectField ?? DEFAULT_SUBJECT_FIELD;
+      if (typeof record[subjectFieldName] !== "string" || record[subjectFieldName] === "") { set.status = 400; return { error: config.label + " is not linked to your account" }; }
+      const hasPassword = Boolean(record[PASSWORD_FIELD]);
+      const otherBindings = providerConfigs().filter((candidate) => candidate.id !== config.id && Boolean(record[candidate.subjectField ?? DEFAULT_SUBJECT_FIELD]));
+      if (!hasPassword && otherBindings.length === 0) { set.status = 409; return { error: "Cannot remove the last login method. Set a password or link another provider first." }; }
+      const values: Record<string, unknown> = { [subjectFieldName]: null };
+      if (PROFILE_FIELD) { const profiles = readProfiles(row); delete profiles[config.id]; values[PROFILE_FIELD] = JSON.stringify(profiles); }
+      await db.update(${auth.userEntity}).set(values as Partial<typeof ${auth.userEntity}.$inferInsert>).where(eq(${auth.userEntity}.id, principal.id));
+      return { ok: true, provider: config.id, label: config.label, bound: false };
+    });
+}
+`;
+}
+

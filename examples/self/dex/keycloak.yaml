@@ -20,3 +20,10 @@ staticPasswords:
     hash: $2b$10$n8eoreFS0i17HA2BRJYOmOoPcRyKIGaLMQhKGXvInLcKS78Orp2oG
     username: admin
     userID: "00000000-0000-4000-8000-0000000000b2"
+  # Second tenant user whose identity has no pre-seeded users row: signing in
+  # with this account exercises the first-login OAuth onboarding flow
+  # (password: operator-password).
+  - email: operator@example.com
+    hash: $2b$10$Z45yb0f8nQTJt0T2e1Oy0.1S9wDEMwy5oSjFOxBsgyo0ty7z5RXm6
+    username: operator
+    userID: "00000000-0000-4000-8000-0000000000b3"

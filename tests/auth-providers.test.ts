@@ -151,10 +151,10 @@ describe("multi-provider authentication", () => {
     expect(parseQiyProject(serialized).auth).toEqual(project.auth);
   });
 
-  test("rejects provider lists that mix local or unknown providers", () => {
-    expect(() => parseQiyProject(multiModel.replace("providers oidc, google", "providers local, google"))).toThrow("OIDC providers only");
+  test("rejects unknown providers, duplicates and otp in a provider list", () => {
     expect(() => parseQiyProject(multiModel.replace("providers oidc, google", "providers oidc, unknown"))).toThrow("Unsupported auth provider unknown");
     expect(() => parseQiyProject(multiModel.replace("providers oidc, google", "providers oidc, google, oidc"))).toThrow("must be unique");
+    expect(() => parseQiyProject(multiModel.replace("providers oidc, google", "providers oidc, otp"))).toThrow("cannot include otp");
   });
 
   test("generates a per-provider verifier and a public provider list endpoint", () => {
@@ -172,5 +172,152 @@ describe("multi-provider authentication", () => {
     expect(login).toContain("beginProviderLogin");
     expect(login).toContain("fetchAuthProviders");
     expect(files["apps/web/app/auth/oidc-multi.ts"]).toContain("completeProviderLogin");
+  });
+});
+
+describe("hybrid password + OAuth authentication", () => {
+  const hybridModel = `qiy v0; application qiy-hybrid {
+    database sqlite {}
+    auth {
+      providers local, okta, keycloak;
+      user users;
+      subjectField subject;
+      roleField role;
+      usernameField email;
+      passwordField passwordHash;
+      profileField oauthProfiles;
+      provider okta { subjectField oktaSubject; }
+      provider keycloak { subjectField keycloakSubject; }
+    }
+    enum role { value admin; value operator; value viewer; }
+    entity users {
+      field id UUID @id;
+      field subject Text @unique;
+      field oktaSubject Text @nullable @unique;
+      field keycloakSubject Text @nullable @unique;
+      field email Text @unique;
+      field displayName Text @nullable;
+      field passwordHash Text @nullable;
+      field oauthProfiles Text @nullable;
+      field role role;
+    }
+    entity notes { field id UUID @id; field title Text; }
+  }`;
+
+  test("parses and round-trips a providers list that mixes password login with OAuth", () => {
+    const project = parseQiyProject(hybridModel);
+    expect(project.auth?.local).toBe(true);
+    expect(project.auth?.providers).toEqual(["okta", "keycloak"]);
+    expect(project.auth?.provider).toBe("okta");
+    expect(project.auth?.usernameField).toBe("email");
+    expect(project.auth?.passwordField).toBe("passwordHash");
+    expect(project.auth?.profileField).toBe("oauthProfiles");
+    expect(project.auth?.providerMappings).toEqual([
+      { provider: "okta", subjectField: "oktaSubject" },
+      { provider: "keycloak", subjectField: "keycloakSubject" },
+    ]);
+    const serialized = serializeQiyProject(project);
+    expect(serialized).toContain("providers local, okta, keycloak;");
+    expect(serialized).toContain("profileField oauthProfiles;");
+    expect(parseQiyProject(serialized).auth).toEqual(project.auth);
+  });
+
+  test("normalizes a providers list that only contains local to the password-only mode", () => {
+    const source = `qiy v0; application list-local { database sqlite {} auth { providers local; user users; roleField role; usernameField email; passwordField passwordHash; } enum role { value admin; value operator; value viewer; } entity users { field id UUID @id; field email Text @unique; field passwordHash Text @nullable; field role role; } }`;
+    const project = parseQiyProject(source);
+    expect(project.auth?.provider).toBe("local");
+    expect(project.auth?.providers).toBeUndefined();
+    expect(project.auth?.local).toBe(true);
+    expect(serializeQiyProject(project)).toContain("provider local;");
+  });
+
+  test("generates the hybrid authenticator, account and onboarding endpoints", () => {
+    const project = parseQiyProject(hybridModel);
+    const files = generateProject(project.database, project.name, { auth: project.auth });
+    const oidc = files["apps/server/src/auth/oidc.ts"] ?? "";
+    expect(oidc).toContain("createHybridAuthRoutes");
+    expect(oidc).toContain("needsOnboarding");
+    expect(oidc).toContain("onboardingToken");
+    expect(oidc).toContain("QIY_OIDC_DEFAULT_ROLE");
+    expect(oidc).toContain('"/oauth/register"');
+    expect(oidc).toContain('"/bind"');
+    expect(oidc).toContain('"/unbind"');
+    expect(oidc).toContain("identitySubject");
+    expect(oidc).toContain("last login method");
+    expect(oidc).toContain("already linked to another account");
+    expect(files["apps/server/src/auth/hybrid.ts"]).toContain("createLocalAuthenticator");
+    expect(files["apps/server/src/auth/hybrid.ts"]).toContain("createProviderAuthenticator");
+    expect(files["apps/server/src/auth/password.ts"]).toContain("signAccessToken");
+    expect(files["apps/server/src/auth/local.ts"]).toContain('post("/login"');
+    expect(files["apps/server/src/auth/account.ts"]).toContain('get("/identities"');
+    expect(files["apps/server/src/auth/account.ts"]).toContain("loginMethodCount");
+    expect(files["apps/server/src/server.ts"]).toContain('from "./auth/hybrid"');
+    const app = files["apps/server/src/app.ts"]!;
+    expect(app).toContain("createHybridAuthRoutes(authenticate)");
+    expect(app).toContain("createAccountRoutes(authenticate)");
+    expect(app).toContain("/api/v1/auth/oauth/register");
+    expect(app).toContain("/api/v1/auth/exchange");
+    expect(files["apps/server/tests/hybrid-auth.test.ts"]).toContain("readOnboardingToken");
+    expect(files["apps/server/src/graphql.ts"]).not.toContain("passwordHash: String");
+    expect(JSON.parse(files["apps/server/package.json"]!).scripts["auth:bootstrap-admin"]).toBe("bun --env-file=.env.production src/auth/bootstrap-admin.ts");
+    const env = files["apps/server/.env.example"]!;
+    expect(env).toContain("QIY_AUTH_SECRET=");
+    expect(env).toContain("QIY_OIDC_OKTA_ISSUER=");
+    expect(env).toContain("QIY_OIDC_KEYCLOAK_JWKS_URL=");
+    expect(env).toContain("QIY_OIDC_DEFAULT_ROLE=viewer");
+    expect(env).toContain("QIY_OIDC_JWKS_CACHE_MAX_AGE_MS=600000");
+    const webLogin = files["apps/web/app/routes/login.tsx"]!;
+    expect(webLogin).toContain('import { AuthPage } from "@refinedev/antd"');
+    expect(webLogin).toContain("fetchAuthProviders");
+    expect(webLogin).toContain("providers={providers}");
+    const auth = files["apps/web/app/auth.ts"]!;
+    expect(auth).toContain('fetch("/api/v1/auth/login"');
+    expect(auth).toContain("providerName");
+    expect(auth).toContain("beginProviderLogin");
+    expect(files["apps/web/app/auth/oidc-multi.ts"]).toContain("completeProviderCallback");
+    expect(files["apps/web/app/auth/oidc-multi.ts"]).toContain("registerOAuthUser");
+    expect(files["apps/web/app/auth/oidc-multi.ts"]).toContain("beginProviderBind");
+    expect(files["apps/web/app/routes/auth-onboarding.tsx"]).toContain("registerOAuthUser");
+    expect(files["apps/web/app/routes/auth-onboarding.tsx"]).toContain("min: 8");
+    expect(files["apps/web/app/routes/profile.tsx"]).toContain("beginProviderBind");
+    expect(files["apps/web/app/routes/profile.tsx"]).toContain("fetchIdentities");
+    expect(files["apps/web/app/routes.ts"]).toContain('route("auth/onboarding", "./routes/auth-onboarding.tsx")');
+    expect(files["apps/web/app/routes.ts"]).toContain('route("profile", "./routes/profile.tsx")');
+    expect(files["apps/web/app/routes.ts"]).toContain('route("oauth/*"');
+    expect(files["apps/web/app/root.tsx"]).toContain('to="/profile"');
+    expect(files["apps/web/app/root.tsx"]).toContain('location.pathname.startsWith("/oauth/")');
+    expect(files["apps/web/app/auth/oidc-client.ts"]).toBeUndefined();
+    expect(files["apps/web/.env.example"]).not.toContain("VITE_QIY_AUTHORIZATION_URL");
+  });
+
+  test("generates a profile page for local-only password accounts too", () => {
+    const source = `qiy v0; application local-profile { database sqlite {} auth { provider local; user users; roleField role; usernameField email; passwordField passwordHash; } enum role { value admin; value operator; value viewer; } entity users { field id UUID @id; field email Text @unique; field passwordHash Text @nullable; field role role; } }`;
+    const project = parseQiyProject(source);
+    const files = generateProject(project.database, project.name, { auth: project.auth });
+    expect(files["apps/server/src/auth/account.ts"]).toContain('get("/identities"');
+    expect(files["apps/server/src/app.ts"]).toContain("createAccountRoutes(authenticate)");
+    expect(files["apps/web/app/routes/profile.tsx"]).toContain("fetchIdentities");
+    expect(files["apps/web/app/routes/profile.tsx"]).not.toContain("beginProviderBind");
+    expect(files["apps/web/app/routes.ts"]).toContain('route("profile", "./routes/profile.tsx")');
+    expect(files["apps/web/app/root.tsx"]).toContain('to="/profile"');
+    expect(files["apps/web/app/auth/oidc-multi.ts"]).toBeUndefined();
+  });
+
+  test("rejects hybrid models whose binding columns cannot store a nullable unique identity", () => {
+    const requiredColumn = hybridModel.replace("field oktaSubject Text @nullable @unique;", "field oktaSubject Text @unique;");
+    expect(() => { const project = parseQiyProject(requiredColumn); generateProject(project.database, project.name, { auth: project.auth }); }).toThrow("must be nullable");
+    const notUnique = hybridModel.replace("field oktaSubject Text @nullable @unique;", "field oktaSubject Text @nullable;");
+    expect(() => { const project = parseQiyProject(notUnique); generateProject(project.database, project.name, { auth: project.auth }); }).toThrow("must be unique");
+    const noMapping = hybridModel.replace("      provider okta { subjectField oktaSubject; }\n", "");
+    expect(() => { const project = parseQiyProject(noMapping); generateProject(project.database, project.name, { auth: project.auth }); }).toThrow("needs its own nullable subjectField mapping");
+    const badProfile = hybridModel.replace("field oauthProfiles Text @nullable;", "field oauthProfiles Text;");
+    expect(() => { const project = parseQiyProject(badProfile); generateProject(project.database, project.name, { auth: project.auth }); }).toThrow("profileField must be a nullable Text field");
+    const uncovered = hybridModel.replace("field displayName Text @nullable;", "field displayName Text @nullable;\n      field orgId UUID;");
+    expect(() => { const project = parseQiyProject(uncovered); generateProject(project.database, project.name, { auth: project.auth }); }).toThrow("OAuth onboarding cannot populate required user fields");
+  });
+
+  test("requires local username/password fields whenever local is in the providers list", () => {
+    expect(() => parseQiyProject(hybridModel.replace("      passwordField passwordHash;\n", ""))).toThrow("requires usernameField and passwordField");
+    expect(() => parseQiyProject(hybridModel.replace("      usernameField email;\n", "").replace("      passwordField passwordHash;\n", ""))).toThrow("requires usernameField and passwordField");
   });
 });

@@ -1,20 +1,35 @@
 import type { AccessControlProvider, AuthProvider } from "@refinedev/core";
-import { beginOidcLogin, beginOidcLogout, clearOidcSession, oidcSession, oidcSessionSkewMs } from "./auth/oidc-client";
+import { beginProviderLogin, clearSession, fetchAuthProviders } from "./auth/oidc-multi";
 
 const tokenKey = "qiy.access_token";
 type QiyIdentity = { id?: string; name?: string; role?: string };
 const token = () => typeof window === "undefined" ? undefined : window.localStorage.getItem(tokenKey) ?? undefined;
 /** With OIDC the stored expiry decides validity so an expired token never looks authenticated. */
-const sessionUsable = () => typeof window === "undefined" ? false : !oidcSession({ skewMs: oidcSessionSkewMs }).expired;
+const sessionUsable = () => typeof window === "undefined" ? false : Boolean(token());
 export const qiyAuthProvider: AuthProvider = {
-  login: async ({ token: nextToken, username, email, password, identifier, challengeToken, code }: { token?: string; username?: string; email?: string; password?: string; identifier?: string; challengeToken?: string; code?: string }) => {
+  login: async ({ token: nextToken, username, email, password, identifier, challengeToken, code, providerName }: { token?: string; username?: string; email?: string; password?: string; identifier?: string; challengeToken?: string; code?: string; providerName?: string }) => {
     const loginName = username ?? email;
+    if (providerName) {
+      const providers = await fetchAuthProviders();
+      const selected = providers.find((candidate) => candidate.id === providerName);
+      if (!selected) return { success: false, error: { name: "ProviderUnavailable", message: "That identity provider is not configured on the server" } };
+      await beginProviderLogin(selected);
+      return { success: true };
+    }
     
+    if (loginName && password) {
+      const response = await fetch("/api/v1/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: loginName, password }) });
+      if (!response.ok) return { success: false, error: { name: "LoginFailed", message: (await response.json().catch(() => null) as { error?: string } | null)?.error ?? "Invalid username or password" } };
+      const result = await response.json() as { accessToken?: string };
+      if (!result.accessToken) return { success: false, error: { name: "LoginFailed", message: "Login response did not contain an access token" } };
+      window.localStorage.setItem(tokenKey, result.accessToken);
+      return { success: true, redirectTo: "/" };
+    }
     
-    await beginOidcLogin(); return { success: true };
-    return { success: false, error: { name: "CredentialsRequired", message: "Identity provider login could not start" } };
+    void nextToken;
+    return { success: false, error: { name: "CredentialsRequired", message: "Username and password are required" } };
   },
-  logout: async () => { clearOidcSession(); beginOidcLogout(); return { success: true, redirectTo: "/auth/login" }; },
+  logout: async () => { clearSession();  return { success: true, redirectTo: "/auth/login" }; },
   check: async () => sessionUsable() ? { authenticated: true } : { authenticated: false, redirectTo: "/auth/login" },
   getIdentity: async () => { const accessToken = token(); if (!accessToken) return null; const response = await fetch("/api/v1/auth/me", { headers: { Authorization: "Bearer " + accessToken } }); if (!response.ok) return null; return await response.json() as QiyIdentity; },
   getPermissions: async () => { const identity = await qiyAuthProvider.getIdentity?.({}) as QiyIdentity | null | undefined; return identity?.role ?? null; },

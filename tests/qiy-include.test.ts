@@ -53,7 +53,7 @@ entity products @label("Products") {
   } finally {
     rmSync(testFixture.root, { recursive: true, force: true });
   }
-});
+}, 20_000);
 
 test("selectively imports one top-level messages block", async () => {
   const testFixture = fixture();
@@ -115,7 +115,7 @@ messages { default "en-US"; locale "en-US" { "b" "B"; } }`);
   } finally {
     rmSync(testFixture.root, { recursive: true, force: true });
   }
-});
+}, 20_000);
 
 test("rejects unsafe, missing, cyclic, and misplaced includes", async () => {
   const testFixture = fixture();

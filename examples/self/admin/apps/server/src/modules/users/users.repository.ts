@@ -10,7 +10,7 @@ export const UsersRepository: UsersRepositoryContract = {
     const columns: Record<string, any> = {  };
     const column = columns[field];
     if (!column) throw new Error("Unsupported aggregate field");
-    const scopeColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "googleSubject": users.googleSubject, "openidField": users.openidField, "keycloakSubject": users.keycloakSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "orgId": users.orgId };
+    const scopeColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "oktaSubject": users.oktaSubject, "keycloakSubject": users.keycloakSubject, "googleSubject": users.googleSubject, "kindeSubject": users.kindeSubject, "azureSubject": users.azureSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "oauthProfiles": users.oauthProfiles, "orgId": users.orgId };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
@@ -22,7 +22,7 @@ export const UsersRepository: UsersRepositoryContract = {
     const columns: Record<string, any> = { "role": users.role };
     const column = columns[field];
     if (!column) throw new Error("Unsupported distribution field");
-    const scopeColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "googleSubject": users.googleSubject, "openidField": users.openidField, "keycloakSubject": users.keycloakSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "orgId": users.orgId };
+    const scopeColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "oktaSubject": users.oktaSubject, "keycloakSubject": users.keycloakSubject, "googleSubject": users.googleSubject, "kindeSubject": users.kindeSubject, "azureSubject": users.azureSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "oauthProfiles": users.oauthProfiles, "orgId": users.orgId };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     return db.select({ value: column, count: count() }).from(users).where(and(scopeCondition)).groupBy(column);
@@ -31,7 +31,7 @@ export const UsersRepository: UsersRepositoryContract = {
     const columns: Record<string, any> = {  };
     const column = columns[field];
     if (!column || !Number.isInteger(days) || days < 1 || days > 365) throw new Error("Invalid trend query");
-    const scopeColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "googleSubject": users.googleSubject, "openidField": users.openidField, "keycloakSubject": users.keycloakSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "orgId": users.orgId };
+    const scopeColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "oktaSubject": users.oktaSubject, "keycloakSubject": users.keycloakSubject, "googleSubject": users.googleSubject, "kindeSubject": users.kindeSubject, "azureSubject": users.azureSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "oauthProfiles": users.oauthProfiles, "orgId": users.orgId };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     const now = new Date();
@@ -42,16 +42,16 @@ export const UsersRepository: UsersRepositoryContract = {
     return db.select({ day, count: count() }).from(users).where(and(gte(column, start), lt(column, end), scopeCondition)).groupBy(day).orderBy(day);
   },
   async list(page, pageSize, options = {}) {
-    const searchableColumns: any[] = [users.subject, users.googleSubject, users.openidField, users.keycloakSubject, users.email, users.displayName, users.role];
+    const searchableColumns: any[] = [users.subject, users.oktaSubject, users.keycloakSubject, users.googleSubject, users.kindeSubject, users.azureSubject, users.email, users.displayName, users.role, users.oauthProfiles];
     const searchCondition = options.search && searchableColumns.length > 0
       ? or(...searchableColumns.map((column) => like(column, "%" + options.search + "%")))
       : undefined;
-    const sortColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "googleSubject": users.googleSubject, "openidField": users.openidField, "keycloakSubject": users.keycloakSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "orgId": users.orgId };
+    const sortColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "oktaSubject": users.oktaSubject, "keycloakSubject": users.keycloakSubject, "googleSubject": users.googleSubject, "kindeSubject": users.kindeSubject, "azureSubject": users.azureSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "oauthProfiles": users.oauthProfiles, "orgId": users.orgId };
     const sortColumn = options.sort ? sortColumns[options.sort] : users.id;
     if (options.sort && !sortColumn) throw new Error("Unsupported sort field");
     const orderBy = options.order === "desc" ? desc(sortColumn) : asc(sortColumn);
-    const filterColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "googleSubject": users.googleSubject, "openidField": users.openidField, "keycloakSubject": users.keycloakSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "orgId": users.orgId };
-    const filterTypes = {"id":"UUID","subject":"Text","googleSubject":"Text","openidField":"Text","keycloakSubject":"Text","email":"Text","displayName":"Text","role":"Text","orgId":"UUID"} as Record<string, string>;
+    const filterColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "oktaSubject": users.oktaSubject, "keycloakSubject": users.keycloakSubject, "googleSubject": users.googleSubject, "kindeSubject": users.kindeSubject, "azureSubject": users.azureSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "oauthProfiles": users.oauthProfiles, "orgId": users.orgId };
+    const filterTypes = {"id":"UUID","subject":"Text","oktaSubject":"Text","keycloakSubject":"Text","googleSubject":"Text","kindeSubject":"Text","azureSubject":"Text","email":"Text","displayName":"Text","role":"Text","oauthProfiles":"Text","orgId":"UUID"} as Record<string, string>;
     const filters = Array.isArray(options.filters) ? options.filters : Object.entries(options.filters ?? {}).map(([field, value]) => ({ field, operator: "eq" as const, value }));
     const filterClauses = (expressions: FilterExpression[]): FilterClause[] => expressions.flatMap((filter) => "field" in filter ? [filter] : filterClauses(filter.filters));
     if (filterClauses(filters as FilterExpression[]).some(({ field }) => !filterColumns[field])) throw new Error("Unsupported filter field");
@@ -80,7 +80,7 @@ export const UsersRepository: UsersRepositoryContract = {
     const filterExpression = (filter: FilterExpression): any => "field" in filter
       ? filterCondition(filter)
       : filter.operator === "and" ? and(...filter.filters.map(filterExpression)) : or(...filter.filters.map(filterExpression));
-    const scopeColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "googleSubject": users.googleSubject, "openidField": users.openidField, "keycloakSubject": users.keycloakSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "orgId": users.orgId };
+    const scopeColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "oktaSubject": users.oktaSubject, "keycloakSubject": users.keycloakSubject, "googleSubject": users.googleSubject, "kindeSubject": users.kindeSubject, "azureSubject": users.azureSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "oauthProfiles": users.oauthProfiles, "orgId": users.orgId };
     const scopeCondition = options.scope && scopeColumns[options.scope.field] ? eq(scopeColumns[options.scope.field], options.scope.value) : undefined;
     
     const whereCondition = and(searchCondition, scopeCondition, ...(filters as FilterExpression[]).map(filterExpression));
@@ -95,7 +95,7 @@ users
     return { data, total: totalRows[0]?.total ?? 0 };
   },
   async one(id, scope) {
-    const scopeColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "googleSubject": users.googleSubject, "openidField": users.openidField, "keycloakSubject": users.keycloakSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "orgId": users.orgId };
+    const scopeColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "oktaSubject": users.oktaSubject, "keycloakSubject": users.keycloakSubject, "googleSubject": users.googleSubject, "kindeSubject": users.kindeSubject, "azureSubject": users.azureSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "oauthProfiles": users.oauthProfiles, "orgId": users.orgId };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     const [record] = await db.select().from(
@@ -118,7 +118,7 @@ users
   },
   async update(id, values, actorId, scope) {
     return db.transaction((tx) => {
-      const scopeColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "googleSubject": users.googleSubject, "openidField": users.openidField, "keycloakSubject": users.keycloakSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "orgId": users.orgId };
+      const scopeColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "oktaSubject": users.oktaSubject, "keycloakSubject": users.keycloakSubject, "googleSubject": users.googleSubject, "kindeSubject": users.kindeSubject, "azureSubject": users.azureSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "oauthProfiles": users.oauthProfiles, "orgId": users.orgId };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
       const record = tx.update(users).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(eq(users.id, id), scopeCondition)).returning().get();
@@ -129,7 +129,7 @@ users
   },
   async delete(id, actorId, scope) {
     return db.transaction((tx) => {
-      const scopeColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "googleSubject": users.googleSubject, "openidField": users.openidField, "keycloakSubject": users.keycloakSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "orgId": users.orgId };
+      const scopeColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "oktaSubject": users.oktaSubject, "keycloakSubject": users.keycloakSubject, "googleSubject": users.googleSubject, "kindeSubject": users.kindeSubject, "azureSubject": users.azureSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "oauthProfiles": users.oauthProfiles, "orgId": users.orgId };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
       const record = tx.delete(users).where(and(eq(users.id, id), scopeCondition)).returning().get();
@@ -140,7 +140,7 @@ users
   },
   async deleteMany(ids, actorId, scope) {
     return db.transaction((tx) => {
-      const scopeColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "googleSubject": users.googleSubject, "openidField": users.openidField, "keycloakSubject": users.keycloakSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "orgId": users.orgId };
+      const scopeColumns: Record<string, any> = { "id": users.id, "subject": users.subject, "oktaSubject": users.oktaSubject, "keycloakSubject": users.keycloakSubject, "googleSubject": users.googleSubject, "kindeSubject": users.kindeSubject, "azureSubject": users.azureSubject, "email": users.email, "displayName": users.displayName, "role": users.role, "oauthProfiles": users.oauthProfiles, "orgId": users.orgId };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
       const deletedRows = tx.delete(users).where(and(inArray(users.id, ids), scopeCondition)).returning().all();

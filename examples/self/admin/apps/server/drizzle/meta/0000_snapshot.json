@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "14df4190-0a84-4dfc-8559-b354080f4b43",
+  "id": "c2bb2044-a19c-495f-b5e7-f3fbec4fb585",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "attachments": {
@@ -1729,15 +1729,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "googleSubject": {
-          "name": "googleSubject",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "openidField": {
-          "name": "openidField",
+        "oktaSubject": {
+          "name": "oktaSubject",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1745,6 +1738,27 @@
         },
         "keycloakSubject": {
           "name": "keycloakSubject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "googleSubject": {
+          "name": "googleSubject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "kindeSubject": {
+          "name": "kindeSubject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "azureSubject": {
+          "name": "azureSubject",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1771,6 +1785,20 @@
           "notNull": true,
           "autoincrement": false
         },
+        "passwordHash": {
+          "name": "passwordHash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "oauthProfiles": {
+          "name": "oauthProfiles",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "orgId": {
           "name": "orgId",
           "type": "text",
@@ -1784,6 +1812,48 @@
           "name": "users_subject_unique",
           "columns": [
             "subject"
+          ],
+          "isUnique": true
+        },
+        "users_oktaSubject_unique": {
+          "name": "users_oktaSubject_unique",
+          "columns": [
+            "oktaSubject"
+          ],
+          "isUnique": true
+        },
+        "users_keycloakSubject_unique": {
+          "name": "users_keycloakSubject_unique",
+          "columns": [
+            "keycloakSubject"
+          ],
+          "isUnique": true
+        },
+        "users_googleSubject_unique": {
+          "name": "users_googleSubject_unique",
+          "columns": [
+            "googleSubject"
+          ],
+          "isUnique": true
+        },
+        "users_kindeSubject_unique": {
+          "name": "users_kindeSubject_unique",
+          "columns": [
+            "kindeSubject"
+          ],
+          "isUnique": true
+        },
+        "users_azureSubject_unique": {
+          "name": "users_azureSubject_unique",
+          "columns": [
+            "azureSubject"
+          ],
+          "isUnique": true
+        },
+        "users_email_unique": {
+          "name": "users_email_unique",
+          "columns": [
+            "email"
           ],
           "isUnique": true
         }

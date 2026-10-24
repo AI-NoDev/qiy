@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { createApp } from "./app";
 import { createHandler } from "./http";
-import { createProductionAuthenticator } from "./auth/oidc";
+import { createProductionAuthenticator } from "./auth/hybrid";
 import { startRealtimeOutboxWorker } from "./realtime";
 import { UsersRepository } from "./modules/users/users.repository";
 import { OrgsRepository } from "./modules/orgs/orgs.repository";

@@ -178,27 +178,8 @@ export const resources: ResourceDefinition[] = [
         ]
       },
       {
-        "name": "googleSubject",
-        "label": "googleSubject",
-        "type": "Text",
-        "nullable": true,
-        "primaryKey": false,
-        "visible": true,
-        "listVisible": true,
-        "formVisible": true,
-        "showVisible": true,
-        "sortable": true,
-        "filterable": true,
-        "filterModes": [
-          "contains",
-          "startsWith",
-          "endsWith",
-          "eq"
-        ]
-      },
-      {
-        "name": "openidField",
-        "label": "openidField",
+        "name": "oktaSubject",
+        "label": "oktaSubject",
         "type": "Text",
         "nullable": true,
         "primaryKey": false,
@@ -218,6 +199,63 @@ export const resources: ResourceDefinition[] = [
       {
         "name": "keycloakSubject",
         "label": "keycloakSubject",
+        "type": "Text",
+        "nullable": true,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "contains",
+          "startsWith",
+          "endsWith",
+          "eq"
+        ]
+      },
+      {
+        "name": "googleSubject",
+        "label": "googleSubject",
+        "type": "Text",
+        "nullable": true,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "contains",
+          "startsWith",
+          "endsWith",
+          "eq"
+        ]
+      },
+      {
+        "name": "kindeSubject",
+        "label": "kindeSubject",
+        "type": "Text",
+        "nullable": true,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": true,
+        "formVisible": true,
+        "showVisible": true,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "contains",
+          "startsWith",
+          "endsWith",
+          "eq"
+        ]
+      },
+      {
+        "name": "azureSubject",
+        "label": "azureSubject",
         "type": "Text",
         "nullable": true,
         "primaryKey": false,
@@ -307,6 +345,44 @@ export const resources: ResourceDefinition[] = [
             "color": "default",
             "icon": "EyeOutlined"
           }
+        ]
+      },
+      {
+        "name": "passwordHash",
+        "label": "passwordHash",
+        "type": "Text",
+        "nullable": true,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": false,
+        "formVisible": false,
+        "showVisible": false,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "contains",
+          "startsWith",
+          "endsWith",
+          "eq"
+        ]
+      },
+      {
+        "name": "oauthProfiles",
+        "label": "oauthProfiles",
+        "type": "Text",
+        "nullable": true,
+        "primaryKey": false,
+        "visible": true,
+        "listVisible": false,
+        "formVisible": false,
+        "showVisible": false,
+        "sortable": true,
+        "filterable": true,
+        "filterModes": [
+          "contains",
+          "startsWith",
+          "endsWith",
+          "eq"
         ]
       },
       {

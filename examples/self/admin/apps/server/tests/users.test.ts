@@ -101,4 +101,18 @@ describe("users CRUD", () => {
 
 
 
+  test("never returns or persists private field passwordHash", async () => {
+    records.clear();
+    const id = "00000000-0000-4000-8000-000000000077";
+    records.set(id, { id, "passwordHash": "argon2id-private-hash" });
+    const found = await app.handle(new Request(endpoint + "/" + id));
+    expect(found.status).toBe(200);
+    expect(await found.json()).not.toHaveProperty("passwordHash");
+    const listed = await app.handle(new Request(endpoint + "/"));
+    expect(await listed.json()).not.toMatchObject({ data: [ { "passwordHash": "argon2id-private-hash" } ] });
+    const created = await app.handle(new Request(endpoint + "/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "subject": "Example", "email": "Example", "role": "admin", "passwordHash": "attacker-controlled-hash" }) }));
+    expect(created.status).toBe(400);
+    expect(await created.json()).toEqual({ error: "Private fields cannot be written" });
+    expect([...records.values()].some((record) => record["passwordHash"] === "attacker-controlled-hash")).toBe(false);
+  });
 });

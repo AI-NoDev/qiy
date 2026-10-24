@@ -5,6 +5,7 @@ import { Database } from "bun:sqlite";
 // a purchase order, a sales order and a work order.
 const databasePath = process.argv[2] ?? "examples/self/admin/apps/server/qiy.sqlite";
 const db = new Database(databasePath);
+const passwordHash = await Bun.password.hash("admin-password", { algorithm: "argon2id" });
 const now = Date.now();
 db.exec("BEGIN");
 try {
@@ -16,15 +17,28 @@ try {
     }
   };
   insert("orgs", [{ id: "00000000-0000-4000-8000-000000000010", code: "ACME", name: "ACME Supply Group", parentId: null }]);
+  const oktaSubject = "CiQwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwYTESBWxvY2Fs";
+  const keycloakSubject = "CiQwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwYjISBWxvY2Fs";
   insert("users", [{
     id: "00000000-0000-4000-8000-000000000001",
-    subject: "http://localhost:5556/dex|CiQwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwYTESBWxvY2Fs",
+    // Canonical identity plus one binding per provider. The demo admin is bound
+    // to both local OIDC tenants (Okta and Keycloak) and has a password; the
+    // Google/Kinde/Azure bindings stay empty until the operator links them from
+    // /profile or signs in through first-time onboarding.
+    subject: "okta:" + oktaSubject,
+    oktaSubject,
+    keycloakSubject,
     googleSubject: null,
-    openidField: null,
-    keycloakSubject: "CiQwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwYjISBWxvY2Fs",
+    kindeSubject: null,
+    azureSubject: null,
     email: "admin@example.com",
     displayName: "Dex Admin",
     role: "admin",
+    passwordHash,
+    oauthProfiles: JSON.stringify({
+      okta: { email: "admin@example.com", name: "Dex Admin", sub: oktaSubject },
+      keycloak: { email: "admin@example.com", name: "Dex Admin", sub: keycloakSubject },
+    }),
     orgId: "00000000-0000-4000-8000-000000000010",
   }]);
   insert("suppliers", [{ id: "00000000-0000-4000-8000-000000000020", code: "SUP-1", name: "Nordic Components", email: "sales@nordic.example", leadTimeDays: 7 }]);

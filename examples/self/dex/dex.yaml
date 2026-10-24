@@ -20,3 +20,9 @@ staticPasswords:
     hash: $2b$10$n8eoreFS0i17HA2BRJYOmOoPcRyKIGaLMQhKGXvInLcKS78Orp2oG
     username: admin
     userID: "00000000-0000-4000-8000-0000000000a1"
+  # No pre-seeded users row: used to demonstrate binding an extra provider from
+  # /profile (password: viewer-password).
+  - email: viewer@example.com
+    hash: $2b$10$Q7atYE.oFFCGdcg1QNCoP.D1jIS4jc1Q8ihGu/AYOa1RvVKOmsA3C
+    username: viewer
+    userID: "00000000-0000-4000-8000-0000000000a2"
