@@ -3,6 +3,10 @@ import { Database } from "bun:sqlite";
 // Seeds the examples/self demo database with a small but realistic data set:
 // one organization, one warehouse with two bins, three products, inventory,
 // a purchase order, a sales order and a work order.
+//
+// Seeds write columns directly, so they keep their explicit business codes
+// ("ACME", "SUP-1", "PO-2026-001", …). The generated `@code` templates apply to
+// records created later through the API, the admin UI or CSV import.
 const databasePath = process.argv[2] ?? "examples/self/admin/apps/server/qiy.sqlite";
 const db = new Database(databasePath);
 const passwordHash = await Bun.password.hash("admin-password", { algorithm: "argon2id" });

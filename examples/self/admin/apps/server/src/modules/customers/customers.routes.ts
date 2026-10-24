@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import type { Authenticator, Principal } from "../../auth/guard";
+import { QiyGeneratedValueConflict } from "../../generated-values";
 import { createCustomersService } from "./customers.service";
 import { claimImportJob, createImportJob, isImportJobCancelled, listImportJobs, readImportJob, releaseStaleImportJobs, requestImportJobCancel, updateImportJob } from "../../import-jobs";
 import { claimExportJob, createExportJob, listExportJobs, readExportJob, updateExportJob } from "../../export-jobs";
@@ -7,7 +8,7 @@ import type { CustomersRepository as CustomersRepositoryPort } from "./customers
 
 
 const createCustomers = t.Object({
-  "code": t.String({ minLength: 1 }),
+  "code": t.Optional(t.String({ minLength: 1 })),
   "name": t.String({ minLength: 1 }),
   "email": t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()], {})),
   "creditLimit": t.String({ pattern: "^-?[0-9]+(\\.[0-9]+)?$" }),
@@ -234,7 +235,7 @@ export function CustomersRoutes(repository: CustomersRepositoryPort, authenticat
   };
   const service = createCustomersService(repository);
   return new Elysia({ prefix: "/customers" })
-    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)
+    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined).onError(({ error, status }) => error instanceof QiyGeneratedValueConflict ? status(409, { error: error.message, errorKey: "generated.conflict" }) : undefined)
     .get("/aggregate", async ({ query, status, request }) => {
       if (!["sum", "avg", "min", "max"].includes(query.op)) return status(400, { error: "Unsupported aggregate operator" });
       if (!(["creditLimit"] as string[]).includes(query.field)) return status(400, { error: "Unsupported aggregate field" });

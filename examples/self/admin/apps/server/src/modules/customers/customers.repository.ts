@@ -3,7 +3,9 @@ import { db } from "../../db";
  import { customers, auditEvents } from "../../schema";
 import type { FilterClause, FilterExpression, CustomersRepository as CustomersRepositoryContract } from "./customers.contract";
 
+import { qiyCreateWithGeneratedValues, type QiyGeneratedField } from "../../generated-values";
 
+const qiyGeneratedFields = [{"field":"code","kind":"code","template":"CUS-{YYYYMMDD}-{seq:4}"}] as QiyGeneratedField[];
 export const CustomersRepository: CustomersRepositoryContract = {
   async aggregate(field, operator, scope) {
     if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
@@ -106,15 +108,15 @@ customers
     return record;
   },
   async create(values, actorId, scope) {
-    return db.transaction((tx) => {
+    return qiyCreateWithGeneratedValues("customers", [{"field":"code","kind":"code","template":"CUS-{YYYYMMDD}-{seq:4}"}], values, (prepared) => db.transaction((tx) => {
       
-      const record = tx.insert(customers).values({ ...values, ...(scope ? { [scope.field]: scope.value } : {}), id: crypto.randomUUID() } as typeof customers.$inferInsert).returning().get();
+      const record = tx.insert(customers).values({ ...prepared, ...(scope ? { [scope.field]: scope.value } : {}), id: crypto.randomUUID() } as typeof customers.$inferInsert).returning().get();
       if (!record) throw new Error("Insert returned no record");
       
-      tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "customers.created", resource: "customers", resourceId: record.id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
+      tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "customers.created", resource: "customers", resourceId: record.id, metadata: JSON.stringify({ fields: Object.keys(prepared) }), createdAt: new Date() }).run();
        
       return record;
-    });
+    }));
   },
   async update(id, values, actorId, scope) {
     return db.transaction((tx) => {

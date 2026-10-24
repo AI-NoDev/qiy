@@ -1,5 +1,5 @@
 import type { DatabaseIR, EntityIR, FieldIR, RelationIR } from "./database-ir";
-import { validateDatabaseIR } from "./database-ir";
+import { generatedFieldsOf, validateDatabaseIR } from "./database-ir";
 import { generatedDocumentation } from "./generated-documentation";
 
 function column(field: FieldIR, relation?: RelationIR, indexed = false): string {
@@ -20,10 +20,34 @@ function column(field: FieldIR, relation?: RelationIR, indexed = false): string 
     case "Vector": declaration = `json(${name})`; break;
   }
   if (field.primaryKey) declaration += ".primaryKey()";
-  if (relation) declaration += `.references(() => ${relation.toEntity}[${JSON.stringify(relation.toField)}]${relation.onDelete ? `, { onDelete: ${JSON.stringify(relation.onDelete === "setNull" ? "set null" : relation.onDelete)} }` : ""})`;
+  if (relation) declaration += reference(relation);
   if (!field.nullable && !field.primaryKey) declaration += ".notNull()";
   if (field.unique && !field.primaryKey) declaration += ".unique()";
   return declaration;
+}
+
+/** A self relation needs an explicit callback return type; TypeScript otherwise infers `any`. */
+function reference(relation: RelationIR): string {
+  const selfReference = relation.fromEntity === relation.toEntity;
+  const target = `${relation.toEntity}[${JSON.stringify(relation.toField)}]`;
+  const options = relation.onDelete ? `, { onDelete: ${JSON.stringify(relation.onDelete === "setNull" ? "set null" : relation.onDelete)} }` : "";
+  return selfReference
+    ? `.references((): AnyMySqlColumn => ${target}${options})`
+    : `.references(() => ${target}${options})`;
+}
+
+/** True when any entity renders a business code, so the sequence table is required. */
+export function usesCodeSequences(database: DatabaseIR): boolean {
+  return database.entities.some((entity) => generatedFieldsOf(entity).some((generated) => generated.kind === "code"));
+}
+
+function codeSequenceTable(): string {
+  return `\nexport const qiyCodeSequences = mysqlTable("qiy_code_sequences", {
+  entity: varchar("entity", { length: 64 }).notNull(),
+  field: varchar("field", { length: 64 }).notNull(),
+  bucket: varchar("bucket", { length: 64 }).notNull(),
+  value: int("value").notNull(),
+}, (table) => [primaryKey({ columns: [table.entity, table.field, table.bucket] })]);\n`;
 }
 
 function renderEntity(entity: EntityIR, relations: RelationIR[]): string {
@@ -47,7 +71,11 @@ export function generateDrizzleMysql(database: DatabaseIR): string {
   const imports = new Set(["bigint", "datetime", "decimal", "index", "int", "json", "mediumtext", "mysqlTable", "text", "uniqueIndex", "varchar"]);
   for (const entity of database.entities) for (const field of entity.fields) if (field.type === "Date") imports.add("date");
   for (const entity of database.entities) for (const field of entity.fields) if (field.type === "Time") imports.add("time");
-  return `import { ${[...imports].sort().join(", ")} } from "drizzle-orm/mysql-core";\n\n${database.entities.map((item) => renderEntity(item, database.relations ?? [])).join("\n\n")}\n\nexport const auditEvents = mysqlTable("audit_events", {\n  id: varchar("id", { length: 36 }).primaryKey(),\n  actorId: varchar("actorId", { length: 36 }),\n  action: varchar("action", { length: 160 }).notNull(),\n  resource: varchar("resource", { length: 160 }).notNull(),\n  resourceId: varchar("resourceId", { length: 160 }),\n  metadata: json("metadata"),\n  createdAt: bigint("createdAt", { mode: "number" }).notNull(),\n}, (table) => [index("audit_events_resource_idx").on(table.resource, table.resourceId), index("audit_events_created_at_idx").on(table.createdAt)]);\n\nexport const attachments = mysqlTable("attachments", {\n  id: varchar("id", { length: 36 }).primaryKey(),\n  storageKey: varchar("storageKey", { length: 240 }).notNull().unique(),\n  fileName: text("fileName"),\n  contentType: varchar("contentType", { length: 255 }).notNull(),\n  size: int("size").notNull(),\n  ownerId: varchar("ownerId", { length: 36 }),\n  resource: varchar("resource", { length: 160 }).notNull(),\n  resourceId: varchar("resourceId", { length: 160 }),\n  createdAt: bigint("createdAt", { mode: "number" }).notNull().$defaultFn(() => Date.now()),\n}, (table) => [index("attachments_resource_idx").on(table.resource, table.resourceId), index("attachments_owner_idx").on(table.ownerId)]);
+  const sequences = usesCodeSequences(database);
+  if (sequences) imports.add("primaryKey");
+  const selfRelations = (database.relations ?? []).some((relation) => relation.fromEntity === relation.toEntity);
+  const typeImport = selfRelations ? `import type { AnyMySqlColumn } from "drizzle-orm/mysql-core";\n` : "";
+  return `import { ${[...imports].sort().join(", ")} } from "drizzle-orm/mysql-core";\n${typeImport}\n${database.entities.map((item) => renderEntity(item, database.relations ?? [])).join("\n\n")}\n${sequences ? codeSequenceTable() : ""}\nexport const auditEvents = mysqlTable("audit_events", {\n  id: varchar("id", { length: 36 }).primaryKey(),\n  actorId: varchar("actorId", { length: 36 }),\n  action: varchar("action", { length: 160 }).notNull(),\n  resource: varchar("resource", { length: 160 }).notNull(),\n  resourceId: varchar("resourceId", { length: 160 }),\n  metadata: json("metadata"),\n  createdAt: bigint("createdAt", { mode: "number" }).notNull(),\n}, (table) => [index("audit_events_resource_idx").on(table.resource, table.resourceId), index("audit_events_created_at_idx").on(table.createdAt)]);\n\nexport const attachments = mysqlTable("attachments", {\n  id: varchar("id", { length: 36 }).primaryKey(),\n  storageKey: varchar("storageKey", { length: 240 }).notNull().unique(),\n  fileName: text("fileName"),\n  contentType: varchar("contentType", { length: 255 }).notNull(),\n  size: int("size").notNull(),\n  ownerId: varchar("ownerId", { length: 36 }),\n  resource: varchar("resource", { length: 160 }).notNull(),\n  resourceId: varchar("resourceId", { length: 160 }),\n  createdAt: bigint("createdAt", { mode: "number" }).notNull().$defaultFn(() => Date.now()),\n}, (table) => [index("attachments_resource_idx").on(table.resource, table.resourceId), index("attachments_owner_idx").on(table.ownerId)]);
 
 export const qiyImportJobs = mysqlTable("qiy_import_jobs", {
   id: varchar("id", { length: 36 }).primaryKey(),

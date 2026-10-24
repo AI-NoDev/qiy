@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import type { Authenticator, Principal } from "../../auth/guard";
+import { QiyGeneratedValueConflict } from "../../generated-values";
 import { createOrgsService } from "./orgs.service";
 import { claimImportJob, createImportJob, isImportJobCancelled, listImportJobs, readImportJob, releaseStaleImportJobs, requestImportJobCancel, updateImportJob } from "../../import-jobs";
 import { claimExportJob, createExportJob, listExportJobs, readExportJob, updateExportJob } from "../../export-jobs";
@@ -7,15 +8,17 @@ import type { OrgsRepository as OrgsRepositoryPort } from "./orgs.contract";
 
 
 const createOrgs = t.Object({
-  "code": t.String({ minLength: 1 }),
+  "code": t.Optional(t.String({ minLength: 1 })),
   "name": t.String({ minLength: 1 }),
   "parentId": t.Optional(t.Union([t.String({ format: "uuid" }), t.Null()], {})),
+  "externalId": t.Optional(t.Optional(t.Union([t.String({ format: "uuid" }), t.Null()], {}))),
 }, { additionalProperties: false });
 
 const patchOrgs = t.Object({
   "code": t.Optional(t.String({ minLength: 1 })),
   "name": t.Optional(t.String({ minLength: 1 })),
   "parentId": t.Optional(t.Union([t.String({ format: "uuid" }), t.Null()], {})),
+  "externalId": t.Optional(t.Union([t.String({ format: "uuid" }), t.Null()], {})),
 }, { additionalProperties: false });
 
 export interface OrgsRepository {
@@ -51,9 +54,9 @@ export interface ListQuery {
 export function OrgsRoutes(repository: OrgsRepositoryPort, authenticate: Authenticator = async () => null) {
   const redact = (record: Record<string, unknown>) => record;
   const redactRecord = (record: Record<string, unknown>) => redact(record);
-  const sortableFields = ["id","code","name","parentId"] as string[];
-  const filterableFields = ["id","code","name","parentId"] as string[];
-  const filterModes = {"id":["eq","gt","gte","lt","lte","between","in"],"code":["contains","startsWith","endsWith","eq"],"name":["contains","startsWith","endsWith","eq"],"parentId":["eq","gt","gte","lt","lte","between","in"]} as Record<string, FilterOperator[]>;
+  const sortableFields = ["id","code","name","parentId","externalId"] as string[];
+  const filterableFields = ["id","code","name","parentId","externalId"] as string[];
+  const filterModes = {"id":["eq","gt","gte","lt","lte","between","in"],"code":["contains","startsWith","endsWith","eq"],"name":["contains","startsWith","endsWith","eq"],"parentId":["eq","gt","gte","lt","lte","between","in"],"externalId":["eq","gt","gte","lt","lte","between","in"]} as Record<string, FilterOperator[]>;
   const resolveScope = async (request: Request) => {
     const principal = await authenticate(request);
     const scopeConfig = null as { field: string; claim: string } | null;
@@ -64,12 +67,12 @@ export function OrgsRoutes(repository: OrgsRepositoryPort, authenticate: Authent
     if (!principal || claimValue === undefined || claimValue === null || claimValue === "") throw new Error("Missing required data scope claim: " + scopeClaim);
     return { field: scopeField, value: String(claimValue) };
   };
-  const exportColumns = ["id","code","name","parentId"] as string[];
+  const exportColumns = ["id","code","name","parentId","externalId"] as string[];
   const exportMaxRows = () => { const value = Number(Bun.env.QIY_EXPORT_MAX_ROWS ?? 1000); return Number.isSafeInteger(value) && value >= 1 && value <= 100000 ? value : 1000; };
   // Exports stream in bounded pages so memory does not grow with the result set.
   const EXPORT_PAGE_SIZE = Math.min(250, exportMaxRows());
   // Import accepts plain scalar columns only; vectors and key lists need the API.
-  const importTypes = {"code":"Text","name":"Text","parentId":"UUID"} as Record<string, string>;
+  const importTypes = {"code":"Text","name":"Text","parentId":"UUID","externalId":"UUID"} as Record<string, string>;
   const importColumns = Object.keys(importTypes);
   const importMaxRows = () => { const value = Number(Bun.env.QIY_IMPORT_MAX_ROWS ?? 1000); return Number.isSafeInteger(value) && value >= 1 && value <= 100000 ? value : 1000; };
   /** RFC 4180 reader: quoted fields, doubled quotes and CRLF line endings. */
@@ -232,7 +235,7 @@ export function OrgsRoutes(repository: OrgsRepositoryPort, authenticate: Authent
   };
   const service = createOrgsService(repository);
   return new Elysia({ prefix: "/orgs" })
-    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)
+    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined).onError(({ error, status }) => error instanceof QiyGeneratedValueConflict ? status(409, { error: error.message, errorKey: "generated.conflict" }) : undefined)
     .get("/aggregate", async ({ query, status, request }) => {
       if (!["sum", "avg", "min", "max"].includes(query.op)) return status(400, { error: "Unsupported aggregate operator" });
       if (!([] as string[]).includes(query.field)) return status(400, { error: "Unsupported aggregate field" });
@@ -474,4 +477,4 @@ export function OrgsRoutes(repository: OrgsRepositoryPort, authenticate: Authent
     }, { params: t.Object({ id: t.String({ format: "uuid" }) }) });
 }
 
-export const orgsWritableFields = ["code", "name", "parentId"] as const;
+export const orgsWritableFields = ["code", "name", "parentId", "externalId"] as const;

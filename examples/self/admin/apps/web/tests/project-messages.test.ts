@@ -71,6 +71,7 @@ test("switches model descriptions and falls back to the configured default local
   expect(createI18nProvider("zh-CN").translate("qiy.resources.orgs.fields.code.label")).toBe("编码");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.orgs.fields.name.label")).toBe("名称");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.orgs.fields.parentId.label")).toBe("上级组织");
+  expect(createI18nProvider("zh-CN").translate("qiy.resources.orgs.fields.externalId.label")).toBe("外部编号");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.suppliers.fields.id.label")).toBe("编号");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.suppliers.fields.code.label")).toBe("编码");
   expect(createI18nProvider("zh-CN").translate("qiy.resources.suppliers.fields.name.label")).toBe("名称");
@@ -343,6 +344,7 @@ test("switches model descriptions and falls back to the configured default local
   expect(createI18nProvider("en-US").translate("qiy.resources.orgs.fields.code.label")).toBe("Code");
   expect(createI18nProvider("en-US").translate("qiy.resources.orgs.fields.name.label")).toBe("Name");
   expect(createI18nProvider("en-US").translate("qiy.resources.orgs.fields.parentId.label")).toBe("Parent organization");
+  expect(createI18nProvider("en-US").translate("qiy.resources.orgs.fields.externalId.label")).toBe("External ID");
   expect(createI18nProvider("en-US").translate("qiy.resources.suppliers.fields.id.label")).toBe("ID");
   expect(createI18nProvider("en-US").translate("qiy.resources.suppliers.fields.code.label")).toBe("Code");
   expect(createI18nProvider("en-US").translate("qiy.resources.suppliers.fields.name.label")).toBe("Name");
@@ -615,6 +617,7 @@ test("switches model descriptions and falls back to the configured default local
   expect(projectMessage("en-US", "qiy.resources.orgs.fields.code.label")).toBe("Code");
   expect(projectMessage("en-US", "qiy.resources.orgs.fields.name.label")).toBe("Name");
   expect(projectMessage("en-US", "qiy.resources.orgs.fields.parentId.label")).toBe("Parent organization");
+  expect(projectMessage("en-US", "qiy.resources.orgs.fields.externalId.label")).toBe("External ID");
   expect(projectMessage("en-US", "qiy.resources.suppliers.fields.id.label")).toBe("ID");
   expect(projectMessage("en-US", "qiy.resources.suppliers.fields.code.label")).toBe("Code");
   expect(projectMessage("en-US", "qiy.resources.suppliers.fields.name.label")).toBe("Name");

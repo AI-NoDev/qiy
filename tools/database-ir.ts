@@ -1,3 +1,5 @@
+import { validateCodeTemplate } from "./code-template";
+
 export type DatabaseDialect = "postgresql" | "mysql" | "sqlite";
 export type FieldType = "UUID" | "Text" | "Integer" | "Decimal" | "Money" | "Date" | "Time" | "DateTime" | "File" | "Files" | "Vector";
 export type FilterMode = "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in";
@@ -45,6 +47,10 @@ export interface FieldIR {
   maxBytes?: number;
   mimeTypes?: string[];
   maxFiles?: number;
+  /** `@code("ORG-{YYYYMM}-{seq:4}")`: the server renders this business code on create. */
+  codeTemplate?: string;
+  /** `@generated(uuid)`/`@generated`: the server fills the value on create. */
+  generatedValue?: "uuid";
 }
 
 export interface IndexColumnIR {
@@ -104,6 +110,54 @@ export interface DatabaseIR {
   enums?: EnumIR[];
   relations?: RelationIR[];
 }
+
+export type GeneratedFieldKind = "code" | "uuid";
+
+export interface GeneratedField {
+  field: FieldIR;
+  kind: GeneratedFieldKind;
+  /** Business-code template for `kind: "code"`. */
+  template?: string;
+}
+
+/**
+ * How the server fills a field on create:
+ *   - `@code("…")` renders a business code (Text fields only),
+ *   - `@generated(uuid)` requests a UUIDv4,
+ *   - a non-primary UUID field without a relation is a system reference and is
+ *     generated UUIDv4 by default, so it is never typed by hand in a form.
+ * Primary keys are excluded: every generated repository already assigns them.
+ */
+export function generatedFieldKind(field: FieldIR, options: { hasRelation?: boolean } = {}): GeneratedFieldKind | undefined {
+  if (field.primaryKey) return undefined;
+  if (field.codeTemplate !== undefined) return "code";
+  if (field.generatedValue === "uuid") return "uuid";
+  if (field.type === "UUID" && !options.hasRelation) return "uuid";
+  return undefined;
+}
+
+/** True when a field is rendered or validated by the UI; generated fields are hidden on create. */
+export function isGeneratedField(field: FieldIR, options: { hasRelation?: boolean } = {}): boolean {
+  return generatedFieldKind(field, options) !== undefined;
+}
+
+/** Every server-generated field of one entity, in declaration order. */
+export function generatedFieldsOf(entity: EntityIR, relations: RelationIR[] = []): GeneratedField[] {
+  const relationSources = new Set(relations.filter((relation) => relation.fromEntity === entity.name).map((relation) => relation.fromField));
+  const generated: GeneratedField[] = [];
+  for (const field of entity.fields) {
+    const kind = generatedFieldKind(field, { hasRelation: relationSources.has(field.name) });
+    if (!kind) continue;
+    generated.push({ field, kind, ...(kind === "code" && field.codeTemplate !== undefined ? { template: field.codeTemplate } : {}) });
+  }
+  return generated;
+}
+
+/** Server-generated fields of every entity, keyed by entity name. */
+export function generatedFieldsByEntity(database: DatabaseIR): Record<string, GeneratedField[]> {
+  return Object.fromEntries(database.entities.map((entity) => [entity.name, generatedFieldsOf(entity, database.relations ?? [])]));
+}
+
 
 const identifier = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
 const vectorOpclasses = new Set(["vector_l2_ops", "vector_ip_ops", "vector_cosine_ops"]);
@@ -322,6 +376,17 @@ export function validateDatabaseIR(database: DatabaseIR): string[] {
       if (field.enumName && field.type !== "Text") {
         errors.push(`${entity.name}.${field.name}: enum fields require Text storage`);
       }
+      // Generated values are filled by the server, so the model must name a
+      // column type the generator knows how to render and validate.
+      if (field.codeTemplate !== undefined) {
+        if (field.type !== "Text" || field.enumName) errors.push(`${entity.name}.${field.name}: @code requires a Text field without an enum`);
+        if (field.primaryKey) errors.push(`${entity.name}.${field.name}: @code cannot be used on a primary key`);
+        errors.push(...validateCodeTemplate(field.codeTemplate).map((message) => `${entity.name}.${field.name}: ${message}`));
+      }
+      if (field.generatedValue !== undefined) {
+        if (field.type !== "UUID") errors.push(`${entity.name}.${field.name}: @generated(uuid) requires a UUID field`);
+        if (field.primaryKey) errors.push(`${entity.name}.${field.name}: @generated is not needed on a primary key; ids are always generated`);
+      }
       if (field.extension && !extensions.has(field.extension)) {
         errors.push(`${entity.name}.${field.name}: undeclared extension ${field.extension}`);
       }
@@ -441,6 +506,8 @@ export function validateDatabaseIR(database: DatabaseIR): string[] {
     const fromField = from.fields.find((field) => field.name === relation.fromField);
     const toField = to.fields.find((field) => field.name === relation.toField);
     if (fromField && toField && (fromField.type !== "UUID" || toField.type !== "UUID")) errors.push(`Relation ${relation.name}: V3 foreign keys require UUID fields`);
+    if (fromField?.generatedValue !== undefined) errors.push(`Relation ${relation.name}: foreign key ${relation.fromEntity}.${relation.fromField} is server-generated and cannot reference another record`);
+    if (fromField?.codeTemplate !== undefined) errors.push(`Relation ${relation.name}: foreign key ${relation.fromEntity}.${relation.fromField} cannot be a @code field`);
     if (toField && !toField.primaryKey && !toField.unique) errors.push(`Relation ${relation.name}: target field must be primary or unique`);
     if (relation.onDelete === "setNull" && fromField && !fromField.nullable) errors.push(`Relation ${relation.name}: setNull requires a nullable source field`);
   }

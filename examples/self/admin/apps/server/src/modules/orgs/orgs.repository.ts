@@ -3,14 +3,16 @@ import { db } from "../../db";
  import { orgs, auditEvents } from "../../schema";
 import type { FilterClause, FilterExpression, OrgsRepository as OrgsRepositoryContract } from "./orgs.contract";
 
+import { qiyCreateWithGeneratedValues, type QiyGeneratedField } from "../../generated-values";
 
+const qiyGeneratedFields = [{"field":"code","kind":"code","template":"ORG-{YYYY}{MM}-{seq:4}"},{"field":"externalId","kind":"uuid"}] as QiyGeneratedField[];
 export const OrgsRepository: OrgsRepositoryContract = {
   async aggregate(field, operator, scope) {
     if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
     const columns: Record<string, any> = {  };
     const column = columns[field];
     if (!column) throw new Error("Unsupported aggregate field");
-    const scopeColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId };
+    const scopeColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId, "externalId": orgs.externalId };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
@@ -22,7 +24,7 @@ export const OrgsRepository: OrgsRepositoryContract = {
     const columns: Record<string, any> = {  };
     const column = columns[field];
     if (!column) throw new Error("Unsupported distribution field");
-    const scopeColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId };
+    const scopeColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId, "externalId": orgs.externalId };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     return db.select({ value: column, count: count() }).from(orgs).where(and(scopeCondition)).groupBy(column);
@@ -31,7 +33,7 @@ export const OrgsRepository: OrgsRepositoryContract = {
     const columns: Record<string, any> = {  };
     const column = columns[field];
     if (!column || !Number.isInteger(days) || days < 1 || days > 365) throw new Error("Invalid trend query");
-    const scopeColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId };
+    const scopeColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId, "externalId": orgs.externalId };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     const now = new Date();
@@ -46,12 +48,12 @@ export const OrgsRepository: OrgsRepositoryContract = {
     const searchCondition = options.search && searchableColumns.length > 0
       ? or(...searchableColumns.map((column) => like(column, "%" + options.search + "%")))
       : undefined;
-    const sortColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId };
+    const sortColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId, "externalId": orgs.externalId };
     const sortColumn = options.sort ? sortColumns[options.sort] : orgs.id;
     if (options.sort && !sortColumn) throw new Error("Unsupported sort field");
     const orderBy = options.order === "desc" ? desc(sortColumn) : asc(sortColumn);
-    const filterColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId };
-    const filterTypes = {"id":"UUID","code":"Text","name":"Text","parentId":"UUID"} as Record<string, string>;
+    const filterColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId, "externalId": orgs.externalId };
+    const filterTypes = {"id":"UUID","code":"Text","name":"Text","parentId":"UUID","externalId":"UUID"} as Record<string, string>;
     const filters = Array.isArray(options.filters) ? options.filters : Object.entries(options.filters ?? {}).map(([field, value]) => ({ field, operator: "eq" as const, value }));
     const filterClauses = (expressions: FilterExpression[]): FilterClause[] => expressions.flatMap((filter) => "field" in filter ? [filter] : filterClauses(filter.filters));
     if (filterClauses(filters as FilterExpression[]).some(({ field }) => !filterColumns[field])) throw new Error("Unsupported filter field");
@@ -80,7 +82,7 @@ export const OrgsRepository: OrgsRepositoryContract = {
     const filterExpression = (filter: FilterExpression): any => "field" in filter
       ? filterCondition(filter)
       : filter.operator === "and" ? and(...filter.filters.map(filterExpression)) : or(...filter.filters.map(filterExpression));
-    const scopeColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId };
+    const scopeColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId, "externalId": orgs.externalId };
     const scopeCondition = options.scope && scopeColumns[options.scope.field] ? eq(scopeColumns[options.scope.field], options.scope.value) : undefined;
     
     const whereCondition = and(searchCondition, scopeCondition, ...(filters as FilterExpression[]).map(filterExpression));
@@ -95,7 +97,7 @@ orgs
     return { data, total: totalRows[0]?.total ?? 0 };
   },
   async one(id, scope) {
-    const scopeColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId };
+    const scopeColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId, "externalId": orgs.externalId };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     const [record] = await db.select().from(
@@ -106,19 +108,19 @@ orgs
     return record;
   },
   async create(values, actorId, scope) {
-    return db.transaction((tx) => {
+    return qiyCreateWithGeneratedValues("orgs", [{"field":"code","kind":"code","template":"ORG-{YYYY}{MM}-{seq:4}"},{"field":"externalId","kind":"uuid"}], values, (prepared) => db.transaction((tx) => {
       
-      const record = tx.insert(orgs).values({ ...values, ...(scope ? { [scope.field]: scope.value } : {}), id: crypto.randomUUID() } as typeof orgs.$inferInsert).returning().get();
+      const record = tx.insert(orgs).values({ ...prepared, ...(scope ? { [scope.field]: scope.value } : {}), id: crypto.randomUUID() } as typeof orgs.$inferInsert).returning().get();
       if (!record) throw new Error("Insert returned no record");
       
-      tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "orgs.created", resource: "orgs", resourceId: record.id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
+      tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "orgs.created", resource: "orgs", resourceId: record.id, metadata: JSON.stringify({ fields: Object.keys(prepared) }), createdAt: new Date() }).run();
        
       return record;
-    });
+    }));
   },
   async update(id, values, actorId, scope) {
     return db.transaction((tx) => {
-      const scopeColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId };
+      const scopeColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId, "externalId": orgs.externalId };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
       const record = tx.update(orgs).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(eq(orgs.id, id), scopeCondition)).returning().get();
@@ -129,7 +131,7 @@ orgs
   },
   async delete(id, actorId, scope) {
     return db.transaction((tx) => {
-      const scopeColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId };
+      const scopeColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId, "externalId": orgs.externalId };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
       const record = tx.delete(orgs).where(and(eq(orgs.id, id), scopeCondition)).returning().get();
@@ -140,7 +142,7 @@ orgs
   },
   async deleteMany(ids, actorId, scope) {
     return db.transaction((tx) => {
-      const scopeColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId };
+      const scopeColumns: Record<string, any> = { "id": orgs.id, "code": orgs.code, "name": orgs.name, "parentId": orgs.parentId, "externalId": orgs.externalId };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
       const deletedRows = tx.delete(orgs).where(and(inArray(orgs.id, ids), scopeCondition)).returning().all();

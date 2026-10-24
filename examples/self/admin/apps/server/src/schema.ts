@@ -1,4 +1,5 @@
-import { blob, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { blob, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   "id": text("id").primaryKey(),
@@ -21,7 +22,8 @@ export const orgs = sqliteTable("orgs", {
   "id": text("id").primaryKey(),
   "code": text("code").notNull().unique(),
   "name": text("name").notNull(),
-  "parentId": text("parentId"),
+  "parentId": text("parentId").references((): AnySQLiteColumn => orgs["id"], { onDelete: "set null" }),
+  "externalId": text("externalId"),
 });
 
 export const suppliers = sqliteTable("suppliers", {
@@ -105,7 +107,7 @@ export const sales_order_lines = sqliteTable("sales_order_lines", {
 export const shipments = sqliteTable("shipments", {
   "id": text("id").primaryKey(),
   "salesOrderId": text("salesOrderId").references(() => sales_orders["id"], { onDelete: "restrict" }).notNull(),
-  "warehouseId": text("warehouseId").notNull(),
+  "warehouseId": text("warehouseId").references(() => warehouses["id"], { onDelete: "restrict" }).notNull(),
   "status": text("status").notNull(),
   "shippedAt": integer("shippedAt", { mode: "timestamp_ms" }),
   "departureTime": text("departureTime"),
@@ -157,6 +159,13 @@ export const work_orders = sqliteTable("work_orders", {
   "status": text("status").notNull(),
   "plannedAt": integer("plannedAt", { mode: "timestamp_ms" }).notNull(),
 });
+
+export const qiyCodeSequences = sqliteTable("qiy_code_sequences", {
+  entity: text("entity").notNull(),
+  field: text("field").notNull(),
+  bucket: text("bucket").notNull(),
+  value: integer("value").notNull(),
+}, (table) => [primaryKey({ columns: [table.entity, table.field, table.bucket] })]);
 
 export const auditEvents = sqliteTable("audit_events", {
   id: text("id").primaryKey(),

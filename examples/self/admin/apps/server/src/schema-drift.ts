@@ -114,10 +114,18 @@ export function compareSchema(expected: DriftTable[], live: DriftTable[]): Drift
 
 export function expectedTables(): DriftTable[] {
   return (Object.values(schema) as unknown[]).filter(isTable).map((table) => {
-    const config = getTableConfig(table as never) as unknown as { name: string; columns: Array<{ name: string; notNull: boolean; primary: boolean; dataType: string; columnType: string }> };
+    const config = getTableConfig(table as never) as unknown as {
+      name: string;
+      columns: Array<{ name: string; notNull: boolean; primary: boolean; dataType: string; columnType: string }>;
+      primaryKeys?: Array<{ columns: Array<{ name: string }> }>;
+    };
+    // Composite primary keys (the generated code sequence table) are declared on
+    // the table, not on each column, but every database reports all of their
+    // columns as primary keys.
+    const primaryColumns = new Set((config.primaryKeys ?? []).flatMap((key) => key.columns.map((column) => column.name)));
     return {
       name: config.name,
-      columns: config.columns.map((column) => ({ name: column.name, nullable: !column.notNull, type: canonicalFromDrizzle(column.columnType ?? "", column.dataType ?? ""), primary: Boolean(column.primary) })),
+      columns: config.columns.map((column) => ({ name: column.name, nullable: !column.notNull, type: canonicalFromDrizzle(column.columnType ?? "", column.dataType ?? ""), primary: Boolean(column.primary) || primaryColumns.has(column.name) })),
     };
   });
 }

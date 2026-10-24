@@ -49,6 +49,30 @@ field legacyCode Text @column("legacy_code");
 
 `@visible`、`@listVisible`、`@formVisible`、`@showVisible` 控制字段可见性，`@sortable` / `@filterable` 控制列表交互。
 
+## 业务编码与自动生成值
+
+UUID 与业务单据号不应该由用户手工填写。给字段声明生成规则后，服务端在创建时渲染值，新建表单不显示该字段，编辑表单以只读方式显示，列表/详情页正常展示：
+
+```qiy
+entity orgs {
+  field id UUID @id;
+  field code Text @unique @code("ORG-{YYYY}{MM}-{seq:4}");
+  field name Text;
+  field parentId UUID @nullable;   // 自关联：见下方 relation
+  field externalId UUID @nullable @generated(uuid);
+}
+
+relation orgParent orgs parentId orgs id one @onDelete(setNull);
+```
+
+- `@code("...")` 支持日期/时间 token（`{YYYY}`、`{YYYYMMDD}`、`{HHmmss}` 等）、`{seq}` / `{seq:4}`、`{count+1}` 别名、`{random:10}` 与 `{uuid}`；
+- 含日期 token 时序号按天/月/秒等日期桶重置，`PO-{YYYYMMDD}-{seq:4}` 每天从 `0001` 开始；
+- 日期 token 使用 `QIY_CODE_TIMEZONE`（缺省 `UTC`）；
+- 创建时客户端传入的生成字段会被忽略，唯一约束冲突会重试并在耗尽后返回 409；
+- **没有 relation 的 UUID 字段会被当作系统生成值**：真实外键必须声明 relation，否则不会渲染成关联下拉；自关联（`orgs.parentId -> orgs.id`）在三种方言都会生成带显式 `Any*Column` 回调的 Drizzle 引用。
+
+完整语法、模板表、运行时时序与种子数据说明见 [自动生成值与业务编码](/dsl/generated-values)。
+
 ## 实体显示文本与外键列
 
 外键列默认会显示目标记录的显示文本，而不是 UUID。为每个实体声明 Django 风格的显示注解即可控制这段文本：

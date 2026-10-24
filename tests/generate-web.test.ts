@@ -78,7 +78,7 @@ describe("Refine SPA generation", () => {
     const files = generateWeb(database);
     expect(files["web/app/routes/list.tsx"]).toContain("visibleKeys");
     expect(files["web/app/routes/show.tsx"]).toContain("resource.fields.filter((field) => field.showVisible && canSeeField(field, identity?.role))");
-    expect(files["web/app/components/resource-form.tsx"]).toContain("field.formVisible && !field.primaryKey && field.type !== \"Vector\" && canSeeField(field, identity?.role)");
+    expect(files["web/app/components/resource-form.tsx"]).toContain("const fields = (id ? editFormFields(resource) : createFormFields(resource)).filter((field) => canSeeField(field, identity?.role))");
   });
 
   test("imports configured resource icons instead of silently using a fallback", () => {

@@ -1,6 +1,7 @@
 import { Elysia, t } from "elysia";
 import type { Authenticator, Principal } from "../../auth/guard";
 import { QiyTemporalValueError } from "../../temporal";
+import { QiyGeneratedValueConflict } from "../../generated-values";
 import { createPurchase_ordersService } from "./purchase_orders.service";
 import { claimImportJob, createImportJob, isImportJobCancelled, listImportJobs, readImportJob, releaseStaleImportJobs, requestImportJobCancel, updateImportJob } from "../../import-jobs";
 import { claimExportJob, createExportJob, listExportJobs, readExportJob, updateExportJob } from "../../export-jobs";
@@ -8,7 +9,7 @@ import type { Purchase_ordersRepository as Purchase_ordersRepositoryPort } from 
 
 
 const createPurchase_orders = t.Object({
-  "number": t.String({ minLength: 1 }),
+  "number": t.Optional(t.String({ minLength: 1 })),
   "supplierId": t.String({ format: "uuid" }),
   "status": t.Union([t.Literal("draft"), t.Literal("approved"), t.Literal("received"), t.Literal("closed"), t.Literal("cancelled")]),
   "orderedAt": t.String({ format: "date-time" }),
@@ -241,7 +242,7 @@ export function Purchase_ordersRoutes(repository: Purchase_ordersRepositoryPort,
   };
   const service = createPurchase_ordersService(repository);
   return new Elysia({ prefix: "/purchase_orders" })
-    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined).onError(({ error, status }) => error instanceof QiyTemporalValueError ? status(400, { error: error.message }) : undefined)
+    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined).onError(({ error, status }) => error instanceof QiyTemporalValueError ? status(400, { error: error.message }) : undefined).onError(({ error, status }) => error instanceof QiyGeneratedValueConflict ? status(409, { error: error.message, errorKey: "generated.conflict" }) : undefined)
     .get("/aggregate", async ({ query, status, request }) => {
       if (!["sum", "avg", "min", "max"].includes(query.op)) return status(400, { error: "Unsupported aggregate operator" });
       if (!(["total"] as string[]).includes(query.field)) return status(400, { error: "Unsupported aggregate field" });

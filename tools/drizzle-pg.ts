@@ -1,5 +1,5 @@
 import type { DatabaseIR, EntityIR, FieldIR, IndexIR, RelationIR } from "./database-ir";
-import { validateDatabaseIR } from "./database-ir";
+import { generatedFieldsOf, validateDatabaseIR } from "./database-ir";
 import { generatedDocumentation } from "./generated-documentation";
 
 function column(field: FieldIR, relation?: RelationIR): string {
@@ -21,11 +21,36 @@ function column(field: FieldIR, relation?: RelationIR): string {
     case "Vector": declaration = `vector(${name}, { dimensions: ${field.dimension} })`; break;
   }
   if (field.primaryKey) declaration += ".primaryKey()";
-  if (relation) declaration += `.references(() => ${relation.toEntity}[${JSON.stringify(relation.toField)}]${relation.onDelete ? `, { onDelete: ${JSON.stringify(relation.onDelete === "setNull" ? "set null" : relation.onDelete)} }` : ""})`;
+  if (relation) declaration += reference(relation);
   if (!field.nullable && !field.primaryKey) declaration += ".notNull()";
   if (field.unique && !field.primaryKey) declaration += ".unique()";
   return declaration;
 }
+
+/** A self relation needs an explicit callback return type; TypeScript otherwise infers `any`. */
+function reference(relation: RelationIR): string {
+  const selfReference = relation.fromEntity === relation.toEntity;
+  const target = `${relation.toEntity}[${JSON.stringify(relation.toField)}]`;
+  const options = relation.onDelete ? `, { onDelete: ${JSON.stringify(relation.onDelete === "setNull" ? "set null" : relation.onDelete)} }` : "";
+  return selfReference
+    ? `.references((): AnyPgColumn => ${target}${options})`
+    : `.references(() => ${target}${options})`;
+}
+
+/** True when any entity renders a business code, so the sequence table is required. */
+export function usesCodeSequences(database: DatabaseIR): boolean {
+  return database.entities.some((entity) => generatedFieldsOf(entity).some((generated) => generated.kind === "code"));
+}
+
+function codeSequenceTable(): string {
+  return `\nexport const qiyCodeSequences = pgTable("qiy_code_sequences", {
+  entity: text("entity").notNull(),
+  field: text("field").notNull(),
+  bucket: text("bucket").notNull(),
+  value: integer("value").notNull(),
+}, (table) => [primaryKey({ columns: [table.entity, table.field, table.bucket] })]);\n`;
+}
+
 
 function renderIndex(index: IndexIR): string {
   const columns = index.columns.map(({ fieldName, opclass }) => {
@@ -60,7 +85,11 @@ export function generateDrizzlePostgres(database: DatabaseIR): string {
     }
     for (const index of entity.indexes ?? []) imports.add(index.unique ? "uniqueIndex" : "index");
   }
-  return `import { ${[...imports].sort().join(", ")} } from "drizzle-orm/pg-core";\n\n${database.entities.map((entity) => renderEntity(entity, database.relations ?? [])).join("\n\n")}\n\nexport const auditEvents = pgTable("audit_events", {\n  id: uuid("id").primaryKey(),\n  actorId: uuid("actorId"),\n  action: text("action").notNull(),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  metadata: jsonb("metadata"),\n  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),\n}, (table) => [index("audit_events_resource_idx").on(table.resource, table.resourceId), index("audit_events_created_at_idx").on(table.createdAt)]);\n\nexport const attachments = pgTable("attachments", {\n  id: uuid("id").primaryKey(),\n  storageKey: text("storageKey").notNull().unique(),\n  fileName: text("fileName"),\n  contentType: text("contentType").notNull(),\n  size: integer("size").notNull(),\n  ownerId: uuid("ownerId"),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),\n}, (table) => [index("attachments_resource_idx").on(table.resource, table.resourceId), index("attachments_owner_idx").on(table.ownerId)]);
+  const sequences = usesCodeSequences(database);
+  if (sequences) imports.add("primaryKey");
+  const selfRelations = (database.relations ?? []).some((relation) => relation.fromEntity === relation.toEntity);
+  const typeImport = selfRelations ? `import type { AnyPgColumn } from "drizzle-orm/pg-core";\n` : "";
+  return `import { ${[...imports].sort().join(", ")} } from "drizzle-orm/pg-core";\n${typeImport}\n${database.entities.map((entity) => renderEntity(entity, database.relations ?? [])).join("\n\n")}\n${sequences ? codeSequenceTable() : ""}\nexport const auditEvents = pgTable("audit_events", {\n  id: uuid("id").primaryKey(),\n  actorId: uuid("actorId"),\n  action: text("action").notNull(),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  metadata: jsonb("metadata"),\n  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),\n}, (table) => [index("audit_events_resource_idx").on(table.resource, table.resourceId), index("audit_events_created_at_idx").on(table.createdAt)]);\n\nexport const attachments = pgTable("attachments", {\n  id: uuid("id").primaryKey(),\n  storageKey: text("storageKey").notNull().unique(),\n  fileName: text("fileName"),\n  contentType: text("contentType").notNull(),\n  size: integer("size").notNull(),\n  ownerId: uuid("ownerId"),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),\n}, (table) => [index("attachments_resource_idx").on(table.resource, table.resourceId), index("attachments_owner_idx").on(table.ownerId)]);
 
 export const qiyImportJobs = pgTable("qiy_import_jobs", {
   id: text("id").primaryKey(),

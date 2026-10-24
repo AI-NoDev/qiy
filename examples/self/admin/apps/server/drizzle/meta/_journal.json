@@ -15,6 +15,13 @@
       "when": 1792867045339,
       "tag": "0001_overjoyed_human_torch",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792869012555,
+      "tag": "0002_amused_night_nurse",
+      "breakpoints": true
     }
   ]
 }

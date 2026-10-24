@@ -228,6 +228,24 @@ cd examples/self/admin/apps/web && QIY_API_PROXY=http://localhost:8001 bun run d
 - HTTP 契约：REST `POST /api/v1/purchase_orders/` 接受 `expectedDate: "2026-11-30"` 与 `orderedAt` ISO 字符串并原样读回；`2026-02-31` / `not-a-date` 返回 400 `Invalid Date value for expectedDate`。`POST /api/v1/shipments/` 接受 `departureTime: "09:30"` 并规范化为 `"09:30:00"`，`25:61:00` 返回 400。GraphQL 中两个字段都是 `String` 标量，非法日期通过 service 校验返回 GraphQL error。
 - 种子脚本 `examples/self/dex/seed.ts` 会写入上述 Date/Time 值；生成器侧回归见 `tests/temporal-fields.test.ts` 与 `apps/web/tests/date-fields.test.ts`（往返/非法输入/本地化格式）。
 
+## 业务编码与组织层级（@code / @generated）
+
+业务单据号与系统引用不再由用户手工输入，模型声明生成规则，服务端在创建时渲染；新建/编辑表单隐藏这些字段（编辑页只读），列表/详情正常显示：
+
+| 资源 | 字段 | 注解 | 生成结果示例 |
+| --- | --- | --- | --- |
+| 组织 `orgs` | `code` | `@code("ORG-{YYYY}{MM}-{seq:4}")` | `ORG-202611-0001`（按月重置） |
+| 组织 `orgs` | `externalId` | `@generated(uuid)` + `@listVisible(false)` | UUIDv4 |
+| 供应商 `suppliers` | `code` | `@code("SUP-{YYYYMMDD}-{seq:4}")` | `SUP-20261130-0001`（按天重置） |
+| 客户 `customers` | `code` | `@code("CUS-{YYYYMMDD}-{seq:4}")` | `CUS-20261130-0001` |
+| 采购单 `purchase_orders` | `number` | `@code("PO-{YYYYMMDD}-{seq:4}")` | `PO-20261130-0001` |
+
+- **组织层级**：`modules/relations.qiy` 声明自关联 `relation orgParent orgs parentId orgs id one @onDelete(setNull);`。三种 Drizzle 方言都会生成带显式 `Any*Column` 回调的 `references()`，因此 `/orgs/create` 的 `上级组织` 渲染为组织显示文本的 RelationSelect；文本 `parentId` 从 UI 已不可能提交，直接构造非法 JSON 只会得到 422。
+- **序号**：`qiy_code_sequences` 表按 `(entity, field, bucket)` 递增，日期 token 决定桶（`{YYYYMMDD}` 按天）。PostgreSQL/SQLite 用原子 upsert、MySQL 用事务内 `FOR UPDATE`，并发创建不会重复；唯一冲突重试 5 次后返回 409。
+- **种子**：`seed.ts` 直接写表，因此保留 `ACME`、`SUP-1`、`PO-2026-001` 等人工编码；生成规则只作用于之后新建的记录，CSV 导入/GraphQL 创建同样走服务端生成。
+- **配置**：日期 token 使用 `QIY_CODE_TIMEZONE`（缺省 `UTC`）。
+- 生成器回归：`tests/code-template.test.ts`、`tests/generated-values.test.ts`；生成应用回归：`apps/server/tests/generated-values.test.ts`（日期桶重置、随机字符集、并发 25 行唯一编码、UUID、忽略客户端值）与 `apps/web/tests/generated-fields.test.ts`（新建隐藏/编辑只读/中英提示）。
+
 ## 验收
 
 仓库内脚本 `tmp/verify-hybrid-demo.ts`（不提交）会驱动两个真实 Dex 租户完成：匿名 401、Provider 列表 5 项、密码登录、已有身份 OAuth 登录、新身份 onboarding → 注册 → `/auth/me`、绑定/解绑/最后登录方式保护。仓库测试覆盖生成器侧的 DSL、路由、鉴权与页面生成（`bun test tests/auth-providers.test.ts`）。

@@ -3,7 +3,9 @@ import { db } from "../../db";
  import { purchase_orders, auditEvents } from "../../schema";
 import type { FilterClause, FilterExpression, Purchase_ordersRepository as Purchase_ordersRepositoryContract } from "./purchase_orders.contract";
 
+import { qiyCreateWithGeneratedValues, type QiyGeneratedField } from "../../generated-values";
 
+const qiyGeneratedFields = [{"field":"number","kind":"code","template":"PO-{YYYYMMDD}-{seq:4}"}] as QiyGeneratedField[];
 export const Purchase_ordersRepository: Purchase_ordersRepositoryContract = {
   async aggregate(field, operator, scope) {
     if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
@@ -106,15 +108,15 @@ purchase_orders
     return record;
   },
   async create(values, actorId, scope) {
-    return db.transaction((tx) => {
+    return qiyCreateWithGeneratedValues("purchase_orders", [{"field":"number","kind":"code","template":"PO-{YYYYMMDD}-{seq:4}"}], values, (prepared) => db.transaction((tx) => {
       
-      const record = tx.insert(purchase_orders).values({ ...values, ...(scope ? { [scope.field]: scope.value } : {}), id: crypto.randomUUID() } as typeof purchase_orders.$inferInsert).returning().get();
+      const record = tx.insert(purchase_orders).values({ ...prepared, ...(scope ? { [scope.field]: scope.value } : {}), id: crypto.randomUUID() } as typeof purchase_orders.$inferInsert).returning().get();
       if (!record) throw new Error("Insert returned no record");
       
-      tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "purchase_orders.created", resource: "purchase_orders", resourceId: record.id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
+      tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "purchase_orders.created", resource: "purchase_orders", resourceId: record.id, metadata: JSON.stringify({ fields: Object.keys(prepared) }), createdAt: new Date() }).run();
        
       return record;
-    });
+    }));
   },
   async update(id, values, actorId, scope) {
     return db.transaction((tx) => {

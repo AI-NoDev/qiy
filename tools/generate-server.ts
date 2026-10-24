@@ -45,11 +45,12 @@ function ` + name + `(column: any, value: string) {
 `;
 }
 import { renderAppTemplate } from "./admin-template";
-import { validateDatabaseIR } from "./database-ir";
+import { generatedFieldsOf, validateDatabaseIR } from "./database-ir";
 import { generateDrizzlePostgres } from "./drizzle-pg";
 import { generateDrizzleMysql } from "./drizzle-mysql";
 import { generateDrizzleSqlite } from "./drizzle-sqlite";
 import { generateAudit } from "./generate-audit";
+import { generatedFieldSpecs, renderGeneratedValuesModule, renderGeneratedValuesTest, usesGeneratedValues } from "./generate-values";
 import { generatedDocumentation } from "./generated-documentation";
 
 function apiFieldSchema(field: FieldIR, database: DatabaseIR): string {
@@ -156,9 +157,12 @@ function apiField(field: FieldIR, database: DatabaseIR): string {
 }
 
 function createFields(entity: EntityIR, database: DatabaseIR): string {
+  const generated = new Set(generatedFieldsOf(entity, database.relations ?? []).map((field) => field.field.name));
   return entity.fields.filter((field) => !field.primaryKey).map((field) => {
     const value = field.nullable ? `t.Optional(t.Union([${apiField(field, database)}, t.Null()], ${JSON.stringify(field.comment !== undefined ? { description: field.comment } : {})}))` : apiField(field, database);
-    return `  ${JSON.stringify(field.name)}: ${value},`;
+    // Generated fields are filled by the server, so the client may omit them even
+    // when the column is NOT NULL. Client-supplied values are ignored on write.
+    return `  ${JSON.stringify(field.name)}: ${generated.has(field.name) ? `t.Optional(${value})` : value},`;
   }).join("\n");
 }
 
@@ -206,9 +210,10 @@ function graphqlType(field: FieldIR, required = true): string {
   return required && !field.nullable ? `${base}!` : base;
 }
 
-function graphqlInputFields(entity: EntityIR, patch: boolean, hiddenFields: string[] = []): string {
+function graphqlInputFields(entity: EntityIR, patch: boolean, hiddenFields: string[] = [], generatedFields: string[] = []): string {
   return entity.fields.filter((field) => !field.primaryKey && !hiddenFields.includes(field.name)).map((field) => {
-    const required = !patch && !field.primaryKey && !field.nullable;
+    // Generated fields are optional on create: the server renders them.
+    const required = !patch && !field.primaryKey && !field.nullable && !generatedFields.includes(field.name);
     return `${graphqlDescription(field.comment, "  ")}  ${field.name}: ${graphqlType(field, required)}`;
   }).join("\n");
 }
@@ -254,7 +259,8 @@ function graphqlSchema(database: DatabaseIR, hiddenFields: Record<string, string
   const types = database.entities.map((entity) => {
     const hidden = hiddenFields[entity.name] ?? [];
     const publicFields = entity.fields.filter((field) => !hidden.includes(field.name));
-    return `${graphqlDescription(entity.comment)}type ${modelName(entity)} {\n${publicFields.map((field) => `${graphqlDescription(field.comment, "  ")}  ${field.name}: ${graphqlType(field)}`).join("\n")}\n}\n\ntype ${modelName(entity)}Page {\n  items: [${modelName(entity)}!]!\n  total: Int!\n  page: Int!\n  pageSize: Int!\n}\n\n${graphqlDescription(entity.comment)}input ${modelName(entity)}CreateInput {\n${graphqlInputFields(entity, false, hidden)}\n}\n\n${graphqlDescription(entity.comment)}input ${modelName(entity)}UpdateInput {\n${graphqlInputFields(entity, true, hidden)}\n}`;
+    const generatedFields = generatedFieldsOf(entity, database.relations ?? []).map((generated) => generated.field.name);
+    return `${graphqlDescription(entity.comment)}type ${modelName(entity)} {\n${publicFields.map((field) => `${graphqlDescription(field.comment, "  ")}  ${field.name}: ${graphqlType(field)}`).join("\n")}\n}\n\ntype ${modelName(entity)}Page {\n  items: [${modelName(entity)}!]!\n  total: Int!\n  page: Int!\n  pageSize: Int!\n}\n\n${graphqlDescription(entity.comment)}input ${modelName(entity)}CreateInput {\n${graphqlInputFields(entity, false, hidden, generatedFields)}\n}\n\n${graphqlDescription(entity.comment)}input ${modelName(entity)}UpdateInput {\n${graphqlInputFields(entity, true, hidden)}\n}`;
   }).join("\n\n");
   const queries = database.entities.flatMap((entity) => [
     `  ${entity.name}(page: Int = 1, pageSize: Int = 20, search: String, sort: String, order: String, filters: [QiyFilterInput!]): ${modelName(entity)}Page!`,
@@ -591,13 +597,14 @@ function renderGraphQLTest(database: DatabaseIR, hiddenFields: string[] = []): s
   const name = modelName(entity);
   // Hidden fields (for example the local-auth password column) are absent from the
   // generated schema, so neither the selection set nor the input may reference them.
-  const values = visibleFields.filter((field) => !field.primaryKey && !field.nullable).map((field) => {
+  const creatableFields = visibleFields.filter((field) => !generatedFieldsOf(entity, database.relations ?? []).some((generated) => generated.field.name === field.name));
+  const values = visibleFields.filter((field) => !field.primaryKey && !field.nullable && creatableFields.includes(field)).map((field) => {
     const example = field.type === "Integer" ? "1" : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
       : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
         : field.enumName ? JSON.stringify(database.enums?.find((enumeration) => enumeration.name === field.enumName)?.values[0]?.name ?? "") : '"Example"';
     return `${JSON.stringify(field.name)}: ${example}`;
   }).join(", ");
-  const fields = visibleFields.slice(0, 3).map((field) => field.name).join(" ");
+  const fields = creatableFields.slice(0, 3).map((field) => field.name).join(" ");
   return `import { describe, expect, test } from "bun:test";\nimport { Elysia } from "elysia";\nimport { createGraphQLRoutes } from "../src/graphql";\nimport type { Repositories } from "../src/app";\n\nconst records = new Map<string, Record<string, unknown>>();\nconst repository: Repositories["${entity.name}"] = {\n  async distribution(field) { const counts = new Map<string, number>(); for (const record of records.values()) { const value = String(record[field] ?? ""); counts.set(value, (counts.get(value) ?? 0) + 1); } return [...counts].map(([value, count]) => ({ value, count })); },\n  async trend(field, days) { const start = Date.now() - days * 86400000; const counts = new Map<string, number>(); for (const record of records.values()) { const date = new Date(String(record[field] ?? "")); if (date.getTime() >= start) { const day = date.toISOString().slice(0, 10); counts.set(day, (counts.get(day) ?? 0) + 1); } } return [...counts].map(([day, count]) => ({ day, count })); },\n  async list(page, pageSize, options = {}) {\n    const rows = [...records.values()];\n    const filtered = options.search ? rows.filter((record) => Object.values(record).some((value) => String(value ?? "").toLowerCase().includes(options.search!.toLowerCase()))) : rows;\n    return { data: filtered.slice((page - 1) * pageSize, page * pageSize), total: filtered.length };\n  },\n  async one(id) { return records.get(id); },\n  async create(values) { const record = { id: crypto.randomUUID(), ...values }; records.set(record.id, record); return record; },\n  async update(id, values) { const old = records.get(id); if (!old) return undefined; const record = { ...old, ...values }; records.set(id, record); return record; },\n  async delete(id) { const record = records.get(id); records.delete(id); return record; },\n  async deleteMany(ids) { return ids.flatMap((id) => { const record = records.get(id); records.delete(id); return record ? [record] : []; }); },\n};\nconst app = new Elysia().use(createGraphQLRoutes({ ${entity.name}: repository } as Repositories, async () => ({ id: "test-user", role: "admin", name: "Test", claims: ${claims} })));\n\ndescribe("GraphQL API", () => {\n  test("supports create, list and delete mutations", async () => {\n    records.clear();\n    const create = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: "mutation($input: ${name}CreateInput!) { create${name}(input: $input) { id } }", variables: { input: { ${values} } } }) }));\n    expect(create.status).toBe(200);\n    const created = await create.json() as { data: { create${name}: { id: string } } };\n    expect(created.data.create${name}.id).toBeTruthy();\n    const list = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: "query { ${entity.name} { items { ${fields} } total } }" }) }));\n    expect((await list.json() as { data: { ${entity.name}: { total: number } } }).data.${entity.name}.total).toBe(1);\n    const deleted = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: "mutation($id: ID!) { delete${name}(id: $id) { id } }", variables: { id: created.data.create${name}.id } }) }));\n    expect((await deleted.json() as { data: { delete${name}: { id: string } } }).data.delete${name}.id).toBeTruthy();\n  });\n});\n`;
 }
 
@@ -1096,6 +1103,11 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
   const temporalErrorHandler = temporalErrorClass
     ? `.onError(({ error, status }) => error instanceof ${temporalErrorClass} ? status(400, { error: error.message }) : undefined)`
     : "";
+  // Exhausted unique-constraint retries mean the model cannot allocate a distinct
+  // code; the write is rejected with a documented 409 instead of a 500.
+  const generatedErrorHandler = generatedFieldsOf(entity, database.relations ?? []).length
+    ? `.onError(({ error, status }) => error instanceof QiyGeneratedValueConflict ? status(409, { error: error.message, errorKey: "generated.conflict" }) : undefined)`
+    : "";
   const redactRecordHelper = restricted
     ? `const redactRecord = (record: Record<string, unknown>, policy?: QiyPolicy) => redact(policy ? policy.mask(record) : record);`
     : `const redactRecord = (record: Record<string, unknown>) => redact(record);`;
@@ -1382,7 +1394,7 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
     const result = await repository.list(query.page ?? 1, query.pageSize ?? 20, { ...query, filters, scope${restricted ? ", policy" : ""} });
     return { result, clauses: clauses.length, policy };
   };
-  return new Elysia({ prefix: ${route} })${privateInputGuard}${maskWriteGuard}\n    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)${policyErrorHandler}${temporalErrorHandler}\n    .get("/aggregate", async ({ query, status, request }) => {
+  return new Elysia({ prefix: ${route} })${privateInputGuard}${maskWriteGuard}\n    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)${policyErrorHandler}${temporalErrorHandler}${generatedErrorHandler}\n    .get("/aggregate", async ({ query, status, request }) => {
       ${restricted ? "const principal = await authenticate(request);\n      const policy = await resolveResourcePolicy(principal, request);\n      if (policy.maskedFields.includes(query.field)) return status(403, { error: \"Aggregating a masked field is not permitted\", errorKey: \"policy.maskedField\" });\n      " : ""}if (!["sum", "avg", "min", "max"].includes(query.op)) return status(400, { error: "Unsupported aggregate operator" });
       if (!(${JSON.stringify(entity.fields.filter((field) => ["Integer", "Decimal", "Money"].includes(field.type)).map((field) => field.name))} as string[]).includes(query.field)) return status(400, { error: "Unsupported aggregate field" });
       return repository.aggregate ? repository.aggregate(query.field, query.op as "sum" | "avg" | "min" | "max", await resolveScope(request)${restricted ? ", policy" : ""}) : { value: null, operator: query.op };
@@ -1628,6 +1640,30 @@ function maskedRealtimeFields(restriction: QiyResourceRestriction | undefined, s
   return [...new Set(fields)];
 }
 
+/**
+ * Wraps the generated transactional `create` of one repository in
+ * `qiyCreateWithGeneratedValues`, which ignores client-supplied generated fields,
+ * renders server values and retries a unique-constraint conflict a bounded
+ * number of times. Only the create method changes; update/delete stay verbatim.
+ */
+function wrapGeneratedCreateMethods(methods: string, entityName: string, fieldsLiteral: string): string {
+  const start = methods.indexOf("  async create(values, actorId, scope");
+  const end = methods.indexOf("  async update(id, values, actorId, scope");
+  if (start === -1 || end === -1 || end < start) throw new Error(`Generated create for ${entityName}: unexpected repository shape`);
+  const create = methods.slice(start, end);
+  const open = create.indexOf("return db.transaction(");
+  if (open === -1) throw new Error(`Generated create for ${entityName}: expected a transactional insert`);
+  const head = `${create.slice(0, open)}return qiyCreateWithGeneratedValues(${JSON.stringify(entityName)}, ${fieldsLiteral}, values, (prepared) => db.transaction(`;
+  // Only the request-body variable is renamed: `...values` is a spread while
+  // `.values(...)` is the Drizzle insert builder and must stay untouched.
+  let tail = create.slice(open + "return db.transaction(".length).replace(/(?<!")\bvalues\b(?!["\w(])/g, "prepared");
+  const closing = "    });\n  },";
+  const closingIndex = tail.lastIndexOf(closing);
+  if (closingIndex === -1) throw new Error(`Generated create for ${entityName}: expected a closing transaction`);
+  tail = `${tail.slice(0, closingIndex)}    }));\n  },${tail.slice(closingIndex + closing.length)}`;
+  return `${methods.slice(0, start)}${head}${tail}${methods.slice(end)}`;
+}
+
 function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtimeEvents: ReadonlySet<string> = new Set(), restricted = false, realtimeMasked: string[] = [], realtimeClaim?: { field: string; claim: string }): string {  const searchOperator = database.dialect === "postgresql" ? "ilike" : "like";
   const searchableFields = entity.fields.filter((field) => field.type === "Text").map((field) => `${entity.name}.${field.name}`).join(", ");
   const sortFields = entity.fields.filter((field) => field.sortable !== false).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
@@ -1822,6 +1858,10 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
     });
   },
 `;
+  const generatedCreateFields = generatedFieldsOf(entity, database.relations ?? []);
+  const mutationMethods = generatedCreateFields.length
+    ? wrapGeneratedCreateMethods(auditedMutationMethods, entity.name, JSON.stringify(generatedFieldSpecs(entity, database)))
+    : auditedMutationMethods;
   return `  async aggregate(field, operator, scope${restricted ? ", policy" : ""}) {
     if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
     const columns: Record<string, any> = { ${numericFields} };
@@ -1922,7 +1962,7 @@ ${entity.name}
 .id, id), scopeCondition${policyArg})).limit(1);
     return record;
   },
-${auditedMutationMethods}
+${mutationMethods}
   async recordExportAudit(input) {
     await db.insert(auditEvents).values(${exportAuditValues});
   },
@@ -5139,10 +5179,18 @@ export function compareSchema(expected: DriftTable[], live: DriftTable[]): Drift
 
 export function expectedTables(): DriftTable[] {
   return (Object.values(schema) as unknown[]).filter(isTable).map((table) => {
-    const config = getTableConfig(table as never) as unknown as { name: string; columns: Array<{ name: string; notNull: boolean; primary: boolean; dataType: string; columnType: string }> };
+    const config = getTableConfig(table as never) as unknown as {
+      name: string;
+      columns: Array<{ name: string; notNull: boolean; primary: boolean; dataType: string; columnType: string }>;
+      primaryKeys?: Array<{ columns: Array<{ name: string }> }>;
+    };
+    // Composite primary keys (the generated code sequence table) are declared on
+    // the table, not on each column, but every database reports all of their
+    // columns as primary keys.
+    const primaryColumns = new Set((config.primaryKeys ?? []).flatMap((key) => key.columns.map((column) => column.name)));
     return {
       name: config.name,
-      columns: config.columns.map((column) => ({ name: column.name, nullable: !column.notNull, type: canonicalFromDrizzle(column.columnType ?? "", column.dataType ?? ""), primary: Boolean(column.primary) })),
+      columns: config.columns.map((column) => ({ name: column.name, nullable: !column.notNull, type: canonicalFromDrizzle(column.columnType ?? "", column.dataType ?? ""), primary: Boolean(column.primary) || primaryColumns.has(column.name) })),
     };
   });
 }
@@ -6846,13 +6894,16 @@ test("verifies issuer, audience and rotating JWKS keys before resolving subject"
     const hiddenFields = hasLocalAuth && entity.name === options.auth!.userEntity ? [options.auth!.passwordField!] : [];
     const publicEntity = hiddenFields.length ? { ...entity, fields: entity.fields.filter((field) => !hiddenFields.includes(field.name)) } : entity;
     const entityRestricted = normalizedRestrictions.some((restriction) => restriction.resource === entity.name);
+    const generatedEntityFields = generatedFieldsOf(publicEntity, database.relations ?? []);
+    const generatedRepositoryImport = generatedEntityFields.length ? 'import { qiyCreateWithGeneratedValues, type QiyGeneratedField } from "../../generated-values";\n' : "";
+    const generatedRepositoryDeclaration = generatedEntityFields.length ? `const qiyGeneratedFields = ${JSON.stringify(generatedFieldSpecs(publicEntity, database))} as QiyGeneratedField[];\n` : "";
     files[`${moduleRoot}/${entity.name}.repository.ts`] = `import { and, asc, avg, count, desc, eq, gt, gte, lt, lte, max, min, sql, sum, ${database.dialect === "postgresql" ? "ilike" : "like"}, inArray, or } from "drizzle-orm";
 import { db } from "../../db";
  import { ${entity.name}, auditEvents${realtimeSubscription ? ", realtimeOutbox" : ""}${resolveScopeTree(scopedDatabase, publicEntity) && resolveScopeTree(scopedDatabase, publicEntity)!.table.name !== entity.name ? `, ${resolveScopeTree(scopedDatabase, publicEntity)!.table.name}` : ""} } from "../../schema";
 import type { FilterClause, FilterExpression, ${modelName(entity)}Repository as ${modelName(entity)}RepositoryContract } from "./${entity.name}.contract";
 ${entityRestricted ? 'import { QiyPolicyError, type QiyPolicy } from "../../security/policy";' : ""}
-${realtimeMasked.length ? `\n// Every role that may subscribe has one of these fields masked, so the shared\n// channel must not carry them.\nfunction qiyRealtimePayload(record: Record<string, unknown>): Record<string, unknown> {\n  const safe = { ...record };\n  for (const field of ${JSON.stringify(realtimeMasked)}) delete safe[field];\n  return safe;\n}\n` : ""}
-${renderScopeTreeHelper(scopedDatabase, publicEntity)}export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = {
+${generatedRepositoryImport}${realtimeMasked.length ? `\n// Every role that may subscribe has one of these fields masked, so the shared\n// channel must not carry them.\nfunction qiyRealtimePayload(record: Record<string, unknown>): Record<string, unknown> {\n  const safe = { ...record };\n  for (const field of ${JSON.stringify(realtimeMasked)}) delete safe[field];\n  return safe;\n}\n` : ""}
+${generatedRepositoryDeclaration}${renderScopeTreeHelper(scopedDatabase, publicEntity)}export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = {
 ${renderRepositoryMethods(publicEntity, scopedDatabase, realtimeEvents, entityRestricted, realtimeMasked, realtimeClaim)}
 };
 `;
@@ -6890,9 +6941,37 @@ ${entityRestricted ? "  policy?: QiyPolicy;" : ""}
     const temporalImport = temporalFields.length ? 'import { normalizeTemporalValues } from "../../temporal";\n' : "";
     const temporalDeclaration = temporalFields.length ? `const temporalFields = ${JSON.stringify(Object.fromEntries(temporalFields))} as Record<string, "Date" | "Time">;\n` : "";
     const normalizeWrite = (expression: string) => temporalFields.length ? `normalizeDates(normalizeTemporalValues(${expression}, temporalFields))` : `normalizeDates(${expression})`;
-    files[`${moduleRoot}/${entity.name}.service.ts`] = `${temporalImport}${entityRestricted ? 'import type { QiyPolicy } from "../../security/policy";\n' : ""}import type { ${modelName(entity)}Repository, ListQuery } from "./${entity.name}.contract";
+    // Generated fields are never written from a request body: create strips the
+    // client values before the repository fills them, and update strips them so a
+    // PATCH of only generated fields is a documented no-op.
+    const generatedServiceImport = generatedEntityFields.length ? 'import { qiyStripGeneratedValues, type QiyGeneratedField } from "../../generated-values";\n' : "";
+    const generatedServiceDeclaration = generatedEntityFields.length ? `const qiyGeneratedFields = ${JSON.stringify(generatedFieldSpecs(publicEntity, database))} as QiyGeneratedField[];\n` : "";
+    const createValues = generatedEntityFields.length ? "qiyStripGeneratedValues(values, qiyGeneratedFields)" : "values";
+    const scopedArgs = `scope${entityRestricted ? ", policy" : ""}`;
+    const createEntry = realtimeEvents.has("created")
+      ? `async (values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const record = await repository.create(${normalizeWrite(createValues)}, actorId, ${scopedArgs}); await dispatchCommitted(); return record; }`
+      : `(values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.create(${normalizeWrite(createValues)}, actorId, ${scopedArgs})`;
+    const updateSignature = `(id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""})`;
+    const updateEntry = !generatedEntityFields.length
+      ? realtimeEvents.has("updated")
+        ? `async ${updateSignature} => { const record = await repository.update(id, ${normalizeWrite("values")}, actorId, ${scopedArgs}); if (record) await dispatchCommitted(); return record; }`
+        : `${updateSignature} => repository.update(id, ${normalizeWrite("values")}, actorId, ${scopedArgs})`
+      : realtimeEvents.has("updated")
+        ? `async ${updateSignature} => {
+      const prepared = ${normalizeWrite("qiyStripGeneratedValues(values, qiyGeneratedFields)")};
+      if (Object.keys(prepared).length === 0) return repository.one(id, ${scopedArgs});
+      const record = await repository.update(id, prepared, actorId, ${scopedArgs});
+      if (record) await dispatchCommitted();
+      return record;
+    }`
+        : `async ${updateSignature} => {
+      const prepared = ${normalizeWrite("qiyStripGeneratedValues(values, qiyGeneratedFields)")};
+      if (Object.keys(prepared).length === 0) return repository.one(id, ${scopedArgs});
+      return repository.update(id, prepared, actorId, ${scopedArgs});
+    }`;
+    files[`${moduleRoot}/${entity.name}.service.ts`] = `${temporalImport}${entityRestricted ? 'import type { QiyPolicy } from "../../security/policy";\n' : ""}${generatedServiceImport}import type { ${modelName(entity)}Repository, ListQuery } from "./${entity.name}.contract";
  ${realtimeSubscription ? 'import { dispatchRealtimeOutbox } from "../../realtime";' : ""}
-${temporalDeclaration}const dateFields = ${JSON.stringify(entity.fields.filter((field) => field.type === "DateTime").map((field) => field.name))} as string[];
+${temporalDeclaration}${generatedServiceDeclaration}const dateFields = ${JSON.stringify(entity.fields.filter((field) => field.type === "DateTime").map((field) => field.name))} as string[];
 function normalizeDates(values: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(values).map(([field, value]) => [field, dateFields.includes(field) && typeof value === "string" ? new Date(value) : value]));
 }
@@ -6907,16 +6986,16 @@ ${generatedDocumentation(entity)}export function create${modelName(entity)}Servi
     trend: (field: string, days: number, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.trend(field, days, scope${entityRestricted ? ", policy" : ""}),
     list: (page: number, pageSize: number, options?: ListQuery) => repository.list(page, pageSize, options),
     one: (id: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.one(id, scope${entityRestricted ? ", policy" : ""}),
-    create: ${realtimeEvents.has("created") ? `async (values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const record = await repository.create(${normalizeWrite("values")}, actorId, scope${entityRestricted ? ", policy" : ""}); await dispatchCommitted(); return record; }` : `(values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.create(${normalizeWrite("values")}, actorId, scope${entityRestricted ? ", policy" : ""})`},
-    update: ${realtimeEvents.has("updated") ? `async (id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const record = await repository.update(id, ${normalizeWrite("values")}, actorId, scope${entityRestricted ? ", policy" : ""}); if (record) await dispatchCommitted(); return record; }` : `(id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.update(id, ${normalizeWrite("values")}, actorId, scope${entityRestricted ? ", policy" : ""})`},
-    delete: ${realtimeEvents.has("deleted") ? `async (id: string, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const record = await repository.delete(id, actorId, scope${entityRestricted ? ", policy" : ""}); if (record) await dispatchCommitted(); return record; }` : `(id: string, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.delete(id, actorId, scope${entityRestricted ? ", policy" : ""})`},
+    create: ${createEntry},
+    update: ${updateEntry},
+    delete: ${realtimeEvents.has("deleted") ? `async (id: string, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const record = await repository.delete(id, actorId, ${scopedArgs}); if (record) await dispatchCommitted(); return record; }` : `(id: string, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.delete(id, actorId, ${scopedArgs})`},
     deleteMany: ${realtimeEvents.has("deleted") ? `async (ids: string[], actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const records = await repository.deleteMany(ids, actorId, scope${entityRestricted ? ", policy" : ""}); if (records.length) await dispatchCommitted(); return records; }` : `(ids: string[], actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.deleteMany(ids, actorId, scope${entityRestricted ? ", policy" : ""})`},
   };
 }
 `;
     files[`${moduleRoot}/${entity.name}.routes.ts`] = `import { Elysia, t } from "elysia";
 import type { Authenticator${entityRestricted ? "" : ", Principal"} } from "../../auth/guard";
-${temporalFields.length ? 'import { QiyTemporalValueError } from "../../temporal";\n' : ""}import { create${modelName(entity)}Service } from "./${entity.name}.service";
+${temporalFields.length ? 'import { QiyTemporalValueError } from "../../temporal";\n' : ""}${generatedEntityFields.length ? 'import { QiyGeneratedValueConflict } from "../../generated-values";\n' : ""}import { create${modelName(entity)}Service } from "./${entity.name}.service";
 import { claimImportJob, createImportJob, isImportJobCancelled, listImportJobs, readImportJob, releaseStaleImportJobs, requestImportJobCancel, updateImportJob } from "../../import-jobs";
 import { claimExportJob, createExportJob, listExportJobs, readExportJob, updateExportJob } from "../../export-jobs";
 import type { ${modelName(entity)}Repository as ${modelName(entity)}RepositoryPort } from "./${entity.name}.contract";
@@ -7187,15 +7266,21 @@ ${scope ? `  const missing = await createApp(repositories, async () => ({ id: "a
   }
   if (database.dialect === "sqlite") {
     const entity = database.entities[0]!;
+    const entityGenerated = generatedFieldsOf(entity, database.relations ?? []);
     const columns = entity.fields.map((field) => `"${field.name}" ${field.type === "Integer" || field.type === "DateTime" ? "integer" : field.type === "Decimal" || field.type === "Money" ? "real" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
     const values = entity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => `${JSON.stringify(field.name)}: ${field.enumName ? JSON.stringify(database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name) : field.type === "Integer" ? "1" : field.type === "Decimal" || field.type === "Money" ? '"1.00"' : field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"' : field.type === "Files" ? '["uploads/sample.pdf"]' : '"Example"'}`).join(", ");
+    // A generated @code field allocates from the sequence table before the insert,
+    // so the rollback fixture has to provide it.
+    const sequenceTable = entityGenerated.some((generated) => generated.kind === "code")
+      ? ' CREATE TABLE IF NOT EXISTS "qiy_code_sequences" ("entity" text not null, "field" text not null, "bucket" text not null, "value" integer not null, primary key ("entity", "field", "bucket"));'
+      : "";
     files["api/tests/audit.test.ts"] = `import { expect, test } from "bun:test";
 
 test("SQLite CRUD audit rolls back the mutation when the audit insert fails", async () => {
   Bun.env.DATABASE_URL = ":memory:";
   const { client } = await import("../src/db");
   const { ${modelName(entity)}Repository } = await import("../src/modules/${entity.name}/${entity.name}.repository");
-  client.exec(${JSON.stringify(`DROP TABLE IF EXISTS "${entity.tableName}"; DROP TABLE IF EXISTS "audit_events"; CREATE TABLE "${entity.tableName}" (${columns}); CREATE TABLE "audit_events" ("id" text primary key, "actorId" text, "action" text not null, "resource" text not null, "resourceId" text, "metadata" text, "createdAt" integer not null);`)});
+  client.exec(${JSON.stringify(`DROP TABLE IF EXISTS "${entity.tableName}"; DROP TABLE IF EXISTS "audit_events"; DROP TABLE IF EXISTS "qiy_code_sequences"; CREATE TABLE "${entity.tableName}" (${columns}); CREATE TABLE "audit_events" ("id" text primary key, "actorId" text, "action" text not null, "resource" text not null, "resourceId" text, "metadata" text, "createdAt" integer not null);${sequenceTable}`)});
   const actorId = "00000000-0000-4000-8000-000000000001";
   const values = { ${values} };
   const created = await ${modelName(entity)}Repository.create(values, actorId);
@@ -7245,6 +7330,13 @@ test("publishes model descriptions in the actual OpenAPI request schemas", async
     Object.assign(files, generateAudit(database, auth, options.scopes));
     const userTable = database.entities.find((entity) => entity.name === auth.userEntity)!.tableName;
     files["api/src/auth/guard.ts"] = files["api/src/auth/guard.ts"]!.replace('resource.path === "users"', `resource.path === ${JSON.stringify(userTable)}`);
+  }
+  // Generated values (business codes and UUIDs) share one server runtime and one
+  // generated test file for REST, GraphQL and CSV import.
+  if (usesGeneratedValues(database)) {
+    files["api/src/generated-values.ts"] = renderGeneratedValuesModule(database);
+    const generatedValuesTest = renderGeneratedValuesTest(database);
+    if (generatedValuesTest) files["api/tests/generated-values.test.ts"] = generatedValuesTest;
   }
   return files;
 }

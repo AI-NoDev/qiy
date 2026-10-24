@@ -159,6 +159,7 @@ export default defineConfig({
             { text: "总览", link: "/dsl/overview" },
             { text: "application", link: "/dsl/application" },
             { text: "entity 与 field", link: "/dsl/entity" },
+            { text: "自动生成值与业务编码", link: "/dsl/generated-values" },
             { text: "relation / index", link: "/dsl/relation-index" },
             { text: "enum / menu / dashboard", link: "/dsl/enum-menu-dashboard" },
             { text: "dataflow", link: "/dsl/dataflow" },

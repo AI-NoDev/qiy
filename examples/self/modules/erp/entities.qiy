@@ -3,7 +3,7 @@
 
 entity purchase_orders @label("Purchase orders") @icon(FileTextOutlined) @singular("Purchase order") @plural("Purchase orders") @display("{$.number}") @tableDisplay("{$.number}") @relationDetail("<b>{$.number}</b></br>{$.status} · {$.total}") {
   field id UUID @id;
-  field number Text @unique;
+  field number Text @unique @code("PO-{YYYYMMDD}-{seq:4}");
   field supplierId UUID;
   field status purchaseStatus;
   field orderedAt DateTime;

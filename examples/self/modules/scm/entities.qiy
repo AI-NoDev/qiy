@@ -1,17 +1,23 @@
 # SCM domain: supply-chain master data (organizations, suppliers, customers,
 # products, bills of materials). Entities only; relations live in relations.qiy
 # because the parser requires every relation after every entity.
+#
+# `@code` renders a business code on the server (never typed by the user):
+# `orgs.parentId` is a self relation, so the create/edit form renders a
+# RelationSelect for the parent organization instead of a free-text UUID.
+# `externalId` demonstrates a server-generated UUIDv4 for a non-relation UUID.
 
 entity orgs @label("Organizations") @icon(ClusterOutlined) @singular("Organization") @plural("Organizations") @display("{$.code} · {$.name}") @tableDisplay("{$.code} · {$.name}") @relationDetail("<b>{$.name}</b></br>{$.code}") {
   field id UUID @id;
-  field code Text @unique;
+  field code Text @unique @code("ORG-{YYYY}{MM}-{seq:4}");
   field name Text;
   field parentId UUID @nullable;
+  field externalId UUID @nullable @generated(uuid) @listVisible(false);
 }
 
 entity suppliers @label("Suppliers") @icon(ShopOutlined) @singular("Supplier") @plural("Suppliers") @display("{$.code} · {$.name}") @tableDisplay("{$.code} · {$.name}") @relationDetail("<b>{$.name}</b></br>{$.code} · {$.leadTimeDays}") {
   field id UUID @id;
-  field code Text @unique;
+  field code Text @unique @code("SUP-{YYYYMMDD}-{seq:4}");
   field name Text;
   field email Text @nullable;
   field leadTimeDays Integer;
@@ -19,7 +25,7 @@ entity suppliers @label("Suppliers") @icon(ShopOutlined) @singular("Supplier") @
 
 entity customers @label("Customers") @icon(TeamOutlined) @singular("Customer") @plural("Customers") @display("{$.code} · {$.name}") @tableDisplay("{$.code} · {$.name}") @relationDetail("<b>{$.name}</b></br>{$.code} · {$.creditLimit}") {
   field id UUID @id;
-  field code Text @unique;
+  field code Text @unique @code("CUS-{YYYYMMDD}-{seq:4}");
   field name Text;
   field email Text @nullable;
   field creditLimit Decimal(12,2);

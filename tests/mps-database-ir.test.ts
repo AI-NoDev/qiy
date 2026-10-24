@@ -376,7 +376,9 @@ describe("MPS to Database IR", () => {
     const projected = parseQiyProject(exportMpsProjectAsQiy(model, structureXml));
     expect(projected.database).toEqual(database);
     const generated = generateProject(database, "mps-relation");
-    expect(generated["apps/server/src/schema.ts"]).toContain('references(() => products["id"], { onDelete: "restrict" })');
+    // A self relation needs the explicit callback column type: without it TypeScript
+    // reports the circular reference as implicitly `any`.
+    expect(generated["apps/server/src/schema.ts"]).toContain('references((): AnyPgColumn => products["id"], { onDelete: "restrict" })');
 
     const invalidCardinality = model.replace('role="qcardinality" value="one"', 'role="qcardinality" value="many"');
     expect(validateDatabaseIR(parseMpsDatabaseModel(invalidCardinality, structureXml)).join("\n")).toContain("only one-to-one/many-to-one foreign keys are supported");

@@ -1,4 +1,5 @@
 import { validateDatabaseIR, validateEntityDisplayTemplates, type DatabaseIR, type EntityIR, type FieldIR, type FilterMode, type IndexIR, type IndexColumnIR, type RelationIR } from "./database-ir";
+import { validateCodeTemplate } from "./code-template";
 import {
   formatPermissionExpression,
   validatePermissionModel,
@@ -1102,6 +1103,28 @@ export function parseQiyProject(input: string): QiyProject {
         const extension = value();
         if (extension) result.extension = extension;
         expect(")");
+      } else if (attribute === "code") {
+        expect("(");
+        const template = stringLiteral();
+        expect(")");
+        if (result.codeTemplate !== undefined) throw new Error(`Field ${name}: duplicate @code annotation`);
+        if (result.generatedValue !== undefined) throw new Error(`Field ${name}: @code and @generated cannot be combined`);
+        if (type !== "Text" || enumNames.has(type)) throw new Error(`Field ${name}: @code requires a Text field without an enum`);
+        const templateErrors = validateCodeTemplate(template);
+        if (templateErrors.length) throw new Error(`Field ${name}: ${templateErrors.join("; ")}`);
+        result.codeTemplate = template;
+      } else if (attribute === "generated") {
+        let kind = "uuid";
+        if (peek() === "(") {
+          expect("(");
+          kind = value();
+          expect(")");
+        }
+        if (kind !== "uuid") throw new Error(`Field ${name}: unsupported @generated value ${kind}; only uuid is supported`);
+        if (result.generatedValue !== undefined) throw new Error(`Field ${name}: duplicate @generated annotation`);
+        if (result.codeTemplate !== undefined) throw new Error(`Field ${name}: @generated and @code cannot be combined`);
+        if (type !== "UUID") throw new Error(`Field ${name}: @generated(uuid) requires a UUID field`);
+        result.generatedValue = "uuid";
       } else if (attribute === "column") {
         expect("(");
         const columnName = value();
@@ -2745,6 +2768,8 @@ export function serializeQiyProject(project: QiyProject): string {
       if (field.maxBytes !== undefined) declaration += ` @maxBytes(${field.maxBytes})`;
       if (field.mimeTypes?.length) declaration += ` @mime(${field.mimeTypes.map(qiyString).join(",")})`;
       if (field.maxFiles !== undefined) declaration += ` @maxFiles(${field.maxFiles})`;
+      if (field.codeTemplate !== undefined) declaration += ` @code(${qiyString(field.codeTemplate)})`;
+      if (field.generatedValue !== undefined) declaration += ` @generated(${field.generatedValue})`;
       lines.push(`${declaration};`);
     }
     for (const index of entity.indexes ?? []) {
