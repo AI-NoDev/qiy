@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { qiyAccessControlProvider, qiyAuthProvider } from "../app/auth";
+import { clearIdentityCache, qiyAccessControlProvider, qiyAuthProvider } from "../app/auth";
 
 const originalWindow = globalThis.window;
 const originalFetch = globalThis.fetch;
@@ -20,19 +20,19 @@ test("authenticates using username and password", async () => {
 });
 
 test("matches server admin, operator and viewer role policy", async () => {
-  role = "viewer";
+  role = "viewer"; clearIdentityCache();
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "list" })).can).toBe(false);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "show" })).can).toBe(false);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "create" })).can).toBe(false);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "edit" })).can).toBe(false);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "delete" })).can).toBe(false);
-  role = "operator";
+  role = "operator"; clearIdentityCache();
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "list" })).can).toBe(true);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "show" })).can).toBe(true);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "create" })).can).toBe(true);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "edit" })).can).toBe(true);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "delete" })).can).toBe(true);
-  role = "admin";
+  role = "admin"; clearIdentityCache();
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "list" })).can).toBe(true);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "show" })).can).toBe(true);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "create" })).can).toBe(true);
@@ -43,19 +43,19 @@ test("matches server admin, operator and viewer role policy", async () => {
 });
 test("decides every resource page action, so route guards cannot be bypassed by URL", async () => {
   tokens.set("qiy.access_token", "page-guard-token");
-  role = "viewer";
+  role = "viewer"; clearIdentityCache();
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "list" })).can).toBe(false);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "show" })).can).toBe(false);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "create" })).can).toBe(false);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "edit" })).can).toBe(false);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "delete" })).can).toBe(false);
-  role = "operator";
+  role = "operator"; clearIdentityCache();
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "list" })).can).toBe(true);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "show" })).can).toBe(true);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "create" })).can).toBe(true);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "edit" })).can).toBe(true);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "delete" })).can).toBe(true);
-  role = "admin";
+  role = "admin"; clearIdentityCache();
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "list" })).can).toBe(true);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "show" })).can).toBe(true);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "create" })).can).toBe(true);
@@ -76,6 +76,7 @@ test("matches each action role allowlist without an admin bypass", async () => {
   for (const policy of [{"resource":"inventory","action":"receiveInventory","roles":["admin","operator"],"permissions":["inventory:receive"]},{"resource":"inventory","action":"putawayStock","roles":["admin","operator"],"permissions":["inventory:putaway"]},{"resource":"inventory","action":"reserveStock","roles":["admin","operator"]},{"resource":"inventory","action":"adjustStock","roles":["admin","operator"],"permissions":["inventory:adjust"]},{"resource":"inventory","action":"transferInventory","roles":["admin","operator"],"permissions":["inventory:transfer"]},{"resource":"sales_orders","action":"shipSalesOrder","roles":["admin","operator"],"verification":{"name":"CanShipOrders","expression":{"kind":"or","children":[{"kind":"comparison","operator":"equals","left":{"kind":"self","set":"role"},"right":{"kind":"literal","value":"admin"}},{"kind":"comparison","operator":"equals","left":{"kind":"self","set":"role"},"right":{"kind":"literal","value":"operator"}}]}}},{"resource":"work_orders","action":"completeWorkOrder","roles":["admin","operator"],"permissions":["workorder:complete"]},{"resource":"purchase_orders","action":"approvePurchaseOrder","roles":["admin","operator"],"permissions":["purchasing:approve"]}]) {
     for (const candidate of ["admin", "operator", "viewer"]) {
       role = candidate;
+      clearIdentityCache();
       expect((await qiyAccessControlProvider.can({ resource: policy.resource, action: policy.action })).can).toBe(policy.roles.includes(candidate));
     }
   }
@@ -97,15 +98,44 @@ test("permission-guarded commands follow effective permissions from /auth/me", a
     role = item.variant.role;
     identityPermissions = item.variant.permissions;
     identityGroups = item.variant.groups;
+    clearIdentityCache();
     expect({ policy: item.policy, allowed: (await qiyAccessControlProvider.can({ resource: item.policy.resource, action: item.policy.action })).can }).toEqual({ policy: item.policy, allowed: item.variant.expected });
   }
   // Without permission metadata the generated provider keeps the legacy role allow list.
   identityPermissions = undefined;
   identityGroups = undefined;
   role = "viewer";
+  clearIdentityCache();
   for (const policy of [{"resource":"inventory","action":"receiveInventory","roles":["admin","operator"]},{"resource":"inventory","action":"putawayStock","roles":["admin","operator"]},{"resource":"inventory","action":"adjustStock","roles":["admin","operator"]},{"resource":"inventory","action":"transferInventory","roles":["admin","operator"]},{"resource":"sales_orders","action":"shipSalesOrder","roles":["admin","operator"]},{"resource":"work_orders","action":"completeWorkOrder","roles":["admin","operator"]},{"resource":"purchase_orders","action":"approvePurchaseOrder","roles":["admin","operator"]}]) {
     expect((await qiyAccessControlProvider.can({ resource: policy.resource, action: policy.action })).can).toBe(policy.roles.includes("viewer"));
   }
   tokens.clear();
 });
 
+
+test("fetches the identity once per access token, even for concurrent guards", async () => {
+  tokens.set("qiy.access_token", "identity-cache-token");
+  let calls = 0;
+  const originalFetchImpl = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/auth/me")) calls += 1;
+    return originalFetchImpl(input, init);
+  }) as typeof fetch;
+  try {
+    await Promise.all([
+      qiyAuthProvider.getIdentity?.({}),
+      qiyAuthProvider.getIdentity?.({}),
+      qiyAccessControlProvider.can({ resource: "users", action: "list" }),
+      qiyAccessControlProvider.can({ resource: "users", action: "create" }),
+    ]);
+    expect(calls).toBe(1);
+    await qiyAuthProvider.getIdentity?.({});
+    expect(calls).toBe(1);
+    tokens.set("qiy.access_token", "identity-cache-token-2");
+    await qiyAuthProvider.getIdentity?.({});
+    expect(calls).toBe(2);
+  } finally {
+    globalThis.fetch = originalFetchImpl;
+    tokens.clear();
+  }
+});

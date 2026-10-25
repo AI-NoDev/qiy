@@ -6,6 +6,34 @@ type QiyIdentity = { id?: string; name?: string; role?: string; permissions?: st
 const token = () => typeof window === "undefined" ? undefined : window.localStorage.getItem(tokenKey) ?? undefined;
 /** With OIDC the stored expiry decides validity so an expired token never looks authenticated. */
 const sessionUsable = () => typeof window === "undefined" ? false : Boolean(token());
+/**
+ * Identity lookups are shared for the lifetime of an access token. Refine calls
+ * getIdentity and the access-control can hook many times per navigation; without
+ * this cache every call issued another GET /api/v1/auth/me. Concurrent callers share
+ * one in-flight request and the successful result is reused for a minute.
+ */
+const identityCacheTtlMs = 60_000;
+let identityCache: { token: string; value: QiyIdentity | null; at: number } | undefined;
+let identityInflight: { token: string; promise: Promise<QiyIdentity | null> } | undefined;
+export function clearIdentityCache(): void { identityCache = undefined; identityInflight = undefined; }
+async function loadIdentity(): Promise<QiyIdentity | null> {
+  const accessToken = token();
+  if (!accessToken) return null;
+  if (identityCache && identityCache.token === accessToken && Date.now() - identityCache.at < identityCacheTtlMs) return identityCache.value;
+  if (identityInflight && identityInflight.token === accessToken) return identityInflight.promise;
+  const promise = (async () => {
+    try {
+      const response = await fetch("/api/v1/auth/me", { headers: { Authorization: "Bearer " + accessToken } });
+      if (!response.ok) return null;
+      return await response.json() as QiyIdentity;
+    } catch { return null; }
+  })().then((value) => {
+    identityCache = { token: accessToken, value, at: Date.now() };
+    return value;
+  }).finally(() => { if (identityInflight?.token === accessToken) identityInflight = undefined; });
+  identityInflight = { token: accessToken, promise };
+  return promise;
+}
 export const qiyAuthProvider: AuthProvider = {
   login: async ({ token: nextToken, username, email, password, identifier, challengeToken, code, providerName }: { token?: string; username?: string; email?: string; password?: string; identifier?: string; challengeToken?: string; code?: string; providerName?: string }) => {
     const loginName = username ?? email;
@@ -29,11 +57,11 @@ export const qiyAuthProvider: AuthProvider = {
     void nextToken;
     return { success: false, error: { name: "CredentialsRequired", message: "Username and password are required" } };
   },
-  logout: async () => { clearSession();  return { success: true, redirectTo: "/auth/login" }; },
+  logout: async () => { clearIdentityCache(); clearSession();  return { success: true, redirectTo: "/auth/login" }; },
   check: async () => sessionUsable() ? { authenticated: true } : { authenticated: false, redirectTo: "/auth/login" },
-  getIdentity: async () => { const accessToken = token(); if (!accessToken) return null; const response = await fetch("/api/v1/auth/me", { headers: { Authorization: "Bearer " + accessToken } }); if (!response.ok) return null; return await response.json() as QiyIdentity; },
-  getPermissions: async () => { const identity = await qiyAuthProvider.getIdentity?.({}) as QiyIdentity | null | undefined; return identity?.role ?? null; },
-  onError: async (error) => error?.statusCode === 401 ? { logout: true, redirectTo: "/auth/login" } : {},
+  getIdentity: async () => loadIdentity(),
+  getPermissions: async () => { const identity = await loadIdentity(); return identity?.role ?? null; },
+  onError: async (error) => { clearIdentityCache(); return error?.statusCode === 401 ? { logout: true, redirectTo: "/auth/login" } : {}; },
 };
 const commandPolicies: Array<{ resource: string; action: string; roles: string[]; permissions?: string[]; verification?: { name: string; expression: QiyPermissionExpression } }> = [{"resource":"inventory","action":"receiveInventory","roles":["admin","operator"],"permissions":["inventory:receive"]},{"resource":"inventory","action":"putawayStock","roles":["admin","operator"],"permissions":["inventory:putaway"]},{"resource":"inventory","action":"reserveStock","roles":["admin","operator"]},{"resource":"inventory","action":"adjustStock","roles":["admin","operator"],"permissions":["inventory:adjust"]},{"resource":"inventory","action":"transferInventory","roles":["admin","operator"],"permissions":["inventory:transfer"]},{"resource":"sales_orders","action":"shipSalesOrder","roles":["admin","operator"],"verification":{"name":"CanShipOrders","expression":{"kind":"or","children":[{"kind":"comparison","operator":"equals","left":{"kind":"self","set":"role"},"right":{"kind":"literal","value":"admin"}},{"kind":"comparison","operator":"equals","left":{"kind":"self","set":"role"},"right":{"kind":"literal","value":"operator"}}]}}},{"resource":"work_orders","action":"completeWorkOrder","roles":["admin","operator"],"permissions":["workorder:complete"]},{"resource":"purchase_orders","action":"approvePurchaseOrder","roles":["admin","operator"],"permissions":["purchasing:approve"]}];
 const commandVerifications: Record<string, QiyPermissionExpression> = {"CanShipOrders":{"kind":"or","children":[{"kind":"comparison","operator":"equals","left":{"kind":"self","set":"role"},"right":{"kind":"literal","value":"admin"}},{"kind":"comparison","operator":"equals","left":{"kind":"self","set":"role"},"right":{"kind":"literal","value":"operator"}}]}};

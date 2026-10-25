@@ -731,6 +731,34 @@ type QiyIdentity = { id?: string; name?: string; role?: string; permissions?: st
 const token = () => typeof window === "undefined" ? undefined : window.localStorage.getItem(tokenKey) ?? undefined;
 /** With OIDC the stored expiry decides validity so an expired token never looks authenticated. */
 const sessionUsable = () => typeof window === "undefined" ? false : ${usesOidcAuth ? `!oidcSession({ skewMs: oidcSessionSkewMs }).expired` : "Boolean(token())"};
+/**
+ * Identity lookups are shared for the lifetime of an access token. Refine calls
+ * getIdentity and the access-control can hook many times per navigation; without
+ * this cache every call issued another GET /api/v1/auth/me. Concurrent callers share
+ * one in-flight request and the successful result is reused for a minute.
+ */
+const identityCacheTtlMs = 60_000;
+let identityCache: { token: string; value: QiyIdentity | null; at: number } | undefined;
+let identityInflight: { token: string; promise: Promise<QiyIdentity | null> } | undefined;
+export function clearIdentityCache(): void { identityCache = undefined; identityInflight = undefined; }
+async function loadIdentity(): Promise<QiyIdentity | null> {
+  const accessToken = token();
+  if (!accessToken) return null;
+  if (identityCache && identityCache.token === accessToken && Date.now() - identityCache.at < identityCacheTtlMs) return identityCache.value;
+  if (identityInflight && identityInflight.token === accessToken) return identityInflight.promise;
+  const promise = (async () => {
+    try {
+      const response = await fetch("/api/v1/auth/me", { headers: { Authorization: "Bearer " + accessToken } });
+      if (!response.ok) return null;
+      return await response.json() as QiyIdentity;
+    } catch { return null; }
+  })().then((value) => {
+    identityCache = { token: accessToken, value, at: Date.now() };
+    return value;
+  }).finally(() => { if (identityInflight?.token === accessToken) identityInflight = undefined; });
+  identityInflight = { token: accessToken, promise };
+  return promise;
+}
 export const qiyAuthProvider: AuthProvider = {
   login: async ({ token: nextToken, username, email, password, identifier, challengeToken, code${hybridAuth ? ", providerName" : ""} }: { token?: string; username?: string; email?: string; password?: string; identifier?: string; challengeToken?: string; code?: string${hybridAuth ? "; providerName?: string" : ""} }) => {
     const loginName = username ?? email;
@@ -754,11 +782,11 @@ export const qiyAuthProvider: AuthProvider = {
     ${usesOidcAuth ? 'await beginOidcLogin(); return { success: true };' : 'void nextToken;'}
     return { success: false, error: { name: "CredentialsRequired", message: ${JSON.stringify(usesOtpAuth ? "Identifier, challenge token and one-time password are required" : hasLocalAuth ? "Username and password are required" : "Identity provider login could not start")} } };
   },
-  logout: async () => { ${hybridAuth ? "clearSession();" : usesOidcAuth ? "clearOidcSession();" : 'window.localStorage.removeItem(tokenKey);'} ${usesOidcAuth ? "beginOidcLogout();" : ""} return { success: true, redirectTo: "/auth/login" }; },
+  logout: async () => { clearIdentityCache(); ${hybridAuth ? "clearSession();" : usesOidcAuth ? "clearOidcSession();" : 'window.localStorage.removeItem(tokenKey);'} ${usesOidcAuth ? "beginOidcLogout();" : ""} return { success: true, redirectTo: "/auth/login" }; },
   check: async () => sessionUsable() ? { authenticated: true } : { authenticated: false, redirectTo: "/auth/login" },
-  getIdentity: async () => { const accessToken = token(); if (!accessToken) return null; const response = await fetch("/api/v1/auth/me", { headers: { Authorization: "Bearer " + accessToken } }); if (!response.ok) return null; return await response.json() as QiyIdentity; },
-  getPermissions: async () => { const identity = await qiyAuthProvider.getIdentity?.({}) as QiyIdentity | null | undefined; return identity?.role ?? null; },
-  onError: async (error) => error?.statusCode === 401 ? { logout: true, redirectTo: "/auth/login" } : {},
+  getIdentity: async () => loadIdentity(),
+  getPermissions: async () => { const identity = await loadIdentity(); return identity?.role ?? null; },
+  onError: async (error) => { clearIdentityCache(); return error?.statusCode === 401 ? { logout: true, redirectTo: "/auth/login" } : {}; },
 };
 const commandPolicies: Array<{ resource: string; action: string; roles: string[]; permissions?: string[]; verification?: { name: string; expression: QiyPermissionExpression } }> = ${JSON.stringify(actionPolicies)};
 const commandVerifications: Record<string, QiyPermissionExpression> = ${JSON.stringify(commandVerifications)};
@@ -869,7 +897,7 @@ test("renews silently once per redirect cycle and detects provider refusal", asy
 `,
       } : {}),
       "web/tests/auth.test.ts": `import { afterAll, beforeAll, expect, test } from "bun:test";
-import { qiyAccessControlProvider, qiyAuthProvider } from "../app/auth";
+import { clearIdentityCache, qiyAccessControlProvider, qiyAuthProvider } from "../app/auth";
 
 const originalWindow = globalThis.window;
 const originalFetch = globalThis.fetch;
@@ -890,13 +918,13 @@ test("authenticates using ${hasLocalAuth ? "username and password" : "the config
 });
 
 test("matches server admin, operator and viewer role policy", async () => {
-${["viewer", "operator", "admin"].map((role) => `  role = ${JSON.stringify(role)};\n${roleExpectations(role).join("\n")}`).join("\n")}
+${["viewer", "operator", "admin"].map((role) => `  role = ${JSON.stringify(role)}; clearIdentityCache();\n${roleExpectations(role).join("\n")}`).join("\n")}
   await qiyAuthProvider.logout({});
   expect((await qiyAuthProvider.check({})).authenticated).toBe(false);
 });
 test("decides every resource page action, so route guards cannot be bypassed by URL", async () => {
   tokens.set("qiy.access_token", "page-guard-token");
-${["viewer", "operator", "admin"].map((role) => `  role = ${JSON.stringify(role)};\n${roleExpectations(role).join("\n")}`).join("\n")}
+${["viewer", "operator", "admin"].map((role) => `  role = ${JSON.stringify(role)}; clearIdentityCache();\n${roleExpectations(role).join("\n")}`).join("\n")}
   tokens.clear();
   role = "viewer";
 ${roleExpectations("viewer", true).join("\n")}
@@ -908,6 +936,7 @@ test("matches each action role allowlist without an admin bypass", async () => {
   for (const policy of ${JSON.stringify(actionPolicies)}) {
     for (const candidate of ["admin", "operator", "viewer"]) {
       role = candidate;
+      clearIdentityCache();
       expect((await qiyAccessControlProvider.can({ resource: policy.resource, action: policy.action })).can).toBe(policy.roles.includes(candidate));
     }
   }
@@ -922,12 +951,14 @@ test("permission-guarded commands follow effective permissions from /auth/me", a
     role = item.variant.role;
     identityPermissions = item.variant.permissions;
     identityGroups = item.variant.groups;
+    clearIdentityCache();
     expect({ policy: item.policy, allowed: (await qiyAccessControlProvider.can({ resource: item.policy.resource, action: item.policy.action })).can }).toEqual({ policy: item.policy, allowed: item.variant.expected });
   }
   // Without permission metadata the generated provider keeps the legacy role allow list.
   identityPermissions = undefined;
   identityGroups = undefined;
   role = "viewer";
+  clearIdentityCache();
   for (const policy of ${JSON.stringify(webPermissionPolicies.map((policy) => ({ resource: policy.resource, action: policy.action, roles: policy.roles })))}) {
     expect((await qiyAccessControlProvider.can({ resource: policy.resource, action: policy.action })).can).toBe(policy.roles.includes("viewer"));
   }
@@ -2505,6 +2536,34 @@ ${Object.entries(options.messages.locales).flatMap(([locale, entries]) => Object
       .replace('resource === "users"', `resource === ${JSON.stringify(userTable)}`)
       .replace('if (identity.role === "admin")', 'if (action === "audit") return { can: identity.role === "admin" }; if (identity.role === "admin")');
     generated["web/tests/auth.test.ts"] = generated["web/tests/auth.test.ts"]!.replaceAll('resource: "users"', `resource: ${JSON.stringify(userTable)}`).replaceAll('resource === "users"', `resource === ${JSON.stringify(userTable)}`);
+    generated["web/tests/auth.test.ts"] += `
+test("fetches the identity once per access token, even for concurrent guards", async () => {
+  tokens.set("qiy.access_token", "identity-cache-token");
+  let calls = 0;
+  const originalFetchImpl = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/auth/me")) calls += 1;
+    return originalFetchImpl(input, init);
+  }) as typeof fetch;
+  try {
+    await Promise.all([
+      qiyAuthProvider.getIdentity?.({}),
+      qiyAuthProvider.getIdentity?.({}),
+      qiyAccessControlProvider.can({ resource: ${JSON.stringify(userTable)}, action: "list" }),
+      qiyAccessControlProvider.can({ resource: ${JSON.stringify(userTable)}, action: "create" }),
+    ]);
+    expect(calls).toBe(1);
+    await qiyAuthProvider.getIdentity?.({});
+    expect(calls).toBe(1);
+    tokens.set("qiy.access_token", "identity-cache-token-2");
+    await qiyAuthProvider.getIdentity?.({});
+    expect(calls).toBe(2);
+  } finally {
+    globalThis.fetch = originalFetchImpl;
+    tokens.clear();
+  }
+});
+`;
     generated["web/app/root.tsx"] = 'import { auditLogProvider } from "./providers/audit-log-provider";\n' + generated["web/app/root.tsx"]!.replace("authProvider={qiyAuthProvider}", "auditLogProvider={auditLogProvider} authProvider={qiyAuthProvider}").replace("meta: { label: modelLabel(resource.pluralKey", "meta: { audit: [], label: modelLabel(resource.pluralKey");
     generated["web/app/routes/show.tsx"] = 'import { AuditHistory } from "../components/audit-history";\n' + generated["web/app/routes/show.tsx"]!.replace('</Show>;', '{id && <CanAccess resource={resource.name} action="audit"><AuditHistory resource={resource.name} recordId={id} /></CanAccess>}</Show>;');
     generated["web/app/providers/audit-log-provider.ts"] = `import type { AuditLogProvider } from "@refinedev/core";
