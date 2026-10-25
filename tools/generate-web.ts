@@ -4027,7 +4027,7 @@ async function docsFetch(path: string): Promise<Response> {
   return response;
 }
 
-export async function fetchDocsEnvelope(): Promise<DocsEnvelope> {
+export async function fetchDocsEnvelopeUncached(): Promise<DocsEnvelope> {
   const [modelResponse, specResponse] = await Promise.all([
     qiyFeatureFlags.apiDocs ? docsFetch("/api/v1/docs/model") : Promise.resolve(undefined),
     qiyFeatureFlags.apiDocs ? docsFetch("/api/v1/openapi.json") : Promise.resolve(undefined),
@@ -4036,6 +4036,23 @@ export async function fetchDocsEnvelope(): Promise<DocsEnvelope> {
   const openApi = specResponse ? await specResponse.json() as unknown : undefined;
   if (!model) throw new Error("API docs are disabled");
   return { model, openApi };
+}
+
+/**
+ * Docs metadata is immutable for a session, so the envelope is fetched once and
+ * shared. Without this, a route remount (StrictMode/HMR) or a re-rendering page
+ * issued /docs/model + /openapi.json in a tight loop.
+ */
+let docsEnvelopePromise: Promise<DocsEnvelope> | undefined;
+
+export function fetchDocsEnvelope(force = false): Promise<DocsEnvelope> {
+  if (!force && docsEnvelopePromise) return docsEnvelopePromise;
+  const promise = fetchDocsEnvelopeUncached();
+  docsEnvelopePromise = promise.catch((error: unknown) => {
+    docsEnvelopePromise = undefined;
+    throw error;
+  });
+  return docsEnvelopePromise;
 }
 `;
 }
@@ -4463,21 +4480,23 @@ export default function DocsRoute() {
   const authLoading = auth.isLoading;
   const [state, setState] = useState<DocsPageState>({ loading: qiyFeatureFlags.apiDocs });
   useEffect(() => {
-    if (!isAuthenticated || !qiyFeatureFlags.apiDocs) {
+    if (!qiyFeatureFlags.apiDocs) {
+      setState({ loading: false });
+      return;
+    }
+    // Wait for the auth check before deciding; fetching while it is still pending
+    // used to flap between "unauthenticated" and "authenticated" states.
+    if (authLoading) return;
+    if (!isAuthenticated) {
       setState({ loading: false });
       return;
     }
     let cancelled = false;
-    void (async () => {
-      try {
-        const envelope = await fetchDocsEnvelope();
-        if (!cancelled) setState({ model: envelope.model, openApi: envelope.openApi, loading: false });
-      } catch (cause) {
-        if (!cancelled) setState({ loading: false, error: cause instanceof Error ? cause.message : String(cause) });
-      }
-    })();
+    void fetchDocsEnvelope()
+      .then((envelope) => { if (!cancelled) setState({ model: envelope.model, openApi: envelope.openApi, loading: false }); })
+      .catch((cause: unknown) => { if (!cancelled) setState({ loading: false, error: cause instanceof Error ? cause.message : String(cause) }); });
     return () => { cancelled = true; };
-  }, [isAuthenticated]);
+  }, [authLoading, isAuthenticated]);
   if (!docsEnabled) return <Navigate to="/" replace />;
   if (!authLoading && !isAuthenticated) return <Navigate to="/auth/login" replace />;
   if (authLoading) return <div>{translate("qiy.loading", {}, "Loading")}</div>;

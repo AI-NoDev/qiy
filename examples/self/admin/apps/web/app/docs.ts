@@ -162,7 +162,7 @@ async function docsFetch(path: string): Promise<Response> {
   return response;
 }
 
-export async function fetchDocsEnvelope(): Promise<DocsEnvelope> {
+export async function fetchDocsEnvelopeUncached(): Promise<DocsEnvelope> {
   const [modelResponse, specResponse] = await Promise.all([
     qiyFeatureFlags.apiDocs ? docsFetch("/api/v1/docs/model") : Promise.resolve(undefined),
     qiyFeatureFlags.apiDocs ? docsFetch("/api/v1/openapi.json") : Promise.resolve(undefined),
@@ -171,4 +171,21 @@ export async function fetchDocsEnvelope(): Promise<DocsEnvelope> {
   const openApi = specResponse ? await specResponse.json() as unknown : undefined;
   if (!model) throw new Error("API docs are disabled");
   return { model, openApi };
+}
+
+/**
+ * Docs metadata is immutable for a session, so the envelope is fetched once and
+ * shared. Without this, a route remount (StrictMode/HMR) or a re-rendering page
+ * issued /docs/model + /openapi.json in a tight loop.
+ */
+let docsEnvelopePromise: Promise<DocsEnvelope> | undefined;
+
+export function fetchDocsEnvelope(force = false): Promise<DocsEnvelope> {
+  if (!force && docsEnvelopePromise) return docsEnvelopePromise;
+  const promise = fetchDocsEnvelopeUncached();
+  docsEnvelopePromise = promise.catch((error: unknown) => {
+    docsEnvelopePromise = undefined;
+    throw error;
+  });
+  return docsEnvelopePromise;
 }

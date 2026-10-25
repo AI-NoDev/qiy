@@ -19,21 +19,23 @@ export default function DocsRoute() {
   const authLoading = auth.isLoading;
   const [state, setState] = useState<DocsPageState>({ loading: qiyFeatureFlags.apiDocs });
   useEffect(() => {
-    if (!isAuthenticated || !qiyFeatureFlags.apiDocs) {
+    if (!qiyFeatureFlags.apiDocs) {
+      setState({ loading: false });
+      return;
+    }
+    // Wait for the auth check before deciding; fetching while it is still pending
+    // used to flap between "unauthenticated" and "authenticated" states.
+    if (authLoading) return;
+    if (!isAuthenticated) {
       setState({ loading: false });
       return;
     }
     let cancelled = false;
-    void (async () => {
-      try {
-        const envelope = await fetchDocsEnvelope();
-        if (!cancelled) setState({ model: envelope.model, openApi: envelope.openApi, loading: false });
-      } catch (cause) {
-        if (!cancelled) setState({ loading: false, error: cause instanceof Error ? cause.message : String(cause) });
-      }
-    })();
+    void fetchDocsEnvelope()
+      .then((envelope) => { if (!cancelled) setState({ model: envelope.model, openApi: envelope.openApi, loading: false }); })
+      .catch((cause: unknown) => { if (!cancelled) setState({ loading: false, error: cause instanceof Error ? cause.message : String(cause) }); });
     return () => { cancelled = true; };
-  }, [isAuthenticated]);
+  }, [authLoading, isAuthenticated]);
   if (!docsEnabled) return <Navigate to="/" replace />;
   if (!authLoading && !isAuthenticated) return <Navigate to="/auth/login" replace />;
   if (authLoading) return <div>{translate("qiy.loading", {}, "Loading")}</div>;

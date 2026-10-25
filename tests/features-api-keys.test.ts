@@ -102,6 +102,10 @@ describe("application feature flags", () => {
     expect(enabled["apps/server/src/auth/api-key-hash.ts"]).toContain("createHmac");
     expect(enabled["apps/server/src/auth/api-key-hash.ts"]).not.toContain("console.log");
     expect(enabled["apps/web/app/routes.ts"]).toContain('route("system/overview", "./routes/docs.tsx")');
+    // The docs envelope is fetched once per session; an effect re-run must not
+    // issue another /docs/model + /openapi.json request.
+    expect(enabled["apps/web/app/docs.ts"]).toContain("docsEnvelopePromise");
+    expect(enabled["apps/web/app/routes/docs.tsx"]).toContain("fetchDocsEnvelope()");
     expect(enabled["apps/web/app/features.ts"]).toContain("qiyMenuLinks");
     expect(enabled["apps/web/app/components/menu.tsx"]).toContain("qiyMenuLinks");
     expect(JSON.parse(enabled["apps/web/package.json"]!).dependencies.mermaid).toBe("12.2.0");
