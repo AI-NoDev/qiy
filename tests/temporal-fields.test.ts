@@ -116,7 +116,8 @@ describe("Date and Time scalar fields", () => {
     // Lists, detail pages and display templates share the same formatter.
     expect(files["web/app/routes/list.tsx"]).toContain("formatFieldValue(field.type, value, locale)");
     expect(files["web/app/routes/list.tsx"]).toContain("<DateFieldInput type={field.type as DateFieldType}");
-    expect(files["web/app/routes/show.tsx"]).toContain("formatFieldValue(field.type, result[field.name], locale)");
+    expect(files["web/app/components/record-details.tsx"]).toContain("formatFieldValue(field.type, value, locale)");
+    expect(files["web/app/components/relation-field.tsx"]).toContain("<RecordDetails resource={target} record={record} size=\"small\" />");
     expect(files["web/app/display-template.ts"]).toContain("formatFieldValue(field.type, value, options.locale)");
     expect(files["web/app/i18n.ts"]).toContain('pickDate: "选择日期"');
     expect(files["web/app/i18n.ts"]).toContain('pickDate: "Select date"');

@@ -1,20 +1,22 @@
 import { useSelect } from "@refinedev/antd";
 import { useOne, useTranslation } from "@refinedev/core";
-import { Alert, Button, Descriptions, Drawer, Select, Space, Spin, Tag, type SelectProps } from "antd";
-import { useMemo, useState } from "react";
+import { Alert, Breadcrumb, Button, Drawer, Select, Space, Spin, Typography, type SelectProps } from "antd";
+import { useMemo, useState, type FC, type ReactNode } from "react";
 import { Link } from "react-router";
 import { mergeRelationOptions, type QiyRelationOption } from "../relation-options";
 import { getResource, type ResourceDefinition, type ResourceField } from "../resources";
-import { displayFieldValue, recordDisplayText, relationDetailHtml, type DisplayTemplateOptions, type DisplayTranslate } from "../display-template";
+import { recordDisplayText, relationDetailHtml, type DisplayTemplateOptions, type DisplayTranslate } from "../display-template";
 import { formatFieldValue } from "../date-fields";
+import { RecordDetails } from "./record-details";
 
 /**
  * Foreign-key rendering. A FK cell never shows a raw UUID: it shows the target
  * entity's `@tableDisplay`/`@display` text (falling back to the target's label
- * field, then the id) as a link. Clicking the link opens a drawer with the target
- * record's `@relationDetail` body, rendered from the entity display template and
- * therefore escaped. The same component is used by list cells, detail pages and
- * related-record tables so every foreign-key column behaves the same way.
+ * field, then the id) as a link. Clicking the link opens a drawer that mirrors
+ * the target record's detail page: a breadcrumb in the header (target resource
+ * list / current record detail page), the optional `@relationDetail` summary,
+ * then every `showVisible` field via the shared `RecordDetails` component.
+ * Foreign keys inside the drawer open their own stacked drawer.
  *
  * Records are fetched per id through Refine's `useOne`: React Query dedupes
  * identical ids and caches them for a minute, which keeps repeated FK values on
@@ -37,6 +39,64 @@ export function relatedEntityTitle(resource: ResourceDefinition | undefined, tra
   return translate(resource.singularKey, {}, translate(resource.labelKey, {}, resource.singular));
 }
 
+export interface RelatedRecordBreadcrumbProps {
+  /** Accessible name of the breadcrumb (e.g. "Related record path"). */
+  ariaLabel: string;
+  /** Target resource list route. */
+  listHref: string;
+  /** Localized target resource label. */
+  listLabel: string;
+  /** Target record detail route. */
+  showHref: string;
+  /** Localized display text of the current drawer record. */
+  recordText: string;
+}
+
+/** antd's BreadcrumbProps omit generic DOM attributes even though antd forwards them to <nav>. */
+const BreadcrumbNav = Breadcrumb as unknown as FC<{ className?: string; items: Array<{ title: ReactNode }>; "aria-label"?: string }>;
+
+/**
+ * Drawer header breadcrumb: target resource list → current record detail page.
+ * It is presentational so the generated test can render it without a browser.
+ */
+export function RelatedRecordBreadcrumb({ ariaLabel, listHref, listLabel, showHref, recordText }: RelatedRecordBreadcrumbProps) {
+  return (
+    <BreadcrumbNav
+      className="qiy-record-breadcrumb"
+      aria-label={ariaLabel}
+      items={[
+        { title: <Link to={listHref}>{listLabel}</Link> },
+        { title: <Link to={showHref}>{recordText}</Link> },
+      ]}
+    />
+  );
+}
+
+/**
+ * Drawer body: the optional `@relationDetail` summary followed by the same field
+ * descriptions the detail page renders. It only needs the i18n hooks, so the
+ * generated test renders it directly to prove the drawer mirrors the show page.
+ */
+export function RelatedRecordBody({ target, record }: { target: ResourceDefinition; record: Record<string, unknown> }) {
+  const { translate, getLocale } = useTranslation();
+  const display = translate as unknown as DisplayTranslate;
+  const summary = relationDetailHtml(target, record, displayOptions(target, display, getLocale()));
+  return (
+    <Space direction="vertical" size="middle" style={{ width: "100%" }} className="qiy-related-record">
+      {summary && (
+        <section className="qiy-record-summary">
+          <Typography.Text strong style={{ display: "block", marginBottom: 8 }}>{translate("qiy.recordSummary", {}, "Relation summary")}</Typography.Text>
+          <div className="qiy-relation-detail" dangerouslySetInnerHTML={{ __html: summary }} />
+        </section>
+      )}
+      <section className="qiy-record-details-section">
+        <Typography.Title level={5} style={{ marginTop: 0 }}>{translate("qiy.recordDetails", {}, "Field details")}</Typography.Title>
+        <RecordDetails resource={target} record={record} size="small" />
+      </section>
+    </Space>
+  );
+}
+
 interface RelationLinkProps {
   target: ResourceDefinition | undefined;
   resource: string;
@@ -56,11 +116,11 @@ function RelationLink({ target, resource, id, labelField }: RelationLinkProps) {
   const display = translate as unknown as DisplayTranslate;
   const text = relatedRecordLabel(target, record, display, labelField, locale);
   const title = relatedEntityTitle(target, display);
-  const detailHtml = relationDetailHtml(target, record, displayOptions(target, display, locale));
+  const showHref = "/" + resource + "/" + encodeURIComponent(id);
   return (
     <>
       <Link
-        to={"/" + resource + "/" + encodeURIComponent(id)}
+        to={showHref}
         onClick={(event) => {
           // Keep modifier-click/new-tab behavior; a plain click opens the drawer.
           if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
@@ -70,27 +130,26 @@ function RelationLink({ target, resource, id, labelField }: RelationLinkProps) {
       >
         {text || (query.isLoading ? "…" : id)}
       </Link>
-      <Drawer open={open} onClose={() => setOpen(false)} width={520} title={title ? title + " · " + (text || id) : text || id} destroyOnClose>
+      <Drawer
+        open={open}
+        onClose={() => setOpen(false)}
+        width="min(92vw, 760px)"
+        destroyOnClose
+        title={<RelatedRecordBreadcrumb
+          ariaLabel={translate("qiy.drawerBreadcrumb", {}, "Related record path")}
+          listHref={"/" + resource}
+          listLabel={title || resource}
+          showHref={showHref}
+          recordText={text || id}
+        />}
+        extra={<Link to={showHref}><Button type="link" size="small">{translate("qiy.openDetail", {}, "Open details")}</Button></Link>}
+        footer={<Space style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}><Button onClick={() => setOpen(false)}>{translate("qiy.close", {}, "Close")}</Button></Space>}
+        styles={{ body: { paddingTop: 12 } }}
+      >
         {query.isLoading && <Spin />}
         {query.error && <Alert type="error" showIcon message={String(query.error)} />}
-        {record && (
-          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-            {detailHtml ? (
-              <div className="qiy-relation-detail" dangerouslySetInnerHTML={{ __html: detailHtml }} />
-            ) : (
-              <Descriptions bordered size="small" column={1}>
-                {(target?.fields ?? []).filter((field) => field.showVisible && field.type !== "Vector" && field.type !== "File" && field.type !== "Files").slice(0, 8).map((field) => (
-                  <Descriptions.Item key={field.name} label={translate(field.labelKey, {}, field.label)}>
-                    {field.enumValues ? <Tag>{displayFieldValue(field.name, record, displayOptions(target, display, locale)) ?? "—"}</Tag> : formatFieldValue(field.type, record[field.name], locale) || "—"}
-                  </Descriptions.Item>
-                ))}
-              </Descriptions>
-            )}
-            <Link to={"/" + resource + "/" + encodeURIComponent(id)}>
-              <Button type="primary">{translate("qiy.openDetail", {}, "Open details")}</Button>
-            </Link>
-          </Space>
-        )}
+        {!target && <Alert type="error" showIcon message={translate("qiy.relatedUnknown", { resource }, "Unknown related resource: {{resource}}")} />}
+        {target && record && <RelatedRecordBody target={target} record={record} />}
       </Drawer>
     </>
   );

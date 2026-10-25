@@ -13,7 +13,7 @@ relation <name> <fromEntity> <fromField> <toEntity> <toField> one|many [@onDelet
 
 基数只支持 `one` 与 `many`。`one` 生成外键与关联选择器；`many` 用于反向集合。`@onDelete` 支持 `restrict`、`cascade`、`setNull`。
 
-关系列在生成的列表页、详情页和关联表中不再显示原始 UUID：它显示目标实体的 `@tableDisplay`（缺省 `@display`，再缺省可读字段）文本并链接到目标记录；点击打开 Drawer，正文来自目标实体的 `@relationDetail`，并带“打开详情”按钮跳转详情页。创建/编辑表单的外键下拉同样使用目标实体的显示文本。为外键目标实体声明显示注解即可，详见 [entity 的实体显示注解](/dsl/entity#实体显示注解-django-风格)。
+关系列在生成的列表页、详情页和关联表中不再显示原始 UUID：它显示目标实体的 `@tableDisplay`（缺省 `@display`，再缺省可读字段）文本并链接到目标记录；点击打开 Drawer。Drawer 的内容与目标记录的**详情页一致**：它与 `routes/show.tsx` 共用 `app/components/record-details.tsx` 的 `RecordDetails`，渲染全部 `showVisible` 字段并遵守 `canSeeField` 的当前角色可见性，枚举显示为 Tag、外键继续用 `RelationCell`（点开则是下一层 Drawer）、Date/Time 走同一本地化格式化、File 字段是下载链接、Vector 与空值分别显示占位文案；目标实体声明了 `@relationDetail` 时，它的摘要块保留在字段详情上方。Drawer 宽度为 `min(92vw, 760px)`，头部面包屑是「目标资源列表 → 当前记录详情页」（抽屉内点击面包屑或右上角“打开详情”可进入详情页），底部有关闭按钮。嵌套外键的 Drawer 会叠加打开，每层面包屑反映当前层记录。创建/编辑表单的外键下拉同样使用目标实体的显示文本。为外键目标实体声明显示注解即可，详见 [entity 的实体显示注解](/dsl/entity#实体显示注解-django-风格)。
 
 ## index
 

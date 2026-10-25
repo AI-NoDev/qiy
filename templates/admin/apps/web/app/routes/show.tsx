@@ -1,12 +1,13 @@
-import { CanAccess, useGetIdentity, useNotification, useOne, useTranslation } from "@refinedev/core";
+import { useOne, useTranslation, CanAccess } from "@refinedev/core";
 import { EditButton, ListButton, Show } from "@refinedev/antd";
-import { Alert, Descriptions, Space, Typography } from "antd";
+import { Alert, Space } from "antd";
 import { useParams } from "react-router";
-import { canSeeField, getResource } from "../resources";
-import { RelationCell } from "../components/relation-field";
-import { formatFieldValue } from "../date-fields";
+import { getResource } from "../resources";
+import { RecordDetails } from "../components/record-details";
 import { t, resolveLocale, type QiyLocale } from "../i18n";
-import { downloadFile } from "../hooks/download-file";
 __QIY_ORDER_IMPORT__
-function FileLinks({ value }: { value: unknown }) { const { open: notify } = useNotification(); const keys = Array.isArray(value) ? value.map(String).filter(Boolean) : typeof value === "string" && value ? [value] : []; if (!keys.length) return <>""</>; return <Space wrap>{keys.map((key) => <Typography.Link key={key} onClick={() => void downloadFile(key).catch((error) => { notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) }); })}>{key.split("/").pop()}</Typography.Link>)}</Space>; }
-export default function ResourceShow() { const { resource: name, id } = useParams(); const resource = getResource(name); const { getLocale, translate } = useTranslation(); const { open: notify } = useNotification(); const { data: identity } = useGetIdentity<{ role?: string }>(); const locale: QiyLocale = resolveLocale(getLocale()); const { result, query } = useOne({ resource: name ?? "", id: id ?? "", liveMode: resource?.liveMode ?? "off", queryOptions: { enabled: !!resource && !!id } }); if (!resource) return <Alert type="error" message={t(locale, "unknownResource")} />; return <Show resource={resource.name} recordItemId={id} isLoading={query.isLoading} title={`${translate(resource.singularKey, {}, translate(resource.labelKey, {}, resource.singular))} ${t(locale, "detail")}`} headerButtons={() => <Space><CanAccess resource={resource.name} action="edit"><EditButton resource={resource.name} recordItemId={id}>{t(locale, "edit")}</EditButton></CanAccess><ListButton resource={resource.name}>{t(locale, "back")}</ListButton></Space>}>{query.error && <Alert type="error" message={String(query.error)} />}{result && <Descriptions bordered column={1}>{resource.fields.filter((field) => field.showVisible && canSeeField(field, identity?.role)).map((field) => <Descriptions.Item key={field.name} label={translate(field.labelKey, {}, field.label)}>{field.type === "Vector" ? t(locale, "vectorData") : field.relation ? <RelationCell field={field} value={result[field.name]} /> : field.type === "File" || field.type === "Files" ? <FileLinks value={result[field.name]} /> : formatFieldValue(field.type, result[field.name], locale)}</Descriptions.Item>)}</Descriptions>}__QIY_ORDER_ACTIONS__</Show>; }
+/**
+ * Detail page. The field list is rendered by the shared `RecordDetails`
+ * component so the foreign-key drawer shows exactly the same content.
+ */
+export default function ResourceShow() { const { resource: name, id } = useParams(); const resource = getResource(name); const { getLocale, translate } = useTranslation(); const locale: QiyLocale = resolveLocale(getLocale()); const { result, query } = useOne({ resource: name ?? "", id: id ?? "", liveMode: resource?.liveMode ?? "off", queryOptions: { enabled: !!resource && !!id } }); if (!resource) return <Alert type="error" message={t(locale, "unknownResource")} />; return <Show resource={resource.name} recordItemId={id} isLoading={query.isLoading} title={`${translate(resource.singularKey, {}, translate(resource.labelKey, {}, resource.singular))} ${t(locale, "detail")}`} headerButtons={() => <Space><CanAccess resource={resource.name} action="edit"><EditButton resource={resource.name} recordItemId={id}>{t(locale, "edit")}</EditButton></CanAccess><ListButton resource={resource.name}>{t(locale, "back")}</ListButton></Space>}>{query.error && <Alert type="error" message={String(query.error)} />}{result && <RecordDetails resource={resource} record={result} />}__QIY_ORDER_ACTIONS__</Show>; }

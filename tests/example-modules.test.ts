@@ -174,7 +174,9 @@ describe("modular demo model", () => {
     const { generateWeb } = await import("../tools/generate-web");
     const web = generateWeb(project.database, project);
     expect(web["web/app/routes/list.tsx"]).toContain("RelationCell");
-    expect(web["web/app/routes/show.tsx"]).toContain("RelationCell");
+    expect(web["web/app/routes/show.tsx"]).toContain("<RecordDetails");
+    expect(web["web/app/components/record-details.tsx"]).toContain("RelationCell");
+    expect(web["web/app/components/relation-field.tsx"]).toContain("RelatedRecordBody");
     expect(web["web/app/components/relation-field.tsx"]).toContain("RelationSelect");
   });
 });

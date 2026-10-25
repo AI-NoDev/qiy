@@ -117,7 +117,8 @@ describe("model-derived i18n keys", () => {
     expect(files["apps/web/app/routes/list.tsx"]).toContain("translate(resource.labelKey, {}, resource.label)");
     expect(files["apps/web/app/routes/list.tsx"]).toContain("translate(field.labelKey, {}, field.label)");
     expect(files["apps/web/app/routes/list.tsx"]).toContain("translate(enumValue.labelKey, {}, enumValue.label ?? enumValue.name)");
-    expect(files["apps/web/app/routes/show.tsx"]).toContain("translate(field.labelKey, {}, field.label)");
+    expect(files["apps/web/app/routes/show.tsx"]).toContain("RecordDetails");
+    expect(files["apps/web/app/components/record-details.tsx"]).toContain("translate(field.labelKey, {}, field.label)");
     expect(files["apps/web/app/components/resource-form.tsx"]).toContain("translate(field.labelKey, {}, field.label)");
     expect(files["apps/web/app/components/resource-form.tsx"]).toContain("translate(item.labelKey, {}, item.label ?? item.name)");
     expect(files["apps/web/app/components/business-actions.tsx"]).toContain("translate(action.labelKey, {}, action.label)");

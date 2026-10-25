@@ -1591,6 +1591,7 @@ export const localeMessages = {
     new: "新建", edit: "编辑", view: "查看", back: "返回列表", delete: "删除", batchDelete: "批量删除", actions: "操作",
     visibleColumns: "显示列", confirmDelete: "确认删除选中记录？", deleted: "删除成功", unknownResource: "未知资源", detail: "详情",
     createResource: "新建{{resource}}", editResource: "编辑{{resource}}", openDetail: "打开详情", searchRelation: "搜索…",
+    drawerBreadcrumb: "关联记录路径", recordDetails: "字段详情", recordSummary: "关联摘要", close: "关闭",
     language: "语言", save: "保存", cancel: "取消", deleteSuccess: "删除成功", requiredWithLabel: "请输入\${label}", quickAccess: "快速访问", upload: "上传文件",
     overview: "概览", overviewDescription: "从数据资源快速进入业务管理。", profile: "个人中心", filters: "筛选", search: "搜索",
     matchAll: "全部匹配", matchAny: "任一匹配", commaSeparated: "（逗号分隔）", forbidden: "没有访问该页面的权限",
@@ -1634,6 +1635,7 @@ export const localeMessages = {
     new: "New", edit: "Edit", view: "View", back: "Back to list", delete: "Delete", batchDelete: "Batch delete", actions: "Actions",
     visibleColumns: "Columns", confirmDelete: "Delete selected records?", deleted: "Deleted", unknownResource: "Unknown resource", detail: "Detail",
     createResource: "Create {{resource}}", editResource: "Edit {{resource}}", openDetail: "Open details", searchRelation: "Search…",
+    drawerBreadcrumb: "Related record path", recordDetails: "Field details", recordSummary: "Relation summary", close: "Close",
     language: "Language", save: "Save", cancel: "Cancel", deleteSuccess: "Deleted", requiredWithLabel: "\${label} is required", quickAccess: "Quick access", upload: "Upload file",
     overview: "Overview", overviewDescription: "Jump into your data resources from one place.", profile: "Profile", filters: "Filters", search: "Search",
     matchAll: "Match all", matchAny: "Match any", commaSeparated: " (comma separated)", forbidden: "You are not allowed to open this page",
@@ -2127,6 +2129,7 @@ const chromeKeys = [
   "qiy.treeView", "qiy.auditTitle", "qiy.auditAction", "qiy.auditAuthor", "qiy.auditSystem", "qiy.auditTime",
   "qiy.new", "qiy.edit", "qiy.delete", "qiy.batchDelete", "qiy.confirmDelete", "qiy.detail",
   "qiy.createResource", "qiy.editResource", "qiy.openDetail", "qiy.searchRelation",
+  "qiy.drawerBreadcrumb", "qiy.recordDetails", "qiy.recordSummary", "qiy.close",
   "qiy.search", "qiy.filters", "qiy.matchAll", "qiy.matchAny", "qiy.commaSeparated", "qiy.forbidden", "qiy.noData",
   "qiy.themeColor", "qiy.themeBlue", "qiy.themePurple", "qiy.themeGreen", "qiy.themeOrange", "qiy.themeRed",
   "qiy.colorMode", "qiy.colorLight", "qiy.colorDark", "qiy.colorSystem",
@@ -2180,6 +2183,14 @@ test("every chrome key resolves in zh-CN and en-US instead of falling back to En
   expect(en.translate("qiy.colorLight")).toBe("Light");
   expect(zh.translate("qiy.profileTitle")).toBe("个人中心");
   expect(en.translate("qiy.profileTitle")).toBe("Profile");
+  // The FK drawer/breadcrumb chrome follows the same dictionary as the rest of the UI.
+  expect(zh.translate("qiy.drawerBreadcrumb")).toBe("关联记录路径");
+  expect(en.translate("qiy.drawerBreadcrumb")).toBe("Related record path");
+  expect(zh.translate("qiy.recordDetails")).toBe("字段详情");
+  expect(en.translate("qiy.recordDetails")).toBe("Field details");
+  expect(zh.translate("qiy.recordSummary")).toBe("关联摘要");
+  expect(zh.translate("qiy.close")).toBe("关闭");
+  expect(en.translate("qiy.close")).toBe("Close");
   expect(zh.translate("qiy.signOut")).toBe("退出登录");
   expect(zh.translate("qiy.bind")).toBe("关联");
   expect(zh.translate("qiy.unbind")).toBe("解除关联");
@@ -2416,8 +2427,9 @@ describe("CSV export helper", () => {
     }
     generated["web/app/routes/list.tsx"] = list;
     generated["web/app/routes/show.tsx"] = generated["web/app/routes/show.tsx"]!
-      .replace('<CanAccess resource={resource.name} action="edit"><Link to={`/${resource.name}/${id}/edit`}><Button type="primary">{t(locale, "edit")}</Button></Link></CanAccess>', "")
-      .replace('import { CanAccess, useOne, useTranslation } from "@refinedev/core";', 'import { useOne, useTranslation } from "@refinedev/core"');
+      // Read-only integrations never offer an edit form; the show page drops the
+      // edit button but keeps the shared `RecordDetails` body.
+      .replace('<CanAccess resource={resource.name} action="edit"><EditButton resource={resource.name} recordItemId={id}>{t(locale, "edit")}</EditButton></CanAccess>', "");
     for (const path of ["web/app/routes/create.tsx", "web/app/routes/edit.tsx", "web/app/routes/guard-create.tsx", "web/app/routes/guard-edit.tsx", "web/app/components/resource-form.tsx"]) delete generated[path];
   }
   const localizedFailure = (options.dataflows ?? []).flatMap((flow) => flow.steps.flatMap((step) => step.actions.flatMap((action) => action.kind === "require" && action.errorKey ? [{ flow: flow.name, error: action.error, errorKey: action.errorKey }] : [])))[0];

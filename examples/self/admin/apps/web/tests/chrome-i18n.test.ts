@@ -15,6 +15,7 @@ const chromeKeys = [
   "qiy.treeView", "qiy.auditTitle", "qiy.auditAction", "qiy.auditAuthor", "qiy.auditSystem", "qiy.auditTime",
   "qiy.new", "qiy.edit", "qiy.delete", "qiy.batchDelete", "qiy.confirmDelete", "qiy.detail",
   "qiy.createResource", "qiy.editResource", "qiy.openDetail", "qiy.searchRelation",
+  "qiy.drawerBreadcrumb", "qiy.recordDetails", "qiy.recordSummary", "qiy.close",
   "qiy.search", "qiy.filters", "qiy.matchAll", "qiy.matchAny", "qiy.commaSeparated", "qiy.forbidden", "qiy.noData",
   "qiy.themeColor", "qiy.themeBlue", "qiy.themePurple", "qiy.themeGreen", "qiy.themeOrange", "qiy.themeRed",
   "qiy.colorMode", "qiy.colorLight", "qiy.colorDark", "qiy.colorSystem",
@@ -68,6 +69,14 @@ test("every chrome key resolves in zh-CN and en-US instead of falling back to En
   expect(en.translate("qiy.colorLight")).toBe("Light");
   expect(zh.translate("qiy.profileTitle")).toBe("个人中心");
   expect(en.translate("qiy.profileTitle")).toBe("Profile");
+  // The FK drawer/breadcrumb chrome follows the same dictionary as the rest of the UI.
+  expect(zh.translate("qiy.drawerBreadcrumb")).toBe("关联记录路径");
+  expect(en.translate("qiy.drawerBreadcrumb")).toBe("Related record path");
+  expect(zh.translate("qiy.recordDetails")).toBe("字段详情");
+  expect(en.translate("qiy.recordDetails")).toBe("Field details");
+  expect(zh.translate("qiy.recordSummary")).toBe("关联摘要");
+  expect(zh.translate("qiy.close")).toBe("关闭");
+  expect(en.translate("qiy.close")).toBe("Close");
   expect(zh.translate("qiy.signOut")).toBe("退出登录");
   expect(zh.translate("qiy.bind")).toBe("关联");
   expect(zh.translate("qiy.unbind")).toBe("解除关联");

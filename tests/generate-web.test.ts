@@ -23,7 +23,8 @@ describe("Refine SPA generation", () => {
     expect(files["web/app/resources.ts"]).toContain('"labelKey": "qiy.resources.');
     expect(files["web/app/resources.ts"]).toContain(".fields.");
     expect(files["web/app/routes/list.tsx"]).toContain("translate(field.labelKey");
-    expect(files["web/app/routes/show.tsx"]).toContain("translate(field.labelKey");
+    expect(files["web/app/components/record-details.tsx"]).toContain("translate(field.labelKey");
+    expect(files["web/app/routes/show.tsx"]).toContain("RecordDetails");
     expect(files["web/app/routes/home.tsx"]).toContain("translate(metric.labelKey");
     expect(files["web/app/root.tsx"]).toContain("readStoredLocale()");
     expect(files["web/app/i18n.ts"]).toContain("localeStorageKey");
@@ -77,7 +78,8 @@ describe("Refine SPA generation", () => {
     database.entities[0]!.fields[1]!.formVisible = true;
     const files = generateWeb(database);
     expect(files["web/app/routes/list.tsx"]).toContain("visibleKeys");
-    expect(files["web/app/routes/show.tsx"]).toContain("resource.fields.filter((field) => field.showVisible && canSeeField(field, identity?.role))");
+    expect(files["web/app/components/record-details.tsx"]).toContain("resource.fields.filter((field) => field.showVisible && canSeeField(field, identity?.role))");
+    expect(files["web/app/routes/show.tsx"]).toContain("RecordDetails");
     expect(files["web/app/components/resource-form.tsx"]).toContain("const fields = (id ? editFormFields(resource) : createFormFields(resource)).filter((field) => canSeeField(field, identity?.role))");
   });
 
@@ -136,7 +138,7 @@ describe("Refine SPA generation", () => {
     // FK cells, detail fields, related tables and select inputs all delegate to the shared renderer.
     expect(files["web/app/routes/list.tsx"]).toContain("if (field.relation) return <RelationCell field={field} value={value} />");
     expect(files["web/app/routes/list.tsx"]).toContain('translate("qiy.createResource", { resource: singular }, singular)');
-    expect(files["web/app/routes/show.tsx"]).toContain("<RelationCell field={field} value={result[field.name]} />");
+    expect(files["web/app/routes/show.tsx"]).toContain("<RecordDetails resource={resource} record={result} />");
     expect(files["web/app/components/related-records.tsx"]).toContain("<RelationCell field={field} value={value} />");
     expect(files["web/app/components/resource-form.tsx"]).toContain("<RelationSelect relation={field.relation} fieldName={field.name} />");
     // The display renderer and the drawer component ship with the app.
@@ -146,12 +148,29 @@ describe("Refine SPA generation", () => {
     expect(files["web/app/components/relation-field.tsx"]).toContain("Drawer");
     expect(files["web/app/components/relation-field.tsx"]).toContain("dangerouslySetInnerHTML");
     expect(files["web/app/components/relation-field.tsx"]).toContain("useOne<Record<string, unknown>>");
+    // The drawer mirrors the detail page through the shared RecordDetails body and
+    // gets its own header breadcrumb; the shared component renders every visible
+    // detail field (enum tags, FK cells, dates, files, vector/null placeholders).
+    expect(files["web/app/components/relation-field.tsx"]).toContain("<RecordDetails resource={target} record={record} size=\"small\" />");
+    expect(files["web/app/components/relation-field.tsx"]).toContain("RelatedRecordBreadcrumb");
+    expect(files["web/app/components/relation-field.tsx"]).toContain('width="min(92vw, 760px)"');
+    expect(files["web/app/components/record-details.tsx"]).toContain("export function RecordDetails");
+    expect(files["web/app/components/record-details.tsx"]).toContain("<RelationCell field={field} value={value} />");
+    expect(files["web/tests/record-details.test.tsx"]).toContain("renders every detail-visible field");
+    expect(files["web/tests/record-details.test.tsx"]).toContain("renders the @relationDetail summary above the shared field details");
+    expect(files["web/tests/record-details.test.tsx"]).toContain("renders the drawer breadcrumb with list and detail links");
     expect(files["web/tests/display-template.test.ts"]).toContain("escapes every interpolated value and literal text");
     expect(files["web/tests/display-template.test.ts"]).toContain("only whitelisted tags survive at render time");
     // Chrome keys for the FK drawer and singular/plural titles follow the i18n dictionary.
     expect(files["web/app/i18n.ts"]).toContain('createResource: "新建{{resource}}"');
     expect(files["web/app/i18n.ts"]).toContain('editResource: "编辑{{resource}}"');
     expect(files["web/app/i18n.ts"]).toContain('openDetail: "打开详情"');
+    expect(files["web/app/i18n.ts"]).toContain('drawerBreadcrumb: "关联记录路径"');
+    expect(files["web/app/i18n.ts"]).toContain('recordDetails: "字段详情"');
+    expect(files["web/app/i18n.ts"]).toContain('recordSummary: "关联摘要"');
+    expect(files["web/app/i18n.ts"]).toContain('close: "关闭"');
+    expect(files["web/tests/chrome-i18n.test.ts"]).toContain('"qiy.drawerBreadcrumb"');
+    expect(files["web/tests/chrome-i18n.test.ts"]).toContain('"qiy.recordDetails"');
   });
 
   test("rejects display templates that interpolate a foreign key raw id", () => {
