@@ -89,7 +89,9 @@ export function createAuthorizationGuard(authenticate: Authenticator, resources:
 
   return async (request: Request): Promise<Response | undefined> => {
     const path = new URL(request.url).pathname;
-    if (path === "/api/v1/health" || path.startsWith("/api/v1/openapi")) return;
+    // The Elysia OpenAPI plugin endpoints stay public; the Qiy-generated
+    // permission-filtered /api/v1/openapi.json is authenticated explicitly.
+    if (path === "/api/v1/health" || path === "/api/v1/openapi" || path.startsWith("/api/v1/openapi/")) return;
     if (publicPaths.some((publicPath) => path === publicPath || path.startsWith(publicPath + "/"))) return;
     if (path === "/api/v1/auth/login") return;
     if (!path.startsWith("/api/v1/") && path !== "/graphql" && path !== "/graphql/") return;

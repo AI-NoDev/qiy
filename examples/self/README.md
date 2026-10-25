@@ -12,6 +12,7 @@
 - **权限**：原子权限 + 权限组（角色即权限组）+ 数据库列/OAuth claim provider + 权限校验块；pages 页面级角色、restrict 字段 mask、scope 按 claim 过滤仓库仍然保留；
 - **实体显示文本（Django 风格）**：每个实体都声明 `@singular` / `@plural` / `@display` / `@tableDisplay` / `@relationDetail`，外键列显示目标记录的显示文本并链接到 Drawer/详情页，不再显示 UUID；外键 Drawer 与详情页共用 `app/components/record-details.tsx` 的 `RecordDetails`，按当前角色渲染全部 `showVisible` 字段（枚举 Tag、外键 `RelationCell`、日期/时间本地化、文件下载链接、Vector/空值占位），`@relationDetail` 摘要保留在字段详情上方，头部面包屑是「目标资源列表 → 当前记录详情页」并叠加嵌套 Drawer；**外键批量加载**：列表页把当前页外键值按目标资源分组，通过 `RelationBatchProvider` 的 `useMany`/`getMany` 用一条 `filters=[{"field":"id","operator":"in","value":"..."}]` 列表请求取回（例如库存流水的仓库/库位/产品三列只要 1~3 条请求），单元格自身的 `useOne` 查询被禁用；详情页关联表、抽屉正文和外键下拉仍走单条 `useOne`；
 - **日期与时间类型**：采购单 `expectedDate Date`、发运 `departureTime Time` 与既有的 `orderedAt` / `shippedAt` / `plannedAt` 等 `DateTime` 字段一起演示三种时间粒度 —— 创建/编辑表单分别渲染日期 picker、时间 picker、日期时间 picker，列表/详情按当前语言格式化，seed 提供真实值，服务端对非法日期/时间返回 400；
+- **系统管理**：`app.qiy` 的 `features { apiDocs true; apiKeys true; }` 生成「系统管理 → 功能总览」页面（实体 Mermaid/字段表、Dataflow 流程图、按权限过滤的 OpenAPI + Scalar 文档、权限模型、访问密钥），以及 `qiy_api_keys` 表、`/api/v1/auth/api-keys` 管理与 `Bearer qiy_...` / `X-API-Key` 认证；
 - **混合登录**：`providers local, okta, keycloak, google, kinde, azure-ad-b2c;` 同时启用密码登录和 5 个 OIDC Provider；每个 Provider 映射到自己的身份列（`oktaSubject`、`keycloakSubject`、`googleSubject`、`kindeSubject`、`azureSubject`），`profileField oauthProfiles` 记录各 Provider 返回的 email/name，供个人中心展示。
 
 ```qiy
@@ -54,6 +55,7 @@ examples/self/modules/actions.qiy     # 绑定到 dataflow 的列表/详情按�
 被引入的文件是 application 片段，不写 `qiy v0;` / `application {}`。展开后的模型仍必须满足 V0 的声明顺序，因此 `app.qiy` 按如下顺序 include：
 
 ```qiy
+features { apiDocs true; apiKeys true; } // 系统管理功能开关（默认 false）
 include "modules/messages.qiy";        // messages 在配置块之后、enum/entity 之前
 include "modules/permissions.qiy";     // permission 在 messages 之后、enum/entity 之前
 include "modules/platform.qiy";        // enum + users
@@ -143,6 +145,26 @@ menu {
 - 每个视图独立 loading/error；图表卡片包在 `CanAccess` 中，所以 data scope 与页面权限继续生效。渲染不引入新图表依赖：bar 用 `Progress`，line/pie 用内联 SVG，table 用 Ant `Table`。
 - 生成物：`apps/web/app/charts.ts`（chart/panel/placement 元数据 + `selectChartPlacement`/`chartViewportCategory`/panel 持久化等纯函数）、`apps/web/app/components/charts.tsx`（`ChartDashboard`/`ChartCard`）；`apps/web/app/dashboard.ts` 的旧指标列表在 chart 页面下为空，未声明 chart 的项目继续回退旧指标卡。
 - i18n：`qiy.charts.<chart>.label`、`qiy.charts.<chart>.views.<kind>.label`、`qiy.charts.<chart>.labels.<value>`；本示例 zh/en 词典见 `modules/messages.qiy`。生成测试 `apps/web/tests/charts.test.ts` 校验视图分组/栅格/变体/持久化，`apps/web/tests/charts-render.test.tsx` 用 SSR + mock 数据校验五种视图与选择器。
+
+## 功能总览与访问密钥（features）
+
+`app.qiy` 声明了：
+
+```qiy
+features {
+  apiDocs true;
+  apiKeys true;
+}
+```
+
+生成结果：
+
+- 侧边栏「系统管理」组末尾多出 **功能总览** 链接，路由 `/system/overview`（实现位于 `apps/web/app/routes/docs.tsx`、`app/components/docs-page.tsx`、`app/docs.ts`、`app/components/mermaid.tsx`；`app/features.ts` 保存开关和 `qiyMenuLinks`）。
+- 页签：**实体系**（Mermaid `classDiagram` + 每实体字段/注解表 + 关系表）、**Dataflow**（每个 dataflow 的 Mermaid `flowchart`、allow roles/permissions/verification、输入与步骤）、**API 文档**（Scalar 渲染 `GET /api/v1/openapi.json` 返回的、按当前账号权限过滤的 OpenAPI 3.1 文档）、**权限模型**（权限字段/组/校验 + 当前用户有效权限）、**访问密钥**。
+- 服务端新增 `apps/server/src/docs.ts`（生成期嵌入的模型元数据 + 纯函数 OpenAPI 构建/过滤）、`docs-routes.ts`（`/api/v1/openapi.json`、`/api/v1/docs/model`，未认证 401）、`auth/api-key-hash.ts`（HMAC-SHA256/格式/上限校验）、`auth/api-keys.ts`（`GET/POST/DELETE /api/v1/auth/api-keys` + `withApiKeyAuthentication` 兜底），以及 `qiy_api_keys` 表（迁移 `drizzle/0003_*.sql`）。
+- 过滤：admin 看到全部资源与 8 个命令；operator 看不到 users 资源和受限 DELETE，只能看到 `allow roles` 包含 operator 的命令；viewer 的资源端点只有 GET。页面本身任意已登录用户可打开，内容按权限过滤。
+- API key：`POST /api/v1/auth/api-keys { name, expiresAt? }` 只在创建响应返回一次完整 `qiy_<prefix>_<secret>`；`GET` 返回掩码列表；`DELETE` 只撤销自己的密钥；认证可用 `Authorization: Bearer qiy_...` 或 `X-API-Key`，权限与该用户会话一致，撤销/过期立即 401，每用户最多 10 个有效密钥，`lastUsedAt` 节流更新。
+- 页签/按钮/状态全部走 chrome 词典 `qiy.docs.*`、`qiy.apiKey.*`（zh-CN/en-US）；接口与 curl 示例见 [docs/guide/api-docs-and-keys.md](../../docs/guide/api-docs-and-keys.md)，DSL 见 [docs/dsl/features.md](../../docs/dsl/features.md)。
 
 ## 已存视图（saved views）
 

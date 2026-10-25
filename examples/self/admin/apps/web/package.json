@@ -23,7 +23,9 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-router": "7.18.4",
-    "ably": "2.29.0"
+    "ably": "2.29.0",
+    "mermaid": "12.2.0",
+    "@scalar/api-reference-react": "0.9.83"
   },
   "devDependencies": {
     "@react-router/dev": "7.18.4",
@@ -32,5 +34,6 @@
     "@types/react-dom": "19.2.3",
     "typescript": "5.9.3",
     "vite": "8.3.2"
-  }
+  },
+  "description": "供应链 + ERP + WMS 演示应用：17 个实体、事务型业务命令与系统管理功能"
 }

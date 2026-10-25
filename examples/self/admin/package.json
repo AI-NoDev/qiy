@@ -19,5 +19,6 @@
   },
   "devDependencies": {
     "turbo": "2.11.7"
-  }
+  },
+  "description": "供应链 + ERP + WMS 演示应用：17 个实体、事务型业务命令与系统管理功能"
 }

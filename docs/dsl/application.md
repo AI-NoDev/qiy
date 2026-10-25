@@ -103,6 +103,17 @@ api { client graphql; }
 
 前端只能选一个客户端；服务端仍会同时提供 REST 端点。
 
+## features
+
+```qiy
+features {
+  apiDocs true;
+  apiKeys true;
+}
+```
+
+系统管理功能开关，默认都关闭；`apiDocs` 生成 `/system/overview` 的功能总览（实体 Mermaid/Dataflow/权限模型/OpenAPI 文档）与受保护的 `/api/v1/openapi.json`、`/api/v1/docs/model`，`apiKeys` 生成 `qiy_api_keys` 表、`/api/v1/auth/api-keys` 端点和 Bearer/`X-API-Key` 认证。`apiKeys` 需要同时声明 `auth`。详见 [features](/dsl/features) 与 [API 文档与访问密钥](/guide/api-docs-and-keys)。
+
 ## elysia
 
 | 配置 | 说明 |

@@ -6,6 +6,7 @@ import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode }
 import { Link, useLocation } from "react-router";
 import { qiyIcons } from "../icons";
 import { menuGroups, resources } from "../resources";
+import { qiyMenuLinks } from "../features";
 
 /**
  * Sidebar menu: the model `menu { group ... }` block becomes collapsible
@@ -63,6 +64,22 @@ export interface QiyMenuNode {
 export interface BuildMenuTreeOptions {
   /** Prepend the Dashboard/Overview entry. Defaults to true. */
   overview?: boolean;
+  /**
+   * Extra page links that are not Refine resources (e.g. the generated 功能总览
+   * page). Each link is appended to its `group` submenu; a missing group is
+   * created as a new root submenu so the page stays reachable.
+   */
+  links?: ReadonlyArray<MenuTreePageLink>;
+}
+
+export interface MenuTreePageLink {
+  name: string;
+  path: string;
+  label: string;
+  labelKey?: string;
+  icon?: string;
+  /** Menu group name without the `menu-` prefix. */
+  group?: string;
 }
 
 function resourceNode(resource: MenuTreeResource): QiyMenuNode {
@@ -84,8 +101,9 @@ export function buildMenuTree(input: {
   resources: ReadonlyArray<MenuTreeResource>;
   menuGroups: ReadonlyArray<MenuTreeGroup>;
   options?: BuildMenuTreeOptions;
+  links?: ReadonlyArray<MenuTreePageLink>;
 }): QiyMenuNode[] {
-  const { resources: resourceList, menuGroups: groups, options = {} } = input;
+  const { resources: resourceList, menuGroups: groups, options = {}, links = options.links ?? [] } = input;
   const resourcesByName = new Map(resourceList.map((resource) => [resource.name, resource]));
   const nodes = new Map<string, QiyMenuNode>();
   for (const group of groups) {
@@ -122,6 +140,31 @@ export function buildMenuTree(input: {
   // Resources without a group list stay reachable at the root (flat menus keep working).
   for (const resource of resourceList) {
     if (!grouped.has(resource.name)) roots.push(resourceNode(resource));
+  }
+  // Extra page links (功能总览): append to their group, creating the group when the
+  // model has no matching menu block.
+  for (const link of links) {
+    const linkNode: QiyMenuNode = {
+      key: link.name,
+      label: link.label,
+      ...(link.labelKey ? { labelKey: link.labelKey } : {}),
+      ...(link.icon ? { icon: link.icon } : {}),
+      to: link.path,
+      children: [],
+    };
+    const groupKey = link.group ? `menu-${link.group}` : undefined;
+    if (!groupKey) {
+      roots.push(linkNode);
+      continue;
+    }
+    const group = nodes.get(groupKey);
+    if (group) {
+      group.children.push(linkNode);
+      continue;
+    }
+    const created: QiyMenuNode = { key: groupKey, label: link.group ?? "System", labelKey: `qiy.menu.${link.group}.label`, icon: "SettingOutlined", children: [linkNode] };
+    nodes.set(groupKey, created);
+    roots.push(created);
   }
   if (options.overview !== false) {
     roots.unshift({ key: "qiy-overview", label: "Overview", labelKey: "qiy.overview", icon: "DashboardOutlined", to: "/", children: [] });
@@ -176,7 +219,7 @@ export function QiySider({ Title }: RefineThemedLayoutSiderProps) {
   const location = useLocation();
   const isMobile = typeof breakpoint.lg === "undefined" ? false : !breakpoint.lg;
 
-  const tree = useMemo(() => buildMenuTree({ resources, menuGroups }), []);
+  const tree = useMemo(() => buildMenuTree({ resources, menuGroups, links: qiyMenuLinks }), []);
   const selectedKey = selectedMenuKey(tree, location.pathname);
   const routeOpenKeys = useMemo(() => openMenuKeys(tree, selectedKey), [tree, selectedKey]);
   const [openKeys, setOpenKeys] = useState<string[]>(routeOpenKeys);

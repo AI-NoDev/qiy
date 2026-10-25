@@ -16,6 +16,9 @@ const chromeKeys = [
   "qiy.new", "qiy.edit", "qiy.delete", "qiy.batchDelete", "qiy.confirmDelete", "qiy.detail",
   "qiy.createResource", "qiy.editResource", "qiy.openDetail", "qiy.searchRelation",
   "qiy.drawerBreadcrumb", "qiy.recordDetails", "qiy.recordSummary", "qiy.close", "qiy.chartView", "qiy.chartViewKind.const", "qiy.chartViewKind.pie", "qiy.chartViewKind.bar", "qiy.chartViewKind.line", "qiy.chartViewKind.table",
+  "qiy.docs.title", "qiy.docs.subtitle", "qiy.docs.tabEntities", "qiy.docs.tabDataflows", "qiy.docs.tabApi", "qiy.docs.tabPermissions", "qiy.docs.tabApiKeys", "qiy.docs.entitiesTitle", "qiy.docs.relationsTitle", "qiy.docs.accessNote", "qiy.docs.apiFiltered", "qiy.docs.scalarLoading", "qiy.docs.mermaidError", "qiy.docs.noData", "qiy.docs.fieldName", "qiy.docs.fieldType", "qiy.docs.fieldNullable", "qiy.docs.fieldEnum", "qiy.docs.fieldAnnotations",
+  "qiy.apiKey.title", "qiy.apiKey.description", "qiy.apiKey.create", "qiy.apiKey.name", "qiy.apiKey.empty", "qiy.apiKey.prefix", "qiy.apiKey.status", "qiy.apiKey.active", "qiy.apiKey.revoked", "qiy.apiKey.expired", "qiy.apiKey.revoke", "qiy.apiKey.secretTitle", "qiy.apiKey.secretHint", "qiy.apiKey.copy", "qiy.apiKey.copied", "qiy.apiKey.limit",
+  "qiy.yes", "qiy.no",
   "qiy.search", "qiy.filters", "qiy.matchAll", "qiy.matchAny", "qiy.commaSeparated", "qiy.forbidden", "qiy.noData",
   "qiy.themeColor", "qiy.themeBlue", "qiy.themePurple", "qiy.themeGreen", "qiy.themeOrange", "qiy.themeRed",
   "qiy.colorMode", "qiy.colorLight", "qiy.colorDark", "qiy.colorSystem",
@@ -82,6 +85,15 @@ test("every chrome key resolves in zh-CN and en-US instead of falling back to En
   expect(en.translate("qiy.chartView")).toBe("View");
   expect(zh.translate("qiy.chartViewKind.pie")).toBe("饼图");
   expect(en.translate("qiy.chartViewKind.table")).toBe("Table");
+  // System overview + API-key chrome.
+  expect(zh.translate("qiy.docs.title")).toBe("功能总览");
+  expect(en.translate("qiy.docs.title")).toBe("Feature overview");
+  expect(zh.translate("qiy.docs.tabApiKeys")).toBe("访问密钥");
+  expect(en.translate("qiy.docs.tabEntities")).toBe("Entities");
+  expect(zh.translate("qiy.apiKey.title")).toBe("访问密钥");
+  expect(en.translate("qiy.apiKey.title")).toBe("API keys");
+  expect(zh.translate("qiy.yes")).toBe("是");
+  expect(en.translate("qiy.no")).toBe("No");
   expect(zh.translate("qiy.signOut")).toBe("退出登录");
   expect(zh.translate("qiy.bind")).toBe("关联");
   expect(zh.translate("qiy.unbind")).toBe("解除关联");

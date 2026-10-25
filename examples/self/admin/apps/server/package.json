@@ -35,5 +35,6 @@
     "@types/bun": "1.4.2",
     "drizzle-kit": "0.31.11",
     "typescript": "5.9.3"
-  }
+  },
+  "description": "供应链 + ERP + WMS 演示应用：17 个实体、事务型业务命令与系统管理功能"
 }

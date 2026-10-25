@@ -269,3 +269,16 @@ export const realtimeOutbox = sqliteTable("qiy_realtime_outbox", {
   leaseUntil: integer("leaseUntil", { mode: "timestamp_ms" }),
   createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),
 }, (table) => [index("qiy_realtime_outbox_pending_idx").on(table.deliveredAt, table.deadLetteredAt, table.availableAt, table.leaseUntil, table.createdAt)]);
+
+
+export const qiyApiKeys = sqliteTable("qiy_api_keys", {
+  id: text("id").primaryKey(),
+  userId: text("userId").notNull(),
+  name: text("name").notNull(),
+  prefix: text("prefix").notNull().unique(),
+  hash: text("hash").notNull().unique(),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),
+  lastUsedAt: integer("lastUsedAt", { mode: "timestamp_ms" }),
+  expiresAt: integer("expiresAt", { mode: "timestamp_ms" }),
+  revokedAt: integer("revokedAt", { mode: "timestamp_ms" }),
+}, (table) => [index("qiy_api_keys_user_idx").on(table.userId)]);

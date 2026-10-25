@@ -253,8 +253,8 @@ describe("hybrid password + OAuth authentication", () => {
     expect(files["apps/server/src/auth/account.ts"]).toContain("loginMethodCount");
     expect(files["apps/server/src/server.ts"]).toContain('from "./auth/hybrid"');
     const app = files["apps/server/src/app.ts"]!;
-    expect(app).toContain("createHybridAuthRoutes(authenticate)");
-    expect(app).toContain("createAccountRoutes(authenticate)");
+    expect(app).toContain("createHybridAuthRoutes(authenticateRequest)");
+    expect(app).toContain("createAccountRoutes(authenticateRequest)");
     expect(app).toContain("/api/v1/auth/oauth/register");
     expect(app).toContain("/api/v1/auth/exchange");
     expect(files["apps/server/tests/hybrid-auth.test.ts"]).toContain("readOnboardingToken");
@@ -295,7 +295,7 @@ describe("hybrid password + OAuth authentication", () => {
     const project = parseQiyProject(source);
     const files = generateProject(project.database, project.name, { auth: project.auth });
     expect(files["apps/server/src/auth/account.ts"]).toContain('get("/identities"');
-    expect(files["apps/server/src/app.ts"]).toContain("createAccountRoutes(authenticate)");
+    expect(files["apps/server/src/app.ts"]).toContain("createAccountRoutes(authenticateRequest)");
     expect(files["apps/web/app/routes/profile.tsx"]).toContain("fetchIdentities");
     expect(files["apps/web/app/routes/profile.tsx"]).not.toContain("beginProviderBind");
     expect(files["apps/web/app/routes.ts"]).toContain('route("profile", "./routes/profile.tsx")');

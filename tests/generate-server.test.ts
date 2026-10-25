@@ -268,7 +268,7 @@ describe("V0 Elysia API generation", () => {
     expect(module).toContain('if (row.ownerId !== principal.id && principal.role !== "admin") return "forbidden";');
     expect(module).toContain("MAX_VIEWS_PER_RESOURCE = 100");
     expect(module).toContain("createSavedViewsRoutes(authenticate: Authenticator)");
-    expect(files["api/src/app.ts"]).toContain("createSavedViewsRoutes(authenticate)");
+    expect(files["api/src/app.ts"]).toContain("createSavedViewsRoutes(authenticateRequest)");
     // The generated test pins the upsert, ownership and delete matrix.
     const test = files["api/tests/saved-views.test.ts"]!;
     expect(test).toContain("publishing the same name twice upserts one row and reports ownership");

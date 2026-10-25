@@ -4677,7 +4677,7 @@ describe("generated /auth/me permission metadata", () => {
 `;
 }
 
-export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "storageProvider" | "auth" | "permissions" | "scopes" | "restrictions" | "pages" | "corsOrigins" | "elysiaPlugins" | "workflows" | "dataflows" | "actions" | "realtime"> & { testSuite?: QiyTestSuite } = {}): Record<string, string> {
+export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "comment" | "commentKey" | "storageProvider" | "auth" | "permissions" | "scopes" | "restrictions" | "pages" | "corsOrigins" | "elysiaPlugins" | "workflows" | "dataflows" | "actions" | "realtime" | "features"> & { testSuite?: QiyTestSuite; appName?: string } = {}): Record<string, string> {
   if (options.realtime && !options.auth) throw new Error("Realtime requires generated authentication");
   const errors = validateDatabaseIR(database);
   if (errors.length) throw new Error(errors.join("\n"));
@@ -4750,6 +4750,18 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
   // Permission declarations need generated authentication to resolve a principal.
   const permissions = options.permissions && !isPermissionModelEmpty(options.permissions) ? options.permissions : undefined;
   if (permissions && !auth) errors.push("Permission declarations require a generated auth block");
+  const features = options.features ?? { apiDocs: false, apiKeys: false };
+  const apiDocsEnabled = Boolean(features.apiDocs);
+  const apiKeysEnabled = Boolean(features.apiKeys);
+  if (apiKeysEnabled && !auth) errors.push("features apiKeys requires a generated auth block");
+  if (apiKeysEnabled && !database.entities.some((entity) => entity.name === auth!.userEntity)) errors.push(`features apiKeys requires the auth user entity ${auth!.userEntity}`);
+  const userEntityForScopes = auth ? database.entities.find((entity) => entity.name === auth.userEntity) : undefined;
+  const apiKeyScopeClaims = [...new Set((options.scopes ?? []).map((scope) => scope.claim))].flatMap((claim) => {
+    const fieldName = claim.replace(/\.([a-zA-Z0-9])/g, (_match: string, char: string) => char.toUpperCase());
+    const field = userEntityForScopes?.fields.find((candidate) => candidate.name === claim || candidate.name === fieldName);
+    return field ? [{ claim, field: field.name }] : [];
+  });
+  const apiKeyScopeClaimLines = apiKeyScopeClaims.map(({ claim, field }) => `  if (user.${field} !== null && user.${field} !== undefined && user.${field} !== "") claims[${JSON.stringify(claim)}] = typeof user.${field} === "boolean" || typeof user.${field} === "number" ? user.${field} : String(user.${field});`).join("\n");
   if (permissions && permissions.fields.length === 0) errors.push("Permission declarations require at least one permission field");
   if (permissions?.claims?.length && oidcProviders.length === 0) errors.push("Permission claim sources require at least one OAuth/OIDC provider");
   for (const claim of permissions?.claims ?? []) {
@@ -5000,7 +5012,7 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
 
   const imports = database.entities.map((entity) => `import { ${modelName(entity)}Routes } from "./modules/${entity.name}/${entity.name}.routes";`).join("\n");
   const repositoryImports = database.entities.map((entity) => `import { ${modelName(entity)}Repository } from "./modules/${entity.name}/${entity.name}.repository";`).join("\n");
-  const apps = database.entities.map((entity) => `    .use(${modelName(entity)}Routes(repositories.${entity.name}, authenticate))`).join("\n");
+  const apps = database.entities.map((entity) => `    .use(${modelName(entity)}Routes(repositories.${entity.name}, authenticateRequest))`).join("\n");
   const interfaces = database.entities.map((entity) => `  ${entity.name}: import("./modules/${entity.name}/${entity.name}.contract").${modelName(entity)}Repository;`).join("\n");
   const orderWorkflow = renderOrderWorkflow(database, options.scopes ?? [], options.workflows?.includes("orderInventory"));
   const dataflowRoutes = renderDataflowRoutes(database, options.dataflows ?? [], options.scopes ?? [], options.actions ?? [], options.realtime !== undefined, permissions);
@@ -5036,7 +5048,8 @@ export const orderIdempotency = pgTable("order_idempotency", {
   const generatedSchema = baseSchema
     + (usesDataflowIdempotency ? renderDataflowIdempotencySchema(database.dialect) : "")
     + ((options.dataflows ?? []).some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) ? renderDataflowOutboxSchema(database.dialect) : "")
-    + (options.realtime ? renderRealtimeOutboxSchema(database.dialect) : "");
+    + (options.realtime ? renderRealtimeOutboxSchema(database.dialect) : "")
+    + (apiKeysEnabled ? renderApiKeySchema(database.dialect) : "");
   const pluginDependencies: Record<string, string> = {};
   if (options.elysiaPlugins?.bearer) pluginDependencies["@elysia/bearer"] = "1.4.4";
   if (options.elysiaPlugins?.serverTiming) pluginDependencies["@elysia/server-timing"] = "1.4.1";
@@ -5653,6 +5666,7 @@ const close = async () => { client.close(); };
  import { registerPlugins } from "./plugins";
  import { createGraphQLRoutes } from "./graphql";
  import { createAuthorizationGuard, type Authenticator } from "./auth/guard";
+ ${apiKeysEnabled ? 'import { withApiKeyAuthentication } from "./auth/api-keys";' : ""}
  ${permissions ? 'import { loadPermissions } from "./auth/permissions";' : ""}
  ${options.realtime ? 'import { createRealtimeRoutes } from "./realtime";' : ""}
  ${imports}
@@ -5676,41 +5690,49 @@ export function normalizeCorsOrigins(origins: string[]): string[] {
 }
 
 export async function createApp(repositories: Repositories, authenticate: Authenticator = async () => null, includeWorkflows = true, includeStorage = true, corsOrigins?: string[], includeDataflows = true) {
+   // API-key requests are resolved after the configured session authenticator has
+   // had a chance to accept the request, so key auth is additive and never weakens
+   // the project's existing authentication.
+   const authenticateRequest = ${apiKeysEnabled ? "withApiKeyAuthentication(authenticate)" : "authenticate"};
    const configuredOrigins = ${JSON.stringify(options.corsOrigins ?? [])} as string[];
    const environmentOrigins = Bun.env.QIY_CORS_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean) ?? [];
    const allowedOrigins = normalizeCorsOrigins(corsOrigins ?? (environmentOrigins.length > 0 ? environmentOrigins : configuredOrigins));
-   const guard = createAuthorizationGuard(authenticate, ${protectedResources}, ${pageRules}, ${JSON.stringify(hybridAuth ? ["/api/v1/auth/providers", "/api/v1/auth/exchange", "/api/v1/auth/oauth/register"] : multiProviderAuth ? ["/api/v1/auth/providers", "/api/v1/auth/exchange"] : [])}, ${JSON.stringify(dataflowRoutes ? ["commands"] : [])});
+   const guard = createAuthorizationGuard(authenticateRequest, ${protectedResources}, ${pageRules}, ${JSON.stringify(hybridAuth ? ["/api/v1/auth/providers", "/api/v1/auth/exchange", "/api/v1/auth/oauth/register"] : multiProviderAuth ? ["/api/v1/auth/providers", "/api/v1/auth/exchange"] : [])}, ${JSON.stringify(dataflowRoutes ? ["commands"] : [])});
   const routes = (new Elysia({ prefix: "/api/v1" }) as any)
     .get("/health", () => ({ ok: true }))
     .get("/auth/me", async ({ request }: { request: Request }) => {
-      const principal = await authenticate(request);
+      const principal = await authenticateRequest(request);
       if (!principal) return null;${permissions ? `
       // Effective permissions are always additive: role group, database column and verified claims.
       const permissionSnapshot = await loadPermissions(principal);
       return { ...principal, permissions: permissionSnapshot.permissions, groups: permissionSnapshot.groups };` : ""}
     })
  ${apps};
- ${orderWorkflow ? '   const workflow = includeWorkflows ? (await import("./workflows/order")).createOrderWorkflowRoutes(authenticate) : undefined;' : ''}
- ${dataflowRoutes ? '   const dataflows = includeDataflows ? (await import("./dataflows")).createDataflowRoutes(authenticate) : undefined;' : ''}
-    ${options.realtime ? "const realtime = createRealtimeRoutes(authenticate);" : ""}
-    const storage = includeStorage ? (await import("./storage/routes")).createStorageRoutes(authenticate) : undefined;
+ ${orderWorkflow ? '   const workflow = includeWorkflows ? (await import("./workflows/order")).createOrderWorkflowRoutes(authenticateRequest) : undefined;' : ''}
+ ${dataflowRoutes ? '   const dataflows = includeDataflows ? (await import("./dataflows")).createDataflowRoutes(authenticateRequest) : undefined;' : ''}
+    ${options.realtime ? "const realtime = createRealtimeRoutes(authenticateRequest);" : ""}
+    const storage = includeStorage ? (await import("./storage/routes")).createStorageRoutes(authenticateRequest) : undefined;
     ${hasLocalAuth ? 'const authRoutes = (await import("./auth/local")).createLocalAuthRoutes();' : auth?.provider === "otp" ? 'const authRoutes = (await import("./auth/otp")).createOtpAuthRoutes();' : ''}
-    ${hasLocalAuth ? 'const accountRoutes = (await import("./auth/account")).createAccountRoutes(authenticate);' : ''}
-    ${hybridAuth ? 'const authProviderRoutes = (await import("./auth/oidc")).createHybridAuthRoutes(authenticate);' : multiProviderAuth ? 'const authProviderRoutes = (await import("./auth/oidc")).createAuthProviderRoutes();' : ''}
-    ${permissions ? 'const permissionRoutes = (await import("./auth/permission-routes")).createPermissionRoutes(authenticate);' : ''}
-    const application = new Elysia().use(allowedOrigins.length > 0 ? cors({ origin: allowedOrigins, credentials: false, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key"] }) : new Elysia()).onRequest(({ request }) => guard(request)).use(openapi({ path: "/api/v1/openapi", documentation: { info: { title: "Qiy Admin API", version: "1.0.0" } } })).use(routes)${options.elysiaPlugins?.graphqlAdapter && options.elysiaPlugins.graphqlAdapter !== "native" ? '' : '.use(createGraphQLRoutes(repositories, authenticate))'};
+    ${hasLocalAuth ? 'const accountRoutes = (await import("./auth/account")).createAccountRoutes(authenticateRequest);' : ''}
+    ${apiKeysEnabled ? 'const apiKeyRoutes = (await import("./auth/api-keys")).createApiKeyRoutes(authenticateRequest);' : ''}
+    ${hybridAuth ? 'const authProviderRoutes = (await import("./auth/oidc")).createHybridAuthRoutes(authenticateRequest);' : multiProviderAuth ? 'const authProviderRoutes = (await import("./auth/oidc")).createAuthProviderRoutes();' : ''}
+    ${permissions ? 'const permissionRoutes = (await import("./auth/permission-routes")).createPermissionRoutes(authenticateRequest);' : ''}
+    ${apiDocsEnabled ? 'const docsRoutes = (await import("./docs-routes")).createDocsRoutes(authenticateRequest);' : ''}
+    const application = new Elysia().use(allowedOrigins.length > 0 ? cors({ origin: allowedOrigins, credentials: false, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key", "X-API-Key"] }) : new Elysia()).onRequest(({ request }) => guard(request)).use(openapi({ path: "/api/v1/openapi", documentation: { info: { title: "Qiy Admin API", version: "1.0.0" } } })).use(routes)${options.elysiaPlugins?.graphqlAdapter && options.elysiaPlugins.graphqlAdapter !== "native" ? '' : '.use(createGraphQLRoutes(repositories, authenticateRequest))'};
     let composed = application;
     ${hasLocalAuth || auth?.provider === "otp" ? "composed = composed.use(authRoutes);" : ""}
     ${hasLocalAuth ? "composed = composed.use(accountRoutes);" : ""}
+    ${apiKeysEnabled ? "composed = composed.use(apiKeyRoutes);" : ""}
     ${hybridAuth || multiProviderAuth ? "composed = composed.use(authProviderRoutes);" : ""}
     ${permissions ? "composed = composed.use(permissionRoutes);" : ""}
+    ${apiDocsEnabled ? "composed = composed.use(docsRoutes);" : ""}
     ${orderWorkflow ? "composed = workflow ? composed.use(workflow) : composed;" : ""}
     ${dataflowRoutes ? "composed = dataflows ? composed.use(dataflows) : composed;" : ""}
     ${options.realtime ? "composed = composed.use(realtime);" : ""}
     composed = storage ? composed.use(storage) : composed;
-    composed = composed.use((await import("./saved-views")).createSavedViewsRoutes(authenticate));
-    ${auth ? 'composed = composed.use((await import("./audit/routes")).createAuditRoutes(authenticate));' : ""}
-    return registerPlugins(composed, { repositories, authenticate });
+    composed = composed.use((await import("./saved-views")).createSavedViewsRoutes(authenticateRequest));
+    ${auth ? 'composed = composed.use((await import("./audit/routes")).createAuditRoutes(authenticateRequest));' : ""}
+    return registerPlugins(composed, { repositories, authenticate: authenticateRequest });
 }
 `,
     "api/src/modules/index.ts": database.entities.map((entity) => `export { ${modelName(entity)}Routes } from "./${entity.name}/${entity.name}.routes";`).join("\n") + "\n",
@@ -6548,6 +6570,16 @@ try {
   process.exit(1);
 }
 `;
+  if (apiKeysEnabled && auth) {
+    files["api/src/auth/api-key-hash.ts"] = renderApiKeyHashModule();
+    files["api/src/auth/api-keys.ts"] = renderApiKeyRoutesModule(auth, database, apiKeyScopeClaimLines);
+    files["api/tests/api-keys.test.ts"] = renderApiKeyTestModule(auth, database);
+  }
+  if (apiDocsEnabled) {
+    files["api/src/docs.ts"] = renderDocsModule(database, { ...options, features }, options.appName);
+    files["api/src/docs-routes.ts"] = renderDocsRoutesModule(Boolean(permissions));
+    files["api/tests/docs.test.ts"] = renderDocsTestModule(database);
+  }
   if (auth) {
     if (permissions) {
       files["api/src/auth/permissions.ts"] = renderPermissionModule(auth, permissions);
@@ -8022,3 +8054,998 @@ export function createHybridAuthRoutes(authenticate: Authenticator) {
 }
 `;
 }
+
+/** ------------------------------------------------------------------------- */
+/** System administration features: API docs, docs metadata and API keys.     */
+/** ------------------------------------------------------------------------- */
+
+/** DDL-neutral column helpers for the `qiy_api_keys` table. */
+function renderApiKeySchema(dialect: DatabaseIR["dialect"]): string {
+  const table = dialect === "postgresql" ? "pgTable" : dialect === "sqlite" ? "sqliteTable" : "mysqlTable";
+  const string = (name: string, length?: number) => dialect === "mysql" ? `varchar(${JSON.stringify(name)}, { length: ${length ?? 255} })` : `text(${JSON.stringify(name)})`;
+  const timestamp = (name: string) => dialect === "postgresql" ? `timestamp(${JSON.stringify(name)}, { withTimezone: true })` : dialect === "sqlite" ? `integer(${JSON.stringify(name)}, { mode: "timestamp_ms" })` : `datetime(${JSON.stringify(name)}, { mode: "date", fsp: 3 })`;
+  return `\n\nexport const qiyApiKeys = ${table}("qiy_api_keys", {\n  id: ${string("id", 36)}.primaryKey(),\n  userId: ${string("userId", 36)}.notNull(),\n  name: ${string("name", 80)}.notNull(),\n  prefix: ${string("prefix", 16)}.notNull().unique(),\n  hash: ${string("hash", 64)}.notNull().unique(),\n  createdAt: ${timestamp("createdAt")}.notNull(),\n  lastUsedAt: ${timestamp("lastUsedAt")},\n  expiresAt: ${timestamp("expiresAt")},\n  revokedAt: ${timestamp("revokedAt")},\n}, (table) => [index("qiy_api_keys_user_idx").on(table.userId)]);\n`;
+}
+
+/** Pure API-key helpers (format, hashing, validation). No database/HTTP imports. */
+function renderApiKeyHashModule(): string {
+  return `import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+
+/** API keys look like qiy_<8 char prefix>_<43 char base64url secret>. */
+export const API_KEY_PREFIX = "qiy";
+export const API_KEY_PREFIX_LENGTH = 8;
+export const API_KEY_MAX_ACTIVE = 10;
+export const API_KEY_MAX_NAME = 80;
+export const API_KEY_SECRET_LENGTH = 32;
+export const API_KEY_LAST_USED_THROTTLE_MS = 60_000;
+
+export interface ParsedApiKey { prefix: string; secret: string }
+export interface GeneratedApiKey { key: string; prefix: string; hash: string }
+
+/** The pepper is QIY_AUTH_SECRET; a missing/short secret fails closed. */
+export function apiKeyPepper(): string {
+  const value = Bun.env.QIY_AUTH_SECRET;
+  if (!value || value.length < 32) throw new Error("QIY_AUTH_SECRET must be at least 32 characters to hash API keys");
+  return value;
+}
+
+/** HMAC-SHA256 (peppered SHA-256) of the secret half only; the prefix is not secret. */
+export function hashApiKey(secret: string, pepper: string = apiKeyPepper()): string {
+  return createHmac("sha256", pepper).update(secret).digest("hex");
+}
+
+function hashesEqual(left: string, right: string): boolean {
+  const a = Buffer.from(left, "hex");
+  const b = Buffer.from(right, "hex");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** Builds a fresh key: qiy_<8 hex prefix>_<base64url secret>. Only the hash is stored. */
+export function generateApiKey(): GeneratedApiKey {
+  const prefix = randomBytes(API_KEY_PREFIX_LENGTH / 2).toString("hex");
+  const secret = randomBytes(API_KEY_SECRET_LENGTH).toString("base64url");
+  return { key: API_KEY_PREFIX + "_" + prefix + "_" + secret, prefix, hash: hashApiKey(secret) };
+}
+
+/** Parses a presented key without touching the database. */
+export function parseApiKey(value: string): ParsedApiKey | null {
+  const match = new RegExp("^" + API_KEY_PREFIX + "_([a-f0-9]{" + API_KEY_PREFIX_LENGTH + "})_([A-Za-z0-9_-]{" + API_KEY_SECRET_LENGTH + ",})$").exec(value);
+  return match ? { prefix: match[1]!, secret: match[2]! } : null;
+}
+
+/** Constant-time verification of a presented key against a stored hash. */
+export function verifyApiKeyHash(presented: string, storedHash: string, pepper: string = apiKeyPepper()): boolean {
+  const parsed = parseApiKey(presented);
+  if (!parsed) return false;
+  return hashesEqual(hashApiKey(parsed.secret, pepper), storedHash);
+}
+
+/** Masked display value: qiy_<prefix>_********. The full key is shown once on create. */
+export function maskApiKeyPrefix(prefix: string): string {
+  return API_KEY_PREFIX + "_" + prefix + "_********";
+}
+
+/** First API key source: Authorization: Bearer qiy_... or X-API-Key: qiy_.... */
+export function apiKeyFromRequest(request: Request): string | null {
+  const header = request.headers.get("x-api-key");
+  if (header && header.startsWith(API_KEY_PREFIX + "_")) return header.trim();
+  const authorization = request.headers.get("authorization") ?? "";
+  const match = /^Bearer\\s+(.+)$/i.exec(authorization);
+  if (match && match[1]!.startsWith(API_KEY_PREFIX + "_")) return match[1]!.trim();
+  return null;
+}
+
+/** Session bearer tokens must never be treated as API keys. */
+export function isApiKeyLike(value: string): boolean {
+  return value.startsWith(API_KEY_PREFIX + "_");
+}
+
+export function validateApiKeyName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("API key name is required");
+  if (trimmed.length > API_KEY_MAX_NAME) throw new Error("API key name must be at most " + API_KEY_MAX_NAME + " characters");
+  return trimmed;
+}
+
+export function validateApiKeyExpiry(value: string | Date | null | undefined, now: Date = new Date()): Date | null {
+  if (value === undefined || value === null || value === "") return null;
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) throw new Error("API key expiresAt must be an ISO date-time");
+  if (parsed.getTime() <= now.getTime()) throw new Error("API key expiresAt must be in the future");
+  return parsed;
+}
+
+export function isApiKeyExpired(expiresAt: Date | number | string | null | undefined, now: Date = new Date()): boolean {
+  if (expiresAt === null || expiresAt === undefined) return false;
+  const value = expiresAt instanceof Date ? expiresAt.getTime() : new Date(expiresAt).getTime();
+  return Number.isFinite(value) && value <= now.getTime();
+}
+
+export function canCreateApiKey(activeCount: number): boolean {
+  return activeCount < API_KEY_MAX_ACTIVE;
+}
+
+/** Records returned by the list/create/revoke routes never include hash or secret. */
+export interface ApiKeyRecord {
+  id: string;
+  name: string;
+  prefix: string;
+  maskedKey: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+}
+
+export function toApiKeyRecord(row: { id: string; name: string; prefix: string; createdAt: Date | number | string; lastUsedAt: Date | number | string | null; expiresAt: Date | number | string | null; revokedAt: Date | number | string | null }): ApiKeyRecord {
+  const iso = (value: Date | number | string | null) => value === null || value === undefined ? null : new Date(value instanceof Date ? value.getTime() : typeof value === "number" ? value : String(value)).toISOString();
+  return {
+    id: row.id,
+    name: row.name,
+    prefix: row.prefix,
+    maskedKey: maskApiKeyPrefix(row.prefix),
+    createdAt: iso(row.createdAt)!,
+    lastUsedAt: iso(row.lastUsedAt),
+    expiresAt: iso(row.expiresAt),
+    revokedAt: iso(row.revokedAt),
+  };
+}
+`;
+}
+
+/** API-key routes + bearer authenticator composition for the generated app. */
+function renderApiKeyRoutesModule(auth: NonNullable<QiyProject["auth"]>, database: DatabaseIR, scopeClaims: string): string {
+  const userEntity = database.entities.find((entity) => entity.name === auth.userEntity)!;
+  return `import { Elysia, t } from "elysia";
+import { and, desc, eq, isNull } from "drizzle-orm";
+import { db } from "../db";
+import { ${auth.userEntity}, qiyApiKeys } from "../schema";
+import type { Authenticator, Principal } from "./guard";
+import {
+  API_KEY_MAX_ACTIVE,
+  canCreateApiKey,
+  apiKeyFromRequest,
+  generateApiKey,
+  hashApiKey,
+  isApiKeyExpired,
+  parseApiKey,
+  toApiKeyRecord,
+  validateApiKeyExpiry,
+  validateApiKeyName,
+} from "./api-key-hash";
+
+const ROLES = ["admin", "operator", "viewer"] as const;
+type Role = (typeof ROLES)[number];
+function asRole(value: unknown): Role | null { return typeof value === "string" && (ROLES as readonly string[]).includes(value) ? value as Role : null; }
+
+/** Resolves the user row behind a presented API key; updates lastUsedAt at most once a minute. */
+async function resolveApiKeyPrincipal(presented: string): Promise<Principal | null> {
+  const parsed = parseApiKey(presented);
+  if (!parsed) return null;
+  const rows = await db.select().from(qiyApiKeys).where(eq(qiyApiKeys.hash, hashApiKey(parsed.secret))).limit(1);
+  const key = rows[0];
+  if (!key || key.revokedAt || isApiKeyExpired(key.expiresAt)) return null;
+  const userRows = await db.select().from(${auth.userEntity}).where(eq(${auth.userEntity}.id, key.userId)).limit(1);
+  const user = userRows[0];
+  const role = user ? asRole(user.${auth.roleField}) : null;
+  if (!user || !role) return null;
+  const lastUsed = key.lastUsedAt ? new Date(key.lastUsedAt as Date | number).getTime() : 0;
+  if (Date.now() - lastUsed > 60_000) {
+    try { await db.update(qiyApiKeys).set({ lastUsedAt: new Date() }).where(eq(qiyApiKeys.id, key.id)); } catch { /* best effort */ }
+  }
+  const claims: Record<string, string | number | boolean | null> = {};
+${scopeClaims}
+  const row = user;
+  return { id: user.id, name: ${principalNameExpression(userEntity, "displayName", auth.usernameField)}, role, ...(Object.keys(claims).length ? { claims } : {}) };
+}
+
+/**
+ * Accepts session bearers exactly as before; when no session authenticates, an
+ * API key (Authorization: Bearer qiy_... or X-API-Key) is resolved to its user.
+ */
+export function withApiKeyAuthentication(authenticate: Authenticator): Authenticator {
+  return async (request) => {
+    const session = await authenticate(request);
+    if (session) return session;
+    const presented = apiKeyFromRequest(request);
+    if (!presented) return null;
+    try { return await resolveApiKeyPrincipal(presented); } catch { return null; }
+  };
+}
+
+export function createApiKeyRoutes(authenticate: Authenticator) {
+  return new Elysia({ prefix: "/api/v1/auth/api-keys" })
+    .get("/", async ({ request, set }) => {
+      const principal = await authenticate(request);
+      if (!principal) { set.status = 401; return { error: "Authentication required" }; }
+      const rows = await db.select().from(qiyApiKeys).where(eq(qiyApiKeys.userId, principal.id)).orderBy(desc(qiyApiKeys.createdAt));
+      return { items: rows.map((row) => toApiKeyRecord(row as never)) };
+    })
+    .post("/", async ({ body, request, set }) => {
+      const principal = await authenticate(request);
+      if (!principal) { set.status = 401; return { error: "Authentication required" }; }
+      let name: string;
+      let expiresAt: Date | null;
+      try {
+        name = validateApiKeyName(body.name);
+        expiresAt = validateApiKeyExpiry(body.expiresAt);
+      } catch (error) {
+        set.status = 400;
+        return { error: error instanceof Error ? error.message : "Invalid API key" };
+      }
+      const active = await db.select({ id: qiyApiKeys.id, expiresAt: qiyApiKeys.expiresAt }).from(qiyApiKeys).where(and(eq(qiyApiKeys.userId, principal.id), isNull(qiyApiKeys.revokedAt)));
+      const activeCount = active.filter((row) => !isApiKeyExpired(row.expiresAt)).length;
+      if (!canCreateApiKey(activeCount)) { set.status = 409; return { error: "At most " + API_KEY_MAX_ACTIVE + " active API keys are allowed" }; }
+      const generated = generateApiKey();
+      const id = crypto.randomUUID();
+      const createdAt = new Date();
+      await db.insert(qiyApiKeys).values({ id, userId: principal.id, name, prefix: generated.prefix, hash: generated.hash, createdAt, lastUsedAt: null, expiresAt, revokedAt: null });
+      const row = { id, name, prefix: generated.prefix, createdAt, lastUsedAt: null, expiresAt, revokedAt: null };
+      set.status = 201;
+      return { key: generated.key, record: toApiKeyRecord(row) };
+    }, { body: t.Object({ name: t.String({ minLength: 1, maxLength: 80 }), expiresAt: t.Optional(t.String({ maxLength: 64 })) }) })
+    .delete("/:id", async ({ params, request, set }) => {
+      const principal = await authenticate(request);
+      if (!principal) { set.status = 401; return { error: "Authentication required" }; }
+      const rows = await db.select().from(qiyApiKeys).where(and(eq(qiyApiKeys.id, params.id), eq(qiyApiKeys.userId, principal.id))).limit(1);
+      const row = rows[0];
+      if (!row) { set.status = 404; return { error: "API key not found" }; }
+      if (!row.revokedAt) await db.update(qiyApiKeys).set({ revokedAt: new Date() }).where(eq(qiyApiKeys.id, row.id));
+      const revokedAt = row.revokedAt ?? new Date();
+      return { record: toApiKeyRecord({ ...row, revokedAt } as never) };
+    });
+}
+`;
+}
+
+
+/**
+ * Building blocks for the generated `api/src/docs.ts`: static, import-free
+ * metadata plus the permission-filtered OpenAPI 3.1 + model documentation
+ * builders. Keeping this file import-free lets repository tests import the
+ * generated module directly.
+ */
+function renderDocsModule(database: DatabaseIR, options: NonNullable<Parameters<typeof generateServer>[1]>, appName?: string): string {
+  const enums = database.enums ?? [];
+  const enumByName = new Map(enums.map((enumeration) => [enumeration.name, enumeration]));
+  const relations = database.relations ?? [];
+  const entityByName = new Map(database.entities.map((entity) => [entity.name, entity]));
+  const masked = new Set<string>();
+  for (const restriction of options.restrictions ?? []) {
+    const entity = database.entities.find((candidate) => candidate.name === restriction.resource || candidate.tableName === restriction.resource);
+    if (!entity) continue;
+    for (const mask of restriction.masks ?? []) masked.add(entity.tableName + "." + mask.field);
+  }
+  const docsEntities = database.entities.map((entity) => {
+    const tableName = entity.tableName;
+    const fields = entity.fields.map((field) => {
+      const relation = relations.find((candidate) => candidate.fromEntity === entity.name && candidate.fromField === field.name);
+      const target = relation ? entityByName.get(relation.toEntity) : undefined;
+      const enumeration = field.enumName ? enumByName.get(field.enumName) : undefined;
+      const annotations: string[] = [];
+      if (field.primaryKey) annotations.push("primaryKey");
+      if (field.unique) annotations.push("unique");
+      if (field.nullable) annotations.push("nullable");
+      if (field.generatedValue) annotations.push("generated:" + field.generatedValue);
+      if (field.codeTemplate) annotations.push("generated:code");
+      if (relation && target) annotations.push("relation:" + target.tableName);
+      if (masked.has(tableName + "." + field.name)) annotations.push("masked");
+      return {
+        name: field.name,
+        label: field.label ?? field.name,
+        labelKey: "qiy.resources." + tableName + ".fields." + field.name + ".label",
+        type: field.type,
+        nullable: Boolean(field.nullable),
+        ...(field.primaryKey ? { primaryKey: true } : {}),
+        ...(field.unique ? { unique: true } : {}),
+        ...(field.enumName ? { enumName: field.enumName } : {}),
+        ...(enumeration ? {
+          enumValues: enumeration.values.map((value) => ({ name: value.name, label: value.label ?? value.name, labelKey: "qiy.enums." + enumeration.name + ".values." + value.name })),
+        } : {}),
+        annotations,
+        ...(relation && target ? { relation: { table: target.tableName, field: relation.toField, ...(relation.onDelete ? { onDelete: relation.onDelete === "setNull" ? "set null" : relation.onDelete } : {}) } } : {}),
+      };
+    });
+    return {
+      name: entity.name,
+      tableName,
+      label: entity.label ?? entity.name,
+      labelKey: "qiy.resources." + tableName + ".label",
+      singular: entity.singular ?? entity.label ?? entity.name,
+      plural: entity.plural ?? entity.label ?? entity.name,
+      ...(entity.display ? { display: entity.display } : {}),
+      ...(entity.tableDisplay ? { tableDisplay: entity.tableDisplay } : {}),
+      fields,
+      relations: relations.filter((relation) => relation.fromEntity === entity.name).map((relation) => {
+        const target = entityByName.get(relation.toEntity);
+        return { field: relation.fromField, toTable: target?.tableName ?? relation.toEntity, toField: relation.toField, ...(relation.onDelete ? { onDelete: relation.onDelete === "setNull" ? "set null" : relation.onDelete } : {}) };
+      }),
+    };
+  });
+  const docsDataflows = (options.dataflows ?? []).map((flow) => ({
+    name: flow.name,
+    label: flow.label ?? flow.name,
+    labelKey: flow.labelKey ?? "qiy.dataflows." + flow.name + ".label",
+    allowRoles: flow.roles ?? [],
+    allowPermissions: flow.permission ?? [],
+    verification: flow.verification ?? null,
+    inputs: flow.input.map((input) => ({ name: input.name, type: input.type, required: input.required, label: input.name, labelKey: "" })),
+    contexts: flow.context.map((context) => {
+      const entity = entityByName.get(context.entity);
+      return { name: context.name, entity: entity?.tableName ?? context.entity };
+    }),
+    steps: flow.steps.map((step) => ({
+      name: step.name,
+      actions: step.actions.map((action) => {
+        if (action.kind === "require") return { kind: "require", summary: "require " + action.left + " " + action.operator + " " + action.right };
+        if (action.kind === "update") return { kind: "update", summary: "update " + action.context + " (" + action.values.map((value) => value.field).join(", ") + ")" };
+        if (action.kind === "create") {
+          const entity = entityByName.get(action.entity);
+          return { kind: "create", summary: "create " + (entity?.tableName ?? action.entity) };
+        }
+        if (action.kind === "delete") return { kind: "delete", summary: "delete " + action.context };
+        if (action.kind === "emit") return { kind: "emit", summary: "emit " + action.event };
+        return { kind: "call", summary: "call " + action.adapter };
+      }),
+    })),
+    result: flow.result,
+  }));
+  const permissionModel = options.permissions;
+  const docsPermissions = {
+    fields: (permissionModel?.fields ?? []).map((field) => ({ name: field.name, value: field.value, label: field.label ?? field.name, labelKey: field.labelKey ?? "" })),
+    groups: (permissionModel?.groups ?? []).map((group) => ({ name: group.name, members: group.members, label: group.label ?? group.name, labelKey: group.labelKey ?? "" })),
+    verifications: (permissionModel?.verifications ?? []).map((verification) => ({ name: verification.name, label: verification.label ?? verification.name, labelKey: verification.labelKey ?? "", inputs: verification.inputs })),
+  };
+  const userEntity = options.auth ? database.entities.find((entity) => entity.name === options.auth!.userEntity) : undefined;
+  const pageRules = Object.fromEntries((options.pages ?? []).map((page) => [page.resource, Object.fromEntries(page.actions.map((entry) => [entry.action, entry.roles]))]));
+  const restrictions = (options.restrictions ?? []).map((restriction) => ({ resource: restriction.resource, roles: restriction.roles ?? [] }));
+  const meta = {
+    app: { name: appName ?? "Qiy Admin", ...(options.comment ? { description: options.comment } : {}), ...(options.commentKey ? { descriptionKey: options.commentKey } : {}) },
+    userTable: userEntity?.tableName ?? null,
+    features: { apiDocs: Boolean(options.features?.apiDocs), apiKeys: Boolean(options.features?.apiKeys) },
+    loginEnabled: Boolean(options.auth && (authHasLocal(options.auth) || options.auth.provider === "otp")),
+    pageRules,
+    restrictions,
+    entities: docsEntities,
+    relations: relations.map((relation) => {
+      const from = entityByName.get(relation.fromEntity);
+      const to = entityByName.get(relation.toEntity);
+      return { fromTable: from?.tableName ?? relation.fromEntity, field: relation.fromField, toTable: to?.tableName ?? relation.toEntity, toField: relation.toField, ...(relation.onDelete ? { onDelete: relation.onDelete === "setNull" ? "set null" : relation.onDelete } : {}) };
+    }),
+    enums: enums.map((enumeration) => ({ name: enumeration.name, values: enumeration.values.map((value) => ({ name: value.name, label: value.label ?? value.name, labelKey: "qiy.enums." + enumeration.name + ".values." + value.name })) })),
+    dataflows: docsDataflows,
+    permissions: docsPermissions,
+  };
+  return `/** Generated OpenAPI 3.1 + documentation metadata. Do not edit by hand. */
+export type DocsRole = "admin" | "operator" | "viewer";
+export type DocsAction = "list" | "show" | "create" | "edit" | "delete";
+export interface DocsPrincipal { role: DocsRole; permissions?: string[] }
+export interface DocsEnumValue { name: string; label: string; labelKey: string }
+export interface DocsFieldRelation { table: string; field: string; onDelete?: string }
+export interface DocsField {
+  name: string;
+  label: string;
+  labelKey: string;
+  type: string;
+  nullable: boolean;
+  primaryKey?: boolean;
+  unique?: boolean;
+  enumName?: string;
+  enumValues?: DocsEnumValue[];
+  annotations: string[];
+  relation?: DocsFieldRelation;
+}
+export interface DocsEntity {
+  name: string;
+  tableName: string;
+  label: string;
+  labelKey: string;
+  singular: string;
+  plural: string;
+  display?: string;
+  tableDisplay?: string;
+  fields: DocsField[];
+  relations: Array<{ field: string; toTable: string; toField: string; onDelete?: string }>;
+}
+export interface DocsRelation { fromTable: string; field: string; toTable: string; toField: string; onDelete?: string }
+export interface DocsDataflowAction { kind: string; summary: string }
+export interface DocsDataflowInput { name: string; type: string; required: boolean; label: string; labelKey: string }
+export interface DocsDataflow {
+  name: string;
+  label: string;
+  labelKey: string;
+  allowRoles: string[];
+  allowPermissions: string[];
+  verification: string | null;
+  inputs: DocsDataflowInput[];
+  contexts: Array<{ name: string; entity: string }>;
+  steps: Array<{ name: string; actions: DocsDataflowAction[] }>;
+  result: string;
+}
+export interface DocsPermissionField { name: string; value: string; label: string; labelKey: string }
+export interface DocsPermissionGroup { name: string; members: string[]; label: string; labelKey: string }
+export interface DocsPermissionVerification { name: string; label: string; labelKey: string; inputs: Array<{ name: string; type: string }> }
+export interface DocsMeta {
+  app: { name: string; description?: string; descriptionKey?: string };
+  userTable: string | null;
+  features: { apiDocs: boolean; apiKeys: boolean };
+  loginEnabled: boolean;
+  pageRules: Record<string, Record<string, string[]>>;
+  restrictions: Array<{ resource: string; roles: string[] }>;
+  entities: DocsEntity[];
+  relations: DocsRelation[];
+  enums: Array<{ name: string; values: DocsEnumValue[] }>;
+  dataflows: DocsDataflow[];
+  permissions: { fields: DocsPermissionField[]; groups: DocsPermissionGroup[]; verifications: DocsPermissionVerification[] };
+}
+export interface GeneratedOpenApiDocument {
+  openapi: string;
+  info: { title: string; version: string; description?: string };
+  servers: Array<{ url: string; description: string }>;
+  tags: Array<{ name: string; description: string }>;
+  security: Array<Record<string, string[]>>;
+  paths: Record<string, Record<string, unknown>>;
+  components: { securitySchemes: Record<string, Record<string, unknown>> };
+  "x-qiy-generated": true;
+  "x-qiy-principal": { role: DocsRole; permissions: string[] };
+}
+
+export const docsMeta: DocsMeta = ${JSON.stringify(meta, null, 2)};
+
+export const docsViewKindLabels: Record<string, string> = { "apiKeys": "qiy.apiKey.title", "entities": "qiy.docs.tabEntities", "dataflows": "qiy.docs.tabDataflows", "api": "qiy.docs.tabApi", "permissions": "qiy.docs.tabPermissions" };
+
+function restrictedRoles(tableName: string): string[] | undefined {
+  const restriction = docsMeta.restrictions.find((entry) => entry.resource === tableName);
+  return restriction ? restriction.roles : undefined;
+}
+
+export function mayUseResource(tableName: string, principal: DocsPrincipal): boolean {
+  if (principal.role === "admin") return true;
+  if (docsMeta.userTable === tableName) return false;
+  const roles = restrictedRoles(tableName);
+  if (roles && roles.length > 0 && !roles.includes(principal.role)) return false;
+  return true;
+}
+
+export function mayUseAction(tableName: string, action: DocsAction, principal: DocsPrincipal): boolean {
+  if (!mayUseResource(tableName, principal)) return false;
+  const pageRule = docsMeta.pageRules[tableName]?.[action];
+  if (pageRule && !pageRule.includes(principal.role)) return false;
+  if (principal.role === "viewer") return action === "list" || action === "show";
+  return true;
+}
+
+/** Commands are admin-only unless an allow rule names the role/permission; verification-gated commands are admin-only in the docs. */
+export function flowAllowed(flow: DocsDataflow, principal: DocsPrincipal): boolean {
+  if (principal.role === "admin") return true;
+  if (flow.verification) return false;
+  if (flow.allowRoles.length > 0) return flow.allowRoles.includes(principal.role);
+  if (flow.allowPermissions.length > 0) {
+    const held = new Set(principal.permissions ?? []);
+    return flow.allowPermissions.every((permission) => held.has(permission));
+  }
+  return false;
+}
+
+export function allowedActions(entity: DocsEntity, principal: DocsPrincipal): DocsAction[] {
+  return (["list", "show", "create", "edit", "delete"] as DocsAction[]).filter((action) => mayUseAction(entity.tableName, action, principal));
+}
+
+export function accessibleEntities(principal: DocsPrincipal): DocsEntity[] {
+  return docsMeta.entities.filter((entity) => mayUseResource(entity.tableName, principal));
+}
+
+export function buildDocsModel(principal: DocsPrincipal): Record<string, unknown> {
+  const permissions = principal.permissions ?? [];
+  return {
+    app: docsMeta.app,
+    features: docsMeta.features,
+    principal: { role: principal.role, permissions },
+    entities: accessibleEntities(principal).map((entity) => ({
+      ...entity,
+      restricted: !mayUseAction(entity.tableName, "list", principal),
+      actions: allowedActions(entity, principal),
+    })),
+    relations: docsMeta.relations,
+    enums: docsMeta.enums,
+    dataflows: docsMeta.dataflows.filter((flow) => flowAllowed(flow, principal)),
+    permissions: docsMeta.permissions,
+  };
+}
+
+function jsonSchemaForField(field: DocsField): Record<string, unknown> {
+  const base: Record<string, unknown> = field.type === "Integer" ? { type: "integer" }
+    : field.type === "Decimal" || field.type === "Money" ? { type: "number" }
+      : field.type === "Boolean" ? { type: "boolean" }
+        : field.type === "Vector" ? { type: "array", items: { type: "number" } }
+          : field.type === "File" || field.type === "Files" ? { type: "string", format: "binary" }
+            : { type: "string" };
+  if (field.enumValues?.length) base.enum = field.enumValues.map((value) => value.name);
+  if (field.nullable) base.nullable = true;
+  return base;
+}
+
+function requestSchema(entity: DocsEntity): Record<string, unknown> {
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+  for (const field of entity.fields) {
+    if (field.primaryKey || field.annotations.includes("generated:code") || field.annotations.includes("generated:uuid")) continue;
+    properties[field.name] = jsonSchemaForField(field);
+    if (!field.nullable) required.push(field.name);
+  }
+  return { type: "object", properties, ...(required.length ? { required } : {}) };
+}
+
+export function buildOpenApiDocument(principal: DocsPrincipal): GeneratedOpenApiDocument {
+  const permissions = principal.permissions ?? [];
+  const security: Array<Record<string, string[]>> = [{ bearerSession: [] }, { apiKey: [] }];
+  const paths: Record<string, Record<string, unknown>> = {};
+  const tags: Array<{ name: string; description: string }> = [];
+  const rolesFor = (tableName: string, action: string): string[] => {
+    const pageRule = docsMeta.pageRules[tableName]?.[action];
+    const restricted = restrictedRoles(tableName);
+    if (pageRule && pageRule.length) return pageRule;
+    if (restricted && restricted.length) return restricted;
+    return ["admin", "operator", "viewer"];
+  };
+  const add = (path: string, method: string, operation: Record<string, unknown>) => {
+    if (!paths[path]) paths[path] = {};
+    paths[path]![method] = operation;
+  };
+  for (const entity of docsMeta.entities) {
+    if (!mayUseResource(entity.tableName, principal)) continue;
+    const tag = entity.tableName;
+    tags.push({ name: tag, description: entity.label });
+    const entityPath = "/api/v1/" + entity.tableName;
+    const idPath = entityPath + "/{id}";
+    if (mayUseAction(entity.tableName, "list", principal)) {
+      add(entityPath, "get", {
+        tags: [tag], summary: "List " + entity.plural, operationId: "list_" + tag,
+        security, "x-qiy-roles": rolesFor(tag, "list"), "x-qiy-permissions": [],
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1 }, description: "Page number" },
+          { name: "pageSize", in: "query", schema: { type: "integer", minimum: 1, maximum: 200 }, description: "Items per page" },
+          { name: "search", in: "query", schema: { type: "string" }, description: "Search the list" },
+        ],
+        responses: { "200": { description: "Paginated records", content: { "application/json": { schema: { type: "object", properties: { data: { type: "array", items: { type: "object" } }, total: { type: "integer" } } } } } }, "401": { description: "Authentication required" }, "403": { description: "Permission denied" } },
+      });
+      add(entityPath + "/distribution", "get", { tags: [tag], summary: "Distribution of " + entity.plural, operationId: "distribution_" + tag, security, "x-qiy-roles": rolesFor(tag, "list"), "x-qiy-permissions": [], parameters: [{ name: "field", in: "query", schema: { type: "string" } }], responses: { "200": { description: "Distribution buckets" } } });
+      add(entityPath + "/trend", "get", { tags: [tag], summary: "Daily trend of " + entity.plural, operationId: "trend_" + tag, security, "x-qiy-roles": rolesFor(tag, "list"), "x-qiy-permissions": [], parameters: [{ name: "field", in: "query", schema: { type: "string" } }, { name: "days", in: "query", schema: { type: "integer", minimum: 1, maximum: 365 } }], responses: { "200": { description: "Daily counts" } } });
+      add(entityPath + "/aggregate", "get", { tags: [tag], summary: "Aggregate a numeric field of " + entity.plural, operationId: "aggregate_" + tag, security, "x-qiy-roles": rolesFor(tag, "list"), "x-qiy-permissions": [], parameters: [{ name: "field", in: "query", schema: { type: "string" } }, { name: "op", in: "query", schema: { type: "string", enum: ["sum", "avg", "min", "max"] } }], responses: { "200": { description: "Aggregate value" } } });
+    }
+    if (mayUseAction(entity.tableName, "show", principal)) {
+      add(idPath, "get", { tags: [tag], summary: "Read one record of " + entity.plural, operationId: "show_" + tag, security, "x-qiy-roles": rolesFor(tag, "show"), "x-qiy-permissions": [], parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { "200": { description: "One record" }, "404": { description: "Not found" } } });
+    }
+    if (mayUseAction(entity.tableName, "create", principal)) {
+      add(entityPath, "post", { tags: [tag], summary: "Create " + entity.singular, operationId: "create_" + tag, security, "x-qiy-roles": rolesFor(tag, "create"), "x-qiy-permissions": [], requestBody: { required: true, content: { "application/json": { schema: requestSchema(entity) } } }, responses: { "201": { description: "Created" }, "400": { description: "Invalid input" } } });
+    }
+    if (mayUseAction(entity.tableName, "edit", principal)) {
+      add(idPath, "patch", { tags: [tag], summary: "Update " + entity.singular, operationId: "update_" + tag, security, "x-qiy-roles": rolesFor(tag, "edit"), "x-qiy-permissions": [], parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], requestBody: { content: { "application/json": { schema: requestSchema(entity) } } }, responses: { "200": { description: "Updated" } } });
+    }
+    if (mayUseAction(entity.tableName, "delete", principal)) {
+      add(idPath, "delete", { tags: [tag], summary: "Delete " + entity.singular, operationId: "delete_" + tag, security, "x-qiy-roles": rolesFor(tag, "delete"), "x-qiy-permissions": [], parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { "200": { description: "Deleted" } } });
+    }
+  }
+  for (const flow of docsMeta.dataflows) {
+    if (!flowAllowed(flow, principal)) continue;
+    const properties: Record<string, unknown> = {};
+    const required: string[] = [];
+    for (const input of flow.inputs) {
+      properties[input.name] = input.type === "Integer" ? { type: "integer" } : input.type === "Decimal" ? { type: "number" } : input.type === "Boolean" ? { type: "boolean" } : { type: "string" };
+      if (input.required) required.push(input.name);
+    }
+    add("/api/v1/commands/" + flow.name, "post", {
+      tags: ["commands"], summary: flow.label, operationId: "run_" + flow.name, security,
+      "x-qiy-roles": flow.allowRoles, "x-qiy-permissions": flow.allowPermissions, "x-qiy-verification": flow.verification,
+      requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties, ...(required.length ? { required } : {}) } } } },
+      responses: { "200": { description: "Command result" }, "403": { description: "Command is not allowed for this principal" } },
+    });
+  }
+  add("/api/v1/auth/me", "get", { tags: ["auth"], summary: "Current principal and effective permissions", operationId: "auth_me", security, responses: { "200": { description: "Principal" } } });
+  if (docsMeta.loginEnabled) {
+    add("/api/v1/auth/login", "post", { tags: ["auth"], summary: "Password login", operationId: "auth_login", security, requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { username: { type: "string" }, password: { type: "string" } }, required: ["username", "password"] } } } }, responses: { "200": { description: "Access token" }, "401": { description: "Invalid credentials" } } });
+  }
+  if (docsMeta.features.apiKeys) {
+    add("/api/v1/auth/api-keys", "get", { tags: ["auth"], summary: "List API keys", operationId: "list_api_keys", security, responses: { "200": { description: "Masked API keys" } } });
+    add("/api/v1/auth/api-keys", "post", { tags: ["auth"], summary: "Create an API key (secret shown once)", operationId: "create_api_key", security, requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { name: { type: "string" }, expiresAt: { type: "string", format: "date-time" } }, required: ["name"] } } } }, responses: { "201": { description: "Key and record" } } });
+    add("/api/v1/auth/api-keys/{id}", "delete", { tags: ["auth"], summary: "Revoke an API key", operationId: "revoke_api_key", security, parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { "200": { description: "Revoked" }, "404": { description: "Not found" } } });
+  }
+  if (docsMeta.features.apiDocs) {
+    add("/api/v1/openapi.json", "get", { tags: ["docs"], summary: "Permission-filtered OpenAPI 3.1 document", operationId: "openapi_json", security, responses: { "200": { description: "OpenAPI document" } } });
+    add("/api/v1/docs/model", "get", { tags: ["docs"], summary: "Model metadata for the documentation page", operationId: "docs_model", security, responses: { "200": { description: "Model metadata" } } });
+  }
+  return {
+    openapi: "3.1.0",
+    info: { title: docsMeta.app.name + " API", version: "1.0.0", ...(docsMeta.app.description ? { description: docsMeta.app.description } : {}) },
+    servers: [{ url: "/", description: "Same origin" }],
+    tags,
+    security,
+    paths,
+    components: {
+      securitySchemes: {
+        bearerSession: { type: "http", scheme: "bearer", bearerFormat: "JWT", description: "Session access token from /api/v1/auth/login or an OAuth provider" },
+        apiKey: { type: "apiKey", in: "header", name: "X-API-Key", description: "Personal API key (qiy_...); sent as X-API-Key or Authorization: Bearer" },
+      },
+    },
+    "x-qiy-generated": true,
+    "x-qiy-principal": { role: principal.role, permissions },
+  };
+}
+`;
+}
+
+/** HTTP wiring for the docs endpoints (feature-gated in app.ts). */
+function renderDocsRoutesModule(hasPermissions: boolean): string {
+  return `import { Elysia } from "elysia";
+import type { Authenticator, Principal } from "./auth/guard";
+import { buildDocsModel, buildOpenApiDocument, type DocsPrincipal, type DocsRole } from "./docs";
+${hasPermissions ? 'import { loadPermissions } from "./auth/permissions";' : ""}
+
+const ROLES = ["admin", "operator", "viewer"] as const;
+function asRole(value: unknown): DocsRole { return typeof value === "string" && (ROLES as readonly string[]).includes(value) ? value as DocsRole : "viewer"; }
+
+async function docsPrincipal(principal: Principal): Promise<DocsPrincipal> {
+${hasPermissions ? `  const snapshot = await loadPermissions(principal);
+  return { role: asRole(principal.role), permissions: snapshot.permissions };` : `  return { role: asRole(principal.role), permissions: [] };`}
+}
+
+export function createDocsRoutes(authenticate: Authenticator) {
+  return new Elysia({ prefix: "/api/v1" })
+    .get("/openapi.json", async ({ request, set }) => {
+      const principal = await authenticate(request);
+      if (!principal) { set.status = 401; return { error: "Authentication required" }; }
+      set.headers["cache-control"] = "no-store";
+      return buildOpenApiDocument(await docsPrincipal(principal));
+    })
+    .get("/docs/model", async ({ request, set }) => {
+      const principal = await authenticate(request);
+      if (!principal) { set.status = 401; return { error: "Authentication required" }; }
+      set.headers["cache-control"] = "no-store";
+      return buildDocsModel(await docsPrincipal(principal));
+    });
+}
+`;
+}
+
+/** Generated server tests for the permission-filtered OpenAPI document. */
+function renderDocsTestModule(database: DatabaseIR): string {
+  const first = database.entities[0]!;
+  return `import { expect, test } from "bun:test";
+import { Elysia } from "elysia";
+import {
+  buildDocsModel,
+  buildOpenApiDocument,
+  docsMeta,
+  mayUseAction,
+  mayUseResource,
+  flowAllowed,
+  type DocsPrincipal,
+  type GeneratedOpenApiDocument,
+} from "../src/docs";
+import { createDocsRoutes } from "../src/docs-routes";
+
+const admin: DocsPrincipal = { role: "admin" };
+const operator: DocsPrincipal = { role: "operator" };
+const viewer: DocsPrincipal = { role: "viewer" };
+const paths = (document: GeneratedOpenApiDocument) => Object.keys(document.paths).sort();
+
+test("generates a valid OpenAPI 3.1 document with session and API-key security", () => {
+  const document = buildOpenApiDocument(admin);
+  expect(document.openapi).toBe("3.1.0");
+  expect(document.info.title.length).toBeGreaterThan(0);
+  expect(document.info.version).toBe("1.0.0");
+  expect(document.servers.length).toBeGreaterThan(0);
+  expect(Object.keys(document.components.securitySchemes)).toEqual(["bearerSession", "apiKey"]);
+  expect(document.security).toEqual([{ bearerSession: [] }, { apiKey: [] }]);
+  expect(document["x-qiy-generated"]).toBe(true);
+  expect(JSON.parse(JSON.stringify(document))).toEqual(document);
+  expect(document.paths["/api/v1/${first.tableName}"]).toBeDefined();
+  expect(document.paths["/api/v1/${first.tableName}"]?.get).toBeDefined();
+  expect(document.paths["/api/v1/auth/me"]?.get).toBeDefined();
+  if (docsMeta.features.apiDocs) expect(document.paths["/api/v1/openapi.json"]?.get).toBeDefined();
+  if (docsMeta.features.apiKeys) expect(document.paths["/api/v1/auth/api-keys"]?.get).toBeDefined();
+  const list = document.paths["/api/v1/${first.tableName}"]?.get as Record<string, unknown>;
+  expect(list["x-qiy-roles"]).toBeDefined();
+  expect(list.security).toEqual([{ bearerSession: [] }, { apiKey: [] }]);
+});
+
+test("filters operations by the principal permissions and page rules", () => {
+  const adminDocument = buildOpenApiDocument(admin);
+  const operatorDocument = buildOpenApiDocument(operator);
+  const viewerDocument = buildOpenApiDocument(viewer);
+  expect(paths(operatorDocument).length).toBeLessThanOrEqual(paths(adminDocument).length);
+  expect(paths(viewerDocument).length).toBeLessThanOrEqual(paths(operatorDocument).length);
+  for (const entity of docsMeta.entities) {
+    const listPath = "/api/v1/" + entity.tableName;
+    const adminHas = mayUseResource(entity.tableName, admin);
+    const viewerHas = mayUseResource(entity.tableName, viewer);
+    if (!adminHas) continue;
+    expect(adminDocument.paths[listPath]).toBeDefined();
+    if (!viewerHas) expect(viewerDocument.paths[listPath]).toBeUndefined();
+    const entityActions = ["list", "show", "create", "edit", "delete"] as const;
+    for (const action of entityActions) {
+      const method = action === "list" ? "get" : action === "show" ? "get" : action === "create" ? "post" : action === "edit" ? "patch" : "delete";
+      const key = action === "list" || action === "create" ? listPath : listPath + "/{id}";
+      const document = operatorDocument;
+      if (mayUseAction(entity.tableName, action, operator)) continue;
+      expect(document.paths[key]?.[method]).toBeUndefined();
+    }
+    for (const method of Object.keys(viewerDocument.paths[listPath] ?? {})) expect(method).toBe("get");
+  }
+  for (const flow of docsMeta.dataflows) {
+    const commandPath = "/api/v1/commands/" + flow.name;
+    if (flowAllowed(flow, operator)) expect(operatorDocument.paths[commandPath]?.post).toBeDefined();
+    else expect(operatorDocument.paths[commandPath]).toBeUndefined();
+  }
+});
+
+test("serves the docs endpoints only to authenticated principals", async () => {
+  const app = new Elysia().use(createDocsRoutes(async (request) => request.headers.get("authorization") === "Bearer session-admin" ? { id: "admin", name: "Admin", role: "admin" } : null));
+  const anonymous = await app.handle(new Request("http://localhost/api/v1/openapi.json"));
+  expect(anonymous.status).toBe(401);
+  const authorized = await app.handle(new Request("http://localhost/api/v1/openapi.json", { headers: { authorization: "Bearer session-admin" } }));
+  expect(authorized.status).toBe(200);
+  expect(authorized.headers.get("cache-control")).toBe("no-store");
+  const spec = await authorized.json() as GeneratedOpenApiDocument;
+  expect(spec.openapi).toBe("3.1.0");
+  const modelResponse = await app.handle(new Request("http://localhost/api/v1/docs/model", { headers: { authorization: "Bearer session-admin" } }));
+  expect(modelResponse.status).toBe(200);
+  const model = await modelResponse.json() as { entities: unknown[]; dataflows: unknown[]; app: { name: string } };
+  expect(model.entities.length).toBeGreaterThan(0);
+  expect(model.app.name.length).toBeGreaterThan(0);
+});
+`;
+}
+
+
+/** Generated server tests for API keys: lifecycle, authentication and limits. */
+function renderApiKeyTestModule(auth: NonNullable<QiyProject["auth"]>, database: DatabaseIR): string {
+  const userEntity = database.entities.find((entity) => entity.name === auth.userEntity)!;
+  const dialect = database.dialect;
+  const userTable = userEntity.tableName;
+  const roleField = userEntity.fields.find((field) => field.name === auth.roleField)?.columnName ?? auth.roleField;
+  const displayField = userEntity.fields.find((field) => field.name === "displayName")?.columnName;
+  const emailField = userEntity.fields.find((field) => field.name === (auth.usernameField ?? "email"))?.columnName;
+  const seedColumns = [roleField, displayField, emailField].filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index);
+  const userFields = userEntity.fields.map((field) => ({ name: field.columnName ?? field.name, type: field.type, primaryKey: Boolean(field.primaryKey) }));
+  const repositoryNames = database.entities.map((entity) => JSON.stringify(entity.name)).join(", ");
+  const firstTable = database.entities[0]!.tableName;
+  const execSource = dialect === "sqlite"
+    ? `async function exec(sql: string): Promise<void> { client.exec(sql); }
+async function rows(sql: string): Promise<Array<Record<string, unknown>>> { return client.query(sql).all() as Array<Record<string, unknown>>; }`
+    : dialect === "postgresql"
+      ? `async function exec(sql: string): Promise<void> { await client.unsafe(sql); }
+async function rows(sql: string): Promise<Array<Record<string, unknown>>> { return await client.unsafe(sql) as Array<Record<string, unknown>>; }`
+      : `async function exec(sql: string): Promise<void> { await client.query(sql); }
+async function rows(sql: string): Promise<Array<Record<string, unknown>>> { const [result] = await client.query(sql) as unknown as [Array<Record<string, unknown>>, unknown]; return result; }`;
+  return `import { expect, test } from "bun:test";
+import { Elysia } from "elysia";
+import { client } from "../src/db";
+import { createApp, type Repositories } from "../src/app";
+import { createApiKeyRoutes, withApiKeyAuthentication } from "../src/auth/api-keys";
+import {
+  API_KEY_MAX_ACTIVE,
+  canCreateApiKey,
+  generateApiKey,
+  hashApiKey,
+  isApiKeyExpired,
+  maskApiKeyPrefix,
+  parseApiKey,
+  validateApiKeyExpiry,
+  validateApiKeyName,
+  verifyApiKeyHash,
+} from "../src/auth/api-key-hash";
+
+const DIALECT: string = ${JSON.stringify(dialect)};
+const USER_TABLE = ${JSON.stringify(userTable)};
+const USER_FIELDS: Array<{ name: string; type: string; primaryKey: boolean }> = ${JSON.stringify(userFields)};
+const SEED_COLUMNS: string[] = ${JSON.stringify(seedColumns)};
+const ROLE_COLUMN = ${JSON.stringify(roleField)};
+const DISPLAY_COLUMN = ${JSON.stringify(displayField ?? roleField)};
+const EMAIL_COLUMN = ${JSON.stringify(emailField ?? roleField)};
+const FIRST_TABLE = ${JSON.stringify(firstTable)};
+Bun.env.QIY_AUTH_SECRET = "qiy-api-key-test-secret-value-32-chars";
+
+function identifier(name: string): string { return DIALECT === "mysql" ? "\`" + name + "\`" : '"' + name + '"'; }
+
+function columnType(type: string): string {
+  if (DIALECT === "sqlite") {
+    if (type === "Integer" || type === "Boolean" || type === "DateTime") return "INTEGER";
+    if (type === "Decimal" || type === "Money") return "REAL";
+    if (type === "Vector" || type === "File" || type === "Files") return "BLOB";
+    return "TEXT";
+  }
+  if (DIALECT === "postgresql") {
+    if (type === "Integer") return "INTEGER";
+    if (type === "Boolean") return "BOOLEAN";
+    if (type === "Decimal" || type === "Money") return "DOUBLE PRECISION";
+    if (type === "DateTime") return "TIMESTAMPTZ";
+    if (type === "Date") return "DATE";
+    if (type === "Time") return "TIME";
+    return "TEXT";
+  }
+  if (type === "Integer" || type === "Boolean") return "INT";
+  if (type === "Decimal" || type === "Money") return "DOUBLE";
+  if (type === "DateTime" || type === "Date" || type === "Time") return "DATETIME(3)";
+  return "VARCHAR(191)";
+}
+
+function usersDdl(): string {
+  return "CREATE TABLE " + identifier(USER_TABLE) + " (" + USER_FIELDS.map((field) => identifier(field.name) + " " + columnType(field.type) + (field.primaryKey ? " PRIMARY KEY" : "")).join(", ") + ")";
+}
+
+function keysDdl(): string {
+  const timestamp = DIALECT === "sqlite" ? "INTEGER" : DIALECT === "postgresql" ? "TIMESTAMPTZ" : "DATETIME(3)";
+  return "CREATE TABLE " + identifier("qiy_api_keys") + " (" + ["id", "userId", "name", "prefix", "hash", "createdAt"].map((column) => identifier(column) + (column === "createdAt" ? " " + timestamp : " TEXT") + (column === "id" ? " PRIMARY KEY" : " NOT NULL")).join(", ") + ", " + ["lastUsedAt", "expiresAt", "revokedAt"].map((column) => identifier(column) + " " + timestamp).join(", ") + ")";
+}
+
+function literal(value: unknown): string {
+  if (value === null || value === undefined) return "NULL";
+  if (typeof value === "number") return String(value);
+  return "'" + String(value).replace(/'/g, "''") + "'";
+}
+
+function timestampLiteral(value: Date | null): string {
+  if (!value) return "NULL";
+  return DIALECT === "sqlite" ? String(value.getTime()) : literal(value.toISOString());
+}
+
+function nowMinus(minutes: number): Date { return new Date(Date.now() - minutes * 60_000); }
+function nowPlus(minutes: number): Date { return new Date(Date.now() + minutes * 60_000); }
+
+${execSource}
+
+async function reset(): Promise<void> {
+  await exec("DROP TABLE IF EXISTS " + identifier("qiy_api_keys"));
+  await exec("DROP TABLE IF EXISTS " + identifier(USER_TABLE));
+  await exec(usersDdl());
+  await exec(keysDdl());
+}
+
+async function seedUser(id: string, role: string, displayName: string): Promise<void> {
+  const values = SEED_COLUMNS.map((column) => column === ROLE_COLUMN ? literal(role) : column === DISPLAY_COLUMN ? literal(displayName) : literal(displayName.toLowerCase().replace(/\\s+/g, ".") + "@example.com"));
+  await exec("INSERT INTO " + identifier(USER_TABLE) + " (" + [identifier("id"), ...SEED_COLUMNS.map((column) => identifier(column))].join(", ") + ") VALUES (" + [literal(id), ...values].join(", ") + ")");
+}
+
+async function insertKey(input: { id: string; userId: string; name: string; prefix: string; hash: string; createdAt: Date; expiresAt: Date | null; revokedAt: Date | null }): Promise<void> {
+  await exec("INSERT INTO " + identifier("qiy_api_keys") + " (" + ["id", "userId", "name", "prefix", "hash", "createdAt", "lastUsedAt", "expiresAt", "revokedAt"].map((column) => identifier(column)).join(", ") + ") VALUES (" + [literal(input.id), literal(input.userId), literal(input.name), literal(input.prefix), literal(input.hash), timestampLiteral(input.createdAt), "NULL", timestampLiteral(input.expiresAt), timestampLiteral(input.revokedAt)].join(", ") + ")");
+}
+
+async function keyRows(): Promise<Array<Record<string, unknown>>> { return rows("SELECT id, userId, name, prefix, hash, lastUsedAt, expiresAt, revokedAt FROM qiy_api_keys"); }
+
+const session = async (request: Request) => {
+  const header = request.headers.get("authorization");
+  if (header === "Bearer session-admin") return { id: "admin-user", name: "Admin", role: "admin" as const };
+  if (header === "Bearer session-operator") return { id: "operator-user", name: "Operator", role: "operator" as const };
+  return null;
+};
+
+function routes() { return new Elysia().use(createApiKeyRoutes(session)); }
+function call(path: string, init?: RequestInit) { return routes().handle(new Request("http://localhost" + path, init)); }
+const adminHeaders = { authorization: "Bearer session-admin", "content-type": "application/json" };
+const operatorHeaders = { authorization: "Bearer session-operator", "content-type": "application/json" };
+
+test("API key helpers hash secrets, validate names/expiry and never expose the secret", () => {
+  const generated = generateApiKey();
+  expect(generated.key.startsWith("qiy_")).toBe(true);
+  const parsed = parseApiKey(generated.key);
+  expect(parsed).not.toBeNull();
+  expect(generated.prefix).toHaveLength(8);
+  expect(parsed!.prefix).toBe(generated.prefix);
+  expect(parseApiKey("qiy_short")).toBeNull();
+  expect(parseApiKey("session-token")).toBeNull();
+  expect(generated.hash).toHaveLength(64);
+  expect(generated.hash).not.toContain(generated.key);
+  expect(verifyApiKeyHash(generated.key, generated.hash)).toBe(true);
+  expect(verifyApiKeyHash(generated.key, hashApiKey("another-secret"))).toBe(false);
+  expect(hashApiKey(parsed!.secret)).toBe(generated.hash);
+  expect(maskApiKeyPrefix(generated.prefix)).not.toContain(parsed!.secret);
+  expect(validateApiKeyName("  CI deploy  ")).toBe("CI deploy");
+  expect(() => validateApiKeyName("   ")).toThrow("name is required");
+  expect(validateApiKeyExpiry(nowPlus(5).toISOString())).toBeInstanceOf(Date);
+  expect(() => validateApiKeyExpiry(nowMinus(5).toISOString())).toThrow("must be in the future");
+  expect(isApiKeyExpired(nowMinus(1), new Date())).toBe(true);
+  expect(isApiKeyExpired(null, new Date())).toBe(false);
+  expect(canCreateApiKey(API_KEY_MAX_ACTIVE - 1)).toBe(true);
+  expect(canCreateApiKey(API_KEY_MAX_ACTIVE)).toBe(false);
+});
+
+test("creates, lists, authenticates and revokes an API key", async () => {
+  await reset();
+  await seedUser("admin-user", "admin", "Admin User");
+  const created = await call("/api/v1/auth/api-keys", { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "CI deploy", expiresAt: nowPlus(60).toISOString() }) });
+  expect(created.status).toBe(201);
+  const payload = await created.json() as { key: string; record: { id: string; maskedKey: string; prefix: string; name: string } };
+  expect(payload.key.startsWith("qiy_")).toBe(true);
+  expect(payload.record.name).toBe("CI deploy");
+  const parsed = parseApiKey(payload.key)!;
+  expect(payload.record.maskedKey).not.toContain(parsed.secret);
+  expect(JSON.stringify(payload)).not.toContain("hash");
+  const stored = await keyRows();
+  expect(stored).toHaveLength(1);
+  expect(stored[0]!.hash).toBe(hashApiKey(parsed.secret));
+  expect(stored[0]!.hash).not.toBe(payload.key);
+  expect(String(stored[0]!.hash)).toHaveLength(64);
+  expect(stored[0]!.prefix).toBe(payload.record.prefix);
+
+  const listed = await call("/api/v1/auth/api-keys", { headers: adminHeaders });
+  expect(listed.status).toBe(200);
+  const listedBody = await listed.json() as { items: Array<Record<string, unknown>> };
+  expect(listedBody.items).toHaveLength(1);
+  expect(JSON.stringify(listedBody)).not.toContain(parsed.secret);
+
+  const wrapped = withApiKeyAuthentication(session);
+  const bearerPrincipal = await wrapped(new Request("http://localhost/probe", { headers: { authorization: "Bearer " + payload.key } }));
+  expect(bearerPrincipal).toMatchObject({ id: "admin-user", role: "admin" });
+  const headerPrincipal = await wrapped(new Request("http://localhost/probe", { headers: { "x-api-key": payload.key } }));
+  expect(headerPrincipal).toMatchObject({ id: "admin-user", role: "admin" });
+  expect(await wrapped(new Request("http://localhost/probe", { headers: { authorization: "Bearer session-token" } }))).toBeNull();
+  const used = await keyRows();
+  expect(used[0]!.lastUsedAt).not.toBeNull();
+
+  const revoked = await call("/api/v1/auth/api-keys/" + payload.record.id, { method: "DELETE", headers: adminHeaders });
+  expect(revoked.status).toBe(200);
+  expect(await wrapped(new Request("http://localhost/probe", { headers: { "x-api-key": payload.key } }))).toBeNull();
+  expect((await call("/api/v1/auth/api-keys/" + payload.record.id, { method: "DELETE", headers: adminHeaders })).status).toBe(200);
+  expect((await call("/api/v1/auth/api-keys/missing", { method: "DELETE", headers: adminHeaders })).status).toBe(404);
+});
+
+test("API keys authenticate through the app guard and inherit the user's limits", async () => {
+  await reset();
+  await seedUser("admin-user", "admin", "Admin User");
+  await seedUser("operator-user", "operator", "Operator User");
+  const adminResponse = await call("/api/v1/auth/api-keys", { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "Admin key" }) });
+  const adminPayload = await adminResponse.json() as { key: string; record: { id: string } };
+  const adminKey = adminPayload.key;
+  const operatorResponse = await call("/api/v1/auth/api-keys", { method: "POST", headers: operatorHeaders, body: JSON.stringify({ name: "Operator key" }) });
+  expect(operatorResponse.status).toBe(201);
+  const operatorKey = (await operatorResponse.json() as { key: string }).key;
+
+  const refused = await call("/api/v1/auth/api-keys/" + adminPayload.record.id, { method: "DELETE", headers: operatorHeaders });
+  expect(refused.status).toBe(404);
+
+  const repository = { distribution: async () => [], list: async () => ({ data: [], total: 0 }), one: async () => undefined, create: async () => ({}), update: async () => undefined, delete: async () => undefined, deleteMany: async () => [] };
+  const repositories = Object.fromEntries([${repositoryNames}].map((name) => [name, repository])) as unknown as Repositories;
+  const app = await createApp(repositories, session);
+  const adminRead = await app.handle(new Request("http://localhost/api/v1/" + FIRST_TABLE + "/", { headers: { "x-api-key": adminKey } }));
+  expect(adminRead.status).toBe(200);
+  const anonymous = await app.handle(new Request("http://localhost/api/v1/" + FIRST_TABLE + "/"));
+  expect(anonymous.status).toBe(401);
+  // Non-admin principals never get role access to the auth user resource: an
+  // operator API key must be rejected by the same guard as an operator session.
+  const operatorDenied = await app.handle(new Request("http://localhost/api/v1/" + USER_TABLE + "/", { headers: { "x-api-key": operatorKey } }));
+  expect(operatorDenied.status).toBe(403);
+  const self = await app.handle(new Request("http://localhost/api/v1/auth/api-keys", { headers: { "x-api-key": adminKey } }));
+  expect(self.status).toBe(200);
+  const revoke = await app.handle(new Request("http://localhost/api/v1/auth/api-keys/" + adminPayload.record.id, { method: "DELETE", headers: { "x-api-key": adminKey } }));
+  expect(revoke.status).toBe(200);
+  const afterRevoke = await app.handle(new Request("http://localhost/api/v1/" + FIRST_TABLE + "/", { headers: { "x-api-key": adminKey } }));
+  expect(afterRevoke.status).toBe(401);
+});
+
+test("rejects expired/revoked keys, invalid payloads and the per-user key limit", async () => {
+  await reset();
+  await seedUser("admin-user", "admin", "Admin User");
+  const generated = generateApiKey();
+  const expired = generateApiKey();
+  const revoked = generateApiKey();
+  await insertKey({ id: "expired-key", userId: "admin-user", name: "Expired", prefix: expired.prefix, hash: expired.hash, createdAt: nowMinus(120), expiresAt: nowMinus(60), revokedAt: null });
+  await insertKey({ id: "revoked-key", userId: "admin-user", name: "Revoked", prefix: revoked.prefix, hash: revoked.hash, createdAt: nowMinus(120), expiresAt: null, revokedAt: nowMinus(60) });
+  await insertKey({ id: "live-key", userId: "admin-user", name: "Live", prefix: generated.prefix, hash: generated.hash, createdAt: nowMinus(120), expiresAt: null, revokedAt: null });
+  const wrapped = withApiKeyAuthentication(session);
+  expect(await wrapped(new Request("http://localhost/probe", { headers: { "x-api-key": expired.key } }))).toBeNull();
+  expect(await wrapped(new Request("http://localhost/probe", { headers: { "x-api-key": revoked.key } }))).toBeNull();
+  expect(await wrapped(new Request("http://localhost/probe", { headers: { "x-api-key": "qiy_00000000_" + "x".repeat(43) } }))).toBeNull();
+  expect((await call("/api/v1/auth/api-keys", { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "" }) })).status).toBe(422);
+  expect((await call("/api/v1/auth/api-keys", { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "Missing expiry" }) })).status).toBe(201);
+  expect((await call("/api/v1/auth/api-keys", { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "Past", expiresAt: nowMinus(5).toISOString() }) })).status).toBe(400);
+  await exec("DELETE FROM " + identifier("qiy_api_keys"));
+  for (let index = 0; index < API_KEY_MAX_ACTIVE; index += 1) {
+    const key = generateApiKey();
+    await insertKey({ id: "limit-" + index, userId: "admin-user", name: "Key " + index, prefix: key.prefix, hash: key.hash, createdAt: new Date(), expiresAt: null, revokedAt: null });
+  }
+  expect((await call("/api/v1/auth/api-keys", { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "Over limit" }) })).status).toBe(409);
+});
+`;
+}
+

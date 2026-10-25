@@ -132,6 +132,12 @@ export interface QiyProject {
   };
   storageProvider?: "local" | "s3";
   /**
+   * Optional system-administration feature flags declared with a `features`
+   * block. Both default to false; when enabled the generator adds the matching
+   * routes/UI (`apiDocs`: 功能总览 + OpenAPI/Mermaid docs, `apiKeys`: API keys).
+   */
+  features?: QiyFeaturesConfig;
+  /**
    * Authentication. `provider` names the single configured provider for the legacy
    * single-provider forms (`provider local;`, `provider oidc;`, `provider otp;`).
    * A `providers` list may mix `local` with OAuth providers: `local: true` then means
@@ -271,6 +277,12 @@ export interface QiyUiConfig {
 }
 
 const qiyThemeKeys = new Set<QiyThemeKey>(["blue", "purple", "green", "orange", "red"]);
+
+/** `features { apiDocs true; apiKeys true; }`: system administration feature flags. */
+export interface QiyFeaturesConfig {
+  apiDocs: boolean;
+  apiKeys: boolean;
+}
 
 export type QiyAuthProvider = "local" | "oidc" | "oauth2" | "sso" | "okta" | "auth0" | "azure-ad-b2c" | "keycloak" | "google" | "kinde" | "otp";
 
@@ -2136,6 +2148,22 @@ function enumeration(): import("./database-ir").EnumIR {
     }
     expect("}");
   }
+  let features: QiyProject["features"];
+  if (peek() === "features") {
+    expect("features"); expect("{");
+    const result: QiyFeaturesConfig = { apiDocs: false, apiKeys: false };
+    const seen = new Set<string>();
+    while (peek() !== "}") {
+      const key = identifier();
+      if (seen.has(key)) throw new Error(`Duplicate features setting ${key}`);
+      seen.add(key);
+      if (key !== "apiDocs" && key !== "apiKeys") throw new Error(`Unsupported features setting ${key}; expected apiDocs or apiKeys`);
+      result[key] = boolean();
+      expect(";");
+    }
+    expect("}");
+    features = result;
+  }
   let realtime: QiyProject["realtime"];
   if (peek() === "realtime") {
     expect("realtime"); expect("{");
@@ -2362,6 +2390,10 @@ function enumeration(): import("./database-ir").EnumIR {
       ...(passwordField && { passwordField }),
       ...(profileField && { profileField }),
     };
+  }
+  if (features?.apiKeys && !auth) {
+    // API keys resolve a user row for role/claims, so the user table must exist.
+    throw new Error("features apiKeys requires an auth block");
   }
   let environment: QiyEnvironmentVariable[] | undefined;
   if (peek() === "env") {
@@ -2854,7 +2886,7 @@ function enumeration(): import("./database-ir").EnumIR {
   if (mode === "integration" && (corsOrigins || elysiaPlugins || storageProvider || auth || environment || scopes.length || restrictions.length || workflows.length || dataflows.length || permissions)) {
     throw new Error("application mode integration cannot configure generated server features; use integration auth and host adapters instead.");
   }
-  return { name: packageName, ...(applicationDescription && applicationDescription), database: { ...(databaseDescription && databaseDescription), dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}) }, ...(mode && { mode }), ...(integration && { integration }), ...(workspace && { workspace }), ...(ui && { ui }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(auth && { auth }), ...(environment && { environment }), ...(messages && { messages }), ...(permissions && { permissions }), ...(scopes.length ? { scopes } : {}), ...(restrictions.length ? { restrictions } : {}), ...(pages.length ? { pages } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(dashboardMetrics.length && { dashboardMetrics }), ...(charts.length && { charts }), ...(chartPanels.length && { chartPanels }), ...(realtime && { realtime }), ...(dataflows.length && { dataflows }), ...(actions.length && { actions }) };
+  return { name: packageName, ...(applicationDescription && applicationDescription), database: { ...(databaseDescription && databaseDescription), dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}) }, ...(mode && { mode }), ...(integration && { integration }), ...(workspace && { workspace }), ...(ui && { ui }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(features && { features }), ...(auth && { auth }), ...(environment && { environment }), ...(messages && { messages }), ...(permissions && { permissions }), ...(scopes.length ? { scopes } : {}), ...(restrictions.length ? { restrictions } : {}), ...(pages.length ? { pages } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(dashboardMetrics.length && { dashboardMetrics }), ...(charts.length && { charts }), ...(chartPanels.length && { chartPanels }), ...(realtime && { realtime }), ...(dataflows.length && { dataflows }), ...(actions.length && { actions }) };
 }
 
 function normalizePackageName(name: string): string {
@@ -2974,6 +3006,9 @@ export function serializeQiyProject(project: QiyProject): string {
     for (const origin of corsOrigins) lines.push(`      origin ${qiyString(origin)};`);
     lines.push("    }", "  }");
   } else if (project.apiClient) lines.push(`  api { client ${project.apiClient}; }`);
+  if (project.features) {
+    lines.push("  features {", `    apiDocs ${project.features.apiDocs ? "true" : "false"};`, `    apiKeys ${project.features.apiKeys ? "true" : "false"};`, "  }");
+  }
   if (project.realtime) {
     if (!project.auth) throw new Error("Realtime requires generated authentication");
     if (!project.realtime.resources.length) throw new Error("Realtime requires at least one resource");

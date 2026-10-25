@@ -7,7 +7,7 @@ import type { QiyProject } from "./qiy-project";
 import { authHasLocal, authIsHybrid, authOAuthProviders, authUsesProviderChooser } from "./qiy-project";
 import type { QiyTestSuite } from "./qiy-test";
 
-type ProjectOptions = Pick<QiyProject, "comment" | "commentKey" | "mode" | "integration" | "ui" | "messages" | "dataflows" | "actions" | "apiClient" | "corsOrigins" | "elysiaPlugins" | "menuGroups" | "dashboardMetrics" | "charts" | "chartPanels" | "realtime" | "storageProvider" | "auth" | "permissions" | "environment" | "scopes" | "restrictions" | "pages" | "workflows"> & { testSuite?: QiyTestSuite };
+type ProjectOptions = Pick<QiyProject, "comment" | "commentKey" | "mode" | "integration" | "ui" | "messages" | "dataflows" | "actions" | "apiClient" | "corsOrigins" | "elysiaPlugins" | "menuGroups" | "dashboardMetrics" | "charts" | "chartPanels" | "realtime" | "storageProvider" | "auth" | "permissions" | "environment" | "scopes" | "restrictions" | "pages" | "workflows" | "features"> & { testSuite?: QiyTestSuite };
 
 export function generateProject(database: DatabaseIR, name: string, options: ProjectOptions = {}): Record<string, string> {
   if (options.realtime && !options.auth) throw new Error("Realtime requires generated authentication");
@@ -39,9 +39,9 @@ export function generateProject(database: DatabaseIR, name: string, options: Pro
   if (options.elysiaPlugins?.jwt) {
     template["apps/server/tests/setup.ts"] += `Bun.env[${JSON.stringify(options.elysiaPlugins.jwt.secretEnv)}] ??= "qiy-test-only-jwt-secret";\n`;
   }
-  if ((options.auth && authHasLocal(options.auth)) || options.auth?.provider === "otp") template["apps/server/tests/setup.ts"] += 'Bun.env.QIY_AUTH_SECRET ??= "qiy-local-auth-test-secret-value-32";\n';
+  if ((options.auth && authHasLocal(options.auth)) || options.auth?.provider === "otp" || options.features?.apiKeys) template["apps/server/tests/setup.ts"] += 'Bun.env.QIY_AUTH_SECRET ??= "qiy-local-auth-test-secret-value-32";\n';
   if (options.realtime) template["apps/server/tests/setup.ts"] += 'Bun.env.QIY_REALTIME_DISABLED = "1";\n';
-  const files = { ...generateServer(database, options), ...generateWeb(database, options) };
+  const files = { ...generateServer(database, { ...options, appName: name }), ...generateWeb(database, options) };
   const apps = Object.fromEntries(Object.entries(files).map(([path, content]) => [
     path.replace(/^api\//, "apps/server/").replace(/^web\//, "apps/web/"), content,
   ]));

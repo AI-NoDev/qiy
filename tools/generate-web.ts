@@ -19,7 +19,7 @@ const authProviderLabels: Record<string, string> = {
   otp: "One-time password",
 };
 
-type WebOptions = Pick<QiyProject, "mode" | "integration" | "ui" | "messages" | "apiClient" | "menuGroups" | "dashboardMetrics" | "charts" | "chartPanels" | "realtime" | "auth" | "permissions" | "workflows" | "dataflows" | "actions" | "restrictions" | "pages" | "scopes"> & { readOnly?: boolean };
+type WebOptions = Pick<QiyProject, "mode" | "integration" | "ui" | "messages" | "apiClient" | "menuGroups" | "dashboardMetrics" | "charts" | "chartPanels" | "realtime" | "auth" | "permissions" | "workflows" | "dataflows" | "actions" | "restrictions" | "pages" | "scopes" | "features" | "comment"> & { readOnly?: boolean };
 type GeneratedAction = {
   name: string;
   roles?: string[];
@@ -1716,6 +1716,26 @@ export const localeMessages = {
     createResource: "新建{{resource}}", editResource: "编辑{{resource}}", openDetail: "打开详情", searchRelation: "搜索…",
     drawerBreadcrumb: "关联记录路径", recordDetails: "字段详情", recordSummary: "关联摘要", close: "关闭",
     chartView: "视图", "chartViewKind.const": "统计", "chartViewKind.pie": "饼图", "chartViewKind.bar": "柱状图", "chartViewKind.line": "折线图", "chartViewKind.table": "表格",
+    "docs.title": "功能总览", "docs.subtitle": "当前应用生成的实体、数据流、API 文档与访问密钥",
+    "docs.tabEntities": "实体系", "docs.tabDataflows": "Dataflow", "docs.tabApi": "API 文档", "docs.tabPermissions": "权限模型", "docs.tabApiKeys": "访问密钥",
+    "docs.entitiesTitle": "实体与关系", "docs.relationsTitle": "关系", "docs.accessNote": "API 文档只列出当前角色和权限允许的操作",
+    "docs.apiFiltered": "该文档已按当前账号的权限过滤", "docs.scalarLoading": "正在加载 API 参考", "docs.mermaidError": "图表渲染失败",
+    "docs.noData": "暂无可查看的内容", "docs.loadError": "功能总览加载失败", "docs.entity": "实体", "docs.selectEntity": "选择实体",
+    "docs.fieldName": "字段", "docs.fieldType": "类型", "docs.fieldNullable": "可空", "docs.fieldEnum": "枚举", "docs.fieldAnnotations": "注解",
+    "docs.restricted": "受限", "docs.actions": "操作", "docs.from": "来源", "docs.to": "目标", "docs.onDelete": "删除策略",
+    "docs.dataflowsTitle": "数据流", "docs.allowRoles": "允许角色", "docs.allowPermissions": "所需权限", "docs.verification": "权限校验",
+    "docs.dataflowInputs": "输入", "docs.dataflowSteps": "步骤", "docs.dataflowResult": "结果", "docs.role": "角色",
+    "docs.effectivePermissions": "有效权限", "docs.permissionField": "权限", "docs.permissionValue": "值", "docs.permissionGroups": "权限组",
+    "docs.permissionVerifications": "权限校验", "docs.members": "成员",
+    "apiKey.title": "访问密钥", "apiKey.description": "用于脚本和 CI 的个人访问密钥；完整密钥只显示一次。",
+    "apiKey.create": "创建密钥", "apiKey.name": "名称", "apiKey.namePlaceholder": "例如 CI 部署", "apiKey.nameRequired": "请输入名称",
+    "apiKey.expires": "过期时间", "apiKey.expiresHint": "服务端 expiresAt 可选；留空即长期有效。",
+    "apiKey.empty": "暂无访问密钥", "apiKey.prefix": "前缀", "apiKey.createdAt": "创建时间", "apiKey.lastUsed": "最近使用", "apiKey.status": "状态",
+    "apiKey.active": "有效", "apiKey.revoked": "已撤销", "apiKey.expired": "已过期", "apiKey.revoke": "撤销", "apiKey.actions": "操作",
+    "apiKey.revokeConfirm": "确定撤销该密钥？撤销后立即失效。", "apiKey.secretTitle": "请立即保存密钥",
+    "apiKey.secretHint": "完整密钥只显示一次，关闭后无法找回。", "apiKey.copy": "复制", "apiKey.copied": "已复制", "apiKey.created": "已创建",
+    "apiKey.loadError": "访问密钥加载失败", "apiKey.limit": "每用户最多 {{count}} 个有效密钥",
+    yes: "是", no: "否",
     language: "语言", save: "保存", cancel: "取消", deleteSuccess: "删除成功", requiredWithLabel: "请输入\${label}", loading: "加载中", quickAccess: "快速访问", upload: "上传文件",
     overview: "概览", overviewDescription: "从数据资源快速进入业务管理。", profile: "个人中心", filters: "筛选", search: "搜索",
     matchAll: "全部匹配", matchAny: "任一匹配", commaSeparated: "（逗号分隔）", forbidden: "没有访问该页面的权限",
@@ -1761,6 +1781,26 @@ export const localeMessages = {
     createResource: "Create {{resource}}", editResource: "Edit {{resource}}", openDetail: "Open details", searchRelation: "Search…",
     drawerBreadcrumb: "Related record path", recordDetails: "Field details", recordSummary: "Relation summary", close: "Close",
     chartView: "View", "chartViewKind.const": "Stat", "chartViewKind.pie": "Pie chart", "chartViewKind.bar": "Bar chart", "chartViewKind.line": "Line chart", "chartViewKind.table": "Table",
+    "docs.title": "Feature overview", "docs.subtitle": "Entities, dataflows, API reference and access keys generated for this application",
+    "docs.tabEntities": "Entities", "docs.tabDataflows": "Dataflow", "docs.tabApi": "API reference", "docs.tabPermissions": "Permissions", "docs.tabApiKeys": "API keys",
+    "docs.entitiesTitle": "Entities & relations", "docs.relationsTitle": "Relations", "docs.accessNote": "The API reference only lists operations allowed for your role and permissions",
+    "docs.apiFiltered": "This document is filtered by the current account permissions", "docs.scalarLoading": "Loading API reference", "docs.mermaidError": "Diagram failed to render",
+    "docs.noData": "Nothing to show", "docs.loadError": "Failed to load the overview", "docs.entity": "Entity", "docs.selectEntity": "Entity",
+    "docs.fieldName": "Field", "docs.fieldType": "Type", "docs.fieldNullable": "Nullable", "docs.fieldEnum": "Enum", "docs.fieldAnnotations": "Annotations",
+    "docs.restricted": "Restricted", "docs.actions": "Actions", "docs.from": "From", "docs.to": "To", "docs.onDelete": "On delete",
+    "docs.dataflowsTitle": "Dataflows", "docs.allowRoles": "Allowed roles", "docs.allowPermissions": "Required permissions", "docs.verification": "Verification",
+    "docs.dataflowInputs": "Inputs", "docs.dataflowSteps": "Steps", "docs.dataflowResult": "Result", "docs.role": "Role",
+    "docs.effectivePermissions": "Effective permissions", "docs.permissionField": "Permission", "docs.permissionValue": "Value", "docs.permissionGroups": "Groups",
+    "docs.permissionVerifications": "Verifications", "docs.members": "Members",
+    "apiKey.title": "API keys", "apiKey.description": "Personal API keys for scripts and CI; the full secret is shown only once.",
+    "apiKey.create": "Create key", "apiKey.name": "Name", "apiKey.namePlaceholder": "e.g. CI deploy", "apiKey.nameRequired": "Name is required",
+    "apiKey.expires": "Expires", "apiKey.expiresHint": "The server-side expiresAt is optional; leave it empty for a non-expiring key.",
+    "apiKey.empty": "No API keys yet", "apiKey.prefix": "Prefix", "apiKey.createdAt": "Created", "apiKey.lastUsed": "Last used", "apiKey.status": "Status",
+    "apiKey.active": "Active", "apiKey.revoked": "Revoked", "apiKey.expired": "Expired", "apiKey.revoke": "Revoke", "apiKey.actions": "Actions",
+    "apiKey.revokeConfirm": "Revoke this key? It stops working immediately.", "apiKey.secretTitle": "Save this secret now",
+    "apiKey.secretHint": "The full key is shown only once and cannot be recovered.", "apiKey.copy": "Copy", "apiKey.copied": "Copied", "apiKey.created": "Created",
+    "apiKey.loadError": "Failed to load API keys", "apiKey.limit": "Up to {{count}} active keys per user",
+    yes: "Yes", no: "No",
     language: "Language", save: "Save", cancel: "Cancel", deleteSuccess: "Deleted", requiredWithLabel: "\${label} is required", loading: "Loading", quickAccess: "Quick access", upload: "Upload file",
     overview: "Overview", overviewDescription: "Jump into your data resources from one place.", profile: "Profile", filters: "Filters", search: "Search",
     matchAll: "Match all", matchAny: "Match any", commaSeparated: " (comma separated)", forbidden: "You are not allowed to open this page",
@@ -2280,6 +2320,9 @@ const chromeKeys = [
   "qiy.new", "qiy.edit", "qiy.delete", "qiy.batchDelete", "qiy.confirmDelete", "qiy.detail",
   "qiy.createResource", "qiy.editResource", "qiy.openDetail", "qiy.searchRelation",
   "qiy.drawerBreadcrumb", "qiy.recordDetails", "qiy.recordSummary", "qiy.close", "qiy.chartView", "qiy.chartViewKind.const", "qiy.chartViewKind.pie", "qiy.chartViewKind.bar", "qiy.chartViewKind.line", "qiy.chartViewKind.table",
+  "qiy.docs.title", "qiy.docs.subtitle", "qiy.docs.tabEntities", "qiy.docs.tabDataflows", "qiy.docs.tabApi", "qiy.docs.tabPermissions", "qiy.docs.tabApiKeys", "qiy.docs.entitiesTitle", "qiy.docs.relationsTitle", "qiy.docs.accessNote", "qiy.docs.apiFiltered", "qiy.docs.scalarLoading", "qiy.docs.mermaidError", "qiy.docs.noData", "qiy.docs.fieldName", "qiy.docs.fieldType", "qiy.docs.fieldNullable", "qiy.docs.fieldEnum", "qiy.docs.fieldAnnotations",
+  "qiy.apiKey.title", "qiy.apiKey.description", "qiy.apiKey.create", "qiy.apiKey.name", "qiy.apiKey.empty", "qiy.apiKey.prefix", "qiy.apiKey.status", "qiy.apiKey.active", "qiy.apiKey.revoked", "qiy.apiKey.expired", "qiy.apiKey.revoke", "qiy.apiKey.secretTitle", "qiy.apiKey.secretHint", "qiy.apiKey.copy", "qiy.apiKey.copied", "qiy.apiKey.limit",
+  "qiy.yes", "qiy.no",
   "qiy.search", "qiy.filters", "qiy.matchAll", "qiy.matchAny", "qiy.commaSeparated", "qiy.forbidden", "qiy.noData",
   "qiy.themeColor", "qiy.themeBlue", "qiy.themePurple", "qiy.themeGreen", "qiy.themeOrange", "qiy.themeRed",
   "qiy.colorMode", "qiy.colorLight", "qiy.colorDark", "qiy.colorSystem",
@@ -2346,6 +2389,15 @@ test("every chrome key resolves in zh-CN and en-US instead of falling back to En
   expect(en.translate("qiy.chartView")).toBe("View");
   expect(zh.translate("qiy.chartViewKind.pie")).toBe("饼图");
   expect(en.translate("qiy.chartViewKind.table")).toBe("Table");
+  // System overview + API-key chrome.
+  expect(zh.translate("qiy.docs.title")).toBe("功能总览");
+  expect(en.translate("qiy.docs.title")).toBe("Feature overview");
+  expect(zh.translate("qiy.docs.tabApiKeys")).toBe("访问密钥");
+  expect(en.translate("qiy.docs.tabEntities")).toBe("Entities");
+  expect(zh.translate("qiy.apiKey.title")).toBe("访问密钥");
+  expect(en.translate("qiy.apiKey.title")).toBe("API keys");
+  expect(zh.translate("qiy.yes")).toBe("是");
+  expect(en.translate("qiy.no")).toBe("No");
   expect(zh.translate("qiy.signOut")).toBe("退出登录");
   expect(zh.translate("qiy.bind")).toBe("关联");
   expect(zh.translate("qiy.unbind")).toBe("解除关联");
@@ -3385,6 +3437,31 @@ export default function AuthCallback() {
       .replace("    <QiyThemeControls />", '    <Link to="/profile"><Button type="link">{translate("qiy.profile", {}, "Profile")}</Button></Link>\n    <QiyThemeControls />');
   }
 
+  // System administration: 功能总览 page + API-key management, gated by features.
+  const apiDocsFeature = Boolean(options.features?.apiDocs);
+  const apiKeysFeature = Boolean(options.features?.apiKeys);
+  const docsFeatureEnabled = apiDocsFeature || apiKeysFeature;
+  generated["web/app/features.ts"] = renderWebFeaturesModule(apiDocsFeature, apiKeysFeature);
+  if (docsFeatureEnabled) {
+    generated["web/app/docs.ts"] = renderWebDocsModule();
+    generated["web/app/api-keys.ts"] = renderWebApiKeysModule();
+    generated["web/app/components/mermaid.tsx"] = renderWebMermaidComponent();
+    generated["web/app/components/docs-page.tsx"] = renderWebDocsPageComponent();
+    generated["web/app/routes/docs.tsx"] = renderWebDocsRoute();
+    generated["web/tests/docs.test.ts"] = renderWebDocsTest();
+    generated["web/tests/docs-render.test.tsx"] = renderWebDocsRenderTest(apiDocsFeature, apiKeysFeature);
+    generated["web/app/routes.ts"] = generated["web/app/routes.ts"]!.replace(
+      '  index("./routes/home.tsx"),',
+      '  index("./routes/home.tsx"),\n  route("system/overview", "./routes/docs.tsx"),',
+    );
+    const webPackage = JSON.parse(generated["web/package.json"]!) as { dependencies: Record<string, string> };
+    // Both libraries are loaded through dynamic imports so the first page visit is
+    // unaffected; they are only generated when the docs page exists.
+    webPackage.dependencies.mermaid = "12.2.0";
+    if (apiDocsFeature) webPackage.dependencies["@scalar/api-reference-react"] = "0.9.83";
+    generated["web/package.json"] = `${JSON.stringify(webPackage, null, 2)}\n`;
+  }
+
   return generated;
 }
 
@@ -3761,10 +3838,826 @@ ${providerSection}  </Space>;
 `;
 }
 
+/** ------------------------------------------------------------------------- */
+/** Web modules for the system overview page (docs + API keys).               */
+/** ------------------------------------------------------------------------- */
+
+function renderWebFeaturesModule(apiDocs: boolean, apiKeys: boolean): string {
+  return `/** Generated feature flags and extra sidebar page links. Do not edit by hand. */
+export const qiyFeatureFlags = { apiDocs: ${apiDocs ? "true" : "false"}, apiKeys: ${apiKeys ? "true" : "false"} } as const;
+export const docsEnabled = qiyFeatureFlags.apiDocs || qiyFeatureFlags.apiKeys;
+
+export interface QiyMenuLink {
+  name: string;
+  path: string;
+  label: string;
+  labelKey: string;
+  icon?: string;
+  group?: string;
+}
+
+/** Extra sidebar page entries (not Refine resources), appended into their menu group. */
+export const qiyMenuLinks: QiyMenuLink[] = docsEnabled ? [{ name: "qiy-docs", path: "/system/overview", label: "功能总览", labelKey: "qiy.docs.title", icon: "AppstoreOutlined", group: "system" }] : [];
+`;
+}
+
+/** Pure Mermaid/OpenAPI/API-key helpers used by the docs page and its tests. */
+function renderWebDocsModule(): string {
+  return `/** Generated documentation helpers: Mermaid builders, tab gating and API fetchers. */
+import { qiyAuthToken } from "./auth";
+import { qiyFeatureFlags } from "./features";
+
+export type DocsRole = "admin" | "operator" | "viewer";
+export interface DocsEnumValue { name: string; label: string; labelKey: string }
+export interface DocsField {
+  name: string;
+  label: string;
+  labelKey: string;
+  type: string;
+  nullable: boolean;
+  primaryKey?: boolean;
+  unique?: boolean;
+  enumName?: string;
+  enumValues?: DocsEnumValue[];
+  annotations: string[];
+  relation?: { table: string; field: string; onDelete?: string };
+}
+export interface DocsEntity {
+  name: string;
+  tableName: string;
+  label: string;
+  labelKey: string;
+  singular: string;
+  plural: string;
+  display?: string;
+  tableDisplay?: string;
+  fields: DocsField[];
+  relations: Array<{ field: string; toTable: string; toField: string; onDelete?: string }>;
+  restricted?: boolean;
+  actions?: string[];
+}
+export interface DocsRelation { fromTable: string; field: string; toTable: string; toField: string; onDelete?: string }
+export interface DocsDataflow {
+  name: string;
+  label: string;
+  labelKey: string;
+  allowRoles: string[];
+  allowPermissions: string[];
+  verification: string | null;
+  inputs: Array<{ name: string; type: string; required: boolean; label: string; labelKey: string }>;
+  contexts: Array<{ name: string; entity: string }>;
+  steps: Array<{ name: string; actions: Array<{ kind: string; summary: string }> }>;
+  result: string;
+}
+export interface DocsPermissionField { name: string; value: string; label: string; labelKey: string }
+export interface DocsPermissionGroup { name: string; members: string[]; label: string; labelKey: string }
+export interface DocsPermissionVerification { name: string; label: string; labelKey: string; inputs: Array<{ name: string; type: string }> }
+export interface DocsModel {
+  app: { name: string; description?: string; descriptionKey?: string };
+  features: { apiDocs: boolean; apiKeys: boolean };
+  principal: { role: DocsRole; permissions: string[] };
+  entities: DocsEntity[];
+  relations: DocsRelation[];
+  enums: Array<{ name: string; values: DocsEnumValue[] }>;
+  dataflows: DocsDataflow[];
+  permissions: { fields: DocsPermissionField[]; groups: DocsPermissionGroup[]; verifications: DocsPermissionVerification[] };
+}
+export interface DocsEnvelope { model: DocsModel; openApi: unknown }
+
+export type DocsTabKey = "entities" | "dataflows" | "api" | "permissions" | "apiKeys";
+
+/** Tabs available for the generated feature flags (访问密钥 only when API keys are enabled). */
+export function docsTabs(flags: { apiDocs: boolean; apiKeys: boolean } = qiyFeatureFlags): DocsTabKey[] {
+  const tabs: DocsTabKey[] = flags.apiDocs ? ["entities", "dataflows", "api", "permissions"] : [];
+  if (flags.apiKeys) tabs.push("apiKeys");
+  return tabs;
+}
+
+export function docsTabLabelKey(tab: DocsTabKey): string {
+  return "qiy.docs.tab" + tab.charAt(0).toUpperCase() + tab.slice(1);
+}
+
+/** Mermaid identifiers must be stable ASCII: everything else is replaced. */
+export function mermaidId(value: string): string {
+  const normalized = value.replace(/[^A-Za-z0-9_]/g, "_");
+  return normalized.length > 0 && /^[A-Za-z_]/.test(normalized) ? normalized : "qiy_" + normalized;
+}
+
+/** Escapes text placed inside a Mermaid label: no quotes, braces, semicolons or newlines. */
+export function escapeMermaidLabel(value: string): string {
+  return value
+    .replace(/[\\r\\n]+/g, " ")
+    .replace(/"/g, "'")
+    .replace(/[{}]/g, (character) => character === "{" ? "(" : ")")
+    .replace(/;/g, ",")
+    .replace(/[#]/g, "")
+    .replace(/\\s+/g, " ")
+    .trim();
+}
+
+/** UML class diagram from entities + relations, with fields and enum values. */
+export function buildEntityDiagram(model: DocsModel): string {
+  const lines: string[] = ["classDiagram", "  direction LR"];
+  const tableId = new Map(model.entities.map((entity) => [entity.tableName, mermaidId("e_" + entity.tableName)]));
+  for (const entity of model.entities) {
+    const id = tableId.get(entity.tableName)!;
+    lines.push("  class " + id + "[" + escapeMermaidLabel(entity.label) + "] {");
+    for (const field of entity.fields) {
+      const marks = [field.primaryKey ? "PK" : "", field.unique ? "UK" : "", field.nullable ? "" : "NN"].filter(Boolean).join(",");
+      const type = field.enumName ? field.enumName : field.type;
+      lines.push("    +" + mermaidId(field.name) + " " + escapeMermaidLabel(type) + (marks ? " [" + marks + "]" : ""));
+    }
+    lines.push("  }");
+  }
+  const seen = new Set<string>();
+  for (const relation of model.relations) {
+    const from = tableId.get(relation.fromTable);
+    const to = tableId.get(relation.toTable);
+    if (!from || !to) continue;
+    const key = from + "->" + to + ":" + relation.field;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    lines.push("  " + from + " --> " + to + " : " + escapeMermaidLabel(relation.field));
+  }
+  return lines.join("\\n");
+}
+
+/** Flowchart for one dataflow: inputs -> context loads -> steps/actions -> result. */
+export function buildDataflowDiagram(flow: DocsDataflow): string {
+  const lines: string[] = ["flowchart LR"];
+  const inputId = mermaidId("d_" + flow.name + "_input");
+  lines.push("  " + inputId + "([\\u8f93\\u5165: " + escapeMermaidLabel(flow.inputs.length ? flow.inputs.map((input) => input.name).join(", ") : "\\u65e0") + "])");
+  const contextIds = flow.contexts.map((context, index) => {
+    const id = mermaidId("d_" + flow.name + "_ctx_" + index);
+    lines.push("  " + id + "[(" + escapeMermaidLabel(context.name + ": " + context.entity) + ")]");
+    return id;
+  });
+  const stepIds = flow.steps.map((step, index) => {
+    const id = mermaidId("d_" + flow.name + "_step_" + index);
+    lines.push("  " + id + '["' + escapeMermaidLabel(step.name) + '"]');
+    return id;
+  });
+  const actionIds: string[] = [];
+  flow.steps.forEach((step, stepIndex) => {
+    step.actions.forEach((action, actionIndex) => {
+      const id = mermaidId("d_" + flow.name + "_act_" + stepIndex + "_" + actionIndex);
+      lines.push("  " + id + ">[" + escapeMermaidLabel(action.kind + ": " + action.summary) + "]]");
+      actionIds.push(id);
+    });
+  });
+  const resultId = mermaidId("d_" + flow.name + "_result");
+  lines.push("  " + resultId + "([" + escapeMermaidLabel("\\u7ed3\\u679c: " + flow.result) + "])");
+  const chain = [inputId, ...contextIds, ...stepIds, ...actionIds, resultId];
+  for (let index = 1; index < chain.length; index += 1) lines.push("  " + chain[index - 1] + " --> " + chain[index]);
+  return lines.join("\\n");
+}
+
+export function buildDataflowDiagrams(model: DocsModel): Array<{ name: string; label: string; source: string }> {
+  return model.dataflows.map((flow) => ({ name: flow.name, label: flow.label, source: buildDataflowDiagram(flow) }));
+}
+
+export function describeDataflow(flow: DocsDataflow): { allowRoles: string[]; allowPermissions: string[]; verification: string | null; inputs: string[] } {
+  return { allowRoles: flow.allowRoles, allowPermissions: flow.allowPermissions, verification: flow.verification, inputs: flow.inputs.map((input) => input.name + ": " + input.type + (input.required ? " (required)" : "")) };
+}
+
+async function docsFetch(path: string): Promise<Response> {
+  const token = qiyAuthToken();
+  const response = await fetch(path, { headers: token ? { Authorization: "Bearer " + token } : {}, cache: "no-store" });
+  if (!response.ok) throw Object.assign(new Error("Request failed (" + response.status + ")"), { statusCode: response.status });
+  return response;
+}
+
+export async function fetchDocsEnvelope(): Promise<DocsEnvelope> {
+  const [modelResponse, specResponse] = await Promise.all([
+    qiyFeatureFlags.apiDocs ? docsFetch("/api/v1/docs/model") : Promise.resolve(undefined),
+    qiyFeatureFlags.apiDocs ? docsFetch("/api/v1/openapi.json") : Promise.resolve(undefined),
+  ]);
+  const model = modelResponse ? await modelResponse.json() as DocsModel : undefined;
+  const openApi = specResponse ? await specResponse.json() as unknown : undefined;
+  if (!model) throw new Error("API docs are disabled");
+  return { model, openApi };
+}
+`;
+}
+
+/** Client for the API-key management tab (list/create/revoke + pure helpers). */
+function renderWebApiKeysModule(): string {
+  return `/** Generated API-key client and pure helpers for the access-key tab. */
+import { qiyAuthToken } from "./auth";
+
+export const QIY_API_KEY_MAX_ACTIVE = 10;
+export interface ApiKeyRecord {
+  id: string;
+  name: string;
+  prefix: string;
+  maskedKey: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+}
+export interface CreatedApiKey { key: string; record: ApiKeyRecord }
+
+function authHeaders(): Record<string, string> {
+  const token = qiyAuthToken();
+  return { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) };
+}
+
+async function apiKeyRequest(path: string, init?: RequestInit): Promise<unknown> {
+  const response = await fetch(path, { ...init, headers: { ...authHeaders(), ...(init?.headers ?? {}) }, cache: "no-store" });
+  const body = await response.json().catch(() => null) as { error?: string } | null;
+  if (!response.ok) throw Object.assign(new Error(body?.error ?? "API key request failed (" + response.status + ")"), { statusCode: response.status });
+  return body;
+}
+
+export async function listApiKeys(): Promise<ApiKeyRecord[]> {
+  const body = await apiKeyRequest("/api/v1/auth/api-keys") as { items: ApiKeyRecord[] };
+  return body.items;
+}
+
+export async function createApiKey(input: { name: string; expiresAt?: string | null }): Promise<CreatedApiKey> {
+  return await apiKeyRequest("/api/v1/auth/api-keys", { method: "POST", body: JSON.stringify({ name: input.name, ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}) }) }) as CreatedApiKey;
+}
+
+export async function revokeApiKey(id: string): Promise<void> {
+  await apiKeyRequest("/api/v1/auth/api-keys/" + encodeURIComponent(id), { method: "DELETE" });
+}
+
+export function maskedApiKey(prefix: string): string {
+  return "qiy_" + prefix + "_********";
+}
+
+/** Number of keys that are neither revoked nor expired (the server enforces the same rule). */
+export function countActiveApiKeys(records: readonly ApiKeyRecord[], now: Date = new Date()): number {
+  return records.filter((record) => !record.revokedAt && (!record.expiresAt || new Date(record.expiresAt).getTime() > now.getTime())).length;
+}
+
+export function canCreateApiKey(records: readonly ApiKeyRecord[], now: Date = new Date()): boolean {
+  return countActiveApiKeys(records, now) < QIY_API_KEY_MAX_ACTIVE;
+}
+
+export function defaultApiKeyName(records: readonly ApiKeyRecord[], now: Date = new Date()): string {
+  const stamp = now.toISOString().slice(0, 10);
+  return "Key " + stamp;
+}
+
+export function formatApiKeyDate(value: string | null, locale: string): string {
+  if (!value) return "\\u2014";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString(locale);
+}
+
+export type ApiKeyStatus = "active" | "revoked" | "expired";
+export function apiKeyStatus(record: Pick<ApiKeyRecord, "revokedAt" | "expiresAt">, now: Date = new Date()): ApiKeyStatus {
+  if (record.revokedAt) return "revoked";
+  if (record.expiresAt && new Date(record.expiresAt).getTime() <= now.getTime()) return "expired";
+  return "active";
+}
+`;
+}
+
+/** Mermaid renderer: SSR-safe placeholder, dynamic import in the browser. */
+function renderWebMermaidComponent(): string {
+  return `import { Alert, Spin } from "antd";
+import { useEffect, useRef, useState } from "react";
+
+/**
+ * Renders one Mermaid diagram. The server render keeps the diagram source in a
+ * stable container (so the docs SSR test and bundle checks can see the generated
+ * source); the browser dynamically imports mermaid and injects the SVG.
+ */
+export function MermaidDiagram({ id, source, ariaLabel, errorText }: { id: string; source: string; ariaLabel: string; errorText: string }) {
+  const container = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState<string | undefined>();
+  const [rendering, setRendering] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const mermaid = (await import("mermaid")).default;
+        const dark = typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "default" });
+        const rendered = await mermaid.render("qiy-mermaid-" + id, source);
+        if (!cancelled && container.current) container.current.innerHTML = rendered.svg;
+      } catch (cause) {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        if (!cancelled) setRendering(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [id, source]);
+  return <div className="qiy-mermaid" data-diagram={source} aria-label={ariaLabel}>
+    <div ref={container} />
+    {rendering ? <Spin size="small" /> : null}
+    {error ? <Alert type="warning" showIcon message={errorText} description={error} /> : null}
+  </div>;
+}
+`;
+}
 
 
+/** Docs page component + route. JSX is generated as a template string. */
+function renderWebDocsPageComponent(): string {
+  return `import {
+  Alert,
+  Button,
+  Card,
+  Descriptions,
+  Empty,
+  Form,
+  Input,
+  Modal,
+  Popconfirm,
+  Select,
+  Space,
+  Spin,
+  Table,
+  Tabs,
+  Tag,
+  Typography,
+  message,
+} from "antd";
+import { useTranslation } from "@refinedev/core";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import "@scalar/api-reference-react/style.css";
+import {
+  buildDataflowDiagram,
+  buildEntityDiagram,
+  describeDataflow,
+  docsTabLabelKey,
+  docsTabs,
+  type DocsDataflow,
+  type DocsEntity,
+  type DocsModel,
+  type DocsTabKey,
+} from "../docs";
+import {
+  QIY_API_KEY_MAX_ACTIVE,
+  apiKeyStatus,
+  canCreateApiKey,
+  countActiveApiKeys,
+  createApiKey,
+  defaultApiKeyName,
+  formatApiKeyDate,
+  listApiKeys,
+  maskedApiKey,
+  revokeApiKey,
+  type ApiKeyRecord,
+} from "../api-keys";
+import { MermaidDiagram } from "./mermaid";
+import { qiyFeatureFlags } from "../features";
+
+const ScalarApiReference = lazy(async () => {
+  const module = await import("@scalar/api-reference-react");
+  return { default: module.ApiReferenceReact };
+});
+
+export interface DocsPageProps {
+  model?: DocsModel;
+  openApi?: unknown;
+  loading?: boolean;
+  error?: string;
+  initialTab?: DocsTabKey;
+}
+
+function fieldColumns(translate: (key: string, params?: Record<string, unknown>, fallback?: string) => string) {
+  return [
+    { title: translate("qiy.docs.fieldName", {}, "Field"), dataIndex: "name", key: "name" },
+    { title: translate("qiy.docs.fieldType", {}, "Type"), dataIndex: "type", key: "type" },
+    { title: translate("qiy.docs.fieldNullable", {}, "Nullable"), dataIndex: "nullable", key: "nullable", render: (value: boolean) => value ? translate("qiy.yes", {}, "Yes") : translate("qiy.no", {}, "No") },
+    { title: translate("qiy.docs.fieldEnum", {}, "Enum"), dataIndex: "enumName", key: "enumName", render: (value?: string) => value ?? "—" },
+    { title: translate("qiy.docs.fieldAnnotations", {}, "Annotations"), dataIndex: "annotations", key: "annotations", render: (value: string[]) => (value ?? []).map((entry) => <Tag key={entry}>{entry}</Tag>) },
+  ];
+}
+
+function EntityPanel({ model }: { model: DocsModel }) {
+  const { translate } = useTranslation();
+  const [selected, setSelected] = useState<string | undefined>(model.entities[0]?.tableName);
+  const entity = model.entities.find((candidate) => candidate.tableName === selected) ?? model.entities[0];
+  return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Typography.Title level={5} style={{ margin: 0 }}>{translate("qiy.docs.entitiesTitle", {}, "Entities & relations")}</Typography.Title>
+    <MermaidDiagram id="entities" source={buildEntityDiagram(model)} ariaLabel={translate("qiy.docs.entitiesTitle", {}, "Entities & relations")} errorText={translate("qiy.docs.mermaidError", {}, "Diagram failed to render")} />
+    <Table<DocsEntity> size="small" rowKey="tableName" pagination={false} dataSource={model.entities} columns={[
+      { title: translate("qiy.docs.entity", {}, "Entity"), key: "entity", render: (_, row) => <Space><span>{translate(row.labelKey, {}, row.label)}</span>{row.restricted ? <Tag color="orange">{translate("qiy.docs.restricted", {}, "Restricted")}</Tag> : null}</Space> },
+      { title: translate("qiy.docs.fieldName", {}, "Field"), key: "fields", render: (_, row) => row.fields.length },
+      { title: translate("qiy.docs.actions", {}, "Actions"), key: "actions", render: (_, row) => (row.actions ?? []).map((action) => <Tag key={action}>{action}</Tag>) },
+    ]} />
+    {entity ? <>
+      <Space wrap>
+        <Typography.Text>{translate("qiy.docs.selectEntity", {}, "Entity")}</Typography.Text>
+        <Select value={entity.tableName} style={{ minWidth: 220 }} onChange={(value: string) => setSelected(value)} options={model.entities.map((candidate) => ({ value: candidate.tableName, label: translate(candidate.labelKey, {}, candidate.label) }))} />
+      </Space>
+      <Table size="small" rowKey="name" pagination={false} dataSource={entity.fields} columns={fieldColumns(translate)} />
+    </> : null}
+    <Typography.Title level={5} style={{ margin: 0 }}>{translate("qiy.docs.relationsTitle", {}, "Relations")}</Typography.Title>
+    <Table size="small" rowKey={(row) => row.fromTable + "." + row.field + "." + row.toTable} pagination={false} dataSource={model.relations} columns={[
+      { title: translate("qiy.docs.from", {}, "From"), dataIndex: "fromTable", key: "fromTable" },
+      { title: translate("qiy.docs.fieldName", {}, "Field"), dataIndex: "field", key: "field" },
+      { title: translate("qiy.docs.to", {}, "To"), dataIndex: "toTable", key: "toTable" },
+      { title: translate("qiy.docs.onDelete", {}, "On delete"), dataIndex: "onDelete", key: "onDelete", render: (value?: string) => value ?? "—" },
+    ]} />
+  </Space>;
+}
+
+function DataflowPanel({ model }: { model: DocsModel }) {
+  const { translate } = useTranslation();
+  const [selected, setSelected] = useState<string | undefined>(model.dataflows[0]?.name);
+  const flow = model.dataflows.find((candidate) => candidate.name === selected) ?? model.dataflows[0];
+  if (!flow) return <Empty description={translate("qiy.docs.noData", {}, "Nothing to show")} />;
+  const info = describeDataflow(flow);
+  return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Typography.Title level={5} style={{ margin: 0 }}>{translate("qiy.docs.dataflowsTitle", {}, "Dataflows")}</Typography.Title>
+    <Select value={flow.name} style={{ minWidth: 260 }} onChange={(value: string) => setSelected(value)} options={model.dataflows.map((candidate) => ({ value: candidate.name, label: translate(candidate.labelKey, {}, candidate.label) }))} />
+    <MermaidDiagram id={"dataflow-" + flow.name} source={buildDataflowDiagram(flow)} ariaLabel={flow.label} errorText={translate("qiy.docs.mermaidError", {}, "Diagram failed to render")} />
+    <Descriptions size="small" column={1} bordered items={[
+      { key: "roles", label: translate("qiy.docs.allowRoles", {}, "Allowed roles"), children: info.allowRoles.length ? info.allowRoles.join(", ") : "—" },
+      { key: "permissions", label: translate("qiy.docs.allowPermissions", {}, "Required permissions"), children: info.allowPermissions.length ? info.allowPermissions.join(", ") : "—" },
+      { key: "verification", label: translate("qiy.docs.verification", {}, "Verification"), children: info.verification ?? "—" },
+      { key: "inputs", label: translate("qiy.docs.dataflowInputs", {}, "Inputs"), children: info.inputs.length ? info.inputs.join(", ") : "—" },
+      { key: "result", label: translate("qiy.docs.dataflowResult", {}, "Result"), children: flow.result },
+    ]} />
+    <Table size="small" rowKey="name" pagination={false} dataSource={flow.steps} columns={[
+      { title: translate("qiy.docs.dataflowSteps", {}, "Steps"), dataIndex: "name", key: "name" },
+      { title: translate("qiy.docs.actions", {}, "Actions"), key: "actions", render: (_, row) => <Space direction="vertical" size={2}>{row.actions.map((action, index) => <Typography.Text key={index} code>{action.summary}</Typography.Text>)}</Space> },
+    ]} />
+  </Space>;
+}
+
+function PermissionsPanel({ model }: { model: DocsModel }) {
+  const { translate } = useTranslation();
+  return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Typography.Title level={5} style={{ margin: 0 }}>{translate("qiy.docs.tabPermissions", {}, "Permissions")}</Typography.Title>
+    <Descriptions size="small" column={1} items={[
+      { key: "role", label: translate("qiy.docs.role", {}, "Role"), children: model.principal.role },
+      { key: "permissions", label: translate("qiy.docs.effectivePermissions", {}, "Effective permissions"), children: model.principal.permissions.length ? model.principal.permissions.join(", ") : "—" },
+    ]} />
+    <Table size="small" rowKey="name" pagination={false} dataSource={model.permissions.fields} columns={[
+      { title: translate("qiy.docs.permissionField", {}, "Permission"), dataIndex: "label", key: "label" },
+      { title: translate("qiy.docs.permissionValue", {}, "Value"), dataIndex: "value", key: "value" },
+    ]} />
+    <Table size="small" rowKey="name" pagination={false} dataSource={model.permissions.groups} columns={[
+      { title: translate("qiy.docs.permissionGroups", {}, "Groups"), dataIndex: "label", key: "label" },
+      { title: translate("qiy.docs.members", {}, "Members"), dataIndex: "members", key: "members", render: (value: string[]) => value.join(", ") },
+    ]} />
+    <Table size="small" rowKey="name" pagination={false} dataSource={model.permissions.verifications} columns={[
+      { title: translate("qiy.docs.permissionVerifications", {}, "Verifications"), dataIndex: "label", key: "label" },
+      { title: translate("qiy.docs.dataflowInputs", {}, "Inputs"), dataIndex: "inputs", key: "inputs", render: (value: Array<{ name: string; type: string }>) => value.map((entry) => entry.name + ": " + entry.type).join(", ") },
+    ]} />
+  </Space>;
+}
+
+function ApiPanel({ openApi }: { openApi?: unknown }) {
+  const { translate } = useTranslation();
+  if (!openApi) return <Empty description={translate("qiy.docs.noData", {}, "Nothing to show")} />;
+  return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Alert type="info" showIcon message={translate("qiy.docs.apiFiltered", {}, "This document is filtered by the current account permissions")} />
+    <div className="qiy-docs-scalar">
+      <Suspense fallback={<div className="qiy-docs-scalar-placeholder" data-scalar="pending">{translate("qiy.docs.scalarLoading", {}, "Loading API reference")}</div>}>
+        <ScalarApiReference configuration={{ spec: { content: openApi as Record<string, unknown> } }} />
+      </Suspense>
+    </div>
+  </Space>;
+}
+
+function ApiKeysPanel() {
+  const { translate, getLocale } = useTranslation();
+  const locale = getLocale();
+  const [items, setItems] = useState<ApiKeyRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | undefined>();
+  const [creating, setCreating] = useState(false);
+  const [secret, setSecret] = useState<string | undefined>();
+  const [form] = Form.useForm();
+  const load = async () => {
+    setLoading(true);
+    try {
+      setItems(await listApiKeys());
+      setError(undefined);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { void load(); }, []);
+  const create = async () => {
+    const values = await form.validateFields() as { name: string; expiresAt?: { toISOString?: () => string } | null };
+    setCreating(true);
+    try {
+      const created = await createApiKey({ name: values.name, expiresAt: values.expiresAt?.toISOString?.() ?? null });
+      setSecret(created.key);
+      form.resetFields();
+      await load();
+      void message.success(translate("qiy.apiKey.created", {}, "Created"));
+    } catch (cause) {
+      void message.error(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCreating(false);
+    }
+  };
+  const revoke = async (id: string) => {
+    try {
+      await revokeApiKey(id);
+      await load();
+    } catch (cause) {
+      void message.error(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+  const copySecret = async () => {
+    if (!secret) return;
+    try {
+      await navigator.clipboard.writeText(secret);
+      void message.success(translate("qiy.apiKey.copied", {}, "Copied"));
+    } catch {
+      void message.warning(secret);
+    }
+  };
+  const columns = [
+    { title: translate("qiy.apiKey.name", {}, "Name"), dataIndex: "name", key: "name" },
+    { title: translate("qiy.apiKey.prefix", {}, "Prefix"), dataIndex: "maskedKey", key: "maskedKey", render: (value: string) => <Typography.Text code>{value}</Typography.Text> },
+    { title: translate("qiy.apiKey.createdAt", {}, "Created"), dataIndex: "createdAt", key: "createdAt", render: (value: string) => formatApiKeyDate(value, locale) },
+    { title: translate("qiy.apiKey.lastUsed", {}, "Last used"), dataIndex: "lastUsedAt", key: "lastUsedAt", render: (value: string | null) => formatApiKeyDate(value, locale) },
+    { title: translate("qiy.apiKey.expires", {}, "Expires"), dataIndex: "expiresAt", key: "expiresAt", render: (value: string | null) => formatApiKeyDate(value, locale) },
+    { title: translate("qiy.apiKey.status", {}, "Status"), key: "status", render: (_: unknown, record: ApiKeyRecord) => { const status = apiKeyStatus(record); return <Tag color={status === "active" ? "green" : status === "revoked" ? "red" : "orange"}>{translate("qiy.apiKey." + status, {}, status)}</Tag>; } },
+    { title: translate("qiy.apiKey.actions", {}, "Actions"), key: "actions", render: (_: unknown, record: ApiKeyRecord) => record.revokedAt ? null : <Popconfirm title={translate("qiy.apiKey.revokeConfirm", {}, "Revoke this key? It stops working immediately.")} onConfirm={() => void revoke(record.id)} okText={translate("qiy.apiKey.revoke", {}, "Revoke")} cancelText={translate("qiy.cancel", {}, "Cancel")}><Button danger size="small">{translate("qiy.apiKey.revoke", {}, "Revoke")}</Button></Popconfirm> },
+  ];
+  return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Typography.Title level={5} style={{ margin: 0 }}>{translate("qiy.apiKey.title", {}, "API keys")}</Typography.Title>
+    <Typography.Paragraph type="secondary">{translate("qiy.apiKey.description", {}, "Personal API keys for scripts and CI; the secret is shown once.") + " " + translate("qiy.apiKey.limit", { count: QIY_API_KEY_MAX_ACTIVE }, "Up to " + QIY_API_KEY_MAX_ACTIVE + " active keys per user")}</Typography.Paragraph>
+    <Space>
+      <Button type="primary" disabled={!canCreateApiKey(items)} onClick={() => setCreating(true)}>{translate("qiy.apiKey.create", {}, "Create key")}</Button>
+      <Typography.Text type="secondary">{countActiveApiKeys(items) + " / " + QIY_API_KEY_MAX_ACTIVE}</Typography.Text>
+    </Space>
+    {error ? <Alert type="error" showIcon message={translate("qiy.apiKey.loadError", {}, "Failed to load")} description={error} /> : null}
+    <Table<ApiKeyRecord> size="small" rowKey="id" loading={loading} pagination={false} dataSource={items} columns={columns} locale={{ emptyText: translate("qiy.apiKey.empty", {}, "No API keys yet") }} />
+    <Modal open={creating} title={translate("qiy.apiKey.create", {}, "Create key")} okText={translate("qiy.apiKey.create", {}, "Create key")} confirmLoading={creating} onOk={() => void create()} onCancel={() => setCreating(false)}>
+      <Form form={form} layout="vertical" initialValues={{ name: defaultApiKeyName(items) }}>
+        <Form.Item name="name" label={translate("qiy.apiKey.name", {}, "Name")} rules={[{ required: true, message: translate("qiy.apiKey.nameRequired", {}, "Name is required") }]}>
+          <Input placeholder={translate("qiy.apiKey.namePlaceholder", {}, "e.g. CI deploy")} maxLength={80} />
+        </Form.Item>
+        <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{translate("qiy.apiKey.expiresHint", {}, "Leave the server-side expiry empty for a non-expiring key (POST expiresAt is optional).")}</Typography.Paragraph>
+      </Form>
+    </Modal>
+    <Modal open={Boolean(secret)} title={translate("qiy.apiKey.secretTitle", {}, "Save this secret now")} onCancel={() => setSecret(undefined)} footer={<Space><Button onClick={() => void copySecret()}>{translate("qiy.apiKey.copy", {}, "Copy")}</Button><Button type="primary" onClick={() => setSecret(undefined)}>{translate("qiy.close", {}, "Close")}</Button></Space>}>
+      <Alert type="warning" showIcon message={translate("qiy.apiKey.secretHint", {}, "The full key is shown only once and cannot be recovered.")} style={{ marginBottom: 12 }} />
+      <Typography.Paragraph><Typography.Text code copyable>{secret}</Typography.Text></Typography.Paragraph>
+    </Modal>
+  </Space>;
+}
+
+function tabChildren(tab: DocsTabKey, props: DocsPageProps): ReactNode {
+  if (tab === "entities") return props.model ? <EntityPanel model={props.model} /> : null;
+  if (tab === "dataflows") return props.model ? <DataflowPanel model={props.model} /> : null;
+  if (tab === "api") return <ApiPanel openApi={props.openApi} />;
+  if (tab === "permissions") return props.model ? <PermissionsPanel model={props.model} /> : null;
+  return <ApiKeysPanel />;
+}
+
+/** Feature overview page: rendered when apiDocs or apiKeys is enabled. */
+export function DocsOverviewPage(props: DocsPageProps) {
+  const { translate } = useTranslation();
+  const tabs = docsTabs(qiyFeatureFlags);
+  const fallbackTab = tabs[0];
+  const [active, setActive] = useState<DocsTabKey | undefined>(props.initialTab && tabs.includes(props.initialTab) ? props.initialTab : fallbackTab);
+  if (tabs.length === 0) return <Empty description={translate("qiy.docs.noData", {}, "Nothing to show")} />;
+  const current = active && tabs.includes(active) ? active : fallbackTab;
+  const body = props.loading
+    ? <Spin size="large" />
+    : props.error
+      ? <Alert type="error" showIcon message={translate("qiy.docs.loadError", {}, "Failed to load the overview")} description={props.error} />
+      : tabChildren(current!, props);
+  return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Typography.Title level={3} style={{ margin: 0 }}>{translate("qiy.docs.title", {}, "Feature overview")}</Typography.Title>
+    <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{props.model?.app.description ?? translate("qiy.docs.subtitle", {}, "Generated entities, dataflows, API reference and access keys for this application")}</Typography.Paragraph>
+    {props.model?.principal ? <Alert type="info" showIcon message={translate("qiy.docs.accessNote", {}, "The API reference only lists operations allowed for your role and permissions")} /> : null}
+    <Card size="small">
+      <Tabs activeKey={current} onChange={(key: string) => setActive(key as DocsTabKey)} items={tabs.map((tab) => ({ key: tab, label: translate(docsTabLabelKey(tab), {}, tab), children: tabChildren(tab, props) }))} />
+    </Card>
+  </Space>;
+}
+`;
+}
+
+/** Generated route wrapper: feature gate + authenticated model fetch. */
+function renderWebDocsRoute(): string {
+  return `import { useIsAuthenticated, useTranslation } from "@refinedev/core";
+import { useEffect, useState } from "react";
+import { Navigate } from "react-router";
+import { docsEnabled, qiyFeatureFlags } from "../features";
+import { fetchDocsEnvelope, type DocsModel } from "../docs";
+import { DocsOverviewPage } from "../components/docs-page";
+
+export interface DocsPageState {
+  model?: DocsModel;
+  openApi?: unknown;
+  loading: boolean;
+  error?: string;
+}
+
+export default function DocsRoute() {
+  const { translate } = useTranslation();
+  const auth = useIsAuthenticated();
+  const isAuthenticated = auth.data?.authenticated === true;
+  const authLoading = auth.isLoading;
+  const [state, setState] = useState<DocsPageState>({ loading: qiyFeatureFlags.apiDocs });
+  useEffect(() => {
+    if (!isAuthenticated || !qiyFeatureFlags.apiDocs) {
+      setState({ loading: false });
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const envelope = await fetchDocsEnvelope();
+        if (!cancelled) setState({ model: envelope.model, openApi: envelope.openApi, loading: false });
+      } catch (cause) {
+        if (!cancelled) setState({ loading: false, error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated]);
+  if (!docsEnabled) return <Navigate to="/" replace />;
+  if (!authLoading && !isAuthenticated) return <Navigate to="/auth/login" replace />;
+  if (authLoading) return <div>{translate("qiy.loading", {}, "Loading")}</div>;
+  return <DocsOverviewPage {...state} />;
+}
+`;
+}
 
 
+/** Generated web tests for the docs helpers, menu link and API-key pure helpers. */
+function renderWebDocsTest(): string {
+  return `import { expect, test } from "bun:test";
+import {
+  buildDataflowDiagram,
+  buildDataflowDiagrams,
+  buildEntityDiagram,
+  describeDataflow,
+  docsTabLabelKey,
+  docsTabs,
+  escapeMermaidLabel,
+  mermaidId,
+  type DocsModel,
+} from "../app/docs";
+import {
+  QIY_API_KEY_MAX_ACTIVE,
+  apiKeyStatus,
+  canCreateApiKey,
+  countActiveApiKeys,
+  defaultApiKeyName,
+  formatApiKeyDate,
+  maskedApiKey,
+} from "../app/api-keys";
+import { docsEnabled, qiyFeatureFlags, qiyMenuLinks } from "../app/features";
+import { buildMenuTree } from "../app/components/menu";
+import { menuGroups, resources } from "../app/resources";
 
+const model: DocsModel = {
+  app: { name: "Test app" },
+  features: { apiDocs: true, apiKeys: true },
+  principal: { role: "operator", permissions: ["inventory:receive"] },
+  entities: [
+    { name: "users", tableName: "users", label: "Users", labelKey: "qiy.resources.users.label", singular: "User", plural: "Users", fields: [{ name: "id", label: "Id", labelKey: "qiy.resources.users.fields.id.label", type: "UUID", nullable: false, primaryKey: true, annotations: ["primaryKey"] }, { name: "role", label: "Role", labelKey: "qiy.resources.users.fields.role.label", type: "userRole", nullable: false, enumName: "userRole", enumValues: [{ name: "admin", label: "Admin", labelKey: "qiy.enums.userRole.values.admin" }], annotations: [] }], relations: [] },
+    { name: "orders", tableName: "orders", label: "Orders", labelKey: "qiy.resources.orders.label", singular: "Order", plural: "Orders", fields: [{ name: "id", label: "Id", labelKey: "qiy.resources.orders.fields.id.label", type: "UUID", nullable: false, primaryKey: true, annotations: ["primaryKey"] }, { name: "userId", label: "User", labelKey: "qiy.resources.orders.fields.userId.label", type: "UUID", nullable: false, annotations: ["relation:users"], relation: { table: "users", field: "id" } }], relations: [{ field: "userId", toTable: "users", toField: "id" }] },
+  ],
+  relations: [{ fromTable: "orders", field: "userId", toTable: "users", toField: "id" }],
+  enums: [{ name: "userRole", values: [{ name: "admin", label: "Admin", labelKey: "qiy.enums.userRole.values.admin" }] }],
+  dataflows: [{ name: "receiveStock", label: "Receive stock", labelKey: "qiy.dataflows.receiveStock.label", allowRoles: ["admin", "operator"], allowPermissions: [], verification: null, inputs: [{ name: "quantity", type: "Integer", required: true, label: "quantity", labelKey: "" }], contexts: [{ name: "inventory", entity: "inventory" }], steps: [{ name: "load", actions: [{ kind: "update", summary: "update inventory" }] }], result: "inventory" }],
+  permissions: { fields: [{ name: "InventoryReceivePermission", value: "inventory:receive", label: "Receive", labelKey: "" }], groups: [{ name: "operator", members: ["InventoryReceivePermission"], label: "operator", labelKey: "" }], verifications: [] },
+};
 
+test("builds an escaped UML entity diagram", () => {
+  const diagram = buildEntityDiagram(model);
+  expect(diagram.startsWith("classDiagram")).toBe(true);
+  expect(diagram).toContain("class e_users[Users]");
+  expect(diagram).toContain("class e_orders[Orders]");
+  expect(diagram).toContain("+id UUID [PK,NN]");
+  expect(diagram).toContain("e_orders --> e_users : userId");
+  expect(buildEntityDiagram(model)).toBe(diagram);
+  expect(escapeMermaidLabel('a "b" {c};\\nd')).toBe("a 'b' (c), d");
+  expect(mermaidId("orders-line")).toBe("orders_line");
+  expect(mermaidId("1bad")).toBe("qiy_1bad");
+});
+
+test("builds a flowchart per dataflow with inputs, steps and result", () => {
+  const flow = model.dataflows[0]!;
+  const diagram = buildDataflowDiagram(flow);
+  expect(diagram.startsWith("flowchart LR")).toBe(true);
+  expect(diagram).toContain("d_receiveStock_input");
+  expect(diagram).toContain("d_receiveStock_step_0");
+  expect(diagram).toContain("d_receiveStock_result");
+  expect(diagram).toContain("update inventory");
+  expect(buildDataflowDiagrams(model)).toHaveLength(1);
+  expect(describeDataflow(flow).inputs).toEqual(["quantity: Integer (required)"]);
+  expect(describeDataflow(flow).allowRoles).toEqual(["admin", "operator"]);
+});
+
+test("gates the overview tabs and adds the sidebar page link", () => {
+  expect(docsEnabled).toBe(true);
+  expect(docsTabs({ apiDocs: true, apiKeys: true })).toEqual(["entities", "dataflows", "api", "permissions", "apiKeys"]);
+  expect(docsTabs({ apiDocs: false, apiKeys: true })).toEqual(["apiKeys"]);
+  expect(docsTabs({ apiDocs: false, apiKeys: false })).toEqual([]);
+  expect(docsTabLabelKey("apiKeys")).toBe("qiy.docs.tabApiKeys");
+  expect(qiyMenuLinks).toEqual([{ name: "qiy-docs", path: "/system/overview", label: "功能总览", labelKey: "qiy.docs.title", icon: "AppstoreOutlined", group: "system" }]);
+  const tree = buildMenuTree({ resources, menuGroups, links: qiyMenuLinks });
+  const found = (nodes: typeof tree): boolean => nodes.some((node) => (node.key === "qiy-docs" && node.to === "/system/overview") || found(node.children));
+  expect(found(tree)).toBe(true);
+  expect(qiyFeatureFlags.apiDocs || qiyFeatureFlags.apiKeys).toBe(true);
+});
+
+test("API-key helpers mirror the server rules", () => {
+  const now = new Date("2026-01-01T00:00:00Z");
+  const active = { id: "a", name: "A", prefix: "abcdef12", maskedKey: "qiy_abcdef12_********", createdAt: now.toISOString(), lastUsedAt: null, expiresAt: null, revokedAt: null };
+  const expired = { ...active, id: "b", expiresAt: "2025-12-31T00:00:00Z" };
+  const revoked = { ...active, id: "c", revokedAt: "2025-12-31T00:00:00Z" };
+  expect(maskedApiKey("abcdef12")).toBe("qiy_abcdef12_********");
+  expect(apiKeyStatus(active, now)).toBe("active");
+  expect(apiKeyStatus(expired, now)).toBe("expired");
+  expect(apiKeyStatus(revoked, now)).toBe("revoked");
+  expect(countActiveApiKeys([active, expired, revoked], now)).toBe(1);
+  expect(canCreateApiKey(Array.from({ length: QIY_API_KEY_MAX_ACTIVE - 1 }, () => active), now)).toBe(true);
+  expect(canCreateApiKey(Array.from({ length: QIY_API_KEY_MAX_ACTIVE }, () => active), now)).toBe(false);
+  expect(defaultApiKeyName([], now)).toBe("Key 2026-01-01");
+  expect(formatApiKeyDate(null, "en-US")).toBe("\\u2014");
+  expect(formatApiKeyDate("2026-01-01T00:00:00Z", "en-US")).toContain("2026");
+});
+`;
+}
+
+/** SSR render test for the generated docs page (all feature combinations). */
+function renderWebDocsRenderTest(apiDocs: boolean, apiKeys: boolean): string {
+  const sections: string[] = [];
+  if (apiDocs) {
+    sections.push(`test("renders the entity tab with the generated UML source", () => {
+  const html = renderToStaticMarkup(createElement(DocsOverviewPage, { model, openApi: spec, initialTab: "entities" }));
+  expect(html).toContain("Feature overview");
+  expect(html).toContain('data-diagram="classDiagram');
+  expect(html).toContain("e_users");
+  expect(html).toContain("Relations");
+});
+
+test("renders the dataflow tab with a flowchart source", () => {
+  const html = renderToStaticMarkup(createElement(DocsOverviewPage, { model, openApi: spec, initialTab: "dataflows" }));
+  expect(html).toContain('data-diagram="flowchart LR');
+  expect(html).toContain("d_receiveStock_step_0");
+  expect(html).toContain("Receive stock");
+});
+
+test("renders the Scalar API-reference placeholder with the permission note", () => {
+  const html = renderToStaticMarkup(createElement(DocsOverviewPage, { model, openApi: spec, initialTab: "api" }));
+  expect(html).toContain("qiy-docs-scalar-placeholder");
+  expect(html).toContain("filtered by the current account permissions");
+});`);
+  }
+  if (apiKeys) {
+    sections.push(`test("renders the access-key tab with its create/list UI", () => {
+  const html = renderToStaticMarkup(createElement(DocsOverviewPage, { model${apiDocs ? ", openApi: spec" : ""}, initialTab: "apiKeys" }));
+  expect(html).toContain("API keys");
+  expect(html).toContain("Create key");
+  expect(html).toContain("No API keys yet");
+});`);
+  }
+  return `import { expect, mock, test } from "bun:test";
+import { createElement, type ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { DocsModel } from "../app/docs";
+
+const model: DocsModel = {
+  app: { name: "Test app", description: "Supply chain demo" },
+  features: { apiDocs: ${apiDocs}, apiKeys: ${apiKeys} },
+  principal: { role: "admin", permissions: ["inventory:receive"] },
+  entities: [
+    { name: "users", tableName: "users", label: "Users", labelKey: "qiy.resources.users.label", singular: "User", plural: "Users", fields: [{ name: "id", label: "Id", labelKey: "qiy.resources.users.fields.id.label", type: "UUID", nullable: false, primaryKey: true, annotations: ["primaryKey"] }], relations: [] },
+    { name: "orders", tableName: "orders", label: "Orders", labelKey: "qiy.resources.orders.label", singular: "Order", plural: "Orders", fields: [{ name: "id", label: "Id", labelKey: "qiy.resources.orders.fields.id.label", type: "UUID", nullable: false, primaryKey: true, annotations: ["primaryKey"] }], relations: [{ field: "userId", toTable: "users", toField: "id" }] },
+  ],
+  relations: [{ fromTable: "orders", field: "userId", toTable: "users", toField: "id" }],
+  enums: [],
+  dataflows: [{ name: "receiveStock", label: "Receive stock", labelKey: "qiy.dataflows.receiveStock.label", allowRoles: ["admin"], allowPermissions: [], verification: null, inputs: [{ name: "quantity", type: "Integer", required: true, label: "quantity", labelKey: "" }], contexts: [{ name: "inventory", entity: "inventory" }], steps: [{ name: "load", actions: [{ kind: "update", summary: "update inventory" }] }], result: "inventory" }],
+  permissions: { fields: [], groups: [], verifications: [] },
+};
+const spec = { openapi: "3.1.0", info: { title: "Test API", version: "1.0.0" }, paths: {} };
+
+const refine = await import("@refinedev/core");
+mock.module("@refinedev/core", () => ({
+  ...refine,
+  CanAccess: ({ children }: { children?: ReactNode }) => children,
+  useTranslation: () => ({ translate: (_key: string, _params?: unknown, fallback?: string) => fallback ?? "", getLocale: () => "en-US", changeLocale: async () => "en-US" }),
+  useIsAuthenticated: () => ({ isAuthenticated: true, isLoading: false }),
+  useGetIdentity: () => ({ data: { id: "admin", role: "admin" }, isLoading: false }),
+  useNotification: () => ({ open: () => undefined }),
+}));
+const router = await import("react-router");
+mock.module("react-router", () => ({
+  ...router,
+  Link: ({ to, children, ...rest }: { to: string; children?: ReactNode }) => createElement("a", { href: to, ...rest }, children),
+  Navigate: () => null,
+}));
+
+const { DocsOverviewPage } = await import("../app/components/docs-page");
+
+${sections.join("\n\n")}
+`;
+}
 

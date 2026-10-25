@@ -25,9 +25,13 @@ qiy v0;
 # first OAuth sign-in of an unknown identity lands on an onboarding form that
 # creates the users row (and a password); existing accounts can bind or unbind
 # additional providers from the personal center at /profile.
-application qiy-supply-chain-erp-wms {
+application qiy-supply-chain-erp-wms @comment("供应链 + ERP + WMS 演示应用：17 个实体、事务型业务命令与系统管理功能") {
   database sqlite {}
   api { client rest; }
+  features {
+    apiDocs true;
+    apiKeys true;
+  }
 
   realtime {
     mode auto;

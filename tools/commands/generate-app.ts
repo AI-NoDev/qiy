@@ -1,4 +1,4 @@
-﻿import { existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { generateProject } from "../generate-project";
 import { loadQiyProjectSource } from "../qiy-include";
@@ -46,6 +46,7 @@ export async function generateApp(source: string, destination: string, options: 
     chartPanels: project.chartPanels,
     realtime: project.realtime,
     storageProvider: project.storageProvider,
+    features: project.features,
     auth: project.auth,
     permissions: project.permissions,
     environment: project.environment,

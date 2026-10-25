@@ -20,6 +20,7 @@ application qiy-erp-admin @comment("Operations administration") {
 | `database` | 目标数据库方言与扩展 |
 | `ui` | Refine UI adapter、主题 key、品牌色和明暗模式 |
 | `api` | 前端 DataProvider 选择与 CORS |
+| `features` | 系统管理功能开关：`apiDocs`（功能总览/OpenAPI/Mermaid）与 `apiKeys`（API Key 表、认证与管理页签） |
 | `elysia` | 服务端插件组合 |
 | `storage` | 文件存储 provider |
 | `auth` | 外部身份映射 |
@@ -136,6 +137,8 @@ messages {
 | `qiy.dashboard.<metric>.label` | Dashboard 指标卡 |
 | `qiy.actions.<action>.label` / `.confirm` / `.inputs.<input>.label` | 业务命令按钮、确认文案、命令表单字段与枚举选项 |
 
+系统管理功能的界面文案（功能总览页签、Mermaid/API/权限表头）与访问密钥按钮使用内置 chrome 键 `qiy.docs.*`、`qiy.apiKey.*`、`qiy.chartViewKind.*`（zh-CN/en-US 随生成器输出，可在 `messages` 中用同名 key 覆盖）；它们不是模型派生 key，所以不参与 `model-i18n` 的完整性断言。
+
 `singular` / `plural` 缺失时分别回退到 `label` 与 DSL 里的 `@singular` / `@plural` / `@label` 原文；`@display`、`@tableDisplay`、`@relationDetail` 模板本身由字段引用和分隔符组成，不参与翻译。生成器会为每个实体输出这两个 key，并在 `web/tests/model-i18n.test.ts` 中断言。
 
 其中 `<resource>` 使用资源名（实体默认取 `table` 名）。生成的 `web/tests/model-i18n.test.ts` 会遍历所有资源、字段、枚举、菜单、Dashboard 指标与命令，断言 key 稳定、词典按语言解析、缺失时回退原文；仓库侧 `tests/example-modules.test.ts` 校验示例模型的词典完整覆盖全部模型 label。`apps/web/app/i18n.ts` 还提供 `qiy.filters.mode.<mode>`（筛选操作符）等 `qiy.*` 覆盖点。
@@ -187,6 +190,7 @@ bun run tools/generate-app.ts <source> <output-dir> [--sync]
 - [relation 与 index](/dsl/relation-index)：关系与索引
 - [enum / menu / dashboard](/dsl/enum-menu-dashboard)：界面配置
 - [chart（多视图图表）](/dsl/charts)：`chart` / `chart panels` 语法、视图类型与校验规则
+- [features（系统管理功能开关）](/dsl/features)：`features { apiDocs; apiKeys }`、OpenAPI 过滤规则与 API Key 模型
 - [dataflow](/dsl/dataflow)：可执行子集、生命周期与后续路线
 - [权限（permission）](/dsl/permissions)：原子权限、权限组、provider 来源与校验表达式
 - [action](/dsl/actions)：列表/详情操作、命令确认与手写业务页扩展
