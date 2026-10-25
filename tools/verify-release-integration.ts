@@ -38,7 +38,7 @@ application release-admin {
 }
 `);
 await run([binary, "skill", "install"]);
-assert(existsSync(join(root, ".agent/skills/qiy/examples/warehouse-admin/app.qiy")), "Offline skill example missing");
+assert(existsSync(join(root, ".agents/skills/qiy/examples/warehouse-admin/app.qiy")), "Offline skill example missing");
 await run([binary, "init", "-f", "admin.qiy"]);
 const webRoot = join(root, "apps/ops-console");
 writeFileSync(join(root, "bearer.qiy"), readFileSync(join(root, "admin.qiy"), "utf8")
