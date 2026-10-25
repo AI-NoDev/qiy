@@ -49,7 +49,10 @@ function RelationLink({ target, resource, id, labelField }: RelationLinkProps) {
   const locale = getLocale();
   const [open, setOpen] = useState(false);
   const { result, query } = useOne<Record<string, unknown>>({ resource, id, queryOptions: { enabled: Boolean(resource && id), staleTime: 60_000, retry: false } });
-  const record = (result?.data ?? undefined) as Record<string, unknown> | undefined;
+  // Refine's `useOne` returns the record itself in `result` (the data provider's
+  // response is already unwrapped); wrapping it in `.data` produced an empty label
+  // and an empty drawer for every foreign key.
+  const record = (result ?? undefined) as Record<string, unknown> | undefined;
   const display = translate as unknown as DisplayTranslate;
   const text = relatedRecordLabel(target, record, display, labelField, locale);
   const title = relatedEntityTitle(target, display);
@@ -145,7 +148,7 @@ export function RelationSelect({ relation, fieldName, value, onChange }: {
     id: currentId ?? "",
     queryOptions: { enabled: Boolean(currentId), staleTime: 60_000, retry: false },
   });
-  const selectedRecord = (selected?.data ?? undefined) as Record<string, unknown> | undefined;
+  const selectedRecord = (selected ?? undefined) as Record<string, unknown> | undefined;
   const selectedLabel = selectedRecord ? relatedRecordLabel(target, selectedRecord, display, relation.labelField) : undefined;
   const options = useMemo(
     () => mergeRelationOptions((selectRestProps.options ?? []) as QiyRelationOption[], currentId, selectedLabel),

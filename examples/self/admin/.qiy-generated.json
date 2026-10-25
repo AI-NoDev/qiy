@@ -211,6 +211,7 @@
     "apps/web/package.json",
     "apps/web/react-router.config.ts",
     "apps/web/tests/download-file.test.ts",
+    "apps/web/tests/relation-cell.test.tsx",
     "apps/web/tests/relation-options.test.ts",
     "apps/web/tsconfig.json",
     "apps/web/vite.config.ts",

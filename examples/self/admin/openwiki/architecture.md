@@ -262,6 +262,7 @@ The server owns validation, authorization and database transactions; the browser
 - [apps/web/tests/live-provider.test.ts](../apps/web/tests/live-provider.test.ts)
 - [apps/web/tests/model-i18n.test.ts](../apps/web/tests/model-i18n.test.ts)
 - [apps/web/tests/project-messages.test.ts](../apps/web/tests/project-messages.test.ts)
+- [apps/web/tests/relation-cell.test.tsx](../apps/web/tests/relation-cell.test.tsx)
 - [apps/web/tests/relation-options.test.ts](../apps/web/tests/relation-options.test.ts)
 - [apps/web/tests/tree.test.ts](../apps/web/tests/tree.test.ts)
 - [apps/web/tests/trend.test.ts](../apps/web/tests/trend.test.ts)
