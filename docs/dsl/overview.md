@@ -32,7 +32,8 @@ application qiy-erp-admin @comment("Operations administration") {
 | `restrict` | 记录级条件与字段脱敏；与 `scope` 叠加，不替代它 |
 | `permission` | 原子权限、权限组（角色即权限组）、provider 来源与权限校验表达式 |
 | `menu` | 菜单分组与层级 |
-| `dashboard` | 概览页指标 |
+| `dashboard` | 概览页指标（旧式单卡片） |
+| `chart` / `chart panels` | 概览页多视图图表与面板布局 |
 | `dataflow` | 声明式服务端业务命令；当前可执行受限的加载、条件校验与事务更新 |
 | `action` | 将显式 Dataflow 命令或手写业务页挂载到列表与详情操作区 |
 
@@ -131,6 +132,7 @@ messages {
 | `qiy.resources.<resource>.fields.<field>.label` | 列表列头、详情字段名、表单 label、筛选占位符、关联表列头 |
 | `qiy.enums.<enum>.label` / `qiy.enums.<enum>.values.<value>` | 枚举值 Tag、下拉选项（显示模板中的枚举字段同样走这里） |
 | `qiy.menu.<group>.label` | 菜单分组 |
+| `qiy.charts.<chart>.label` / `qiy.charts.<chart>.views.<index>.label` | 概览页图表卡片/面板标题与视图标题（视图按布局顺序从 0 编号） |
 | `qiy.dashboard.<metric>.label` | Dashboard 指标卡 |
 | `qiy.actions.<action>.label` / `.confirm` / `.inputs.<input>.label` | 业务命令按钮、确认文案、命令表单字段与枚举选项 |
 
@@ -184,6 +186,7 @@ bun run tools/generate-app.ts <source> <output-dir> [--sync]
 - [自动生成值与业务编码](/dsl/generated-values)：`@code` / `@generated`、模板语法、时区与并发唯一性
 - [relation 与 index](/dsl/relation-index)：关系与索引
 - [enum / menu / dashboard](/dsl/enum-menu-dashboard)：界面配置
+- [chart（多视图图表）](/dsl/charts)：`chart` / `chart panels` 语法、视图类型与校验规则
 - [dataflow](/dsl/dataflow)：可执行子集、生命周期与后续路线
 - [权限（permission）](/dsl/permissions)：原子权限、权限组、provider 来源与校验表达式
 - [action](/dsl/actions)：列表/详情操作、命令确认与手写业务页扩展

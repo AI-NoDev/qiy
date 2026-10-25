@@ -11,8 +11,8 @@ qiy v0;
 #   modules/messages.qiy          complete zh-CN / en-US dictionary for model labels
 #   modules/permissions.qiy       permission fields, groups, provider sources and verifications
 #   modules/pages.qiy             page-level role rules (after scope/restrict)
-#   modules/menu.qiy              sidebar groups (after pages, before dashboard)
-#   modules/dashboard.qiy         dashboard metric cards
+#   modules/menu.qiy              sidebar groups (after pages, before charts)
+#   modules/charts.qiy            multi-view chart dashboard (dashboard position)
 #   modules/dataflows.qiy         transactional business commands
 #   modules/actions.qiy           list/show action buttons bound to those dataflows
 #
@@ -84,10 +84,10 @@ application qiy-supply-chain-erp-wms {
     mask unitCost roles operator, viewer mode redact replacement "***";
   }
 
-  # UI configuration comes after scope/restrict. `menu` must precede `dashboard`.
+  # UI configuration comes after scope/restrict. `menu` precedes charts/dashboard.
   include "modules/pages.qiy";
   include "modules/menu.qiy";
-  include "modules/dashboard.qiy";
+  include "modules/charts.qiy";
   include "modules/dataflows.qiy";
   include "modules/actions.qiy";
 }

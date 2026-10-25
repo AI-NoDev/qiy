@@ -3,6 +3,7 @@ import { createI18nProvider, filterModeLabel, readStoredLocale, resolveLocale, s
 import { defaultMessageLocale, projectMessages } from "../app/messages";
 import { enumerations, menuGroups, resources } from "../app/resources";
 import { dashboardMetrics } from "../app/dashboard";
+import { chartPanels, charts, flattenChartViews } from "../app/charts";
 import { qiyActions } from "../app/actions";
 
 interface LabelEntry { key: string; fallback: string }
@@ -14,6 +15,9 @@ const labels: LabelEntry[] = [
   ...resources.flatMap((resource) => (resource.relatedResources ?? []).map((relation) => ({ key: relation.labelKey ?? "", fallback: relation.label }))),
   ...menuGroups.map((group) => ({ key: group.labelKey, fallback: group.label })),
   ...dashboardMetrics.map((metric) => ({ key: metric.labelKey ?? "", fallback: metric.label })),
+  ...charts.map((chart) => ({ key: chart.labelKey, fallback: chart.label })),
+  ...chartPanels.map((panel) => ({ key: panel.labelKey, fallback: panel.label })),
+  ...charts.flatMap((chart) => flattenChartViews(chart).map((view) => ({ key: view.labelKey, fallback: view.label }))),
   ...qiyActions.flatMap((action) => [
     { key: action.labelKey ?? "", fallback: action.label },
     ...(action.target.kind === "dataflow" ? [
@@ -26,7 +30,7 @@ const labels: LabelEntry[] = [
 test("every model-derived label has a stable key and resolves through project messages", () => {
   const providers = Object.fromEntries(supportedLocales.map((locale) => [locale, createI18nProvider(locale)]));
   for (const { key, fallback } of labels) {
-    expect(key).toMatch(/^qiy\.(resources|enums|menu|dashboard|actions)\./);
+    expect(key).toMatch(/^qiy\.(resources|enums|menu|dashboard|charts|actions)\./);
     for (const locale of supportedLocales) {
       const expected = projectMessages[locale]?.[key] ?? projectMessages[defaultMessageLocale]?.[key] ?? fallback;
       expect(providers[locale]!.translate(key, {}, fallback)).toBe(expected);
@@ -48,6 +52,15 @@ test("enum values, menu groups and dashboard metrics carry translation keys", ()
     for (const field of resource.fields) expect(field.labelKey).toBe("qiy.resources." + resource.name + ".fields." + field.name + ".label");
   }
   for (const metric of dashboardMetrics) expect(metric.labelKey).toBe("qiy.dashboard." + metric.name + ".label");
+  for (const chart of charts) {
+    expect(chart.labelKey).toBe("qiy.charts." + chart.name + ".label");
+    const views = flattenChartViews(chart);
+    views.forEach((view, index) => {
+      expect(view.index).toBe(index);
+      expect(view.labelKey).toBe("qiy.charts." + chart.name + ".views." + index + ".label");
+    });
+  }
+  for (const panel of chartPanels) expect(panel.labelKey).toBe("qiy.charts." + panel.name + ".label");
   for (const mode of ["eq", "contains", "between"]) expect(filterModeLabel("zh-CN", mode).length).toBeGreaterThan(0);
 });
 

@@ -1,7 +1,7 @@
 import type { DatabaseIR, EnumIR, EnumValueIR, FieldIR } from "./database-ir";
 import { renderAppTemplate } from "./admin-template";
 import { generatedFieldKind, generatedFieldsOf, validateDatabaseIR } from "./database-ir";
-import type { QiyProject } from "./qiy-project";
+import type { QiyChart, QiyChartView, QiyProject } from "./qiy-project";
 import { authHasLocal, authIsHybrid, authOAuthProviders, authUsesProviderChooser } from "./qiy-project";
 import { evaluatePermissionExpression, requiredPermissionValues, type QiyPermissionExpressionIR } from "./permissions";
 
@@ -19,7 +19,7 @@ const authProviderLabels: Record<string, string> = {
   otp: "One-time password",
 };
 
-type WebOptions = Pick<QiyProject, "mode" | "integration" | "ui" | "messages" | "apiClient" | "menuGroups" | "dashboardMetrics" | "realtime" | "auth" | "permissions" | "workflows" | "dataflows" | "actions" | "restrictions" | "pages" | "scopes"> & { readOnly?: boolean };
+type WebOptions = Pick<QiyProject, "mode" | "integration" | "ui" | "messages" | "apiClient" | "menuGroups" | "dashboardMetrics" | "charts" | "chartPanels" | "realtime" | "auth" | "permissions" | "workflows" | "dataflows" | "actions" | "restrictions" | "pages" | "scopes"> & { readOnly?: boolean };
 type GeneratedAction = {
   name: string;
   roles?: string[];
@@ -52,6 +52,8 @@ export const qiyModelKeys = {
   enumValueLabel: (enumeration: string, value: string) => `qiy.enums.${enumeration}.values.${value}`,
   menuLabel: (group: string) => `qiy.menu.${group}.label`,
   dashboardLabel: (metric: string) => `qiy.dashboard.${metric}.label`,
+  chartLabel: (chart: string) => `qiy.charts.${chart}.label`,
+  chartViewLabel: (chart: string, index: number) => `qiy.charts.${chart}.views.${index}.label`,
   actionLabel: (action: string) => `qiy.actions.${action}.label`,
   actionConfirm: (action: string) => `qiy.actions.${action}.confirm`,
   actionInputLabel: (action: string, input: string) => `qiy.actions.${action}.inputs.${input}.label`,
@@ -390,8 +392,43 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
   const hasRelatedResources = (database.relations ?? []).some((relation) => database.entities.some((entity) => entity.name === relation.toEntity));
   const hasOrderWorkflow = options.workflows?.includes("orderInventory") ?? false;
   if (hasOrderWorkflow && (database.dialect !== "postgresql" || !["orders", "orderItems", "inventoryItems"].every((name) => database.entities.some((entity) => entity.name === name)))) throw new Error("orderInventory workflow requires PostgreSQL and orders, orderItems, and inventoryItems entities");
-  const dashboardMetrics = options.dashboardMetrics?.length ? options.dashboardMetrics : database.entities.map((entity) => ({ name: entity.name, resource: entity.tableName, label: entity.label ?? entity.name, icon: entity.icon, span: 8 as const }));
+  const dashboardMetrics = options.dashboardMetrics?.length ? options.dashboardMetrics : options.charts?.length ? [] : database.entities.map((entity) => ({ name: entity.name, resource: entity.tableName, label: entity.label ?? entity.name, icon: entity.icon, span: 8 as const }));
   const localizedDashboardMetrics = dashboardMetrics.map((metric) => ({ ...metric, labelKey: qiyModelKeys.dashboardLabel(metric.name) }));
+  // Chart pages: views are flattened in layout order so the generated label keys
+  // (`qiy.charts.<chart>.views.<index>.label`) are stable and match the docs.
+  const chartViewMetadata = (chart: QiyChart, view: QiyChartView, index: number) => ({
+    index,
+    kind: view.kind,
+    label: view.label ?? `${chart.label ?? chart.name} · ${view.kind}`,
+    labelKey: qiyModelKeys.chartViewLabel(chart.name, index),
+    ...(view.aggregate !== undefined && { aggregate: view.aggregate }),
+    ...(view.field !== undefined && { field: view.field }),
+    ...(view.groupBy !== undefined && { groupBy: view.groupBy }),
+    ...(view.dateField !== undefined && { dateField: view.dateField }),
+    ...(view.days !== undefined && { days: view.days }),
+    ...(view.columns?.length ? { columns: view.columns } : {}),
+  });
+  const localizedCharts = (options.charts ?? []).map((chart) => {
+    let viewIndex = 0;
+    return {
+      name: chart.name,
+      label: chart.label ?? chart.name,
+      labelKey: qiyModelKeys.chartLabel(chart.name),
+      source: chart.source,
+      rows: chart.rows.map((row) => ({
+        columns: row.columns.map((column) => ({
+          span: column.span,
+          views: column.views.map((view) => chartViewMetadata(chart, view, viewIndex++)),
+        })),
+      })),
+    };
+  });
+  const localizedChartPanels = (options.chartPanels ?? []).map((panel) => ({
+    name: panel.name,
+    label: panel.label ?? panel.name,
+    labelKey: qiyModelKeys.chartLabel(panel.name),
+    rows: panel.rows.map((row) => ({ columns: row.columns.map((column) => ({ span: column.span, charts: column.charts })) })),
+  }));
   // A generated test can only assert a concrete language switch when the model
   // declares translations for the first resource in both built-in locales.
   const firstEntity = database.entities[0];
@@ -721,6 +758,24 @@ export function qiyApiError(payload: unknown, statusCode: number, locale = typeo
 `,
     "web/app/dashboard.ts": `export interface DashboardMetric { name: string; resource: string; label: string; labelKey: string; icon?: string; comment?: string; commentKey?: string; span: 8 | 12 | 24; type?: "count" | "distribution" | "trend" | "aggregate"; groupBy?: string; days?: number; field?: string; agg?: "sum" | "avg" | "min" | "max" }
 export const dashboardMetrics: DashboardMetric[] = ${JSON.stringify(localizedDashboardMetrics, null, 2)};
+`,
+    "web/app/charts.ts": `export type ChartViewKind = "stat" | "bar" | "line" | "pie" | "table";
+export type ChartAggregate = "count" | "sum" | "avg" | "min" | "max";
+export interface ChartViewDefinition { /** Flat layout index; also the suffix of the i18n label key. */ index: number; kind: ChartViewKind; label: string; labelKey: string; aggregate?: ChartAggregate; field?: string; groupBy?: string; dateField?: string; days?: number; columns?: string[]; }
+export interface ChartLayoutColumn { span: number; views: ChartViewDefinition[]; }
+export interface ChartLayoutRow { columns: ChartLayoutColumn[]; }
+export interface ChartDefinition { name: string; label: string; labelKey: string; source: string; rows: ChartLayoutRow[]; }
+export interface ChartPanelColumn { span: number; charts: string[]; }
+export interface ChartPanelRow { columns: ChartPanelColumn[]; }
+export interface ChartPanelDefinition { name: string; label: string; labelKey: string; rows: ChartPanelRow[]; }
+export const charts: ChartDefinition[] = ${JSON.stringify(localizedCharts, null, 2)};
+export const chartPanels: ChartPanelDefinition[] = ${JSON.stringify(localizedChartPanels, null, 2)};
+export const hasChartDashboard = charts.length > 0;
+export function findChart(name: string): ChartDefinition | undefined { return charts.find((chart) => chart.name === name); }
+/** Views in visual order (row, then column, then stacked views). */
+export function flattenChartViews(chart: ChartDefinition): ChartViewDefinition[] { return chart.rows.flatMap((row) => row.columns.flatMap((column) => column.views)); }
+/** Chart references in panel/row/column order, with the column span they occupy. */
+export function flattenPanelCharts(panel: ChartPanelDefinition): Array<{ row: number; column: number; span: number; chart: string }> { return panel.rows.flatMap((row, rowIndex) => row.columns.flatMap((column, columnIndex) => column.charts.map((chart) => ({ row: rowIndex, column: columnIndex, span: column.span, chart })))); }
 `,
     ...(options.auth ? {
       "web/app/auth.ts": `import type { AccessControlProvider, AuthProvider } from "@refinedev/core";
@@ -1539,6 +1594,8 @@ import { Card, Col, Progress, Row, Space, Statistic, Typography, theme } from "a
 import { Link } from "react-router";
 import { resources } from "../resources";
  import { dashboardMetrics, type DashboardMetric } from "../dashboard";
+ import { chartPanels, charts } from "../charts";
+ import { ChartDashboard } from "../components/charts";
  import { qiyIcons } from "../icons";
  import { projectMessage } from "../messages";
 import { t, resolveLocale, type QiyLocale } from "../i18n";
@@ -1599,7 +1656,7 @@ import { t, resolveLocale, type QiyLocale } from "../i18n";
 }
 export default function Home() {
   const { getLocale, translate } = useTranslation(); const locale: QiyLocale = resolveLocale(getLocale());
-   return <Space direction="vertical" size="large" style={{ width: "100%" }}><div><Typography.Title level={2}>{t(locale, "overview")}</Typography.Title><Typography.Paragraph type="secondary">{t(locale, "overviewDescription")}</Typography.Paragraph></div><Row gutter={[16, 16]}>{dashboardMetrics.map((metric) => <CanAccess key={metric.name} resource={metric.resource} action="list"><ResourceSummary metric={metric} /></CanAccess>)}</Row><Card title={t(locale, "quickAccess")}><Space wrap>{resources.slice(0, 4).map((resource) => <CanAccess key={resource.name} resource={resource.name} action="list"><Link to={\`/\${resource.name}\`}>{translate(resource.pluralKey, {}, translate(resource.labelKey, {}, resource.label))}</Link></CanAccess>)}</Space></Card></Space>;
+   return <Space direction="vertical" size="large" style={{ width: "100%" }}><div><Typography.Title level={2}>{t(locale, "overview")}</Typography.Title><Typography.Paragraph type="secondary">{t(locale, "overviewDescription")}</Typography.Paragraph></div>{charts.length > 0 ? <ChartDashboard charts={charts} panels={chartPanels} /> : <Row gutter={[16, 16]}>{dashboardMetrics.map((metric) => <CanAccess key={metric.name} resource={metric.resource} action="list"><ResourceSummary metric={metric} /></CanAccess>)}</Row>}<Card title={t(locale, "quickAccess")}><Space wrap>{resources.slice(0, 4).map((resource) => <CanAccess key={resource.name} resource={resource.name} action="list"><Link to={\`/\${resource.name}\`}>{translate(resource.pluralKey, {}, translate(resource.labelKey, {}, resource.label))}</Link></CanAccess>)}</Space></Card></Space>;
 }
 `,
     "web/app/messages.ts": `export const defaultMessageLocale = ${JSON.stringify(options.messages?.defaultLocale ?? "zh-CN")};\nexport const projectMessages: Record<string, Record<string, string>> = ${JSON.stringify(options.messages?.locales ?? {}, null, 2)};\nexport function projectMessage(locale: string, key: string): string | undefined { const entries = Object.hasOwn(projectMessages, locale) ? projectMessages[locale] : undefined; if (entries && Object.hasOwn(entries, key)) return entries[key]; const fallback = projectMessages[defaultMessageLocale]; return fallback && Object.hasOwn(fallback, key) ? fallback[key] : undefined; }\n`,
@@ -1624,7 +1681,7 @@ export const localeMessages = {
     new: "新建", edit: "编辑", view: "查看", back: "返回列表", delete: "删除", batchDelete: "批量删除", actions: "操作",
     visibleColumns: "显示列", confirmDelete: "确认删除选中记录？", deleted: "删除成功", unknownResource: "未知资源", detail: "详情",
     createResource: "新建{{resource}}", editResource: "编辑{{resource}}", openDetail: "打开详情", searchRelation: "搜索…",
-    drawerBreadcrumb: "关联记录路径", recordDetails: "字段详情", recordSummary: "关联摘要", close: "关闭",
+    drawerBreadcrumb: "关联记录路径", recordDetails: "字段详情", recordSummary: "关联摘要", close: "关闭", chartMax: "最大值",
     language: "语言", save: "保存", cancel: "取消", deleteSuccess: "删除成功", requiredWithLabel: "请输入\${label}", loading: "加载中", quickAccess: "快速访问", upload: "上传文件",
     overview: "概览", overviewDescription: "从数据资源快速进入业务管理。", profile: "个人中心", filters: "筛选", search: "搜索",
     matchAll: "全部匹配", matchAny: "任一匹配", commaSeparated: "（逗号分隔）", forbidden: "没有访问该页面的权限",
@@ -1668,7 +1725,7 @@ export const localeMessages = {
     new: "New", edit: "Edit", view: "View", back: "Back to list", delete: "Delete", batchDelete: "Batch delete", actions: "Actions",
     visibleColumns: "Columns", confirmDelete: "Delete selected records?", deleted: "Deleted", unknownResource: "Unknown resource", detail: "Detail",
     createResource: "Create {{resource}}", editResource: "Edit {{resource}}", openDetail: "Open details", searchRelation: "Search…",
-    drawerBreadcrumb: "Related record path", recordDetails: "Field details", recordSummary: "Relation summary", close: "Close",
+    drawerBreadcrumb: "Related record path", recordDetails: "Field details", recordSummary: "Relation summary", close: "Close", chartMax: "max",
     language: "Language", save: "Save", cancel: "Cancel", deleteSuccess: "Deleted", requiredWithLabel: "\${label} is required", loading: "Loading", quickAccess: "Quick access", upload: "Upload file",
     overview: "Overview", overviewDescription: "Jump into your data resources from one place.", profile: "Profile", filters: "Filters", search: "Search",
     matchAll: "Match all", matchAny: "Match any", commaSeparated: " (comma separated)", forbidden: "You are not allowed to open this page",
@@ -2091,6 +2148,7 @@ import { createI18nProvider, filterModeLabel, readStoredLocale, resolveLocale, s
 import { defaultMessageLocale, projectMessages } from "../app/messages";
 import { enumerations, menuGroups, resources } from "../app/resources";
 import { dashboardMetrics } from "../app/dashboard";
+import { chartPanels, charts, flattenChartViews } from "../app/charts";
 ${actionDefinitions.length ? 'import { qiyActions } from "../app/actions";\n' : ""}
 interface LabelEntry { key: string; fallback: string }
 const labels: LabelEntry[] = [
@@ -2101,6 +2159,9 @@ const labels: LabelEntry[] = [
   ...resources.flatMap((resource) => (resource.relatedResources ?? []).map((relation) => ({ key: relation.labelKey ?? "", fallback: relation.label }))),
   ...menuGroups.map((group) => ({ key: group.labelKey, fallback: group.label })),
   ...dashboardMetrics.map((metric) => ({ key: metric.labelKey ?? "", fallback: metric.label })),
+  ...charts.map((chart) => ({ key: chart.labelKey, fallback: chart.label })),
+  ...chartPanels.map((panel) => ({ key: panel.labelKey, fallback: panel.label })),
+  ...charts.flatMap((chart) => flattenChartViews(chart).map((view) => ({ key: view.labelKey, fallback: view.label }))),
 ${actionDefinitions.length ? `  ...qiyActions.flatMap((action) => [
     { key: action.labelKey ?? "", fallback: action.label },
     ...(action.target.kind === "dataflow" ? [
@@ -2113,7 +2174,7 @@ ${actionDefinitions.length ? `  ...qiyActions.flatMap((action) => [
 test("every model-derived label has a stable key and resolves through project messages", () => {
   const providers = Object.fromEntries(supportedLocales.map((locale) => [locale, createI18nProvider(locale)]));
   for (const { key, fallback } of labels) {
-    expect(key).toMatch(/^qiy\\.(resources|enums|menu|dashboard|actions)\\./);
+    expect(key).toMatch(/^qiy\\.(resources|enums|menu|dashboard|charts|actions)\\./);
     for (const locale of supportedLocales) {
       const expected = projectMessages[locale]?.[key] ?? projectMessages[defaultMessageLocale]?.[key] ?? fallback;
       expect(providers[locale]!.translate(key, {}, fallback)).toBe(expected);
@@ -2135,6 +2196,15 @@ test("enum values, menu groups and dashboard metrics carry translation keys", ()
     for (const field of resource.fields) expect(field.labelKey).toBe("qiy.resources." + resource.name + ".fields." + field.name + ".label");
   }
   for (const metric of dashboardMetrics) expect(metric.labelKey).toBe("qiy.dashboard." + metric.name + ".label");
+  for (const chart of charts) {
+    expect(chart.labelKey).toBe("qiy.charts." + chart.name + ".label");
+    const views = flattenChartViews(chart);
+    views.forEach((view, index) => {
+      expect(view.index).toBe(index);
+      expect(view.labelKey).toBe("qiy.charts." + chart.name + ".views." + index + ".label");
+    });
+  }
+  for (const panel of chartPanels) expect(panel.labelKey).toBe("qiy.charts." + panel.name + ".label");
   for (const mode of ["eq", "contains", "between"]) expect(filterModeLabel("zh-CN", mode).length).toBeGreaterThan(0);
 });
 
@@ -2171,7 +2241,7 @@ const chromeKeys = [
   "qiy.treeView", "qiy.auditTitle", "qiy.auditAction", "qiy.auditAuthor", "qiy.auditSystem", "qiy.auditTime",
   "qiy.new", "qiy.edit", "qiy.delete", "qiy.batchDelete", "qiy.confirmDelete", "qiy.detail",
   "qiy.createResource", "qiy.editResource", "qiy.openDetail", "qiy.searchRelation",
-  "qiy.drawerBreadcrumb", "qiy.recordDetails", "qiy.recordSummary", "qiy.close",
+  "qiy.drawerBreadcrumb", "qiy.recordDetails", "qiy.recordSummary", "qiy.close", "qiy.chartMax",
   "qiy.search", "qiy.filters", "qiy.matchAll", "qiy.matchAny", "qiy.commaSeparated", "qiy.forbidden", "qiy.noData",
   "qiy.themeColor", "qiy.themeBlue", "qiy.themePurple", "qiy.themeGreen", "qiy.themeOrange", "qiy.themeRed",
   "qiy.colorMode", "qiy.colorLight", "qiy.colorDark", "qiy.colorSystem",
@@ -2233,6 +2303,9 @@ test("every chrome key resolves in zh-CN and en-US instead of falling back to En
   expect(zh.translate("qiy.recordSummary")).toBe("关联摘要");
   expect(zh.translate("qiy.close")).toBe("关闭");
   expect(en.translate("qiy.close")).toBe("Close");
+  // Chart dashboard chrome (sparkline max label).
+  expect(zh.translate("qiy.chartMax")).toBe("最大值");
+  expect(en.translate("qiy.chartMax")).toBe("max");
   expect(zh.translate("qiy.signOut")).toBe("退出登录");
   expect(zh.translate("qiy.bind")).toBe("关联");
   expect(zh.translate("qiy.unbind")).toBe("解除关联");

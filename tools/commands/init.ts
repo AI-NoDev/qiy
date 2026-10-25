@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+﻿import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { generateProject } from "../generate-project";
 import { createGeneratedManifest, generatedPath, readGeneratedManifest } from "../generated-paths";
@@ -165,6 +165,8 @@ export async function initApp(options: InitAppOptions): Promise<string> {
     corsOrigins: project.corsOrigins,
     menuGroups: project.menuGroups,
     dashboardMetrics: project.dashboardMetrics,
+    charts: project.charts,
+    chartPanels: project.chartPanels,
     realtime: project.realtime,
     storageProvider: project.storageProvider,
     auth: project.auth,

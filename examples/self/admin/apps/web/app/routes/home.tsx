@@ -3,6 +3,8 @@ import { Card, Col, Progress, Row, Space, Statistic, Typography, theme } from "a
 import { Link } from "react-router";
 import { resources } from "../resources";
  import { dashboardMetrics, type DashboardMetric } from "../dashboard";
+ import { chartPanels, charts } from "../charts";
+ import { ChartDashboard } from "../components/charts";
  import { qiyIcons } from "../icons";
  import { projectMessage } from "../messages";
 import { t, resolveLocale, type QiyLocale } from "../i18n";
@@ -63,5 +65,5 @@ import { t, resolveLocale, type QiyLocale } from "../i18n";
 }
 export default function Home() {
   const { getLocale, translate } = useTranslation(); const locale: QiyLocale = resolveLocale(getLocale());
-   return <Space direction="vertical" size="large" style={{ width: "100%" }}><div><Typography.Title level={2}>{t(locale, "overview")}</Typography.Title><Typography.Paragraph type="secondary">{t(locale, "overviewDescription")}</Typography.Paragraph></div><Row gutter={[16, 16]}>{dashboardMetrics.map((metric) => <CanAccess key={metric.name} resource={metric.resource} action="list"><ResourceSummary metric={metric} /></CanAccess>)}</Row><Card title={t(locale, "quickAccess")}><Space wrap>{resources.slice(0, 4).map((resource) => <CanAccess key={resource.name} resource={resource.name} action="list"><Link to={`/${resource.name}`}>{translate(resource.pluralKey, {}, translate(resource.labelKey, {}, resource.label))}</Link></CanAccess>)}</Space></Card></Space>;
+   return <Space direction="vertical" size="large" style={{ width: "100%" }}><div><Typography.Title level={2}>{t(locale, "overview")}</Typography.Title><Typography.Paragraph type="secondary">{t(locale, "overviewDescription")}</Typography.Paragraph></div>{charts.length > 0 ? <ChartDashboard charts={charts} panels={chartPanels} /> : <Row gutter={[16, 16]}>{dashboardMetrics.map((metric) => <CanAccess key={metric.name} resource={metric.resource} action="list"><ResourceSummary metric={metric} /></CanAccess>)}</Row>}<Card title={t(locale, "quickAccess")}><Space wrap>{resources.slice(0, 4).map((resource) => <CanAccess key={resource.name} resource={resource.name} action="list"><Link to={`/${resource.name}`}>{translate(resource.pluralKey, {}, translate(resource.labelKey, {}, resource.label))}</Link></CanAccess>)}</Space></Card></Space>;
 }

@@ -28,7 +28,9 @@ describe("modular demo model", () => {
     expect(project.database.relations).toHaveLength(23);
     expect(project.pages).toHaveLength(4);
     expect(project.menuGroups).toHaveLength(6);
-    expect(project.dashboardMetrics).toHaveLength(6);
+    expect(project.dashboardMetrics).toBeUndefined();
+    expect(project.charts).toHaveLength(8);
+    expect(project.chartPanels).toHaveLength(3);
     expect(project.dataflows).toHaveLength(8);
     expect(project.actions).toHaveLength(8);
     expect(project.auth?.providers).toEqual(["okta", "keycloak", "google", "kinde", "azure-ad-b2c"]);
@@ -117,6 +119,12 @@ describe("modular demo model", () => {
     }
     for (const group of project.menuGroups ?? []) add(qiyModelKeys.menuLabel(group.name));
     for (const metric of project.dashboardMetrics ?? []) add(qiyModelKeys.dashboardLabel(metric.name));
+    for (const chart of project.charts ?? []) {
+      add(qiyModelKeys.chartLabel(chart.name));
+      let viewIndex = 0;
+      for (const row of chart.rows) for (const column of row.columns) for (const _view of column.views) add(qiyModelKeys.chartViewLabel(chart.name, viewIndex++));
+    }
+    for (const panel of project.chartPanels ?? []) add(qiyModelKeys.chartLabel(panel.name));
     const dataflows = new Map((project.dataflows ?? []).map((flow) => [flow.name, flow]));
     for (const action of project.actions ?? []) {
       add(qiyModelKeys.actionLabel(action.name));
@@ -152,6 +160,37 @@ describe("modular demo model", () => {
     expect(locales["zh-CN"]!["qiy.menu.inventory.label"]).toBe("库存与仓储");
     expect(locales["en-US"]!["qiy.menu.masterData.label"]).toBe("Master data");
     expect(locales["en-US"]!["qiy.menu.inventory.label"]).toBe("Inventory & warehouse");
+    // Chart titles, view labels and panel titles are translated too.
+    expect(locales["zh-CN"]!["qiy.charts.OverviewKpis.label"]).toBe("关键指标");
+    expect(locales["en-US"]!["qiy.charts.OverviewKpis.label"]).toBe("Key metrics");
+    expect(locales["zh-CN"]!["qiy.charts.InventorySnapshot.views.1.label"]).toBe("平均在库");
+    expect(locales["en-US"]!["qiy.charts.InventorySnapshot.views.1.label"]).toBe("Average per record");
+  });
+
+  test("declares a realistic multi-view chart dashboard", async () => {
+    const { project } = await modularProject();
+    const charts = project.charts!;
+    const panels = project.chartPanels!;
+    expect(charts.map((chart) => chart.name)).toEqual(["UserCount", "PurchaseOrderCount", "ShipmentCount", "InventorySnapshot", "MovementByType", "PurchaseStatus", "MovementTrend", "InventoryByWarehouse"]);
+    expect(charts.every((chart) => chart.source && chart.rows.length > 0)).toBe(true);
+    const kinds = charts.flatMap((chart) => chart.rows.flatMap((row) => row.columns.flatMap((column) => column.views.map((view) => view.kind))));
+    // The dashboard covers every supported view kind.
+    for (const kind of ["stat", "bar", "line", "pie", "table"] as const) expect(kinds).toContain(kind);
+    // At least one chart keeps two views in one layout (multi-view).
+    const multiView = charts.find((chart) => chart.rows.flatMap((row) => row.columns.flatMap((column) => column.views)).length > 1);
+    expect(multiView?.name).toBe("InventorySnapshot");
+    expect(multiView?.rows[0]?.columns.map((column) => column.span)).toEqual([12, 12]);
+    // Panels render in declaration order and mix spans 8/16 in one two-row panel.
+    expect(panels.map((panel) => panel.name)).toEqual(["OverviewKpis", "Operations", "InventoryBoard"]);
+    const operations = panels.find((panel) => panel.name === "Operations")!;
+    expect(operations.rows.map((row) => row.columns.map((column) => column.span))).toEqual([[8, 16], [12, 12]]);
+    // Stat cards cover users/orders/shipments/inventory; distributions cover movement type + order status.
+    const chartNames = new Set(charts.map((chart) => chart.name));
+    for (const name of ["UserCount", "PurchaseOrderCount", "ShipmentCount", "InventorySnapshot", "MovementByType", "PurchaseStatus"]) expect(chartNames.has(name)).toBe(true);
+    // Every panel reference resolves to a chart; table view has explicit columns.
+    for (const panel of panels) for (const row of panel.rows) for (const column of row.columns) for (const reference of column.charts) expect(chartNames.has(reference)).toBe(true);
+    const table = charts.find((chart) => chart.name === "InventoryByWarehouse")!.rows[0]!.columns[0]!.views[0]!;
+    expect(table).toMatchObject({ kind: "table", columns: ["inventoryKey", "warehouseId", "quantity", "reserved"] });
   });
 
   test("generates the same resources and fields from the modular source", async () => {
@@ -170,7 +209,17 @@ describe("modular demo model", () => {
     expect(messages).toContain('"qiy.resources.products.label": "产品"');
     expect(messages).toContain('"qiy.resources.customers.singular": "客户"');
     expect(messages).toContain('"qiy.resources.customers.plural": "Customers"');
-    expect(messages).toContain('"qiy.dashboard.movementTrend.label": "近 30 天库存流水"');
+    expect(messages).toContain('"qiy.charts.InventorySnapshot.views.1.label": "平均在库"');
+    expect(messages).toContain('"qiy.charts.MovementTrend.label": "库存流水趋势"');
+    // Chart dashboard metadata reaches the generated web app and tests.
+    expect(files["apps/web/app/charts.ts"]).toContain('"name": "InventorySnapshot"');
+    expect(files["apps/web/app/charts.ts"]).toContain('"labelKey": "qiy.charts.UserCount.views.0.label"');
+    expect(files["apps/web/app/charts.ts"]).toContain('"charts": [');
+    expect(files["apps/web/app/components/charts.tsx"]).toContain("export function ChartDashboard");
+    expect(files["apps/web/app/routes/home.tsx"]).toContain("ChartDashboard");
+    expect(files["apps/web/app/routes/home.tsx"]).toContain("charts.length > 0");
+    expect(files["apps/web/app/dashboard.ts"]).toContain("export const dashboardMetrics: DashboardMetric[] = []");
+    expect(files["apps/web/tests/charts.test.ts"]).toContain("chart layout metadata preserves row/column/view order");
     // Grouped sidebar metadata: resource -> group parent, and the group keeps its menu order.
     expect(resources).toContain('"menuParent": "menu-masterData"');
     expect(resources).toContain('"menuParent": "menu-purchasing"');

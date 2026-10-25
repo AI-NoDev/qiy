@@ -1,0 +1,93 @@
+# Chart dashboard (概览页面). Included after `menu` and before dataflows, at the
+# same position as the legacy `dashboard { metric ... }` block: charts and metrics
+# may be declared in either order, but both come after menu and before dataflows.
+#
+# Each `chart` declares a data source and a Rows/Cols layout with one or more
+# views (stat / bar / line / pie / table). `chart panels` arranges chart
+# references into dashboard rows; panels render in declaration order. Labels fall
+# back to the declared text and are translated through
+# `qiy.charts.<name>.label` / `qiy.charts.<chart>.views.<index>.label` in
+# modules/messages.qiy.
+
+# --- stat views -------------------------------------------------------------
+chart const UserCount {
+  source users;
+  Row {
+    Col span 24 { view stat @label("用户总数") { aggregate count; } }
+  }
+}
+chart const PurchaseOrderCount {
+  source purchase_orders;
+  Row {
+    Col span 24 { view stat @label("采购单总数") { aggregate count; } }
+  }
+}
+chart const ShipmentCount {
+  source shipments;
+  Row {
+    Col span 24 { view stat @label("发运单总数") { aggregate count; } }
+  }
+}
+
+# Multi-view chart: two aggregate views in one Rows/Cols layout.
+chart const InventorySnapshot {
+  source inventory;
+  Row {
+    Col span 12 { view stat @label("在库总量") { aggregate sum; field quantity; } }
+    Col span 12 { view stat @label("平均在库") { aggregate avg; field quantity; } }
+  }
+}
+
+# --- distribution views (bar / pie) ----------------------------------------
+chart const MovementByType {
+  source stock_movements;
+  Row {
+    Col span 24 { view bar @label("按类型统计的库存流水") { groupBy type; } }
+  }
+}
+chart const PurchaseStatus {
+  source purchase_orders;
+  Row {
+    Col span 24 { view pie @label("采购单状态") { groupBy status; } }
+  }
+}
+
+# --- line trend -------------------------------------------------------------
+chart const MovementTrend {
+  source stock_movements;
+  Row {
+    Col span 24 { view line @label("近 30 天库存流水") { dateField occurredAt; days 30; } }
+  }
+}
+
+# --- table view (read-only preview, no edit actions) -----------------------
+chart const InventoryByWarehouse {
+  source inventory;
+  Row {
+    Col span 24 { view table @label("按仓库的库存记录") { columns inventoryKey, warehouseId, quantity, reserved; } }
+  }
+}
+
+# --- panels -----------------------------------------------------------------
+chart panels OverviewKpis {
+  Row {
+    Col span 8 { chart UserCount; }
+    Col span 8 { chart PurchaseOrderCount; }
+    Col span 8 { chart ShipmentCount; }
+  }
+}
+chart panels Operations {
+  Row {
+    Col span 8 { chart MovementByType; }
+    Col span 16 { chart MovementTrend; }
+  }
+  Row {
+    Col span 12 { chart PurchaseStatus; }
+    Col span 12 { chart InventorySnapshot; }
+  }
+}
+chart panels InventoryBoard {
+  Row {
+    Col span 24 { chart InventoryByWarehouse; }
+  }
+}

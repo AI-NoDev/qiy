@@ -162,6 +162,7 @@ export default defineConfig({
             { text: "自动生成值与业务编码", link: "/dsl/generated-values" },
             { text: "relation / index", link: "/dsl/relation-index" },
             { text: "enum / menu / dashboard", link: "/dsl/enum-menu-dashboard" },
+            { text: "chart（多视图图表）", link: "/dsl/charts" },
             { text: "dataflow", link: "/dsl/dataflow" },
             { text: "权限（permission）", link: "/dsl/permissions" },
             { text: "action", link: "/dsl/actions" },

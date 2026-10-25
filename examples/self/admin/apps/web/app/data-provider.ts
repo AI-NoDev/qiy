@@ -87,11 +87,20 @@ export function createDataProvider(fetcher: QiyFetcher = fetch): DataProvider {
         invalidateIdBatchCache();
         return result;
       }
-      const match = /^\/api\/v1\/([a-z][a-z0-9_-]*)\/(distribution|trend)$/.exec(url);
+      const match = /^\/api\/v1\/([a-z][a-z0-9_-]*)\/(distribution|trend|aggregate)$/.exec(url);
       if (method !== "get" || !match || !allowed.has(match[1]!)) throw new Error("Unknown analytics resource");
       const resource = resources.find((item) => item.name === match[1]);
-      const field = (query as { field?: string } | undefined)?.field;
-      const days = Number((query as { days?: number } | undefined)?.days);
+      const analytics = query as { field?: string; days?: number; op?: string } | undefined;
+      const field = analytics?.field;
+      if (match[2] === "aggregate") {
+        // `stat` chart views aggregate one numeric column in SQL.
+        const operator = analytics?.op ?? "sum";
+        if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unknown aggregate operator");
+        if (!field || !resource?.fields.some((item) => item.name === field && (item.type === "Integer" || item.type === "Decimal" || item.type === "Money"))) throw new Error("Unknown aggregate field");
+        const data = await request(`${url}?field=${encodeURIComponent(field)}&op=${encodeURIComponent(operator)}`) as { value?: number | null; operator?: string };
+        return { data: { value: data?.value ?? null, operator: data?.operator ?? operator } };
+      }
+      const days = Number(analytics?.days);
       if (!field || !resource?.fields.some((item) => item.name === field && (match[2] === "trend" ? item.type === "DateTime" : item.enumValues?.length))) throw new Error(`Unknown ${match[2]} field`);
       if (match[2] === "trend" && (!Number.isInteger(days) || days < 1 || days > 365)) throw new Error("Invalid trend days");
       const data = await request(`${url}?field=${encodeURIComponent(field)}${match[2] === "trend" ? `&days=${days}` : ""}`) as Array<{ count: number }>;
@@ -178,12 +187,21 @@ export function createGraphQLDataProvider(fetcher: QiyFetcher = fetch): DataProv
     getApiUrl: () => "/graphql",
     custom: async ({ url, method, query, payload, meta }) => {
       if (method === "post") return workflowCommand(fetcher, url, method, payload, meta);
-      const match = /^\/api\/v1\/([a-z][a-z0-9_-]*)\/(distribution|trend)$/.exec(url);
+      const match = /^\/api\/v1\/([a-z][a-z0-9_-]*)\/(distribution|trend|aggregate)$/.exec(url);
       const resource = resources.find((item) => item.name === match?.[1]);
-      const field = (query as { field?: string } | undefined)?.field;
+      const analytics = query as { field?: string; days?: number; op?: string } | undefined;
+      const field = analytics?.field;
+      if (match?.[2] === "aggregate") {
+        const operator = analytics?.op ?? "sum";
+        if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unknown aggregate operator");
+        if (method !== "get" || !resource || !field || !resource.fields.some((item) => item.name === field && (item.type === "Integer" || item.type === "Decimal" || item.type === "Money"))) throw new Error("Unknown aggregate field");
+        const aggregateName = `${resource.apiName}Aggregate`;
+        const result = await graphqlRequest(fetcher, `query($field: String!, $op: String!) { ${aggregateName}(field: $field, op: $op) }`, { field, op: operator });
+        return { data: { value: (result[aggregateName] as number | null) ?? null, operator } };
+      }
       if (method !== "get" || !resource || !field || !resource.fields.some((item) => item.name === field && (match?.[2] === "trend" ? item.type === "DateTime" : item.enumValues?.length))) throw new Error("Unknown analytics field");
       if (match?.[2] === "trend") {
-        const days = Number((query as { days?: number } | undefined)?.days);
+        const days = Number(analytics?.days);
         if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error("Invalid trend days");
         const name = `${resource.apiName}Trend`;
         const result = await graphqlRequest(fetcher, `query($field: String!, $days: Int!) { ${name}(field: $field, days: $days) { day count } }`, { field, days });

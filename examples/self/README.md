@@ -5,7 +5,7 @@
 ## 模型内容
 
 - **供应链**：供应商、客户、采购单/明细、收货、销售单/明细、发运、单据状态机；
-- **ERP**：产品、BOM、工作单（生产/领料/产出流水）、成本与价格字段（字段级 mask）、仪表盘分布/趋势指标；
+- **ERP**：产品、BOM、工作单（生产/领料/产出流水）、成本与价格字段（字段级 mask）、概览页多视图图表（stat/bar/pie/line/table）；
 - **WMS**：组织（scope tree claim）、仓库、库位、库存（在手/预留/批次）、库存流水、上架/调拨/盘点/预留/发运等 dataflow 命令（幂等 + 审计 + 事务回滚）；
 - **侧边栏菜单**：`modules/menu.qiy` 用 `menu { group ... }` 把 17 个资源分成 6 个可折叠子菜单（基础资料 / 采购 / 销售 / 库存与仓储 / 生产 / 系统管理），分组中英文文案来自 `qiy.menu.<group>.label`，侧边栏支持折叠并记住状态、当前路由分组默认展开、移动端抽屉式导航；
 - **实时**：库存、库存流水、发运的 realtime outbox；
@@ -45,8 +45,8 @@ examples/self/modules/relations.qiy   # 全部 relation（必须在所有实体�
 examples/self/modules/messages.qiy    # zh-CN / en-US 完整词典
 examples/self/modules/permissions.qiy # 权限字段/组/provider 来源/校验块
 examples/self/modules/pages.qiy       # 页面级角色规则（在 scope/restrict 之后）
-examples/self/modules/menu.qiy        # 侧边栏分组（在 pages 之后、dashboard 之前）
-examples/self/modules/dashboard.qiy   # 仪表盘指标
+examples/self/modules/menu.qiy        # 侧边栏分组（在 pages 之后、charts 之前）
+examples/self/modules/charts.qiy      # 多视图图表概览页（chart / chart panels）
 examples/self/modules/dataflows.qiy   # 事务型业务命令
 examples/self/modules/actions.qiy     # 绑定到 dataflow 的列表/详情按钮
 ```
@@ -64,8 +64,8 @@ include "modules/relations.qiy";       // 所有 relation 在实体之后
 scope warehouses orgId claim org.id;   // scope/restrict 留在主文件
 restrict products { ... }
 include "modules/pages.qiy";           // pages 在 restrict 之后
-include "modules/menu.qiy";            // menu 在 pages 之后、dashboard 之前
-include "modules/dashboard.qiy";
+include "modules/menu.qiy";            // menu 在 pages 之后
+include "modules/charts.qiy";          // chart / chart panels（与 dashboard 同位置）
 include "modules/dataflows.qiy";
 include "modules/actions.qiy";
 ```
@@ -83,7 +83,7 @@ include "modules/actions.qiy";
 | `qiy.resources.<resource>.fields.<field>.label` | 列表列头、详情 label、表单 label、筛选占位符 |
 | `qiy.enums.<enum>.label` / `qiy.enums.<enum>.values.<value>` | 枚举值 Tag、下拉选项（显示模板中的枚举字段同样使用） |
 | `qiy.menu.<group>.label` | 菜单分组（本示例 6 个分组，见下方“侧边栏菜单分组”） |
-| `qiy.dashboard.<metric>.label` | 仪表盘指标卡 |
+| `qiy.charts.<chart>.label` / `qiy.charts.<chart>.views.<index>.label` | 概览页图表卡片/面板标题与视图标题（见下方“图表概览页”） |
 | `qiy.actions.<action>.label` / `.confirm` / `.inputs.<input>.label` | 业务命令按钮、确认框、命令表单字段 |
 | `errors.*`（本示例自定义） | `@error(t("key"))` 业务规则错误：服务端返回默认语言文案 + `errorKey`，前端按当前语言再翻译 |
 
@@ -123,10 +123,26 @@ menu {
 
 生成结果与行为：
 
-- `apps/web/app/resources.ts` 中每个资源带 `menuParent: "menu-<group>"`，`menuGroups` 保持声明顺序并记录组内资源顺序；`menu.qiy` 必须放在 `pages.qiy` 之后、`dashboard.qiy` 之前（解析顺序 `... -> pages -> menu -> dashboard -> ...`）。
+- `apps/web/app/resources.ts` 中每个资源带 `menuParent: "menu-<group>"`，`menuGroups` 保持声明顺序并记录组内资源顺序；`menu.qiy` 必须放在 `pages.qiy` 之后、`charts.qiy` 之前（解析顺序 `... -> pages -> menu -> chart/dashboard -> dataflow -> ...`）。
 - `apps/web/app/components/menu.tsx` 的 `buildMenuTree` 把资源元数据与分组组装成嵌套的 Ant Design `Menu.SubMenu`；`QiySider` 负责渲染，`CanAccess` 仍按 `qiyAccessControlProvider` 过滤每个分组/资源（例如 viewer 看不到“用户”，admin 全部可见）。
 - 侧边栏展开宽度 248px，可折叠为 72px 图标模式（折叠时 Ant Design 显示条目 tooltip / 子菜单弹出层）；折叠状态写入 `localStorage` 的 `qiy.ui.sider-collapsed`，刷新和导航后保持；当前路由所属子菜单默认展开。移动端（`lg` 断点以下）继续用抽屉式侧边栏。
 - 生成测试：`apps/web/tests/menu-tree.test.ts` 断言分组/组内顺序、`@parent` 嵌套、未分组资源回退与当前路由展开键；`apps/web/tests/sider-state.test.ts` 断言折叠状态持久化与非法值回退。
+
+## 图表概览页（chart / chart panels）
+
+`modules/charts.qiy` 用新的多视图图表 DSL 替换了旧的 `dashboard { metric ... }` 指标卡，概览页 `/` 现在是声明式布局的图表页：
+
+| 面板 | 行/列布局 | 图表 |
+| --- | --- | --- |
+| **关键指标**（`OverviewKpis`） | 1 行 3 列，span 8/8/8 | 用户总数、采购单总数、发运单总数（stat/count） |
+| **运营概览**（`Operations`） | 第 1 行 span 8 + 16；第 2 行 span 12 + 12 | 库存流水类型（bar，按 `type` 枚举）、近 30 天库存流水（line，`occurredAt`）；采购单状态（pie，按 `status` 枚举）、库存概览（多视图 chart：在库总量 sum、平均在库 avg） |
+| **库存看板**（`InventoryBoard`） | 1 行 1 列，span 24 | 按仓库的库存记录（table：`inventoryKey, warehouseId, quantity, reserved`） |
+
+- **多视图**：`InventorySnapshot` 一个 chart 内有两个 Row/Col 视图（`views.0` / `views.1`），渲染在同一条卡片布局里；`Operations` 面板同一行混用 span 8/16、下一行 12/12。
+- 视图类型：`stat`（count / sum / avg / min / max）、`bar` / `pie`（枚举 `groupBy` 走 `/distribution`）、`line`（`dateField` + `days` 走 `/trend`，当前为按天 count）、`table`（列表前 5 行的只读预览，无编辑操作）。
+- 每个视图独立 loading/error；图表卡片包在 `CanAccess` 中，所以 data scope 与页面权限继续生效（例如 viewer 看不到受页面规则限制的资源）。渲染不引入新图表依赖：bar 用 `Progress`，line/pie 用内联 SVG，table 用 Ant `Table`。
+- 生成物：`apps/web/app/charts.ts`（面板/图表/视图布局元数据 + `flattenPanelCharts` / `flattenChartViews`）、`apps/web/app/components/charts.tsx`（`ChartDashboard`/`ChartCard` 渲染器）；`apps/web/app/dashboard.ts` 的旧指标列表在 chart 页面下为空，未声明 chart 的项目继续回退旧指标卡。
+- i18n：`qiy.charts.<chart>.label` 与 `qiy.charts.<chart>.views.<index>.label`（index 按布局顺序从 0）；本示例中英文词典见 `modules/messages.qiy`。生成测试 `apps/web/tests/charts.test.ts` 校验布局顺序/span/引用，`tests/charts-qiy.test.ts` 覆盖语法、校验与序列化。
 
 ## 已存视图（saved views）
 

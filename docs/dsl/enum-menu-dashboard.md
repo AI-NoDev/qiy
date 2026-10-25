@@ -37,4 +37,6 @@ dashboard {
 }
 ```
 
-`@span` 只能取 8、12、24；`@type` 为 `count`、`distribution`、`trend`。`@comment` 接受字面量或消息 key，并在 Dashboard 卡片中按当前语言显示。重复注释、缺失默认语言消息和未知注解会在生成前失败。
+`@span` 只能取 8、12、24；`@type` 为 `count`、`distribution`、`trend`、`aggregate`。`@comment` 接受字面量或消息 key，并在 Dashboard 卡片中按当前语言显示。重复注释、缺失默认语言消息和未知注解会在生成前失败。
+
+旧的 `dashboard { metric ... }` 继续可用，但新的多视图概览页请使用 [chart（多视图图表）](/dsl/charts)：`chart` / `chart panels` 与 dashboard 共用同一声明位置，存在 chart 时概览页优先渲染图表面板，否则回退旧指标卡。完整示例见 `examples/self/modules/charts.qiy`。
