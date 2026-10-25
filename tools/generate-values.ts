@@ -38,7 +38,7 @@ export function renderGeneratedValuesModule(database: DatabaseIR): string {
     hasSequences ? `import { qiyCodeSequences } from "./schema";` : "",
   ].filter(Boolean).join("\n");
   const allocation = hasSequences ? renderSequenceAllocation(dialect) : `/** This model declares no @code field, so no sequence is ever requested. */
-async function qiyNextSequence(): Promise<number> {
+async function qiyNextSequence(..._args: string[]): Promise<number> {
   throw new Error("qiyNextSequence called without a @code field");
 }
 `;

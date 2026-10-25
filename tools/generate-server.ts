@@ -8703,21 +8703,23 @@ ${hasPermissions ? `  const snapshot = await loadPermissions(principal);
   return { role: asRole(principal.role), permissions: snapshot.permissions };` : `  return { role: asRole(principal.role), permissions: [] };`}
 }
 
-export function createDocsRoutes(authenticate: Authenticator) {
+export function createDocsRoutes(authenticate: Authenticator): Elysia {
   const routes = new Elysia({ prefix: "/api/v1" });
-  let mounted: typeof routes = routes;
+  // Each GET route refines the Elysia route generics; cast back to the base type
+  // so the composed app can be mounted with other plugins without type conflicts.
+  let mounted = routes as unknown as Elysia;
 ${includeOpenApi ? `  mounted = mounted.get("/openapi.json", async ({ request, set }) => {
       const principal = await authenticate(request);
       if (!principal) { set.status = 401; return { error: "Authentication required" }; }
       set.headers["cache-control"] = "no-store";
       return buildOpenApiDocument(await docsPrincipal(principal));
-    });` : ""}
+    }) as unknown as Elysia;` : ""}
 ${includeModel ? `  mounted = mounted.get("/docs/model", async ({ request, set }) => {
       const principal = await authenticate(request);
       if (!principal) { set.status = 401; return { error: "Authentication required" }; }
       set.headers["cache-control"] = "no-store";
       return buildDocsModel(await docsPrincipal(principal));
-    });` : ""}
+    }) as unknown as Elysia;` : ""}
   return mounted;
 }
 `;
