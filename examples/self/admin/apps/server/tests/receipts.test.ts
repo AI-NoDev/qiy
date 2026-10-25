@@ -62,7 +62,7 @@ describe("receipts CRUD", () => {
   test("creates, lists, reads, updates and deletes", async () => {
     records.clear();
     const created = await app.handle(new Request(endpoint + "/", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "purchaseOrderId": "00000000-0000-4000-8000-000000000002", "warehouseId": "00000000-0000-4000-8000-000000000002", "status": "Example" }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "purchaseOrderId": "00000000-0000-4000-8000-000000000002", "warehouseId": "00000000-0000-4000-8000-000000000002", "status": "draft" }),
     }));
     expect(created.status).toBe(201);
     const record = await created.json() as { id: string };
@@ -83,10 +83,10 @@ describe("receipts CRUD", () => {
     expect(deleted.status).toBe(200);
     expect((await app.handle(new Request(endpoint + "/" + record.id))).status).toBe(404);
     const firstBatchRecord = await app.handle(new Request(endpoint + "/", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "purchaseOrderId": "00000000-0000-4000-8000-000000000002", "warehouseId": "00000000-0000-4000-8000-000000000002", "status": "Example" }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "purchaseOrderId": "00000000-0000-4000-8000-000000000002", "warehouseId": "00000000-0000-4000-8000-000000000002", "status": "draft" }),
     }));
     const secondBatchRecord = await app.handle(new Request(endpoint + "/", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "purchaseOrderId": "00000000-0000-4000-8000-000000000002", "warehouseId": "00000000-0000-4000-8000-000000000002", "status": "Example" }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "purchaseOrderId": "00000000-0000-4000-8000-000000000002", "warehouseId": "00000000-0000-4000-8000-000000000002", "status": "draft" }),
     }));
     const firstBatchId = (await firstBatchRecord.json() as { id: string }).id;
     const secondBatchId = (await secondBatchRecord.json() as { id: string }).id;

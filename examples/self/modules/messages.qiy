@@ -210,6 +210,17 @@ messages {
     "qiy.enums.movementType.values.adjust" "盘点调整";
     "qiy.enums.movementType.values.production" "生产入库";
     "qiy.enums.movementType.values.consumption" "生产领料";
+    "qiy.enums.receiptStatus.label" "收货状态";
+    "qiy.enums.receiptStatus.values.draft" "草稿";
+    "qiy.enums.receiptStatus.values.received" "已收货";
+    "qiy.enums.receiptStatus.values.inspected" "已验收";
+    "qiy.enums.receiptStatus.values.closed" "已关闭";
+    "qiy.enums.receiptStatus.values.cancelled" "已取消";
+    "qiy.enums.shipmentStatus.label" "发运状态";
+    "qiy.enums.shipmentStatus.values.pending" "待发运";
+    "qiy.enums.shipmentStatus.values.shipped" "已发运";
+    "qiy.enums.shipmentStatus.values.delivered" "已送达";
+    "qiy.enums.shipmentStatus.values.cancelled" "已取消";
     # dashboard
     "qiy.dashboard.inventoryRecords.label" "库存记录";
     "qiy.dashboard.productCount.label" "产品数";
@@ -493,6 +504,17 @@ messages {
     "qiy.enums.movementType.values.adjust" "Adjustment";
     "qiy.enums.movementType.values.production" "Production";
     "qiy.enums.movementType.values.consumption" "Consumption";
+    "qiy.enums.receiptStatus.label" "Receipt status";
+    "qiy.enums.receiptStatus.values.draft" "Draft";
+    "qiy.enums.receiptStatus.values.received" "Received";
+    "qiy.enums.receiptStatus.values.inspected" "Inspected";
+    "qiy.enums.receiptStatus.values.closed" "Closed";
+    "qiy.enums.receiptStatus.values.cancelled" "Cancelled";
+    "qiy.enums.shipmentStatus.label" "Shipment status";
+    "qiy.enums.shipmentStatus.values.pending" "Pending";
+    "qiy.enums.shipmentStatus.values.shipped" "Shipped";
+    "qiy.enums.shipmentStatus.values.delivered" "Delivered";
+    "qiy.enums.shipmentStatus.values.cancelled" "Cancelled";
     # dashboard
     "qiy.dashboard.inventoryRecords.label" "Inventory records";
     "qiy.dashboard.productCount.label" "Products";

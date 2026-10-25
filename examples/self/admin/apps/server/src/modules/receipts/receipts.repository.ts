@@ -19,7 +19,7 @@ export const ReceiptsRepository: ReceiptsRepositoryContract = {
     return { value: value === null || Number.isFinite(value) ? value : null, operator };
   },
   async distribution(field, scope) {
-    const columns: Record<string, any> = {  };
+    const columns: Record<string, any> = { "status": receipts.status };
     const column = columns[field];
     if (!column) throw new Error("Unsupported distribution field");
     const scopeColumns: Record<string, any> = { "id": receipts.id, "purchaseOrderId": receipts.purchaseOrderId, "warehouseId": receipts.warehouseId, "status": receipts.status, "receivedAt": receipts.receivedAt };

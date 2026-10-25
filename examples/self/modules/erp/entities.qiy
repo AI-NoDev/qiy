@@ -23,7 +23,7 @@ entity receipts @label("Goods receipts") @icon(InboxOutlined) @singular("Goods r
   field id UUID @id;
   field purchaseOrderId UUID;
   field warehouseId UUID;
-  field status Text;
+  field status receiptStatus;
   field receivedAt DateTime @nullable;
 }
 
@@ -49,7 +49,7 @@ entity shipments @label("Shipments") @icon(CarOutlined) @singular("Shipment") @p
   field id UUID @id;
   field salesOrderId UUID;
   field warehouseId UUID;
-  field status Text;
+  field status shipmentStatus;
   field shippedAt DateTime @nullable;
   field departureTime Time @nullable;
 }

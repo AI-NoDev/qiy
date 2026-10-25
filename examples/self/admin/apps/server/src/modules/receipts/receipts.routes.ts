@@ -9,14 +9,14 @@ import type { ReceiptsRepository as ReceiptsRepositoryPort } from "./receipts.co
 const createReceipts = t.Object({
   "purchaseOrderId": t.String({ format: "uuid" }),
   "warehouseId": t.String({ format: "uuid" }),
-  "status": t.String({ minLength: 1 }),
+  "status": t.Union([t.Literal("draft"), t.Literal("received"), t.Literal("inspected"), t.Literal("closed"), t.Literal("cancelled")]),
   "receivedAt": t.Optional(t.Union([t.String({ format: "date-time" }), t.Null()], {})),
 }, { additionalProperties: false });
 
 const patchReceipts = t.Object({
   "purchaseOrderId": t.Optional(t.String({ format: "uuid" })),
   "warehouseId": t.Optional(t.String({ format: "uuid" })),
-  "status": t.Optional(t.String({ minLength: 1 })),
+  "status": t.Optional(t.Union([t.Literal("draft"), t.Literal("received"), t.Literal("inspected"), t.Literal("closed"), t.Literal("cancelled")])),
   "receivedAt": t.Optional(t.Union([t.String({ format: "date-time" }), t.Null()], {})),
 }, { additionalProperties: false });
 
@@ -55,7 +55,7 @@ export function ReceiptsRoutes(repository: ReceiptsRepositoryPort, authenticate:
   const redactRecord = (record: Record<string, unknown>) => redact(record);
   const sortableFields = ["id","purchaseOrderId","warehouseId","status","receivedAt"] as string[];
   const filterableFields = ["id","purchaseOrderId","warehouseId","status","receivedAt"] as string[];
-  const filterModes = {"id":["eq","gt","gte","lt","lte","between","in"],"purchaseOrderId":["eq","gt","gte","lt","lte","between","in"],"warehouseId":["eq","gt","gte","lt","lte","between","in"],"status":["contains","startsWith","endsWith","eq"],"receivedAt":["eq","gt","gte","lt","lte","between","in"]} as Record<string, FilterOperator[]>;
+  const filterModes = {"id":["eq","gt","gte","lt","lte","between","in"],"purchaseOrderId":["eq","gt","gte","lt","lte","between","in"],"warehouseId":["eq","gt","gte","lt","lte","between","in"],"status":["eq"],"receivedAt":["eq","gt","gte","lt","lte","between","in"]} as Record<string, FilterOperator[]>;
   const resolveScope = async (request: Request) => {
     const principal = await authenticate(request);
     const scopeConfig = null as { field: string; claim: string } | null;
@@ -241,7 +241,7 @@ export function ReceiptsRoutes(repository: ReceiptsRepositoryPort, authenticate:
       return repository.aggregate ? repository.aggregate(query.field, query.op as "sum" | "avg" | "min" | "max", await resolveScope(request)) : { value: null, operator: query.op };
     }, { query: t.Object({ field: t.String({ minLength: 1 }), op: t.String({ minLength: 3 }) }) })
     .get("/distribution", async ({ query, status, request }) => {
-      return ([] as string[]).includes(query.field) ? repository.distribution(query.field, await resolveScope(request)) : status(400, { error: "Unsupported distribution field" });
+      return (["status"] as string[]).includes(query.field) ? repository.distribution(query.field, await resolveScope(request)) : status(400, { error: "Unsupported distribution field" });
     }, { query: t.Object({ field: t.String() }) })
     .get("/trend", async ({ query, status, request }) => {
       return (["receivedAt"] as string[]).includes(query.field) ? repository.trend(query.field, query.days, await resolveScope(request)) : status(400, { error: "Unsupported trend field" });

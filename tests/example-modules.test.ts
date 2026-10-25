@@ -23,8 +23,8 @@ describe("modular demo model", () => {
     expect(project.database.dialect).toBe("sqlite");
     expect(project.database.entities).toHaveLength(17);
     expect(project.database.entities.reduce((sum, entity) => sum + entity.fields.length, 0)).toBe(108);
-    expect(project.database.enums).toHaveLength(6);
-    expect(project.database.enums!.reduce((sum, enumeration) => sum + enumeration.values.length, 0)).toBe(27);
+    expect(project.database.enums).toHaveLength(8);
+    expect(project.database.enums!.reduce((sum, enumeration) => sum + enumeration.values.length, 0)).toBe(36);
     expect(project.database.relations).toHaveLength(23);
     expect(project.pages).toHaveLength(4);
     expect(project.dashboardMetrics).toHaveLength(6);
@@ -69,7 +69,7 @@ describe("modular demo model", () => {
       expect(moduleText(path)).not.toMatch(/^\s*(enum|relation|scope|restrict|pages|menu|dashboard|dataflow|action)\s/m);
     }
     expect(moduleText("relations.qiy").match(/^relation\s/gm)).toHaveLength(23);
-    expect(moduleText("platform.qiy").match(/^enum\s/gm)).toHaveLength(6);
+    expect(moduleText("platform.qiy").match(/^enum\s/gm)).toHaveLength(8);
   });
 
   test("keeps scope, restrict and UI configuration at the parser-required positions", async () => {

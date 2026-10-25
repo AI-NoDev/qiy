@@ -19,7 +19,7 @@ export const ShipmentsRepository: ShipmentsRepositoryContract = {
     return { value: value === null || Number.isFinite(value) ? value : null, operator };
   },
   async distribution(field, scope) {
-    const columns: Record<string, any> = {  };
+    const columns: Record<string, any> = { "status": shipments.status };
     const column = columns[field];
     if (!column) throw new Error("Unsupported distribution field");
     const scopeColumns: Record<string, any> = { "id": shipments.id, "salesOrderId": shipments.salesOrderId, "warehouseId": shipments.warehouseId, "status": shipments.status, "shippedAt": shipments.shippedAt, "departureTime": shipments.departureTime };

@@ -49,6 +49,21 @@ enum movementType {
   value consumption;
 }
 
+enum receiptStatus {
+  value draft;
+  value received;
+  value inspected;
+  value closed;
+  value cancelled;
+}
+
+enum shipmentStatus {
+  value pending;
+  value shipped;
+  value delivered;
+  value cancelled;
+}
+
 entity users @label("Users") @icon(UserOutlined) @singular("User") @plural("Users") @display("{$.displayName}") @tableDisplay("{$.displayName}") @relationDetail("<b>{$.displayName}</b></br>{$.email}") {
   field id UUID @id;
   field subject Text @unique;

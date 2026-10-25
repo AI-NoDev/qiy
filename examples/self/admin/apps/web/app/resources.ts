@@ -196,6 +196,65 @@ export const enumerations: ResourceEnumDefinition[] = [
     ],
     "label": "movementType",
     "labelKey": "qiy.enums.movementType.label"
+  },
+  {
+    "name": "receiptStatus",
+    "values": [
+      {
+        "name": "draft",
+        "label": "draft",
+        "labelKey": "qiy.enums.receiptStatus.values.draft"
+      },
+      {
+        "name": "received",
+        "label": "received",
+        "labelKey": "qiy.enums.receiptStatus.values.received"
+      },
+      {
+        "name": "inspected",
+        "label": "inspected",
+        "labelKey": "qiy.enums.receiptStatus.values.inspected"
+      },
+      {
+        "name": "closed",
+        "label": "closed",
+        "labelKey": "qiy.enums.receiptStatus.values.closed"
+      },
+      {
+        "name": "cancelled",
+        "label": "cancelled",
+        "labelKey": "qiy.enums.receiptStatus.values.cancelled"
+      }
+    ],
+    "label": "receiptStatus",
+    "labelKey": "qiy.enums.receiptStatus.label"
+  },
+  {
+    "name": "shipmentStatus",
+    "values": [
+      {
+        "name": "pending",
+        "label": "pending",
+        "labelKey": "qiy.enums.shipmentStatus.values.pending"
+      },
+      {
+        "name": "shipped",
+        "label": "shipped",
+        "labelKey": "qiy.enums.shipmentStatus.values.shipped"
+      },
+      {
+        "name": "delivered",
+        "label": "delivered",
+        "labelKey": "qiy.enums.shipmentStatus.values.delivered"
+      },
+      {
+        "name": "cancelled",
+        "label": "cancelled",
+        "labelKey": "qiy.enums.shipmentStatus.values.cancelled"
+      }
+    ],
+    "label": "shipmentStatus",
+    "labelKey": "qiy.enums.shipmentStatus.label"
   }
 ];
 export const menuGroups = [] as Array<{ name: string; label: string; labelKey: string; icon: string; parent?: string; comment?: string; commentKey?: string }>;
@@ -1766,10 +1825,35 @@ export const resources: ResourceDefinition[] = [
         "sortable": true,
         "filterable": true,
         "filterModes": [
-          "contains",
-          "startsWith",
-          "endsWith",
           "eq"
+        ],
+        "enumName": "receiptStatus",
+        "enumValues": [
+          {
+            "name": "draft",
+            "label": "draft",
+            "labelKey": "qiy.enums.receiptStatus.values.draft"
+          },
+          {
+            "name": "received",
+            "label": "received",
+            "labelKey": "qiy.enums.receiptStatus.values.received"
+          },
+          {
+            "name": "inspected",
+            "label": "inspected",
+            "labelKey": "qiy.enums.receiptStatus.values.inspected"
+          },
+          {
+            "name": "closed",
+            "label": "closed",
+            "labelKey": "qiy.enums.receiptStatus.values.closed"
+          },
+          {
+            "name": "cancelled",
+            "label": "cancelled",
+            "labelKey": "qiy.enums.receiptStatus.values.cancelled"
+          }
         ]
       },
       {
@@ -2263,10 +2347,30 @@ export const resources: ResourceDefinition[] = [
         "sortable": true,
         "filterable": true,
         "filterModes": [
-          "contains",
-          "startsWith",
-          "endsWith",
           "eq"
+        ],
+        "enumName": "shipmentStatus",
+        "enumValues": [
+          {
+            "name": "pending",
+            "label": "pending",
+            "labelKey": "qiy.enums.shipmentStatus.values.pending"
+          },
+          {
+            "name": "shipped",
+            "label": "shipped",
+            "labelKey": "qiy.enums.shipmentStatus.values.shipped"
+          },
+          {
+            "name": "delivered",
+            "label": "delivered",
+            "labelKey": "qiy.enums.shipmentStatus.values.delivered"
+          },
+          {
+            "name": "cancelled",
+            "label": "cancelled",
+            "labelKey": "qiy.enums.shipmentStatus.values.cancelled"
+          }
         ]
       },
       {

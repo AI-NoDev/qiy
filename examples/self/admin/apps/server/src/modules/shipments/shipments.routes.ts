@@ -10,7 +10,7 @@ import type { ShipmentsRepository as ShipmentsRepositoryPort } from "./shipments
 const createShipments = t.Object({
   "salesOrderId": t.String({ format: "uuid" }),
   "warehouseId": t.String({ format: "uuid" }),
-  "status": t.String({ minLength: 1 }),
+  "status": t.Union([t.Literal("pending"), t.Literal("shipped"), t.Literal("delivered"), t.Literal("cancelled")]),
   "shippedAt": t.Optional(t.Union([t.String({ format: "date-time" }), t.Null()], {})),
   "departureTime": t.Optional(t.Union([t.String({ minLength: 1, maxLength: 40 }), t.Null()], {})),
 }, { additionalProperties: false });
@@ -18,7 +18,7 @@ const createShipments = t.Object({
 const patchShipments = t.Object({
   "salesOrderId": t.Optional(t.String({ format: "uuid" })),
   "warehouseId": t.Optional(t.String({ format: "uuid" })),
-  "status": t.Optional(t.String({ minLength: 1 })),
+  "status": t.Optional(t.Union([t.Literal("pending"), t.Literal("shipped"), t.Literal("delivered"), t.Literal("cancelled")])),
   "shippedAt": t.Optional(t.Union([t.String({ format: "date-time" }), t.Null()], {})),
   "departureTime": t.Optional(t.Union([t.String({ minLength: 1, maxLength: 40 }), t.Null()], {})),
 }, { additionalProperties: false });
@@ -58,7 +58,7 @@ export function ShipmentsRoutes(repository: ShipmentsRepositoryPort, authenticat
   const redactRecord = (record: Record<string, unknown>) => redact(record);
   const sortableFields = ["id","salesOrderId","warehouseId","status","shippedAt","departureTime"] as string[];
   const filterableFields = ["id","salesOrderId","warehouseId","status","shippedAt","departureTime"] as string[];
-  const filterModes = {"id":["eq","gt","gte","lt","lte","between","in"],"salesOrderId":["eq","gt","gte","lt","lte","between","in"],"warehouseId":["eq","gt","gte","lt","lte","between","in"],"status":["contains","startsWith","endsWith","eq"],"shippedAt":["eq","gt","gte","lt","lte","between","in"],"departureTime":["eq","gt","gte","lt","lte","between","in"]} as Record<string, FilterOperator[]>;
+  const filterModes = {"id":["eq","gt","gte","lt","lte","between","in"],"salesOrderId":["eq","gt","gte","lt","lte","between","in"],"warehouseId":["eq","gt","gte","lt","lte","between","in"],"status":["eq"],"shippedAt":["eq","gt","gte","lt","lte","between","in"],"departureTime":["eq","gt","gte","lt","lte","between","in"]} as Record<string, FilterOperator[]>;
   const resolveScope = async (request: Request) => {
     const principal = await authenticate(request);
     const scopeConfig = null as { field: string; claim: string } | null;
@@ -246,7 +246,7 @@ export function ShipmentsRoutes(repository: ShipmentsRepositoryPort, authenticat
       return repository.aggregate ? repository.aggregate(query.field, query.op as "sum" | "avg" | "min" | "max", await resolveScope(request)) : { value: null, operator: query.op };
     }, { query: t.Object({ field: t.String({ minLength: 1 }), op: t.String({ minLength: 3 }) }) })
     .get("/distribution", async ({ query, status, request }) => {
-      return ([] as string[]).includes(query.field) ? repository.distribution(query.field, await resolveScope(request)) : status(400, { error: "Unsupported distribution field" });
+      return (["status"] as string[]).includes(query.field) ? repository.distribution(query.field, await resolveScope(request)) : status(400, { error: "Unsupported distribution field" });
     }, { query: t.Object({ field: t.String() }) })
     .get("/trend", async ({ query, status, request }) => {
       return (["shippedAt"] as string[]).includes(query.field) ? repository.trend(query.field, query.days, await resolveScope(request)) : status(400, { error: "Unsupported trend field" });
