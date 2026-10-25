@@ -4750,9 +4750,13 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
   // Permission declarations need generated authentication to resolve a principal.
   const permissions = options.permissions && !isPermissionModelEmpty(options.permissions) ? options.permissions : undefined;
   if (permissions && !auth) errors.push("Permission declarations require a generated auth block");
-  const features = options.features ?? { apiDocs: false, apiKeys: false };
+  const features = options.features ?? { overview: true, apiDocs: false, apiKeys: false };
   const apiDocsEnabled = Boolean(features.apiDocs);
   const apiKeysEnabled = Boolean(features.apiKeys);
+  // The 功能总览 page is generated when it is enabled and at least one docs API
+  // feature exists; its model endpoint must exist for that page to load.
+  const overviewRequested = features.overview !== false && (apiDocsEnabled || apiKeysEnabled);
+  const docsModelEnabled = apiDocsEnabled || overviewRequested;
   if (apiKeysEnabled && !auth) errors.push("features apiKeys requires a generated auth block");
   if (apiKeysEnabled && !database.entities.some((entity) => entity.name === auth!.userEntity)) errors.push(`features apiKeys requires the auth user entity ${auth!.userEntity}`);
   const userEntityForScopes = auth ? database.entities.find((entity) => entity.name === auth.userEntity) : undefined;
@@ -5717,7 +5721,7 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     ${apiKeysEnabled ? 'const apiKeyRoutes = (await import("./auth/api-keys")).createApiKeyRoutes(authenticateRequest);' : ''}
     ${hybridAuth ? 'const authProviderRoutes = (await import("./auth/oidc")).createHybridAuthRoutes(authenticateRequest);' : multiProviderAuth ? 'const authProviderRoutes = (await import("./auth/oidc")).createAuthProviderRoutes();' : ''}
     ${permissions ? 'const permissionRoutes = (await import("./auth/permission-routes")).createPermissionRoutes(authenticateRequest);' : ''}
-    ${apiDocsEnabled ? 'const docsRoutes = (await import("./docs-routes")).createDocsRoutes(authenticateRequest);' : ''}
+    ${docsModelEnabled ? 'const docsRoutes = (await import("./docs-routes")).createDocsRoutes(authenticateRequest);' : ''}
     const application = new Elysia().use(allowedOrigins.length > 0 ? cors({ origin: allowedOrigins, credentials: false, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key", "X-API-Key"] }) : new Elysia()).onRequest(({ request }) => guard(request)).use(openapi({ path: "/api/v1/openapi", documentation: { info: { title: "Qiy Admin API", version: "1.0.0" } } })).use(routes)${options.elysiaPlugins?.graphqlAdapter && options.elysiaPlugins.graphqlAdapter !== "native" ? '' : '.use(createGraphQLRoutes(repositories, authenticateRequest))'};
     let composed = application;
     ${hasLocalAuth || auth?.provider === "otp" ? "composed = composed.use(authRoutes);" : ""}
@@ -5725,7 +5729,7 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     ${apiKeysEnabled ? "composed = composed.use(apiKeyRoutes);" : ""}
     ${hybridAuth || multiProviderAuth ? "composed = composed.use(authProviderRoutes);" : ""}
     ${permissions ? "composed = composed.use(permissionRoutes);" : ""}
-    ${apiDocsEnabled ? "composed = composed.use(docsRoutes);" : ""}
+    ${docsModelEnabled ? "composed = composed.use(docsRoutes);" : ""}
     ${orderWorkflow ? "composed = workflow ? composed.use(workflow) : composed;" : ""}
     ${dataflowRoutes ? "composed = dataflows ? composed.use(dataflows) : composed;" : ""}
     ${options.realtime ? "composed = composed.use(realtime);" : ""}
@@ -6575,10 +6579,10 @@ try {
     files["api/src/auth/api-keys.ts"] = renderApiKeyRoutesModule(auth, database, apiKeyScopeClaimLines);
     files["api/tests/api-keys.test.ts"] = renderApiKeyTestModule(auth, database);
   }
-  if (apiDocsEnabled) {
-    files["api/src/docs.ts"] = renderDocsModule(database, { ...options, features }, options.appName);
-    files["api/src/docs-routes.ts"] = renderDocsRoutesModule(Boolean(permissions));
-    files["api/tests/docs.test.ts"] = renderDocsTestModule(database);
+  if (docsModelEnabled) {
+    files["api/src/docs.ts"] = renderDocsModule(database, { ...options, features: { ...features, overview: overviewRequested } }, options.appName);
+    files["api/src/docs-routes.ts"] = renderDocsRoutesModule(Boolean(permissions), apiDocsEnabled, docsModelEnabled);
+    files["api/tests/docs.test.ts"] = renderDocsTestModule(database, apiDocsEnabled, docsModelEnabled);
   }
   if (auth) {
     if (permissions) {
@@ -8402,7 +8406,7 @@ function renderDocsModule(database: DatabaseIR, options: NonNullable<Parameters<
   const meta = {
     app: { name: appName ?? "Qiy Admin", ...(options.comment ? { description: options.comment } : {}), ...(options.commentKey ? { descriptionKey: options.commentKey } : {}) },
     userTable: userEntity?.tableName ?? null,
-    features: { apiDocs: Boolean(options.features?.apiDocs), apiKeys: Boolean(options.features?.apiKeys) },
+    features: { overview: Boolean(options.features?.overview), apiDocs: Boolean(options.features?.apiDocs), apiKeys: Boolean(options.features?.apiKeys) },
     loginEnabled: Boolean(options.auth && (authHasLocal(options.auth) || options.auth.provider === "otp")),
     pageRules,
     restrictions,
@@ -8468,7 +8472,7 @@ export interface DocsPermissionVerification { name: string; label: string; label
 export interface DocsMeta {
   app: { name: string; description?: string; descriptionKey?: string };
   userTable: string | null;
-  features: { apiDocs: boolean; apiKeys: boolean };
+  features: { overview: boolean; apiDocs: boolean; apiKeys: boolean };
   loginEnabled: boolean;
   pageRules: Record<string, Record<string, string[]>>;
   restrictions: Array<{ resource: string; roles: string[] }>;
@@ -8652,6 +8656,8 @@ export function buildOpenApiDocument(principal: DocsPrincipal): GeneratedOpenApi
   }
   if (docsMeta.features.apiDocs) {
     add("/api/v1/openapi.json", "get", { tags: ["docs"], summary: "Permission-filtered OpenAPI 3.1 document", operationId: "openapi_json", security, responses: { "200": { description: "OpenAPI document" } } });
+  }
+  if (docsMeta.features.overview || docsMeta.features.apiDocs) {
     add("/api/v1/docs/model", "get", { tags: ["docs"], summary: "Model metadata for the documentation page", operationId: "docs_model", security, responses: { "200": { description: "Model metadata" } } });
   }
   return {
@@ -8675,7 +8681,7 @@ export function buildOpenApiDocument(principal: DocsPrincipal): GeneratedOpenApi
 }
 
 /** HTTP wiring for the docs endpoints (feature-gated in app.ts). */
-function renderDocsRoutesModule(hasPermissions: boolean): string {
+function renderDocsRoutesModule(hasPermissions: boolean, includeOpenApi: boolean, includeModel: boolean): string {
   return `import { Elysia } from "elysia";
 import type { Authenticator, Principal } from "./auth/guard";
 import { buildDocsModel, buildOpenApiDocument, type DocsPrincipal, type DocsRole } from "./docs";
@@ -8690,25 +8696,27 @@ ${hasPermissions ? `  const snapshot = await loadPermissions(principal);
 }
 
 export function createDocsRoutes(authenticate: Authenticator) {
-  return new Elysia({ prefix: "/api/v1" })
-    .get("/openapi.json", async ({ request, set }) => {
+  const routes = new Elysia({ prefix: "/api/v1" });
+  let mounted: typeof routes = routes;
+${includeOpenApi ? `  mounted = mounted.get("/openapi.json", async ({ request, set }) => {
       const principal = await authenticate(request);
       if (!principal) { set.status = 401; return { error: "Authentication required" }; }
       set.headers["cache-control"] = "no-store";
       return buildOpenApiDocument(await docsPrincipal(principal));
-    })
-    .get("/docs/model", async ({ request, set }) => {
+    });` : ""}
+${includeModel ? `  mounted = mounted.get("/docs/model", async ({ request, set }) => {
       const principal = await authenticate(request);
       if (!principal) { set.status = 401; return { error: "Authentication required" }; }
       set.headers["cache-control"] = "no-store";
       return buildDocsModel(await docsPrincipal(principal));
-    });
+    });` : ""}
+  return mounted;
 }
 `;
 }
 
 /** Generated server tests for the permission-filtered OpenAPI document. */
-function renderDocsTestModule(database: DatabaseIR): string {
+function renderDocsTestModule(database: DatabaseIR, apiDocsEnabled: boolean, modelEnabled: boolean): string {
   const first = database.entities[0]!;
   return `import { expect, test } from "bun:test";
 import { Elysia } from "elysia";
@@ -8743,6 +8751,7 @@ test("generates a valid OpenAPI 3.1 document with session and API-key security",
   expect(document.paths["/api/v1/${first.tableName}"]?.get).toBeDefined();
   expect(document.paths["/api/v1/auth/me"]?.get).toBeDefined();
   if (docsMeta.features.apiDocs) expect(document.paths["/api/v1/openapi.json"]?.get).toBeDefined();
+  if (docsMeta.features.overview || docsMeta.features.apiDocs) expect(document.paths["/api/v1/docs/model"]?.get).toBeDefined();
   if (docsMeta.features.apiKeys) expect(document.paths["/api/v1/auth/api-keys"]?.get).toBeDefined();
   const list = document.paths["/api/v1/${first.tableName}"]?.get as Record<string, unknown>;
   expect(list["x-qiy-roles"]).toBeDefined();
@@ -8781,18 +8790,20 @@ test("filters operations by the principal permissions and page rules", () => {
 
 test("serves the docs endpoints only to authenticated principals", async () => {
   const app = new Elysia().use(createDocsRoutes(async (request) => request.headers.get("authorization") === "Bearer session-admin" ? { id: "admin", name: "Admin", role: "admin" } : null));
-  const anonymous = await app.handle(new Request("http://localhost/api/v1/openapi.json"));
+${apiDocsEnabled ? `  const anonymous = await app.handle(new Request("http://localhost/api/v1/openapi.json"));
   expect(anonymous.status).toBe(401);
   const authorized = await app.handle(new Request("http://localhost/api/v1/openapi.json", { headers: { authorization: "Bearer session-admin" } }));
   expect(authorized.status).toBe(200);
   expect(authorized.headers.get("cache-control")).toBe("no-store");
   const spec = await authorized.json() as GeneratedOpenApiDocument;
-  expect(spec.openapi).toBe("3.1.0");
+  expect(spec.openapi).toBe("3.1.0");` : ""}
+${modelEnabled ? `  const modelAnonymous = await app.handle(new Request("http://localhost/api/v1/docs/model"));
+  expect(modelAnonymous.status).toBe(401);
   const modelResponse = await app.handle(new Request("http://localhost/api/v1/docs/model", { headers: { authorization: "Bearer session-admin" } }));
   expect(modelResponse.status).toBe(200);
   const model = await modelResponse.json() as { entities: unknown[]; dataflows: unknown[]; app: { name: string } };
   expect(model.entities.length).toBeGreaterThan(0);
-  expect(model.app.name.length).toBeGreaterThan(0);
+  expect(model.app.name.length).toBeGreaterThan(0);` : ""}
 });
 `;
 }

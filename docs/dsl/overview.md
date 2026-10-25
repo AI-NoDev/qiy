@@ -20,7 +20,7 @@ application qiy-erp-admin @comment("Operations administration") {
 | `database` | 目标数据库方言与扩展 |
 | `ui` | Refine UI adapter、主题 key、品牌色和明暗模式 |
 | `api` | 前端 DataProvider 选择与 CORS |
-| `features` | 系统管理功能开关：`apiDocs`（功能总览/OpenAPI/Mermaid）与 `apiKeys`（API Key 表、认证与管理页签） |
+| `features` | 系统管理开发者页面开关：`overview`（功能总览：实体/Dataflow/权限模型，默认 true）、`apiDocs`（独立 API 文档页 + OpenAPI 端点）、`apiKeys`（独立访问密钥页 + API Key 表/认证） |
 | `elysia` | 服务端插件组合 |
 | `storage` | 文件存储 provider |
 | `auth` | 外部身份映射 |
@@ -137,7 +137,7 @@ messages {
 | `qiy.dashboard.<metric>.label` | Dashboard 指标卡 |
 | `qiy.actions.<action>.label` / `.confirm` / `.inputs.<input>.label` | 业务命令按钮、确认文案、命令表单字段与枚举选项 |
 
-系统管理功能的界面文案（功能总览页签、Mermaid/API/权限表头）与访问密钥按钮使用内置 chrome 键 `qiy.docs.*`、`qiy.apiKey.*`、`qiy.chartViewKind.*`（zh-CN/en-US 随生成器输出，可在 `messages` 中用同名 key 覆盖）；它们不是模型派生 key，所以不参与 `model-i18n` 的完整性断言。
+系统管理功能的界面文案（功能总览页签、API 文档/访问密钥页面与 Mermaid/权限表头）使用内置 chrome 键 `qiy.docs.*`、`qiy.apiDocs.*`、`qiy.apiKey.*`、`qiy.chartViewKind.*`（zh-CN/en-US 随生成器输出，可在 `messages` 中用同名 key 覆盖）；它们不是模型派生 key，所以不参与 `model-i18n` 的完整性断言。
 
 `singular` / `plural` 缺失时分别回退到 `label` 与 DSL 里的 `@singular` / `@plural` / `@label` 原文；`@display`、`@tableDisplay`、`@relationDetail` 模板本身由字段引用和分隔符组成，不参与翻译。生成器会为每个实体输出这两个 key，并在 `web/tests/model-i18n.test.ts` 中断言。
 

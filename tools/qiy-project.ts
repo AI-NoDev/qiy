@@ -278,8 +278,14 @@ export interface QiyUiConfig {
 
 const qiyThemeKeys = new Set<QiyThemeKey>(["blue", "purple", "green", "orange", "red"]);
 
-/** `features { apiDocs true; apiKeys true; }`: system administration feature flags. */
+/**
+ * `features { overview true; apiDocs true; apiKeys true; }`: system
+ * administration feature flags. `overview` defaults to true and gates the
+ * 功能总览 page/menu entry; `apiDocs` gates the API-docs page and OpenAPI
+ * endpoint; `apiKeys` gates the access-keys page, table and authentication.
+ */
 export interface QiyFeaturesConfig {
+  overview: boolean;
   apiDocs: boolean;
   apiKeys: boolean;
 }
@@ -2151,13 +2157,13 @@ function enumeration(): import("./database-ir").EnumIR {
   let features: QiyProject["features"];
   if (peek() === "features") {
     expect("features"); expect("{");
-    const result: QiyFeaturesConfig = { apiDocs: false, apiKeys: false };
+    const result: QiyFeaturesConfig = { overview: true, apiDocs: false, apiKeys: false };
     const seen = new Set<string>();
     while (peek() !== "}") {
       const key = identifier();
       if (seen.has(key)) throw new Error(`Duplicate features setting ${key}`);
       seen.add(key);
-      if (key !== "apiDocs" && key !== "apiKeys") throw new Error(`Unsupported features setting ${key}; expected apiDocs or apiKeys`);
+      if (key !== "overview" && key !== "apiDocs" && key !== "apiKeys") throw new Error(`Unsupported features setting ${key}; expected overview, apiDocs or apiKeys`);
       result[key] = boolean();
       expect(";");
     }
@@ -3007,7 +3013,7 @@ export function serializeQiyProject(project: QiyProject): string {
     lines.push("    }", "  }");
   } else if (project.apiClient) lines.push(`  api { client ${project.apiClient}; }`);
   if (project.features) {
-    lines.push("  features {", `    apiDocs ${project.features.apiDocs ? "true" : "false"};`, `    apiKeys ${project.features.apiKeys ? "true" : "false"};`, "  }");
+    lines.push("  features {", `    overview ${project.features.overview ? "true" : "false"};`, `    apiDocs ${project.features.apiDocs ? "true" : "false"};`, `    apiKeys ${project.features.apiKeys ? "true" : "false"};`, "  }");
   }
   if (project.realtime) {
     if (!project.auth) throw new Error("Realtime requires generated authentication");

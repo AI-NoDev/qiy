@@ -29,6 +29,7 @@ application qiy-supply-chain-erp-wms @comment("供应链 + ERP + WMS 演示应�
   database sqlite {}
   api { client rest; }
   features {
+    overview true;
     apiDocs true;
     apiKeys true;
   }

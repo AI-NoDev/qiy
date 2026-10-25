@@ -107,12 +107,13 @@ api { client graphql; }
 
 ```qiy
 features {
+  overview true;
   apiDocs true;
   apiKeys true;
 }
 ```
 
-系统管理功能开关，默认都关闭；`apiDocs` 生成 `/system/overview` 的功能总览（实体 Mermaid/Dataflow/权限模型/OpenAPI 文档）与受保护的 `/api/v1/openapi.json`、`/api/v1/docs/model`，`apiKeys` 生成 `qiy_api_keys` 表、`/api/v1/auth/api-keys` 端点和 Bearer/`X-API-Key` 认证。`apiKeys` 需要同时声明 `auth`。详见 [features](/dsl/features) 与 [API 文档与访问密钥](/guide/api-docs-and-keys)。
+系统管理开发者页面开关：`overview` 默认 true，生成 `/system/overview` 功能总览页（实体 Mermaid/Dataflow/权限模型，要求至少一个 docs-api 开关打开）；`apiDocs` 生成独立 `/system/api-docs` 页面与受保护的 `/api/v1/openapi.json`、`/api/v1/docs/model`；`apiKeys` 生成独立 `/system/api-keys` 页面、`qiy_api_keys` 表、`/api/v1/auth/api-keys` 端点和 Bearer/`X-API-Key` 认证。菜单项只在对应页面生成时出现。`apiKeys` 需要同时声明 `auth`。详见 [features](/dsl/features) 与 [API 文档与访问密钥](/guide/api-docs-and-keys)。
 
 ## elysia
 

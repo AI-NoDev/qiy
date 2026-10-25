@@ -31,6 +31,7 @@ test("generates a valid OpenAPI 3.1 document with session and API-key security",
   expect(document.paths["/api/v1/users"]?.get).toBeDefined();
   expect(document.paths["/api/v1/auth/me"]?.get).toBeDefined();
   if (docsMeta.features.apiDocs) expect(document.paths["/api/v1/openapi.json"]?.get).toBeDefined();
+  if (docsMeta.features.overview || docsMeta.features.apiDocs) expect(document.paths["/api/v1/docs/model"]?.get).toBeDefined();
   if (docsMeta.features.apiKeys) expect(document.paths["/api/v1/auth/api-keys"]?.get).toBeDefined();
   const list = document.paths["/api/v1/users"]?.get as Record<string, unknown>;
   expect(list["x-qiy-roles"]).toBeDefined();
@@ -76,6 +77,8 @@ test("serves the docs endpoints only to authenticated principals", async () => {
   expect(authorized.headers.get("cache-control")).toBe("no-store");
   const spec = await authorized.json() as GeneratedOpenApiDocument;
   expect(spec.openapi).toBe("3.1.0");
+  const modelAnonymous = await app.handle(new Request("http://localhost/api/v1/docs/model"));
+  expect(modelAnonymous.status).toBe(401);
   const modelResponse = await app.handle(new Request("http://localhost/api/v1/docs/model", { headers: { authorization: "Bearer session-admin" } }));
   expect(modelResponse.status).toBe(200);
   const model = await modelResponse.json() as { entities: unknown[]; dataflows: unknown[]; app: { name: string } };

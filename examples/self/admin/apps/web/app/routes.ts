@@ -8,6 +8,8 @@ export default [
   route("profile", "./routes/profile.tsx"),
   index("./routes/home.tsx"),
   route("system/overview", "./routes/docs.tsx"),
+  route("system/api-docs", "./routes/api-docs.tsx"),
+  route("system/api-keys", "./routes/api-keys.tsx"),
 
   // Resource pages are wrapped in one guard per page action so a direct URL can
   // never render a page the access-control decision denies.

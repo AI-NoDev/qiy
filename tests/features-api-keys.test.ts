@@ -59,14 +59,17 @@ describe("application feature flags", () => {
   test("parses both flags, defaults them to false and round-trips the block", () => {
     expect(parseQiyProject(model()).features).toBeUndefined();
     const project = parseQiyProject(withFeatures());
-    expect(project.features).toEqual({ apiDocs: true, apiKeys: true });
+    expect(project.features).toEqual({ overview: true, apiDocs: true, apiKeys: true });
     const disabled = parseQiyProject(model("features { apiDocs false; apiKeys false; }"));
-    expect(disabled.features).toEqual({ apiDocs: false, apiKeys: false });
-    const serialized = serializeQiyProject(disabled);
+    expect(disabled.features).toEqual({ overview: true, apiDocs: false, apiKeys: false });
+    const hiddenOverview = parseQiyProject(model("features { overview false; apiDocs true; apiKeys true; }"));
+    expect(hiddenOverview.features).toEqual({ overview: false, apiDocs: true, apiKeys: true });
+    const serialized = serializeQiyProject(hiddenOverview);
     expect(serialized).toContain("features {");
-    expect(serialized).toContain("apiDocs false;");
-    expect(serialized).toContain("apiKeys false;");
-    expect(parseQiyProject(serialized)).toEqual(disabled);
+    expect(serialized).toContain("overview false;");
+    expect(serialized).toContain("apiDocs true;");
+    expect(serialized).toContain("apiKeys true;");
+    expect(parseQiyProject(serialized)).toEqual(hiddenOverview);
   });
 
   test("rejects unknown flags, non-boolean values, duplicates and API keys without auth", () => {
@@ -76,8 +79,9 @@ describe("application feature flags", () => {
     expect(() => parseQiyProject(`qiy v0; application x { database sqlite {} features { apiKeys true; } }`)).toThrow("features apiKeys requires an auth block");
   });
 
-  test("only emits the docs/API-key surface when the flags are enabled", () => {
-    const enabled = generateProject(parseQiyProject(withFeatures()).database, "feature-demo", parseQiyProject(withFeatures()));
+  test("generates the split developer pages and gates them per flag", () => {
+    const project = parseQiyProject(withFeatures());
+    const enabled = generateProject(project.database, "feature-demo", project);
     for (const path of [
       "apps/server/src/docs.ts",
       "apps/server/src/docs-routes.ts",
@@ -90,9 +94,18 @@ describe("application feature flags", () => {
       "apps/web/app/features.ts",
       "apps/web/app/components/mermaid.tsx",
       "apps/web/app/components/docs-page.tsx",
+      "apps/web/app/components/api-docs-page.tsx",
+      "apps/web/app/components/api-keys-page.tsx",
       "apps/web/app/routes/docs.tsx",
+      "apps/web/app/routes/api-docs.tsx",
+      "apps/web/app/routes/api-keys.tsx",
       "apps/web/tests/docs.test.ts",
       "apps/web/tests/docs-render.test.tsx",
+      "apps/web/tests/api-docs.test.ts",
+      "apps/web/tests/api-docs-render.test.tsx",
+      "apps/web/tests/api-keys.test.ts",
+      "apps/web/tests/api-keys-render.test.tsx",
+      "apps/web/tests/features.test.ts",
     ]) expect(enabled[path], path).toBeTruthy();
     expect(enabled["apps/server/src/schema.ts"]).toContain('qiyApiKeys = sqliteTable("qiy_api_keys"');
     expect(enabled["apps/server/src/app.ts"]).toContain("withApiKeyAuthentication");
@@ -100,39 +113,92 @@ describe("application feature flags", () => {
     expect(enabled["apps/server/src/app.ts"]).toContain('import("./docs-routes")');
     expect(enabled["apps/server/src/auth/guard.ts"]).toContain('path === "/api/v1/openapi" || path.startsWith("/api/v1/openapi/")');
     expect(enabled["apps/server/src/auth/api-key-hash.ts"]).toContain("createHmac");
-    expect(enabled["apps/server/src/auth/api-key-hash.ts"]).not.toContain("console.log");
     expect(enabled["apps/web/app/routes.ts"]).toContain('route("system/overview", "./routes/docs.tsx")');
-    // The docs envelope is fetched once per session; an effect re-run must not
-    // issue another /docs/model + /openapi.json request.
-    expect(enabled["apps/web/app/docs.ts"]).toContain("docsEnvelopePromise");
-    expect(enabled["apps/web/app/routes/docs.tsx"]).toContain("fetchDocsEnvelope()");
-    // The route is inside the guarded layout; an auth query in the route itself
-    // caused a render loop/blank page, so it must not call useIsAuthenticated.
-    expect(enabled["apps/web/app/routes/docs.tsx"]).not.toContain("useIsAuthenticated");
-    // Mermaid class labels must be quoted: class X[label] is a parse error.
-    expect(enabled["apps/web/app/docs.ts"]).toContain("'[\"' + escapeMermaidLabel(entity.label) + '\"] {'");
-    expect(enabled["apps/web/app/features.ts"]).toContain("qiyMenuLinks");
+    expect(enabled["apps/web/app/routes.ts"]).toContain('route("system/api-docs", "./routes/api-docs.tsx")');
+    expect(enabled["apps/web/app/routes.ts"]).toContain('route("system/api-keys", "./routes/api-keys.tsx")');
+    // The overview no longer contains the API explorer or the key manager: those are
+    // separate routes/components now.
+    expect(enabled["apps/web/app/components/docs-page.tsx"]).toContain("buildEntityDiagram");
+    expect(enabled["apps/web/app/components/docs-page.tsx"]).not.toContain("groupOpenApiOperations");
+    expect(enabled["apps/web/app/components/docs-page.tsx"]).not.toContain("Access keys");
+    expect(enabled["apps/web/app/components/api-docs-page.tsx"]).toContain("filterOpenApiOperations");
+    expect(enabled["apps/web/app/components/api-docs-page.tsx"]).toContain("Tooltip");
+    expect(enabled["apps/web/app/components/api-keys-page.tsx"]).toContain("filterApiKeys");
+    expect(enabled["apps/web/app/components/api-keys-page.tsx"]).toContain("apiKeyCurlExamples");
+    expect(enabled["apps/web/app/docs.ts"]).toContain("export function groupOpenApiOperations");
+    expect(enabled["apps/web/app/docs.ts"]).toContain("export function filterOpenApiOperations");
+    expect(enabled["apps/web/app/docs.ts"]).toContain("export function fetchDocsModel");
+    expect(enabled["apps/web/app/docs.ts"]).toContain("export function fetchOpenApiDocument");
+    expect(enabled["apps/web/app/api-keys.ts"]).toContain("export function filterApiKeys");
+    expect(enabled["apps/web/app/api-keys.ts"]).toContain("export function permissionTags");
+    expect(enabled["apps/web/app/routes/docs.tsx"]).toContain("fetchDocsModel()");
+    expect(enabled["apps/web/app/routes/api-docs.tsx"]).toContain("fetchOpenApiDocument()");
+    expect(enabled["apps/web/app/routes/api-keys.tsx"]).toContain("listApiKeys()");
+    expect(enabled["apps/web/app/features.ts"]).toContain('path: "/system/overview"');
+    expect(enabled["apps/web/app/features.ts"]).toContain('path: "/system/api-docs"');
+    expect(enabled["apps/web/app/features.ts"]).toContain('path: "/system/api-keys"');
     expect(enabled["apps/web/app/components/menu.tsx"]).toContain("qiyMenuLinks");
     expect(JSON.parse(enabled["apps/web/package.json"]!).dependencies.mermaid).toBe("12.2.0");
-    expect(enabled["apps/web/app/i18n.ts"]).toContain('"docs.title": "功能总览"');
-    expect(enabled["apps/web/app/i18n.ts"]).toContain('"apiKey.title": "访问密钥"');
-    expect(enabled["apps/web/tests/chrome-i18n.test.ts"]).toContain("qiy.docs.title");
-    // The API reference tab is a built-in AntD explorer: no heavy third-party reference app.
     expect(JSON.parse(enabled["apps/web/package.json"]!).dependencies["@scalar/api-reference-react"]).toBeUndefined();
-    expect(enabled["apps/web/app/components/docs-page.tsx"]).not.toContain("@scalar");
-    expect(enabled["apps/web/app/components/docs-page.tsx"]).toContain("groupOpenApiOperations");
-    expect(enabled["apps/web/app/components/docs-page.tsx"]).toContain("buildCurlExample");
-    expect(enabled["apps/web/app/docs.ts"]).toContain("export function groupOpenApiOperations");
-    expect(enabled["apps/web/app/docs.ts"]).toContain("export function buildCurlExample");
+    expect(enabled["apps/web/app/i18n.ts"]).toContain('"docs.title": "功能总览"');
+    expect(enabled["apps/web/app/i18n.ts"]).toContain('"apiDocs.title": "API 文档"');
+    expect(enabled["apps/web/app/i18n.ts"]).toContain('"apiKey.pageTitle": "访问密钥"');
+    expect(enabled["apps/web/tests/chrome-i18n.test.ts"]).toContain("qiy.apiDocs.title");
+    // Mermaid class labels must be quoted: class X[label] is a parse error.
+    expect(enabled["apps/web/app/docs.ts"]).toContain("escapeMermaidLabel(entity.label)");
     expect(enabled["apps/web/app/components/mermaid.tsx"]).toContain("QIY_MERMAID_TIMEOUT_MS");
     expect(enabled["apps/web/app/components/mermaid.tsx"]).toContain("qiy-mermaid-fallback");
     const disabled = generateProject(parseQiyProject(model()).database, "feature-demo", parseQiyProject(model()));
-    for (const path of ["apps/server/src/docs.ts", "apps/server/src/auth/api-keys.ts", "apps/web/app/routes/docs.tsx", "apps/web/app/docs.ts"]) {
+    for (const path of ["apps/server/src/docs.ts", "apps/server/src/auth/api-keys.ts", "apps/web/app/routes/docs.tsx", "apps/web/app/docs.ts", "apps/web/app/components/api-docs-page.tsx"]) {
       expect(disabled[path], path).toBeUndefined();
     }
-    expect(disabled["apps/web/app/routes.ts"]).not.toContain("system/overview");
+    expect(disabled["apps/web/app/routes.ts"]).not.toContain("system/");
     expect(JSON.parse(disabled["apps/web/package.json"]!).dependencies.mermaid).toBeUndefined();
-    expect(disabled["apps/web/app/features.ts"]).toContain("qiyMenuLinks: QiyMenuLink[] = docsEnabled ?");
+    expect(disabled["apps/web/app/features.ts"]).not.toContain("/system/overview");
+  });
+
+  test("gates overview visibility on its own flag and the docs features", () => {
+    const generate = (flags: string) => {
+      const project = parseQiyProject(model("features { " + flags + " }"));
+      return generateProject(project.database, "feature-demo", project);
+    };
+    // Overview can be hidden while the API pages remain available.
+    const noOverview = generate("overview false; apiDocs true; apiKeys true;");
+    expect(noOverview["apps/web/app/routes/docs.tsx"]).toBeUndefined();
+    expect(noOverview["apps/web/app/components/docs-page.tsx"]).toBeUndefined();
+    expect(noOverview["apps/web/app/routes/api-docs.tsx"]).toBeTruthy();
+    expect(noOverview["apps/web/app/routes/api-keys.tsx"]).toBeTruthy();
+    expect(noOverview["apps/web/app/routes.ts"]).not.toContain("system/overview");
+    expect(noOverview["apps/web/app/features.ts"]).not.toContain('path: "/system/overview"');
+    expect(noOverview["apps/web/app/features.ts"]).toContain('path: "/system/api-docs"');
+    expect(noOverview["apps/web/app/features.ts"]).toContain('path: "/system/api-keys"');
+    // Overview + keys, no API docs: the model endpoint is generated for the overview,
+    // but the OpenAPI endpoint/page is not.
+    const noApiDocs = generate("overview true; apiDocs false; apiKeys true;");
+    expect(noApiDocs["apps/web/app/routes/docs.tsx"]).toBeTruthy();
+    expect(noApiDocs["apps/web/app/routes/api-keys.tsx"]).toBeTruthy();
+    expect(noApiDocs["apps/web/app/routes/api-docs.tsx"]).toBeUndefined();
+    expect(noApiDocs["apps/server/src/docs.ts"]).toBeTruthy();
+    expect(noApiDocs["apps/server/src/docs-routes.ts"]).toContain('mounted.get("/docs/model"');
+    expect(noApiDocs["apps/server/src/docs-routes.ts"]).not.toContain('mounted.get("/openapi.json"');
+    expect(noApiDocs["apps/web/app/routes.ts"]).not.toContain("system/api-docs");
+    expect(noApiDocs["apps/web/app/features.ts"]).toContain('path: "/system/overview"');
+    expect(noApiDocs["apps/web/app/features.ts"]).not.toContain('path: "/system/api-docs"');
+    // Overview + API docs, no keys page or key support.
+    const noKeys = generate("overview true; apiDocs true; apiKeys false;");
+    expect(noKeys["apps/web/app/routes/docs.tsx"]).toBeTruthy();
+    expect(noKeys["apps/web/app/routes/api-docs.tsx"]).toBeTruthy();
+    expect(noKeys["apps/web/app/routes/api-keys.tsx"]).toBeUndefined();
+    expect(noKeys["apps/server/src/auth/api-keys.ts"]).toBeUndefined();
+    expect(noKeys["apps/server/src/schema.ts"]).not.toContain("qiyApiKeys");
+    expect(noKeys["apps/web/app/routes.ts"]).not.toContain("system/api-keys");
+    expect(noKeys["apps/web/app/api-keys.ts"]).toBeUndefined();
+    // Everything off (overview defaults true but no docs feature exists).
+    const off = generate("overview false; apiDocs false; apiKeys false;");
+    expect(off["apps/server/src/docs.ts"]).toBeUndefined();
+    expect(off["apps/web/app/routes/docs.tsx"]).toBeUndefined();
+    expect(off["apps/web/app/routes.ts"]).not.toContain("system/");
+    expect(off["apps/web/app/features.ts"]).not.toContain('path: "/system/');
   });
 });
 
@@ -142,7 +208,7 @@ describe("generated OpenAPI document", () => {
   const viewer = { role: "viewer" as const, permissions: ["report:read"] };
 
   test("describes the demo model with security schemes and metadata", () => {
-    expect(docsMeta.features).toEqual({ apiDocs: true, apiKeys: true });
+    expect(docsMeta.features).toEqual({ overview: true, apiDocs: true, apiKeys: true });
     expect(docsMeta.entities).toHaveLength(17);
     expect(docsMeta.dataflows).toHaveLength(8);
     expect(docsMeta.userTable).toBe("users");

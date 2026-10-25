@@ -36,7 +36,7 @@ describe("modular demo model", () => {
     expect(project.actions).toHaveLength(8);
     expect(project.auth?.providers).toEqual(["okta", "keycloak", "google", "kinde", "azure-ad-b2c"]);
     expect(project.auth?.local).toBe(true);
-    expect(project.features).toEqual({ apiDocs: true, apiKeys: true });
+    expect(project.features).toEqual({ overview: true, apiDocs: true, apiKeys: true });
   });
 
   test("migrates commands to permission/verification rules while keeping one legacy role rule", async () => {
@@ -250,16 +250,20 @@ describe("modular demo model", () => {
     expect(files["apps/web/app/dashboard.ts"]).toContain("export const dashboardMetrics: DashboardMetric[] = []");
     expect(files["apps/web/tests/charts.test.ts"]).toContain("variant selection shrinks larger -> medium -> small");
     expect(files["apps/web/tests/charts-render.test.tsx"]).toContain("renders every chart kind with grid placements and selectors");
-    // System administration: 功能总览 page + API keys are generated for the demo.
+    // System administration: three feature-gated developer pages (overview / API docs / keys).
     expect(files["apps/server/src/docs.ts"]).toContain("buildOpenApiDocument");
     expect(files["apps/server/src/docs-routes.ts"]).toContain('"/openapi.json"');
+    expect(files["apps/server/src/docs-routes.ts"]).toContain('"/docs/model"');
     expect(files["apps/server/src/auth/api-keys.ts"]).toContain("withApiKeyAuthentication");
     expect(files["apps/server/tests/api-keys.test.ts"]).toContain("creates, lists, authenticates and revokes an API key");
-    expect(files["apps/web/app/features.ts"]).toContain('path: "/system/overview"');
-    expect(files["apps/web/app/routes.ts"]).toContain('route("system/overview", "./routes/docs.tsx")');
+    for (const path of ["/system/overview", "/system/api-docs", "/system/api-keys"]) expect(files["apps/web/app/features.ts"]).toContain('path: "' + path + '"');
+    for (const [route, file] of [["overview", "docs"], ["api-docs", "api-docs"], ["api-keys", "api-keys"]]) expect(files["apps/web/app/routes.ts"]).toContain('route("system/' + route + '", "./routes/' + file + '.tsx")');
     expect(files["apps/web/app/components/menu.tsx"]).toContain("qiyMenuLinks");
-    expect(files["apps/web/app/components/docs-page.tsx"]).toContain("groupOpenApiOperations");
-    expect(files["apps/web/app/components/docs-page.tsx"]).not.toContain("@scalar");
+    expect(files["apps/web/app/components/docs-page.tsx"]).toContain("buildEntityDiagram");
+    expect(files["apps/web/app/components/docs-page.tsx"]).not.toContain("groupOpenApiOperations");
+    expect(files["apps/web/app/components/docs-page.tsx"]).not.toContain("Access keys");
+    expect(files["apps/web/app/components/api-docs-page.tsx"]).toContain("filterOpenApiOperations");
+    expect(files["apps/web/app/components/api-keys-page.tsx"]).toContain("filterApiKeys");
     expect(files["apps/web/app/components/mermaid.tsx"]).toContain('import("mermaid")');
     expect(JSON.parse(files["apps/web/package.json"]!).dependencies.mermaid).toBe("12.2.0");
     // Grouped sidebar metadata: resource -> group parent, and the group keeps its menu order.

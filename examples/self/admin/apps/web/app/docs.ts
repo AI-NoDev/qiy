@@ -49,7 +49,7 @@ export interface DocsPermissionGroup { name: string; members: string[]; label: s
 export interface DocsPermissionVerification { name: string; label: string; labelKey: string; inputs: Array<{ name: string; type: string }> }
 export interface DocsModel {
   app: { name: string; description?: string; descriptionKey?: string };
-  features: { apiDocs: boolean; apiKeys: boolean };
+  features: { overview: boolean; apiDocs: boolean; apiKeys: boolean };
   principal: { role: DocsRole; permissions: string[] };
   entities: DocsEntity[];
   relations: DocsRelation[];
@@ -59,13 +59,11 @@ export interface DocsModel {
 }
 export interface DocsEnvelope { model: DocsModel; openApi: unknown }
 
-export type DocsTabKey = "entities" | "dataflows" | "api" | "permissions" | "apiKeys";
+/** 功能总览 page tabs (API docs and access keys are separate pages now). */
+export type DocsTabKey = "entities" | "dataflows" | "permissions";
 
-/** Tabs available for the generated feature flags (访问密钥 only when API keys are enabled). */
-export function docsTabs(flags: { apiDocs: boolean; apiKeys: boolean } = qiyFeatureFlags): DocsTabKey[] {
-  const tabs: DocsTabKey[] = flags.apiDocs ? ["entities", "dataflows", "api", "permissions"] : [];
-  if (flags.apiKeys) tabs.push("apiKeys");
-  return tabs;
+export function docsTabs(flags: { overview?: boolean } = qiyFeatureFlags): DocsTabKey[] {
+  return flags.overview === false ? [] : ["entities", "dataflows", "permissions"];
 }
 
 export function docsTabLabelKey(tab: DocsTabKey): string {
@@ -163,32 +161,30 @@ async function docsFetch(path: string): Promise<Response> {
   return response;
 }
 
-export async function fetchDocsEnvelopeUncached(): Promise<DocsEnvelope> {
-  const [modelResponse, specResponse] = await Promise.all([
-    qiyFeatureFlags.apiDocs ? docsFetch("/api/v1/docs/model") : Promise.resolve(undefined),
-    qiyFeatureFlags.apiDocs ? docsFetch("/api/v1/openapi.json") : Promise.resolve(undefined),
-  ]);
-  const model = modelResponse ? await modelResponse.json() as DocsModel : undefined;
-  const openApi = specResponse ? await specResponse.json() as unknown : undefined;
-  if (!model) throw new Error("API docs are disabled");
-  return { model, openApi };
-}
+/** Model metadata is immutable for a session: fetch once, share the promise. */
+let docsModelPromise: Promise<DocsModel> | undefined;
 
-/**
- * Docs metadata is immutable for a session, so the envelope is fetched once and
- * shared. Without this, a route remount (StrictMode/HMR) or a re-rendering page
- * issued /docs/model + /openapi.json in a tight loop.
- */
-let docsEnvelopePromise: Promise<DocsEnvelope> | undefined;
-
-export function fetchDocsEnvelope(force = false): Promise<DocsEnvelope> {
-  if (!force && docsEnvelopePromise) return docsEnvelopePromise;
-  const promise = fetchDocsEnvelopeUncached();
-  docsEnvelopePromise = promise.catch((error: unknown) => {
-    docsEnvelopePromise = undefined;
+export function fetchDocsModel(force = false): Promise<DocsModel> {
+  if (!force && docsModelPromise) return docsModelPromise;
+  const promise = docsFetch("/api/v1/docs/model").then(async (response) => await response.json() as DocsModel);
+  docsModelPromise = promise.catch((error: unknown) => {
+    docsModelPromise = undefined;
     throw error;
   });
-  return docsEnvelopePromise;
+  return docsModelPromise;
+}
+
+/** The permission-filtered OpenAPI document is fetched once per session. */
+let openApiDocumentPromise: Promise<unknown> | undefined;
+
+export function fetchOpenApiDocument(force = false): Promise<unknown> {
+  if (!force && openApiDocumentPromise) return openApiDocumentPromise;
+  const promise = docsFetch("/api/v1/openapi.json").then(async (response) => await response.json() as unknown);
+  openApiDocumentPromise = promise.catch((error: unknown) => {
+    openApiDocumentPromise = undefined;
+    throw error;
+  });
+  return openApiDocumentPromise;
 }
 
 export interface OpenApiParameter { name: string; in: string; required: boolean; description?: string; schema?: unknown }
@@ -374,4 +370,17 @@ export function buildCurlExample(input: { method: string; path: string; baseUrl?
   }
   const separator = " " + String.fromCharCode(92) + "\n";
   return lines.join(separator);
+}
+
+/** Case-insensitive match of one operation against path/method/summary/description/tags. */
+export function openApiOperationMatches(operation: OpenApiOperation, query: string): boolean {
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) return true;
+  return [operation.path, operation.method, operation.summary ?? "", operation.description ?? "", ...operation.tags].some((value) => value.toLowerCase().includes(trimmed));
+}
+
+/** Search filter for the API-docs page: drops empty tags and returns the matching count. */
+export function filterOpenApiOperations(groups: readonly OpenApiTagGroup[], query: string): { groups: OpenApiTagGroup[]; total: number } {
+  const filtered = groups.map((group) => ({ ...group, operations: group.operations.filter((operation) => openApiOperationMatches(operation, query)) })).filter((group) => group.operations.length > 0);
+  return { groups: filtered, total: filtered.reduce((total, group) => total + group.operations.length, 0) };
 }

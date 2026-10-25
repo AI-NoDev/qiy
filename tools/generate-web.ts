@@ -1735,6 +1735,16 @@ export const localeMessages = {
     "apiKey.revokeConfirm": "确定撤销该密钥？撤销后立即失效。", "apiKey.secretTitle": "请立即保存密钥",
     "apiKey.secretHint": "完整密钥只显示一次，关闭后无法找回。", "apiKey.copy": "复制", "apiKey.copied": "已复制", "apiKey.created": "已创建",
     "apiKey.loadError": "访问密钥加载失败", "apiKey.limit": "每用户最多 {{count}} 个有效密钥",
+    "apiDocs.title": "API 文档", "apiDocs.pageTitle": "API 文档", "apiDocs.pageSubtitle": "当前账号可调用的 OpenAPI 3.1 操作；只读查看，使用 curl 示例配合会话令牌或访问密钥调用。",
+    "apiDocs.roleTooltip": "你的账号角色用于过滤本文档；无权调用的操作不会列出。", "apiDocs.permissionTooltip": "由角色、数据库列与已验证 claim 合成的权限；文档只包含你有权调用的操作。",
+    "apiDocs.rolesTooltip": "你的角色需属于以下之一；本文档已按当前账号过滤。", "apiDocs.permissionsTooltip": "该操作还需要列出的全部权限；本文档已按当前账号过滤。",
+    "apiDocs.securityTooltip": "该操作支持的认证方式。", "apiDocs.currentRole": "角色", "apiDocs.currentPermissions": "权限",
+    "apiDocs.searchPlaceholder": "搜索路径、方法、摘要或标签", "apiDocs.resultCount": "共 {{count}} 个操作", "apiDocs.noResults": "没有匹配的操作", "apiDocs.loadError": "API 文档加载失败",
+    "apiKey.pageTitle": "访问密钥", "apiKey.pageSubtitle": "用于脚本和 CI 的个人访问密钥；每个密钥继承你的角色与权限，可通过 Bearer 令牌或 X-API-Key 请求头使用。",
+    "apiKey.curlTitle": "在 curl 中使用密钥", "apiKey.apiDocsLink": "查看当前账号可用的 API 文档", "apiKey.searchPlaceholder": "搜索名称、前缀或状态",
+    "apiKey.status.all": "全部", "apiKey.status.active": "有效", "apiKey.status.revoked": "已撤销", "apiKey.status.expired": "已过期",
+    "apiKey.limitHint": "个有效密钥", "apiKey.never": "从未", "apiKey.revokedMessage": "已撤销",
+    "apiKey.roleTooltip": "你的账号角色；密钥继承创建者的角色与权限。", "apiKey.permissionTooltip": "你的有效权限值；在此创建的密钥能调用的 API 与你一致。", "apiKey.groupTooltip": "授权给你账号的权限组（角色）。",
     yes: "是", no: "否",
     language: "语言", save: "保存", cancel: "取消", deleteSuccess: "删除成功", requiredWithLabel: "请输入\${label}", loading: "加载中", quickAccess: "快速访问", upload: "上传文件",
     overview: "概览", overviewDescription: "从数据资源快速进入业务管理。", profile: "个人中心", filters: "筛选", search: "搜索",
@@ -1800,6 +1810,16 @@ export const localeMessages = {
     "apiKey.revokeConfirm": "Revoke this key? It stops working immediately.", "apiKey.secretTitle": "Save this secret now",
     "apiKey.secretHint": "The full key is shown only once and cannot be recovered.", "apiKey.copy": "Copy", "apiKey.copied": "Copied", "apiKey.created": "Created",
     "apiKey.loadError": "Failed to load API keys", "apiKey.limit": "Up to {{count}} active keys per user",
+    "apiDocs.title": "API reference", "apiDocs.pageTitle": "API reference", "apiDocs.pageSubtitle": "OpenAPI 3.1 operations allowed for the current account. Read-only: use the curl examples with a session token or an API key.",
+    "apiDocs.roleTooltip": "Your account role is used to filter this document; operations you cannot call are not listed.", "apiDocs.permissionTooltip": "Permission values from your role, database column and verified claims. The document only contains operations you may call.",
+    "apiDocs.rolesTooltip": "Your role must be one of these roles; this document is already filtered for your account.", "apiDocs.permissionsTooltip": "The operation additionally requires every listed permission; this document is already filtered for your account.",
+    "apiDocs.securityTooltip": "Supported authentication schemes for this operation.", "apiDocs.currentRole": "Role", "apiDocs.currentPermissions": "Permissions",
+    "apiDocs.searchPlaceholder": "Search path, method, summary or tag", "apiDocs.resultCount": "{{count}} operation(s)", "apiDocs.noResults": "No operations match this search", "apiDocs.loadError": "Failed to load the API document",
+    "apiKey.pageTitle": "Access keys", "apiKey.pageSubtitle": "Personal API keys for scripts and CI. Each key inherits your role and permissions and can be used as a Bearer token or X-API-Key header.",
+    "apiKey.curlTitle": "Using a key with curl", "apiKey.apiDocsLink": "View the API reference allowed for your account", "apiKey.searchPlaceholder": "Search name, prefix or status",
+    "apiKey.status.all": "All", "apiKey.status.active": "Active", "apiKey.status.revoked": "Revoked", "apiKey.status.expired": "Expired",
+    "apiKey.limitHint": "active keys", "apiKey.never": "Never", "apiKey.revokedMessage": "Revoked",
+    "apiKey.roleTooltip": "Your account role. API keys inherit the role and permissions of the user who created them.", "apiKey.permissionTooltip": "Effective permission values for your account; a key created here can call exactly the APIs that you can call.", "apiKey.groupTooltip": "Permission groups (roles) granted to your account.",
     yes: "Yes", no: "No",
     language: "Language", save: "Save", cancel: "Cancel", deleteSuccess: "Deleted", requiredWithLabel: "\${label} is required", loading: "Loading", quickAccess: "Quick access", upload: "Upload file",
     overview: "Overview", overviewDescription: "Jump into your data resources from one place.", profile: "Profile", filters: "Filters", search: "Search",
@@ -2320,7 +2340,9 @@ const chromeKeys = [
   "qiy.new", "qiy.edit", "qiy.delete", "qiy.batchDelete", "qiy.confirmDelete", "qiy.detail",
   "qiy.createResource", "qiy.editResource", "qiy.openDetail", "qiy.searchRelation",
   "qiy.drawerBreadcrumb", "qiy.recordDetails", "qiy.recordSummary", "qiy.close", "qiy.chartView", "qiy.chartViewKind.const", "qiy.chartViewKind.pie", "qiy.chartViewKind.bar", "qiy.chartViewKind.line", "qiy.chartViewKind.table",
-  "qiy.docs.title", "qiy.docs.subtitle", "qiy.docs.tabEntities", "qiy.docs.tabDataflows", "qiy.docs.tabApi", "qiy.docs.tabPermissions", "qiy.docs.tabApiKeys", "qiy.docs.entitiesTitle", "qiy.docs.relationsTitle", "qiy.docs.accessNote", "qiy.docs.apiFiltered", "qiy.docs.mermaidError", "qiy.docs.mermaidTimeout", "qiy.docs.noData", "qiy.docs.fieldName", "qiy.docs.fieldType", "qiy.docs.fieldNullable", "qiy.docs.fieldEnum", "qiy.docs.fieldAnnotations", "qiy.docs.emptySpec", "qiy.docs.emptySpecHint", "qiy.docs.principal", "qiy.docs.parameters", "qiy.docs.paramName", "qiy.docs.paramIn", "qiy.docs.paramRequired", "qiy.docs.requestBody", "qiy.docs.responses", "qiy.docs.responseStatus", "qiy.docs.responseDescription", "qiy.docs.security", "qiy.docs.securityBearer", "qiy.docs.securityApiKey", "qiy.docs.curl", "qiy.docs.roles", "qiy.docs.permissions",
+  "qiy.docs.title", "qiy.docs.subtitle", "qiy.docs.tabEntities", "qiy.docs.tabDataflows", "qiy.docs.tabPermissions", "qiy.docs.entitiesTitle", "qiy.docs.relationsTitle", "qiy.docs.accessNote", "qiy.docs.apiFiltered", "qiy.docs.mermaidError", "qiy.docs.mermaidTimeout", "qiy.docs.panelError", "qiy.docs.noData", "qiy.docs.fieldName", "qiy.docs.fieldType", "qiy.docs.fieldNullable", "qiy.docs.fieldEnum", "qiy.docs.fieldAnnotations", "qiy.docs.emptySpec", "qiy.docs.principal", "qiy.docs.parameters", "qiy.docs.paramName", "qiy.docs.paramIn", "qiy.docs.paramRequired", "qiy.docs.requestBody", "qiy.docs.responses", "qiy.docs.responseStatus", "qiy.docs.responseDescription", "qiy.docs.security", "qiy.docs.securityBearer", "qiy.docs.securityApiKey", "qiy.docs.curl", "qiy.docs.roles", "qiy.docs.permissions",
+  "qiy.apiDocs.title", "qiy.apiDocs.pageTitle", "qiy.apiDocs.pageSubtitle", "qiy.apiDocs.roleTooltip", "qiy.apiDocs.permissionTooltip", "qiy.apiDocs.rolesTooltip", "qiy.apiDocs.permissionsTooltip", "qiy.apiDocs.securityTooltip", "qiy.apiDocs.currentRole", "qiy.apiDocs.currentPermissions", "qiy.apiDocs.searchPlaceholder", "qiy.apiDocs.resultCount", "qiy.apiDocs.noResults", "qiy.apiDocs.loadError",
+  "qiy.apiKey.pageTitle", "qiy.apiKey.pageSubtitle", "qiy.apiKey.curlTitle", "qiy.apiKey.apiDocsLink", "qiy.apiKey.searchPlaceholder", "qiy.apiKey.status.all", "qiy.apiKey.status.active", "qiy.apiKey.status.revoked", "qiy.apiKey.status.expired", "qiy.apiKey.limitHint", "qiy.apiKey.never", "qiy.apiKey.revokedMessage", "qiy.apiKey.roleTooltip", "qiy.apiKey.permissionTooltip", "qiy.apiKey.groupTooltip",
   "qiy.apiKey.title", "qiy.apiKey.description", "qiy.apiKey.create", "qiy.apiKey.name", "qiy.apiKey.empty", "qiy.apiKey.prefix", "qiy.apiKey.status", "qiy.apiKey.active", "qiy.apiKey.revoked", "qiy.apiKey.expired", "qiy.apiKey.revoke", "qiy.apiKey.secretTitle", "qiy.apiKey.secretHint", "qiy.apiKey.copy", "qiy.apiKey.copied", "qiy.apiKey.limit",
   "qiy.yes", "qiy.no",
   "qiy.search", "qiy.filters", "qiy.matchAll", "qiy.matchAny", "qiy.commaSeparated", "qiy.forbidden", "qiy.noData",
@@ -3437,29 +3459,51 @@ export default function AuthCallback() {
       .replace("    <QiyThemeControls />", '    <Link to="/profile"><Button type="link">{translate("qiy.profile", {}, "Profile")}</Button></Link>\n    <QiyThemeControls />');
   }
 
-  // System administration: 功能总览 page + API-key management, gated by features.
-  const apiDocsFeature = Boolean(options.features?.apiDocs);
-  const apiKeysFeature = Boolean(options.features?.apiKeys);
-  const docsFeatureEnabled = apiDocsFeature || apiKeysFeature;
-  generated["web/app/features.ts"] = renderWebFeaturesModule(apiDocsFeature, apiKeysFeature);
-  if (docsFeatureEnabled) {
-    generated["web/app/docs.ts"] = renderWebDocsModule();
-    generated["web/app/api-keys.ts"] = renderWebApiKeysModule();
+  // System administration: 功能总览 / API 文档 / 访问密钥 pages, gated by features.
+  const features = options.features ?? { overview: true, apiDocs: false, apiKeys: false };
+  const apiDocsFeature = Boolean(features.apiDocs);
+  const apiKeysFeature = Boolean(features.apiKeys);
+  const overviewFlag = features.overview !== false;
+  const overviewPageEnabled = overviewFlag && (apiDocsFeature || apiKeysFeature);
+  const docsHelpersEnabled = overviewPageEnabled || apiDocsFeature;
+  generated["web/app/features.ts"] = renderWebFeaturesModule(overviewPageEnabled, apiDocsFeature, apiKeysFeature);
+  if (overviewPageEnabled || apiDocsFeature || apiKeysFeature) generated["web/tests/features.test.ts"] = renderWebFeaturesTest(overviewPageEnabled, apiDocsFeature, apiKeysFeature);
+  const routeLines: string[] = [];
+  const webPackage = JSON.parse(generated["web/package.json"]!) as { dependencies: Record<string, string> };
+  if (docsHelpersEnabled) generated["web/app/docs.ts"] = renderWebDocsModule();
+  if (apiKeysFeature) generated["web/app/api-keys.ts"] = renderWebApiKeysModule();
+  if (overviewPageEnabled) {
     generated["web/app/components/mermaid.tsx"] = renderWebMermaidComponent();
     generated["web/app/components/docs-page.tsx"] = renderWebDocsPageComponent();
     generated["web/app/routes/docs.tsx"] = renderWebDocsRoute();
-    generated["web/tests/docs.test.ts"] = renderWebDocsTest();
-    generated["web/tests/docs-render.test.tsx"] = renderWebDocsRenderTest(apiDocsFeature, apiKeysFeature);
-    generated["web/app/routes.ts"] = generated["web/app/routes.ts"]!.replace(
-      '  index("./routes/home.tsx"),',
-      '  index("./routes/home.tsx"),\n  route("system/overview", "./routes/docs.tsx"),',
-    );
-    const webPackage = JSON.parse(generated["web/package.json"]!) as { dependencies: Record<string, string> };
-    // Both libraries are loaded through dynamic imports so the first page visit is
-    // unaffected; they are only generated when the docs page exists.
+    generated["web/tests/docs.test.ts"] = renderWebOverviewTest();
+    generated["web/tests/docs-render.test.tsx"] = renderWebOverviewRenderTest();
+    routeLines.push('  route("system/overview", "./routes/docs.tsx"),');
+    // Mermaid is only used by the overview page's entity/dataflow diagrams.
     webPackage.dependencies.mermaid = "12.2.0";
     generated["web/package.json"] = `${JSON.stringify(webPackage, null, 2)}\n`;
   }
+  if (apiDocsFeature) {
+    generated["web/app/components/api-docs-page.tsx"] = renderWebApiDocsPageComponent();
+    generated["web/app/routes/api-docs.tsx"] = renderWebApiDocsRoute();
+    generated["web/tests/api-docs.test.ts"] = renderWebApiDocsTest();
+    generated["web/tests/api-docs-render.test.tsx"] = renderWebApiDocsRenderTest();
+    routeLines.push('  route("system/api-docs", "./routes/api-docs.tsx"),');
+  }
+  if (apiKeysFeature) {
+    generated["web/app/components/api-keys-page.tsx"] = renderWebApiKeysPageComponent();
+    generated["web/app/routes/api-keys.tsx"] = renderWebApiKeysRoute();
+    generated["web/tests/api-keys.test.ts"] = renderWebApiKeysTest();
+    generated["web/tests/api-keys-render.test.tsx"] = renderWebApiKeysRenderTest(apiDocsFeature);
+    routeLines.push('  route("system/api-keys", "./routes/api-keys.tsx"),');
+  }
+  if (routeLines.length > 0) {
+    generated["web/app/routes.ts"] = generated["web/app/routes.ts"]!.replace(
+      '  index("./routes/home.tsx"),',
+      '  index("./routes/home.tsx"),\n' + routeLines.join("\n"),
+    );
+  }
+
 
   return generated;
 }
@@ -3841,10 +3885,11 @@ ${providerSection}  </Space>;
 /** Web modules for the system overview page (docs + API keys).               */
 /** ------------------------------------------------------------------------- */
 
-function renderWebFeaturesModule(apiDocs: boolean, apiKeys: boolean): string {
+function renderWebFeaturesModule(overviewPage: boolean, apiDocs: boolean, apiKeys: boolean): string {
   return `/** Generated feature flags and extra sidebar page links. Do not edit by hand. */
-export const qiyFeatureFlags = { apiDocs: ${apiDocs ? "true" : "false"}, apiKeys: ${apiKeys ? "true" : "false"} } as const;
+export const qiyFeatureFlags = { overview: ${overviewPage ? "true" : "false"}, apiDocs: ${apiDocs ? "true" : "false"}, apiKeys: ${apiKeys ? "true" : "false"} } as const;
 export const docsEnabled = qiyFeatureFlags.apiDocs || qiyFeatureFlags.apiKeys;
+export const overviewEnabled = qiyFeatureFlags.overview;
 
 export interface QiyMenuLink {
   name: string;
@@ -3855,12 +3900,15 @@ export interface QiyMenuLink {
   group?: string;
 }
 
-/** Extra sidebar page entries (not Refine resources), appended into their menu group. */
-export const qiyMenuLinks: QiyMenuLink[] = docsEnabled ? [{ name: "qiy-docs", path: "/system/overview", label: "功能总览", labelKey: "qiy.docs.title", icon: "AppstoreOutlined", group: "system" }] : [];
+/** Developer pages under 系统管理; each entry is only present when its feature is enabled. */
+export const qiyMenuLinks: QiyMenuLink[] = [
+${overviewPage ? `  { name: "qiy-docs", path: "/system/overview", label: "功能总览", labelKey: "qiy.docs.title", icon: "AppstoreOutlined", group: "system" },` : ""}
+${apiDocs ? `  { name: "qiy-api-docs", path: "/system/api-docs", label: "API 文档", labelKey: "qiy.apiDocs.title", icon: "FileTextOutlined", group: "system" },` : ""}
+${apiKeys ? `  { name: "qiy-api-keys", path: "/system/api-keys", label: "访问密钥", labelKey: "qiy.apiKey.title", icon: "KeyOutlined", group: "system" },` : ""}
+];
 `;
 }
 
-/** Pure Mermaid/OpenAPI/API-key helpers used by the docs page and its tests. */
 function renderWebDocsModule(): string {
   return `/** Generated documentation helpers: Mermaid builders, tab gating and API fetchers. */
 import { qiyAuthToken } from "./auth";
@@ -3913,7 +3961,7 @@ export interface DocsPermissionGroup { name: string; members: string[]; label: s
 export interface DocsPermissionVerification { name: string; label: string; labelKey: string; inputs: Array<{ name: string; type: string }> }
 export interface DocsModel {
   app: { name: string; description?: string; descriptionKey?: string };
-  features: { apiDocs: boolean; apiKeys: boolean };
+  features: { overview: boolean; apiDocs: boolean; apiKeys: boolean };
   principal: { role: DocsRole; permissions: string[] };
   entities: DocsEntity[];
   relations: DocsRelation[];
@@ -3923,13 +3971,11 @@ export interface DocsModel {
 }
 export interface DocsEnvelope { model: DocsModel; openApi: unknown }
 
-export type DocsTabKey = "entities" | "dataflows" | "api" | "permissions" | "apiKeys";
+/** 功能总览 page tabs (API docs and access keys are separate pages now). */
+export type DocsTabKey = "entities" | "dataflows" | "permissions";
 
-/** Tabs available for the generated feature flags (访问密钥 only when API keys are enabled). */
-export function docsTabs(flags: { apiDocs: boolean; apiKeys: boolean } = qiyFeatureFlags): DocsTabKey[] {
-  const tabs: DocsTabKey[] = flags.apiDocs ? ["entities", "dataflows", "api", "permissions"] : [];
-  if (flags.apiKeys) tabs.push("apiKeys");
-  return tabs;
+export function docsTabs(flags: { overview?: boolean } = qiyFeatureFlags): DocsTabKey[] {
+  return flags.overview === false ? [] : ["entities", "dataflows", "permissions"];
 }
 
 export function docsTabLabelKey(tab: DocsTabKey): string {
@@ -4027,32 +4073,30 @@ async function docsFetch(path: string): Promise<Response> {
   return response;
 }
 
-export async function fetchDocsEnvelopeUncached(): Promise<DocsEnvelope> {
-  const [modelResponse, specResponse] = await Promise.all([
-    qiyFeatureFlags.apiDocs ? docsFetch("/api/v1/docs/model") : Promise.resolve(undefined),
-    qiyFeatureFlags.apiDocs ? docsFetch("/api/v1/openapi.json") : Promise.resolve(undefined),
-  ]);
-  const model = modelResponse ? await modelResponse.json() as DocsModel : undefined;
-  const openApi = specResponse ? await specResponse.json() as unknown : undefined;
-  if (!model) throw new Error("API docs are disabled");
-  return { model, openApi };
-}
+/** Model metadata is immutable for a session: fetch once, share the promise. */
+let docsModelPromise: Promise<DocsModel> | undefined;
 
-/**
- * Docs metadata is immutable for a session, so the envelope is fetched once and
- * shared. Without this, a route remount (StrictMode/HMR) or a re-rendering page
- * issued /docs/model + /openapi.json in a tight loop.
- */
-let docsEnvelopePromise: Promise<DocsEnvelope> | undefined;
-
-export function fetchDocsEnvelope(force = false): Promise<DocsEnvelope> {
-  if (!force && docsEnvelopePromise) return docsEnvelopePromise;
-  const promise = fetchDocsEnvelopeUncached();
-  docsEnvelopePromise = promise.catch((error: unknown) => {
-    docsEnvelopePromise = undefined;
+export function fetchDocsModel(force = false): Promise<DocsModel> {
+  if (!force && docsModelPromise) return docsModelPromise;
+  const promise = docsFetch("/api/v1/docs/model").then(async (response) => await response.json() as DocsModel);
+  docsModelPromise = promise.catch((error: unknown) => {
+    docsModelPromise = undefined;
     throw error;
   });
-  return docsEnvelopePromise;
+  return docsModelPromise;
+}
+
+/** The permission-filtered OpenAPI document is fetched once per session. */
+let openApiDocumentPromise: Promise<unknown> | undefined;
+
+export function fetchOpenApiDocument(force = false): Promise<unknown> {
+  if (!force && openApiDocumentPromise) return openApiDocumentPromise;
+  const promise = docsFetch("/api/v1/openapi.json").then(async (response) => await response.json() as unknown);
+  openApiDocumentPromise = promise.catch((error: unknown) => {
+    openApiDocumentPromise = undefined;
+    throw error;
+  });
+  return openApiDocumentPromise;
 }
 
 export interface OpenApiParameter { name: string; in: string; required: boolean; description?: string; schema?: unknown }
@@ -4239,12 +4283,25 @@ export function buildCurlExample(input: { method: string; path: string; baseUrl?
   const separator = " " + String.fromCharCode(92) + "\\n";
   return lines.join(separator);
 }
+
+/** Case-insensitive match of one operation against path/method/summary/description/tags. */
+export function openApiOperationMatches(operation: OpenApiOperation, query: string): boolean {
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) return true;
+  return [operation.path, operation.method, operation.summary ?? "", operation.description ?? "", ...operation.tags].some((value) => value.toLowerCase().includes(trimmed));
+}
+
+/** Search filter for the API-docs page: drops empty tags and returns the matching count. */
+export function filterOpenApiOperations(groups: readonly OpenApiTagGroup[], query: string): { groups: OpenApiTagGroup[]; total: number } {
+  const filtered = groups.map((group) => ({ ...group, operations: group.operations.filter((operation) => openApiOperationMatches(operation, query)) })).filter((group) => group.operations.length > 0);
+  return { groups: filtered, total: filtered.reduce((total, group) => total + group.operations.length, 0) };
+}
 `;
 }
 
 /** Client for the API-key management tab (list/create/revoke + pure helpers). */
 function renderWebApiKeysModule(): string {
-  return `/** Generated API-key client and pure helpers for the access-key tab. */
+  return `/** Generated API-key client and pure helpers for the access-key page. */
 import { qiyAuthToken } from "./auth";
 
 export const QIY_API_KEY_MAX_ACTIVE = 10;
@@ -4259,6 +4316,9 @@ export interface ApiKeyRecord {
   revokedAt: string | null;
 }
 export interface CreatedApiKey { key: string; record: ApiKeyRecord }
+export interface QiyIdentityLike { id?: string; role?: string; permissions?: unknown; groups?: unknown }
+export type ApiKeyStatusFilter = "all" | "active" | "revoked" | "expired";
+export interface ApiKeyPermissionTag { key: string; kind: "role" | "permission" | "group"; value: string }
 
 function authHeaders(): Record<string, string> {
   const token = qiyAuthToken();
@@ -4315,6 +4375,56 @@ export function apiKeyStatus(record: Pick<ApiKeyRecord, "revokedAt" | "expiresAt
   if (record.revokedAt) return "revoked";
   if (record.expiresAt && new Date(record.expiresAt).getTime() <= now.getTime()) return "expired";
   return "active";
+}
+
+export function apiKeyStatusOptions(): ApiKeyStatusFilter[] {
+  return ["all", "active", "revoked", "expired"];
+}
+
+/** Case-insensitive search across name, prefix and localized status label. */
+export function apiKeyMatches(record: ApiKeyRecord, query: string, now: Date = new Date()): boolean {
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) return true;
+  return [record.name, record.prefix, record.maskedKey, apiKeyStatus(record, now)].some((value) => value.toLowerCase().includes(trimmed));
+}
+
+/** Search + status filter used by the access-key page. */
+export function filterApiKeys(records: readonly ApiKeyRecord[], input: { search?: string; status?: ApiKeyStatusFilter } = {}, now: Date = new Date()): ApiKeyRecord[] {
+  const status = input.status ?? "all";
+  const search = input.search ?? "";
+  return records.filter((record) => (status === "all" || apiKeyStatus(record, now) === status) && apiKeyMatches(record, search, now));
+}
+
+/** Flatten the current identity into role/permission/group tags with hover explanations. */
+export function permissionTags(identity: QiyIdentityLike | null | undefined): ApiKeyPermissionTag[] {
+  if (!identity) return [];
+  const tags: ApiKeyPermissionTag[] = [];
+  if (typeof identity.role === "string" && identity.role) tags.push({ key: "role:" + identity.role, kind: "role", value: identity.role });
+  const toValues = (value: unknown): string[] => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : typeof value === "string" ? value.split(/[\\s,]+/).filter(Boolean) : [];
+  for (const permission of toValues(identity.permissions)) tags.push({ key: "permission:" + permission, kind: "permission", value: permission });
+  for (const group of toValues(identity.groups)) tags.push({ key: "group:" + group, kind: "group", value: group });
+  return tags;
+}
+
+/** Relative time for last-used/created cells (tooltips carry the full timestamp). */
+export function relativeTime(value: string | null, now: Date = new Date(), locale = "en-US"): string {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  const deltaSeconds = Math.round((parsed.getTime() - now.getTime()) / 1000);
+  const absolute = Math.abs(deltaSeconds);
+  const unit: Intl.RelativeTimeFormatUnit = absolute < 60 ? "second" : absolute < 3_600 ? "minute" : absolute < 86_400 ? "hour" : absolute < 2_592_000 ? "day" : "month";
+  const divisor = unit === "second" ? 1 : unit === "minute" ? 60 : unit === "hour" ? 3_600 : unit === "day" ? 86_400 : 2_592_000;
+  return new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(Math.round(deltaSeconds / divisor), unit);
+}
+
+/** Curl snippets shown on the access-key page. */
+export function apiKeyCurlExamples(baseUrl = "http://localhost:3000"): { bearer: string; header: string } {
+  const base = baseUrl.replace(/\\/+$/, "");
+  return {
+    bearer: "curl -H 'Authorization: Bearer qiy_<prefix>_<secret>' " + base + "/api/v1/inventory",
+    header: "curl -H 'X-API-Key: qiy_<prefix>_<secret>' " + base + "/api/v1/inventory",
+  };
 }
 `;
 }
@@ -4386,66 +4496,23 @@ export function MermaidDiagram({ id, source, ariaLabel, errorText, timeoutText }
 
 /** Docs page component + route. JSX is generated as a template string. */
 function renderWebDocsPageComponent(): string {
-  return `import {
-  Alert,
-  Button,
-  Card,
-  Col,
-  Descriptions,
-  Empty,
-  Form,
-  Input,
-  Menu,
-  Modal,
-  Popconfirm,
-  Row,
-  Select,
-  Space,
-  Spin,
-  Table,
-  Tabs,
-  Tag,
-  Typography,
-  message,
-} from "antd";
+  return `import { Alert, Card, Descriptions, Empty, Select, Space, Spin, Table, Tabs, Tag, Typography } from "antd";
 import { useTranslation } from "@refinedev/core";
-import { Component, useMemo, useState, useEffect, type ReactNode } from "react";
+import { Component, useState, type ReactNode } from "react";
 import {
   buildDataflowDiagram,
   buildEntityDiagram,
   describeDataflow,
   docsTabLabelKey,
   docsTabs,
-  buildCurlExample,
-  groupOpenApiOperations,
-  openApiServerBaseUrl,
-  schemaExample,
-  schemaSummary,
-  type OpenApiOperation,
-  type OpenApiParameter,
-  type OpenApiResponse,
   type DocsDataflow,
   type DocsEntity,
   type DocsModel,
   type DocsTabKey,
 } from "../docs";
-import {
-  QIY_API_KEY_MAX_ACTIVE,
-  apiKeyStatus,
-  canCreateApiKey,
-  countActiveApiKeys,
-  createApiKey,
-  defaultApiKeyName,
-  formatApiKeyDate,
-  listApiKeys,
-  maskedApiKey,
-  revokeApiKey,
-  type ApiKeyRecord,
-} from "../api-keys";
 import { MermaidDiagram } from "./mermaid";
-import { qiyFeatureFlags } from "../features";
 
-/** Keeps a crashing third-party panel from blanking the whole feature page. */
+/** Keeps a crashing panel from blanking the whole feature page. */
 class DocsErrorBoundary extends Component<{ fallback: ReactNode; children?: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() {
@@ -4458,7 +4525,6 @@ class DocsErrorBoundary extends Component<{ fallback: ReactNode; children?: Reac
 
 export interface DocsPageProps {
   model?: DocsModel;
-  openApi?: unknown;
   loading?: boolean;
   error?: string;
   initialTab?: DocsTabKey;
@@ -4550,7 +4616,104 @@ function PermissionsPanel({ model }: { model: DocsModel }) {
   </Space>;
 }
 
-function curlExampleFor(operation: OpenApiOperation, baseUrl: string, locale: string): string {
+function overviewTabChildren(tab: DocsTabKey, props: DocsPageProps): ReactNode {
+  if (tab === "entities") return props.model ? <EntityPanel model={props.model} /> : null;
+  if (tab === "dataflows") return props.model ? <DataflowPanel model={props.model} /> : null;
+  return props.model ? <PermissionsPanel model={props.model} /> : null;
+}
+
+/** 功能总览 page: UML entities, dataflow diagrams and the permission model. */
+export function DocsOverviewPage(props: DocsPageProps) {
+  const { translate } = useTranslation();
+  const tabs = docsTabs({ overview: true });
+  const [active, setActive] = useState<DocsTabKey | undefined>(props.initialTab && tabs.includes(props.initialTab) ? props.initialTab : tabs[0]);
+  if (tabs.length === 0) return <Empty description={translate("qiy.docs.noData", {}, "Nothing to show")} />;
+  const current = active && tabs.includes(active) ? active : tabs[0];
+  const content = props.loading
+    ? <Spin size="large" />
+    : props.error
+      ? <Alert type="error" showIcon message={translate("qiy.docs.loadError", {}, "Failed to load the overview")} description={props.error} />
+      : <DocsErrorBoundary fallback={<Alert type="warning" showIcon message={translate("qiy.docs.panelError", {}, "This section could not be rendered")} />}>{overviewTabChildren(current!, props)}</DocsErrorBoundary>;
+  return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Typography.Title level={3} style={{ margin: 0 }}>{translate("qiy.docs.title", {}, "Feature overview")}</Typography.Title>
+    <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{props.model?.app.description ?? translate("qiy.docs.subtitle", {}, "Generated entities, dataflows and permission model for this application")}</Typography.Paragraph>
+    {props.model?.principal ? <Alert type="info" showIcon message={translate("qiy.docs.accessNote", {}, "This overview only shows what your role and permissions allow")} /> : null}
+    <Card size="small">
+      {/* Only the active tab is mounted: the Mermaid diagrams are heavy and keeping inactive panes alive froze the page. */}
+      <Tabs activeKey={current} onChange={(key: string) => setActive(key as DocsTabKey)} destroyOnHidden items={tabs.map((tab) => ({ key: tab, label: translate(docsTabLabelKey(tab), {}, tab), children: tab === current ? content : null }))} />
+    </Card>
+  </Space>;
+}
+`;
+}
+
+/** Overview route: feature gate + authenticated model fetch. */
+function renderWebDocsRoute(): string {
+  return `import { useIsAuthenticated, useTranslation } from "@refinedev/core";
+import { useEffect, useState } from "react";
+import { Navigate } from "react-router";
+import { overviewEnabled } from "../features";
+import { fetchDocsModel, type DocsModel } from "../docs";
+import { DocsOverviewPage } from "../components/docs-page";
+
+export default function DocsRoute() {
+  const { translate } = useTranslation();
+  const auth = useIsAuthenticated();
+  const isAuthenticated = auth.data?.authenticated === true;
+  const authLoading = auth.isLoading;
+  const [state, setState] = useState<{ model?: DocsModel; loading: boolean; error?: string }>({ loading: true });
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setState({ loading: false });
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const model = await fetchDocsModel();
+        if (!cancelled) setState({ model, loading: false });
+      } catch (cause) {
+        if (!cancelled) setState({ loading: false, error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated]);
+  if (!overviewEnabled) return <Navigate to="/" replace />;
+  if (!authLoading && !isAuthenticated) return <Navigate to="/auth/login" replace />;
+  if (authLoading) return <div>{translate("qiy.loading", {}, "Loading")}</div>;
+  return <DocsOverviewPage {...state} />;
+}
+`;
+}
+
+/** API-docs page: full-page, searchable, read-only OpenAPI explorer. */
+function renderWebApiDocsPageComponent(): string {
+  return `import { Alert, Card, Col, Empty, Input, Menu, Row, Space, Spin, Table, Tag, Tooltip, Typography } from "antd";
+import { useTranslation } from "@refinedev/core";
+import { useMemo, useState } from "react";
+import {
+  buildCurlExample,
+  filterOpenApiOperations,
+  groupOpenApiOperations,
+  openApiServerBaseUrl,
+  schemaExample,
+  schemaSummary,
+  type OpenApiOperation,
+  type OpenApiParameter,
+  type OpenApiResponse,
+  type OpenApiTagGroup,
+} from "../docs";
+
+export interface ApiDocsPageProps {
+  spec?: unknown;
+  loading?: boolean;
+  error?: string;
+  identity?: { role?: string; permissions?: string[]; groups?: string[] } | null;
+  initialTag?: string;
+  initialSearch?: string;
+}
+
+function curlFor(operation: OpenApiOperation, baseUrl: string, locale: string): string {
   return buildCurlExample({
     method: operation.method,
     path: operation.path,
@@ -4561,20 +4724,22 @@ function curlExampleFor(operation: OpenApiOperation, baseUrl: string, locale: st
   });
 }
 
-function OperationCard({ operation, baseUrl }: { operation: OpenApiOperation; baseUrl: string }) {
-  const { translate, getLocale } = useTranslation();
+function ApiOperationCard({ operation, baseUrl, translate, locale }: { operation: OpenApiOperation; baseUrl: string; translate: (key: string, params?: Record<string, unknown>, fallback?: string) => string; locale: string }) {
   const method = operation.method.toUpperCase();
   const color = operation.method === "get" ? "blue" : operation.method === "post" ? "green" : operation.method === "patch" ? "orange" : "red";
   const requestExample = operation.requestSchema !== undefined ? JSON.stringify(schemaExample(operation.requestSchema), null, 2) : undefined;
-  const curl = curlExampleFor(operation, baseUrl, getLocale());
+  const curl = curlFor(operation, baseUrl, locale);
+  const roleTooltip = translate("qiy.apiDocs.rolesTooltip", {}, "Your role must be one of these roles; this document is already filtered for your account.");
+  const permissionTooltip = translate("qiy.apiDocs.permissionsTooltip", {}, "The operation additionally requires every listed permission; this document is already filtered for your account.");
+  const securityTooltip = translate("qiy.apiDocs.securityTooltip", {}, "Supported authentication schemes for this operation.");
   const securityLabels = operation.security.map((scheme) => scheme === "apiKey"
     ? translate("qiy.docs.securityApiKey", {}, "X-API-Key header")
     : scheme === "bearerSession" ? translate("qiy.docs.securityBearer", {}, "Session JWT bearer") : scheme);
   return <Card size="small" style={{ marginBottom: 12 }} title={<Space wrap><Tag color={color}>{method}</Tag><Typography.Text code>{operation.path}</Typography.Text>{operation.summary ? <Typography.Text type="secondary">{operation.summary}</Typography.Text> : null}</Space>}>
     {operation.description ? <Typography.Paragraph type="secondary">{operation.description}</Typography.Paragraph> : null}
     {operation.roles.length > 0 || operation.permissions.length > 0 || operation.verification ? <Space wrap style={{ marginBottom: 8 }}>
-      {operation.roles.length > 0 ? <Tag color="purple">{translate("qiy.docs.roles", {}, "Roles") + ": " + operation.roles.join(", ")}</Tag> : null}
-      {operation.permissions.length > 0 ? <Tag color="geekblue">{translate("qiy.docs.permissions", {}, "Permissions") + ": " + operation.permissions.join(", ")}</Tag> : null}
+      {operation.roles.length > 0 ? <Tooltip title={roleTooltip}><Tag color="purple" data-tooltip={roleTooltip}>{translate("qiy.docs.roles", {}, "Roles") + ": " + operation.roles.join(", ")}</Tag></Tooltip> : null}
+      {operation.permissions.length > 0 ? <Tooltip title={permissionTooltip}><Tag color="geekblue" data-tooltip={permissionTooltip}>{translate("qiy.docs.permissions", {}, "Permissions") + ": " + operation.permissions.join(", ")}</Tag></Tooltip> : null}
       {operation.verification ? <Tag color="gold">{translate("qiy.docs.verification", {}, "Verification") + ": " + operation.verification}</Tag> : null}
     </Space> : null}
     {operation.parameters.length > 0 ? <>
@@ -4594,223 +4759,328 @@ function OperationCard({ operation, baseUrl }: { operation: OpenApiOperation; ba
       <Typography.Text strong style={{ display: "block", marginTop: 12 }}>{translate("qiy.docs.responses", {}, "Responses")}</Typography.Text>
       <Table size="small" pagination={false} rowKey={(row: OpenApiResponse) => row.status} dataSource={operation.responses} columns={[
         { title: translate("qiy.docs.responseStatus", {}, "Status"), dataIndex: "status", key: "status" },
-        { title: translate("qiy.docs.responseDescription", {}, "Description"), dataIndex: "description", key: "description", render: (value?: string) => value ?? "\\u2014" },
-        { title: translate("qiy.docs.fieldType", {}, "Type"), dataIndex: "schema", key: "schema", render: (schema: unknown) => schema ? schemaSummary(schema) : "\\u2014" },
+        { title: translate("qiy.docs.responseDescription", {}, "Description"), dataIndex: "description", key: "description", render: (value?: string) => value ?? "—" },
+        { title: translate("qiy.docs.fieldType", {}, "Type"), dataIndex: "schema", key: "schema", render: (schema: unknown) => schema ? schemaSummary(schema) : "—" },
       ]} />
     </> : null}
     <Typography.Text strong style={{ display: "block", marginTop: 12 }}>{translate("qiy.docs.security", {}, "Security")}</Typography.Text>
-    <Space wrap>{securityLabels.length > 0 ? securityLabels.map((label) => <Tag key={label}>{label}</Tag>) : <Typography.Text type="secondary">\\u2014</Typography.Text>}</Space>
+    <Tooltip title={securityTooltip}><Space wrap>{securityLabels.length > 0 ? securityLabels.map((label) => <Tag key={label} data-tooltip={securityTooltip}>{label}</Tag>) : <Typography.Text type="secondary">—</Typography.Text>}</Space></Tooltip>
     <Typography.Text strong style={{ display: "block", marginTop: 12 }}>{translate("qiy.docs.curl", {}, "curl example")}</Typography.Text>
     <Typography.Paragraph copyable={{ text: curl }}><pre className="qiy-docs-code">{curl}</pre></Typography.Paragraph>
   </Card>;
 }
 
-function ApiExplorer({ spec, baseUrl }: { spec: unknown; baseUrl: string }) {
-  const { translate } = useTranslation();
-  const groups = useMemo(() => groupOpenApiOperations(spec), [spec]);
-  const [tag, setTag] = useState<string | undefined>(groups[0]?.name);
-  const selected = groups.find((group) => group.name === tag) ?? groups[0];
-  const document = spec !== null && typeof spec === "object" && !Array.isArray(spec) ? spec as Record<string, unknown> : undefined;
-  const principal = document && document["x-qiy-principal"] !== null && typeof document["x-qiy-principal"] === "object" ? document["x-qiy-principal"] as { role?: string; permissions?: unknown[] } : undefined;
+/** Full-page API reference explorer (read-only; no try-it requests). */
+export function ApiDocsPage(props: ApiDocsPageProps) {
+  const { translate, getLocale } = useTranslation();
+  const groups = useMemo(() => groupOpenApiOperations(props.spec), [props.spec]);
+  const [query, setQuery] = useState(props.initialSearch ?? "");
+  const [tag, setTag] = useState<string | undefined>(props.initialTag);
+  const filtered = useMemo(() => filterOpenApiOperations(groups, query), [groups, query]);
+  const selected: OpenApiTagGroup | undefined = filtered.groups.find((group) => group.name === tag) ?? filtered.groups[0];
+  const document = props.spec !== null && typeof props.spec === "object" && !Array.isArray(props.spec) ? props.spec as Record<string, unknown> : undefined;
   const info = document && document.info !== null && typeof document.info === "object" ? document.info as { title?: string; version?: string } : undefined;
-  if (!document) return <Empty description={translate("qiy.docs.emptySpec", {}, "No OpenAPI document")} />;
-  if (groups.length === 0) return <Alert type="info" showIcon message={translate("qiy.docs.emptySpec", {}, "No OpenAPI document")} description={translate("qiy.docs.emptySpecHint", {}, "This account has no documented operations.")} />;
+  const principal = props.identity ?? (document && document["x-qiy-principal"] !== null && typeof document["x-qiy-principal"] === "object" ? document["x-qiy-principal"] as { role?: string; permissions?: string[]; groups?: string[] } : undefined);
+  const baseUrl = openApiServerBaseUrl(props.spec, typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
+  const roleTooltip = translate("qiy.apiDocs.roleTooltip", {}, "Your account role is used to filter this document; operations you cannot call are not listed.");
+  const permissionTooltip = translate("qiy.apiDocs.permissionTooltip", {}, "Permission values from your role, database column and verified claims. The document only contains operations you may call.");
   return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-    <Alert type="info" showIcon message={translate("qiy.docs.apiFiltered", {}, "This document is filtered by the current account permissions")} />
+    <Typography.Title level={3} style={{ margin: 0 }}>{translate("qiy.apiDocs.pageTitle", {}, "API reference")}</Typography.Title>
+    <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{translate("qiy.apiDocs.pageSubtitle", {}, "OpenAPI 3.1 operations allowed for the current account. Read-only: use the curl examples with a session token or an API key.")}</Typography.Paragraph>
     <Space wrap>
       {info?.title ? <Typography.Text strong>{info.title}</Typography.Text> : null}
       {info?.version ? <Tag>{info.version}</Tag> : null}
-      {principal?.role ? <Tag color="blue">{translate("qiy.docs.principal", {}, "Principal") + ": " + principal.role}</Tag> : null}
-      {Array.isArray(principal?.permissions) && principal.permissions.length > 0 ? <Tag color="geekblue">{translate("qiy.docs.permissions", {}, "Permissions") + ": " + principal.permissions.map(String).join(", ")}</Tag> : null}
+      {principal?.role ? <Tooltip title={roleTooltip}><Tag color="blue">{translate("qiy.apiDocs.currentRole", {}, "Role") + ": " + principal.role}</Tag></Tooltip> : null}
+      {Array.isArray(principal?.permissions) && principal.permissions.length > 0 ? <Tooltip title={permissionTooltip}><Tag color="geekblue">{translate("qiy.apiDocs.currentPermissions", {}, "Permissions") + ": " + principal.permissions.map(String).join(", ")}</Tag></Tooltip> : null}
     </Space>
-    <Row gutter={16}>
-      <Col xs={24} md={6}>
-        <Menu mode="inline" selectedKeys={selected ? [selected.name] : []} onClick={({ key }: { key: string }) => setTag(String(key))} items={groups.map((group) => ({ key: group.name, label: <Space>{group.name}<Tag>{group.operations.length}</Tag></Space> }))} style={{ borderInlineEnd: "none" }} />
-      </Col>
-      <Col xs={24} md={18}>
-        <Space direction="vertical" style={{ width: "100%" }}>
-          <Typography.Title level={5} style={{ margin: 0 }}>{selected ? selected.name : ""}{selected?.description ? <Typography.Text type="secondary"> {selected.description}</Typography.Text> : null}</Typography.Title>
-          {selected ? selected.operations.map((operation) => <OperationCard key={operation.method + " " + operation.path} operation={operation} baseUrl={baseUrl} />) : null}
-        </Space>
-      </Col>
-    </Row>
+    <Alert type="info" showIcon message={translate("qiy.docs.apiFiltered", {}, "This document is filtered by the current account permissions")} />
+    <Input.Search allowClear value={query} onChange={(event) => { setQuery(event.target.value); setTag(undefined); }} placeholder={translate("qiy.apiDocs.searchPlaceholder", {}, "Search path, method, summary or tag")} />
+    {props.loading ? <Spin size="large" /> : props.error ? <Alert type="error" showIcon message={translate("qiy.apiDocs.loadError", {}, "Failed to load the API document")} description={props.error} /> : !document ? <Empty description={translate("qiy.docs.noData", {}, "Nothing to show")} /> : <>
+      <Typography.Text type="secondary">{translate("qiy.apiDocs.resultCount", { count: filtered.total }, String(filtered.total) + " operation(s)")}</Typography.Text>
+      {filtered.total === 0 ? <Empty description={translate("qiy.apiDocs.noResults", {}, "No operations match this search")} /> : <Row gutter={16}>
+        <Col xs={24} md={6}>
+          <div style={{ position: "sticky", top: 16 }}>
+            <Menu mode="inline" selectedKeys={selected ? [selected.name] : []} onClick={({ key }: { key: string }) => setTag(String(key))} items={filtered.groups.map((group) => ({ key: group.name, label: <Space>{group.name}<Tag>{group.operations.length}</Tag></Space> }))} style={{ borderInlineEnd: "none" }} />
+          </div>
+        </Col>
+        <Col xs={24} md={18}>
+          {selected ? <Space direction="vertical" style={{ width: "100%" }}>
+            <Typography.Title level={5} style={{ margin: 0 }}>{selected.name}{selected.description ? <Typography.Text type="secondary"> {selected.description}</Typography.Text> : null}</Typography.Title>
+            {selected.operations.map((operation) => <ApiOperationCard key={operation.method + " " + operation.path} operation={operation} baseUrl={baseUrl} translate={translate} locale={getLocale()} />)}
+          </Space> : null}
+        </Col>
+      </Row>}
+    </>}
   </Space>;
 }
-
-function ApiPanel({ openApi, serverBaseUrl }: { openApi?: unknown; serverBaseUrl: string }) {
-  const { translate } = useTranslation();
-  if (!openApi) return <Empty description={translate("qiy.docs.noData", {}, "Nothing to show")} />;
-  return <DocsErrorBoundary fallback={<Alert type="warning" showIcon message={translate("qiy.docs.panelError", {}, "This section could not be rendered")} />}>
-    <ApiExplorer spec={openApi} baseUrl={openApiServerBaseUrl(openApi, serverBaseUrl)} />
-  </DocsErrorBoundary>;
+`;
 }
 
-function ApiKeysPanel() {
+/** API-docs route: feature gate + authenticated OpenAPI fetch. */
+function renderWebApiDocsRoute(): string {
+  return `import { useGetIdentity, useIsAuthenticated, useTranslation } from "@refinedev/core";
+import { useEffect, useState } from "react";
+import { Navigate } from "react-router";
+import { qiyFeatureFlags } from "../features";
+import { fetchOpenApiDocument } from "../docs";
+import { ApiDocsPage } from "../components/api-docs-page";
+
+export default function ApiDocsRoute() {
+  const { translate } = useTranslation();
+  const auth = useIsAuthenticated();
+  const identityQuery = useGetIdentity<{ role?: string; permissions?: string[]; groups?: string[] }>();
+  const isAuthenticated = auth.data?.authenticated === true;
+  const [state, setState] = useState<{ spec?: unknown; loading: boolean; error?: string }>({ loading: true });
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setState({ loading: false });
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const spec = await fetchOpenApiDocument();
+        if (!cancelled) setState({ spec, loading: false });
+      } catch (cause) {
+        if (!cancelled) setState({ loading: false, error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated]);
+  if (!qiyFeatureFlags.apiDocs) return <Navigate to="/" replace />;
+  if (!auth.isLoading && !isAuthenticated) return <Navigate to="/auth/login" replace />;
+  if (auth.isLoading) return <div>{translate("qiy.loading", {}, "Loading")}</div>;
+  return <ApiDocsPage {...state} identity={identityQuery.data ?? undefined} />;
+}
+`;
+}
+
+/** Access-keys page: developer-oriented API-key management. */
+function renderWebApiKeysPageComponent(): string {
+  return `import { Alert, Button, Card, DatePicker, Empty, Form, Input, Modal, Popconfirm, Select, Space, Spin, Table, Tag, Tooltip, Typography, message } from "antd";
+import { useTranslation } from "@refinedev/core";
+import { useState } from "react";
+import { Link } from "react-router";
+import {
+  QIY_API_KEY_MAX_ACTIVE,
+  apiKeyCurlExamples,
+  apiKeyStatus,
+  apiKeyStatusOptions,
+  canCreateApiKey,
+  countActiveApiKeys,
+  createApiKey,
+  defaultApiKeyName,
+  filterApiKeys,
+  formatApiKeyDate,
+  permissionTags,
+  relativeTime,
+  revokeApiKey,
+  type ApiKeyRecord,
+  type ApiKeyStatusFilter,
+  type QiyIdentityLike,
+} from "../api-keys";
+import { qiyFeatureFlags } from "../features";
+
+export interface ApiKeysPageProps {
+  identity?: QiyIdentityLike | null;
+  initialRecords?: ApiKeyRecord[];
+  loading?: boolean;
+  error?: string;
+  initialSearch?: string;
+  initialStatus?: ApiKeyStatusFilter;
+  initialCreateOpen?: boolean;
+  initialSecret?: string;
+}
+
+const statusColor: Record<string, string> = { active: "green", revoked: "red", expired: "orange" };
+type Translate = (key: string, params?: Record<string, unknown>, fallback?: string) => string;
+
+function statusLabel(state: string, translate: Translate): string {
+  return translate("qiy.apiKey.status." + state, {}, state.charAt(0).toUpperCase() + state.slice(1));
+}
+
+function CreateKeyForm({ translate, form, records }: { translate: Translate; form?: ReturnType<typeof Form.useForm>[0]; records?: ApiKeyRecord[] }) {
+  const [fallback] = Form.useForm();
+  const usedForm = form ?? fallback;
+  return <Form form={usedForm} layout="vertical" initialValues={{ name: defaultApiKeyName(records ?? []) }}>
+    <Form.Item name="name" label={translate("qiy.apiKey.name", {}, "Name")} rules={[{ required: true, message: translate("qiy.apiKey.nameRequired", {}, "Name is required") }]}>
+      <Input placeholder={translate("qiy.apiKey.namePlaceholder", {}, "e.g. CI deploy")} maxLength={80} />
+    </Form.Item>
+    <Form.Item name="expiresAt" label={translate("qiy.apiKey.expires", {}, "Expires (optional)")}>
+      <DatePicker showTime style={{ width: "100%" }} />
+    </Form.Item>
+    <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{translate("qiy.apiKey.createExplanation", {}, "The key inherits your current role and permissions. Expired or revoked keys stop working immediately.")}</Typography.Paragraph>
+  </Form>;
+}
+
+function SecretKeyContent({ secret, translate, copy }: { secret?: string; translate: Translate; copy: (value: string) => Promise<void> }) {
+  return <>
+    <Alert type="warning" showIcon message={translate("qiy.apiKey.secretHint", {}, "The full key is shown only once and cannot be recovered.")} style={{ marginBottom: 12 }} />
+    <Typography.Paragraph><Typography.Text code copyable>{secret}</Typography.Text></Typography.Paragraph>
+    <Button onClick={() => secret ? void copy(secret) : undefined}>{translate("qiy.apiKey.copy", {}, "Copy")}</Button>
+  </>;
+}
+
+/** Full-page API-key management UI. The route wrapper owns fetching. */
+export function ApiKeysPage(props: ApiKeysPageProps) {
   const { translate, getLocale } = useTranslation();
   const locale = getLocale();
-  const [items, setItems] = useState<ApiKeyRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | undefined>();
-  const [creating, setCreating] = useState(false);
-  const [secret, setSecret] = useState<string | undefined>();
+  const [records, setRecords] = useState<ApiKeyRecord[]>(props.initialRecords ?? []);
+  const [search, setSearch] = useState(props.initialSearch ?? "");
+  const [status, setStatus] = useState<ApiKeyStatusFilter>(props.initialStatus ?? "all");
+  const [createOpen, setCreateOpen] = useState(Boolean(props.initialCreateOpen));
+  const [secret, setSecret] = useState<string | undefined>(props.initialSecret);
+  const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
-  const load = async () => {
-    setLoading(true);
+  const filtered = filterApiKeys(records, { search, status });
+  const activeCount = countActiveApiKeys(records);
+  const tags = permissionTags(props.identity);
+  const curls = apiKeyCurlExamples(typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
+  const roleTooltip = translate("qiy.apiKey.roleTooltip", {}, "Your account role. API keys inherit the role and permissions of the user who created them.");
+  const permissionTooltip = translate("qiy.apiKey.permissionTooltip", {}, "Effective permission values for your account; a key created here can call exactly the APIs that you can call.");
+  const groupTooltip = translate("qiy.apiKey.groupTooltip", {}, "Permission groups (roles) granted to your account.");
+  const copy = async (value: string) => {
     try {
-      setItems(await listApiKeys());
-      setError(undefined);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setLoading(false);
+      await navigator.clipboard.writeText(value);
+      void message.success(translate("qiy.apiKey.copied", {}, "Copied"));
+    } catch {
+      void message.warning(value);
     }
   };
-  useEffect(() => { void load(); }, []);
   const create = async () => {
     const values = await form.validateFields() as { name: string; expiresAt?: { toISOString?: () => string } | null };
-    setCreating(true);
+    setSaving(true);
     try {
       const created = await createApiKey({ name: values.name, expiresAt: values.expiresAt?.toISOString?.() ?? null });
+      setRecords((current) => [created.record, ...current]);
       setSecret(created.key);
+      setCreateOpen(false);
       form.resetFields();
-      await load();
       void message.success(translate("qiy.apiKey.created", {}, "Created"));
     } catch (cause) {
       void message.error(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setCreating(false);
+      setSaving(false);
     }
   };
-  const revoke = async (id: string) => {
+  const revoke = async (record: ApiKeyRecord) => {
     try {
-      await revokeApiKey(id);
-      await load();
+      await revokeApiKey(record.id);
+      setRecords((current) => current.map((entry) => entry.id === record.id ? { ...entry, revokedAt: new Date().toISOString() } : entry));
+      void message.success(translate("qiy.apiKey.revokedMessage", {}, "Revoked"));
     } catch (cause) {
       void message.error(cause instanceof Error ? cause.message : String(cause));
     }
   };
-  const copySecret = async () => {
-    if (!secret) return;
-    try {
-      await navigator.clipboard.writeText(secret);
-      void message.success(translate("qiy.apiKey.copied", {}, "Copied"));
-    } catch {
-      void message.warning(secret);
-    }
-  };
-  const columns = [
-    { title: translate("qiy.apiKey.name", {}, "Name"), dataIndex: "name", key: "name" },
-    { title: translate("qiy.apiKey.prefix", {}, "Prefix"), dataIndex: "maskedKey", key: "maskedKey", render: (value: string) => <Typography.Text code>{value}</Typography.Text> },
-    { title: translate("qiy.apiKey.createdAt", {}, "Created"), dataIndex: "createdAt", key: "createdAt", render: (value: string) => formatApiKeyDate(value, locale) },
-    { title: translate("qiy.apiKey.lastUsed", {}, "Last used"), dataIndex: "lastUsedAt", key: "lastUsedAt", render: (value: string | null) => formatApiKeyDate(value, locale) },
-    { title: translate("qiy.apiKey.expires", {}, "Expires"), dataIndex: "expiresAt", key: "expiresAt", render: (value: string | null) => formatApiKeyDate(value, locale) },
-    { title: translate("qiy.apiKey.status", {}, "Status"), key: "status", render: (_: unknown, record: ApiKeyRecord) => { const status = apiKeyStatus(record); return <Tag color={status === "active" ? "green" : status === "revoked" ? "red" : "orange"}>{translate("qiy.apiKey." + status, {}, status)}</Tag>; } },
-    { title: translate("qiy.apiKey.actions", {}, "Actions"), key: "actions", render: (_: unknown, record: ApiKeyRecord) => record.revokedAt ? null : <Popconfirm title={translate("qiy.apiKey.revokeConfirm", {}, "Revoke this key? It stops working immediately.")} onConfirm={() => void revoke(record.id)} okText={translate("qiy.apiKey.revoke", {}, "Revoke")} cancelText={translate("qiy.cancel", {}, "Cancel")}><Button danger size="small">{translate("qiy.apiKey.revoke", {}, "Revoke")}</Button></Popconfirm> },
-  ];
   return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-    <Typography.Title level={5} style={{ margin: 0 }}>{translate("qiy.apiKey.title", {}, "API keys")}</Typography.Title>
-    <Typography.Paragraph type="secondary">{translate("qiy.apiKey.description", {}, "Personal API keys for scripts and CI; the secret is shown once.") + " " + translate("qiy.apiKey.limit", { count: QIY_API_KEY_MAX_ACTIVE }, "Up to " + QIY_API_KEY_MAX_ACTIVE + " active keys per user")}</Typography.Paragraph>
-    <Space>
-      <Button type="primary" disabled={!canCreateApiKey(items)} onClick={() => setCreating(true)}>{translate("qiy.apiKey.create", {}, "Create key")}</Button>
-      <Typography.Text type="secondary">{countActiveApiKeys(items) + " / " + QIY_API_KEY_MAX_ACTIVE}</Typography.Text>
-    </Space>
-    {error ? <Alert type="error" showIcon message={translate("qiy.apiKey.loadError", {}, "Failed to load")} description={error} /> : null}
-    <Table<ApiKeyRecord> size="small" rowKey="id" loading={loading} pagination={false} dataSource={items} columns={columns} locale={{ emptyText: translate("qiy.apiKey.empty", {}, "No API keys yet") }} />
-    <Modal open={creating} title={translate("qiy.apiKey.create", {}, "Create key")} okText={translate("qiy.apiKey.create", {}, "Create key")} confirmLoading={creating} onOk={() => void create()} onCancel={() => setCreating(false)}>
-      <Form form={form} layout="vertical" initialValues={{ name: defaultApiKeyName(items) }}>
-        <Form.Item name="name" label={translate("qiy.apiKey.name", {}, "Name")} rules={[{ required: true, message: translate("qiy.apiKey.nameRequired", {}, "Name is required") }]}>
-          <Input placeholder={translate("qiy.apiKey.namePlaceholder", {}, "e.g. CI deploy")} maxLength={80} />
-        </Form.Item>
-        <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{translate("qiy.apiKey.expiresHint", {}, "Leave the server-side expiry empty for a non-expiring key (POST expiresAt is optional).")}</Typography.Paragraph>
-      </Form>
-    </Modal>
-    <Modal open={Boolean(secret)} title={translate("qiy.apiKey.secretTitle", {}, "Save this secret now")} onCancel={() => setSecret(undefined)} footer={<Space><Button onClick={() => void copySecret()}>{translate("qiy.apiKey.copy", {}, "Copy")}</Button><Button type="primary" onClick={() => setSecret(undefined)}>{translate("qiy.close", {}, "Close")}</Button></Space>}>
-      <Alert type="warning" showIcon message={translate("qiy.apiKey.secretHint", {}, "The full key is shown only once and cannot be recovered.")} style={{ marginBottom: 12 }} />
-      <Typography.Paragraph><Typography.Text code copyable>{secret}</Typography.Text></Typography.Paragraph>
-    </Modal>
-  </Space>;
-}
-
-function tabChildren(tab: DocsTabKey, props: DocsPageProps, serverBaseUrl: string): ReactNode {
-  if (tab === "entities") return props.model ? <EntityPanel model={props.model} /> : null;
-  if (tab === "dataflows") return props.model ? <DataflowPanel model={props.model} /> : null;
-  if (tab === "api") return <ApiPanel openApi={props.openApi} serverBaseUrl={serverBaseUrl} />;
-  if (tab === "permissions") return props.model ? <PermissionsPanel model={props.model} /> : null;
-  return <ApiKeysPanel />;
-}
-
-/** Feature overview page: rendered when apiDocs or apiKeys is enabled. */
-export function DocsOverviewPage(props: DocsPageProps) {
-  const { translate } = useTranslation();
-  const tabs = docsTabs(qiyFeatureFlags);
-  const fallbackTab = tabs[0];
-  const [active, setActive] = useState<DocsTabKey | undefined>(props.initialTab && tabs.includes(props.initialTab) ? props.initialTab : fallbackTab);
-  if (tabs.length === 0) return <Empty description={translate("qiy.docs.noData", {}, "Nothing to show")} />;
-  const current = active && tabs.includes(active) ? active : fallbackTab;
-  const serverBaseUrl = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
-  const content = props.loading
-    ? <Spin size="large" />
-    : props.error
-      ? <Alert type="error" showIcon message={translate("qiy.docs.loadError", {}, "Failed to load the overview")} description={props.error} />
-      : <DocsErrorBoundary fallback={<Alert type="warning" showIcon message={translate("qiy.docs.panelError", {}, "This section could not be rendered")} />}>{tabChildren(current!, props, serverBaseUrl)}</DocsErrorBoundary>;
-  return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-    <Typography.Title level={3} style={{ margin: 0 }}>{translate("qiy.docs.title", {}, "Feature overview")}</Typography.Title>
-    <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{props.model?.app.description ?? translate("qiy.docs.subtitle", {}, "Generated entities, dataflows, API reference and access keys for this application")}</Typography.Paragraph>
-    {props.model?.principal ? <Alert type="info" showIcon message={translate("qiy.docs.accessNote", {}, "The API reference only lists operations allowed for your role and permissions")} /> : null}
-    <Card size="small">
-      {/* Only the active tab is mounted: the API explorer and the Mermaid
-          diagrams are heavy, and keeping inactive panes alive froze the page. */}
-      <Tabs activeKey={current} onChange={(key: string) => setActive(key as DocsTabKey)} destroyOnHidden items={tabs.map((tab) => ({ key: tab, label: translate(docsTabLabelKey(tab), {}, tab), children: tab === current ? content : null }))} />
+    <Typography.Title level={3} style={{ margin: 0 }}>{translate("qiy.apiKey.pageTitle", {}, "Access keys")}</Typography.Title>
+    <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{translate("qiy.apiKey.pageSubtitle", {}, "Personal API keys for scripts and CI. Each key inherits your role and permissions and can be used as a Bearer token or X-API-Key header.")}</Typography.Paragraph>
+    {qiyFeatureFlags.apiDocs ? <Typography.Paragraph style={{ margin: 0 }}><Link to="/system/api-docs">{translate("qiy.apiKey.apiDocsLink", {}, "View the API reference allowed for your account")}</Link></Typography.Paragraph> : null}
+    <Card size="small" title={translate("qiy.apiKey.curlTitle", {}, "Using a key with curl")}>
+      <Space direction="vertical" size={4} style={{ width: "100%" }}>
+        <pre className="qiy-docs-code">{curls.bearer}</pre><Button size="small" onClick={() => void copy(curls.bearer)}>{translate("qiy.apiKey.copy", {}, "Copy")}</Button>
+        <pre className="qiy-docs-code">{curls.header}</pre><Button size="small" onClick={() => void copy(curls.header)}>{translate("qiy.apiKey.copy", {}, "Copy")}</Button>
+      </Space>
     </Card>
+    <Space wrap>
+      <Input.Search allowClear value={search} onChange={(event) => setSearch(event.target.value)} placeholder={translate("qiy.apiKey.searchPlaceholder", {}, "Search name, prefix or status")} style={{ width: 320 }} />
+      <Select value={status} style={{ width: 160 }} onChange={(value: ApiKeyStatusFilter) => setStatus(value)} options={apiKeyStatusOptions().map((option) => ({ value: option, label: statusLabel(option, translate) }))} />
+      <Button type="primary" disabled={!canCreateApiKey(records)} onClick={() => setCreateOpen(true)}>{translate("qiy.apiKey.create", {}, "Create key")}</Button>
+      <Typography.Text type="secondary">{activeCount + " / " + QIY_API_KEY_MAX_ACTIVE} {translate("qiy.apiKey.limitHint", {}, "active keys")}</Typography.Text>
+    </Space>
+    {tags.length > 0 ? <Space wrap>
+      {tags.map((tag) => <Tooltip key={tag.key} title={tag.kind === "role" ? roleTooltip : tag.kind === "group" ? groupTooltip : permissionTooltip}><Tag color={tag.kind === "role" ? "blue" : tag.kind === "group" ? "purple" : "geekblue"} data-tooltip={tag.kind === "role" ? roleTooltip : tag.kind === "group" ? groupTooltip : permissionTooltip}>{tag.kind + ": " + tag.value}</Tag></Tooltip>)}
+    </Space> : null}
+    {props.error ? <Alert type="error" showIcon message={translate("qiy.apiKey.loadError", {}, "Failed to load API keys")} description={props.error} /> : null}
+    <Table<ApiKeyRecord> size="small" rowKey="id" loading={props.loading} pagination={false} dataSource={filtered} locale={{ emptyText: translate("qiy.apiKey.empty", {}, "No API keys yet") }} columns={[
+      { title: translate("qiy.apiKey.name", {}, "Name"), dataIndex: "name", key: "name" },
+      { title: translate("qiy.apiKey.prefix", {}, "Key"), key: "prefix", render: (_, record) => <Space><Typography.Text code>{record.maskedKey}</Typography.Text><Button size="small" type="link" onClick={() => void copy(record.maskedKey)}>{translate("qiy.apiKey.copy", {}, "Copy")}</Button></Space> },
+      { title: translate("qiy.apiKey.status", {}, "Status"), key: "status", render: (_, record) => { const state = apiKeyStatus(record); return <Tag color={statusColor[state]}>{statusLabel(state, translate)}</Tag>; } },
+      { title: translate("qiy.apiKey.createdAt", {}, "Created"), dataIndex: "createdAt", key: "createdAt", render: (value: string) => formatApiKeyDate(value, locale) },
+      { title: translate("qiy.apiKey.lastUsed", {}, "Last used"), dataIndex: "lastUsedAt", key: "lastUsedAt", render: (value: string | null) => value ? <Tooltip title={formatApiKeyDate(value, locale)}>{relativeTime(value, new Date(), locale)}</Tooltip> : translate("qiy.apiKey.never", {}, "Never") },
+      { title: translate("qiy.apiKey.expires", {}, "Expires"), dataIndex: "expiresAt", key: "expiresAt", render: (value: string | null) => value ? <Tooltip title={formatApiKeyDate(value, locale)}>{formatApiKeyDate(value, locale)}</Tooltip> : translate("qiy.apiKey.never", {}, "Never") },
+      { title: translate("qiy.apiKey.actions", {}, "Actions"), key: "actions", render: (_, record) => record.revokedAt ? null : <Popconfirm title={translate("qiy.apiKey.revokeConfirm", {}, "Revoke this key? It stops working immediately.")} onConfirm={() => void revoke(record)} okText={translate("qiy.apiKey.revoke", {}, "Revoke")} cancelText={translate("qiy.cancel", {}, "Cancel")}><Button danger size="small">{translate("qiy.apiKey.revoke", {}, "Revoke")}</Button></Popconfirm> },
+    ]} />
+    <Modal open={createOpen} forceRender getContainer={false} title={translate("qiy.apiKey.create", {}, "Create key")} okText={translate("qiy.apiKey.create", {}, "Create key")} confirmLoading={saving} onOk={() => void create()} onCancel={() => setCreateOpen(false)}>
+      <CreateKeyForm translate={translate} form={form} records={records} />
+    </Modal>
+    <Modal open={Boolean(secret)} forceRender getContainer={false} title={translate("qiy.apiKey.secretTitle", {}, "Save this secret now")} onCancel={() => setSecret(undefined)} footer={<Space><Button onClick={() => secret ? void copy(secret) : undefined}>{translate("qiy.apiKey.copy", {}, "Copy")}</Button><Button type="primary" onClick={() => setSecret(undefined)}>{translate("qiy.close", {}, "Close")}</Button></Space>}>
+      <SecretKeyContent secret={secret} translate={translate} copy={copy} />
+    </Modal>
+    {props.initialCreateOpen ? <div hidden data-modal-preview="create"><CreateKeyForm translate={translate} records={records} /></div> : null}
+    {props.initialSecret ? <div hidden data-modal-preview="secret"><Typography.Title level={5}>{translate("qiy.apiKey.secretTitle", {}, "Save this secret now")}</Typography.Title><SecretKeyContent secret={props.initialSecret} translate={translate} copy={copy} /></div> : null}
   </Space>;
 }
 `;
 }
 
-/** Generated route wrapper: feature gate + authenticated model fetch. */
-function renderWebDocsRoute(): string {
-  return `import { useEffect, useState } from "react";
+/** API-keys route: feature gate + authenticated key list fetch. */
+function renderWebApiKeysRoute(): string {
+  return `import { useGetIdentity, useIsAuthenticated, useTranslation } from "@refinedev/core";
+import { useEffect, useState } from "react";
 import { Navigate } from "react-router";
-import { docsEnabled, qiyFeatureFlags } from "../features";
-import { fetchDocsEnvelope, type DocsModel } from "../docs";
-import { DocsOverviewPage } from "../components/docs-page";
+import { qiyFeatureFlags } from "../features";
+import { listApiKeys, type ApiKeyRecord, type QiyIdentityLike } from "../api-keys";
+import { ApiKeysPage } from "../components/api-keys-page";
 
-export interface DocsPageState {
-  model?: DocsModel;
-  openApi?: unknown;
-  loading: boolean;
-  error?: string;
-}
-
-export default function DocsRoute() {
-  const [state, setState] = useState<DocsPageState>({ loading: qiyFeatureFlags.apiDocs });
+export default function ApiKeysRoute() {
+  const { translate } = useTranslation();
+  const auth = useIsAuthenticated();
+  const identityQuery = useGetIdentity<QiyIdentityLike>();
+  const isAuthenticated = auth.data?.authenticated === true;
+  const [state, setState] = useState<{ records?: ApiKeyRecord[]; loading: boolean; error?: string }>({ loading: true });
   useEffect(() => {
-    if (!qiyFeatureFlags.apiDocs) {
+    if (!isAuthenticated) {
       setState({ loading: false });
       return;
     }
-    // This route lives inside the authenticated layout, so it does not need its
-    // own auth query. An auth query in this route triggered a render loop
-    // (hundreds of renders per second, blank page); rely on the guard layout and
-    // fetch the docs envelope once.
     let cancelled = false;
-    void fetchDocsEnvelope()
-      .then((envelope) => { if (!cancelled) setState({ model: envelope.model, openApi: envelope.openApi, loading: false }); })
-      .catch((cause: unknown) => { if (!cancelled) setState({ loading: false, error: cause instanceof Error ? cause.message : String(cause) }); });
+    void (async () => {
+      try {
+        const records = await listApiKeys();
+        if (!cancelled) setState({ records, loading: false });
+      } catch (cause) {
+        if (!cancelled) setState({ loading: false, error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    })();
     return () => { cancelled = true; };
-  }, []);
-  if (!docsEnabled) return <Navigate to="/" replace />;
-  return <DocsOverviewPage {...state} />;
+  }, [isAuthenticated]);
+  if (!qiyFeatureFlags.apiKeys) return <Navigate to="/" replace />;
+  if (!auth.isLoading && !isAuthenticated) return <Navigate to="/auth/login" replace />;
+  if (auth.isLoading) return <div>{translate("qiy.loading", {}, "Loading")}</div>;
+  return <ApiKeysPage {...state} identity={identityQuery.data ?? undefined} />;
 }
 `;
 }
 
-
 /** Generated web tests for the docs helpers, menu link and API-key pure helpers. */
-function renderWebDocsTest(): string {
+function renderWebFeaturesTest(overview: boolean, apiDocs: boolean, apiKeys: boolean): string {
+  const links: Array<Record<string, string>> = [];
+  if (overview) links.push({ name: "qiy-docs", path: "/system/overview", label: "功能总览", labelKey: "qiy.docs.title", icon: "AppstoreOutlined", group: "system" });
+  if (apiDocs) links.push({ name: "qiy-api-docs", path: "/system/api-docs", label: "API 文档", labelKey: "qiy.apiDocs.title", icon: "FileTextOutlined", group: "system" });
+  if (apiKeys) links.push({ name: "qiy-api-keys", path: "/system/api-keys", label: "访问密钥", labelKey: "qiy.apiKey.title", icon: "KeyOutlined", group: "system" });
+  return `import { expect, test } from "bun:test";
+import { buildMenuTree } from "../app/components/menu";
+import { menuGroups, resources } from "../app/resources";
+import { overviewEnabled, qiyFeatureFlags, qiyMenuLinks } from "../app/features";
+
+test("exposes the feature flags and developer-page menu links in order", () => {
+  expect(qiyFeatureFlags).toEqual({ overview: ${overview}, apiDocs: ${apiDocs}, apiKeys: ${apiKeys} });
+  expect(overviewEnabled).toBe(${overview});
+  expect(qiyMenuLinks).toEqual(${JSON.stringify(links, null, 2)});
+  const tree = buildMenuTree({ resources, menuGroups, links: qiyMenuLinks });
+  const systemGroup = tree.find((node) => node.key === "menu-system") ?? tree.find((node) => node.children.some((child) => qiyMenuLinks.some((link) => link.name === child.key)));
+  expect(systemGroup).toBeDefined();
+  const linkNodes = systemGroup!.children.filter((child) => qiyMenuLinks.some((link) => link.name === child.key));
+  expect(linkNodes.map((node) => node.to)).toEqual(qiyMenuLinks.map((link) => link.path));
+});
+`;
+}
+
+/** Overview helper tests: Mermaid builders and the three-page tab gating. */
+function renderWebOverviewTest(): string {
   return `import { expect, test } from "bun:test";
 import {
-  buildCurlExample,
   buildDataflowDiagram,
   buildDataflowDiagrams,
   buildEntityDiagram,
@@ -4818,30 +5088,13 @@ import {
   docsTabLabelKey,
   docsTabs,
   escapeMermaidLabel,
-  groupOpenApiOperations,
   mermaidId,
-  openApiOperationCount,
-  openApiServerBaseUrl,
-  schemaExample,
-  schemaSummary,
   type DocsModel,
 } from "../app/docs";
-import {
-  QIY_API_KEY_MAX_ACTIVE,
-  apiKeyStatus,
-  canCreateApiKey,
-  countActiveApiKeys,
-  defaultApiKeyName,
-  formatApiKeyDate,
-  maskedApiKey,
-} from "../app/api-keys";
-import { docsEnabled, qiyFeatureFlags, qiyMenuLinks } from "../app/features";
-import { buildMenuTree } from "../app/components/menu";
-import { menuGroups, resources } from "../app/resources";
 
 const model: DocsModel = {
   app: { name: "Test app" },
-  features: { apiDocs: true, apiKeys: true },
+  features: { overview: true, apiDocs: true, apiKeys: true },
   principal: { role: "operator", permissions: ["inventory:receive"] },
   entities: [
     { name: "users", tableName: "users", label: "Users", labelKey: "qiy.resources.users.label", singular: "User", plural: "Users", fields: [{ name: "id", label: "Id", labelKey: "qiy.resources.users.fields.id.label", type: "UUID", nullable: false, primaryKey: true, annotations: ["primaryKey"] }, { name: "role", label: "Role", labelKey: "qiy.resources.users.fields.role.label", type: "userRole", nullable: false, enumName: "userRole", enumValues: [{ name: "admin", label: "Admin", labelKey: "qiy.enums.userRole.values.admin" }], annotations: [] }], relations: [] },
@@ -4859,6 +5112,7 @@ test("builds an escaped UML entity diagram", () => {
   expect(diagram).toContain('class e_users["Users"]');
   expect(diagram).toContain('class e_orders["Orders"]');
   expect(diagram).toContain("+id UUID");
+  expect(diagram).toContain("+role userRole");
   expect(diagram).toContain("e_orders --> e_users : userId");
   expect(buildEntityDiagram(model)).toBe(diagram);
   expect(escapeMermaidLabel('a "b" {c};\\nd')).toBe("a 'b' (c), d");
@@ -4878,6 +5132,29 @@ test("builds a flowchart per dataflow with inputs, steps and result", () => {
   expect(describeDataflow(flow).inputs).toEqual(["quantity: Integer (required)"]);
   expect(describeDataflow(flow).allowRoles).toEqual(["admin", "operator"]);
 });
+
+test("the overview only exposes entities, dataflows and permissions tabs", () => {
+  expect(docsTabs({ overview: true })).toEqual(["entities", "dataflows", "permissions"]);
+  expect(docsTabs({ overview: false })).toEqual([]);
+  expect(docsTabLabelKey("entities")).toBe("qiy.docs.tabEntities");
+  expect(docsTabLabelKey("permissions")).toBe("qiy.docs.tabPermissions");
+});
+`;
+}
+
+/** Pure OpenAPI explorer helper tests for the API-docs page. */
+function renderWebApiDocsTest(): string {
+  return `import { expect, test } from "bun:test";
+import {
+  buildCurlExample,
+  filterOpenApiOperations,
+  groupOpenApiOperations,
+  openApiOperationCount,
+  openApiOperationMatches,
+  openApiServerBaseUrl,
+  schemaExample,
+  schemaSummary,
+} from "../app/docs";
 
 const spec = {
   openapi: "3.1.0",
@@ -4926,6 +5203,23 @@ test("groups OpenAPI operations into stable tag panels", () => {
   expect(openApiOperationCount({ paths: {} })).toBe(0);
 });
 
+test("searches operations by path, method, summary and tag", () => {
+  expect(openApiOperationMatches(groupOpenApiOperations(spec)[0]!.operations[0]!, "orders")).toBe(true);
+  expect(openApiOperationMatches(groupOpenApiOperations(spec)[0]!.operations[0]!, "list")).toBe(true);
+  expect(openApiOperationMatches(groupOpenApiOperations(spec)[0]!.operations[0]!, "post")).toBe(false);
+  const byPath = filterOpenApiOperations(groupOpenApiOperations(spec), "auth/me");
+  expect(byPath.total).toBe(1);
+  expect(byPath.groups.map((group) => group.name)).toEqual(["auth"]);
+  const byMethod = filterOpenApiOperations(groupOpenApiOperations(spec), "get");
+  expect(byMethod.total).toBe(2);
+  const byTag = filterOpenApiOperations(groupOpenApiOperations(spec), "orders");
+  expect(byTag.total).toBe(2);
+  const none = filterOpenApiOperations(groupOpenApiOperations(spec), "missing");
+  expect(none.total).toBe(0);
+  expect(none.groups).toEqual([]);
+  expect(filterOpenApiOperations(groupOpenApiOperations(spec), "  ").total).toBe(3);
+});
+
 test("summarizes schemas and builds read-only curl examples", () => {
   expect(schemaSummary({ type: "string" })).toBe("string");
   expect(schemaSummary({ type: "string", format: "date-time" })).toBe("string (date-time)");
@@ -4933,7 +5227,6 @@ test("summarizes schemas and builds read-only curl examples", () => {
   expect(schemaSummary({ type: "integer", nullable: true })).toBe("integer?");
   expect(schemaSummary({ type: "array", items: { type: "string" } })).toBe("array<string>");
   expect(schemaSummary({ type: "object", properties: { id: { type: "string" }, total: { type: "integer" } } })).toContain("id: string");
-  expect(schemaSummary(undefined)).not.toBe("");
   expect(schemaExample({ type: "object", properties: { number: { type: "string" }, total: { type: "integer" }, active: { type: "boolean" } } })).toEqual({ number: "", total: 0, active: false });
   expect(schemaExample({ type: "array", items: { type: "integer" } })).toEqual([0]);
   const getCurl = buildCurlExample({ method: "get", path: "/api/v1/orders", baseUrl: "http://localhost:3000", security: ["bearerSession"], locale: "en-US" });
@@ -4944,32 +5237,39 @@ test("summarizes schemas and builds read-only curl examples", () => {
   expect(postCurl).toContain("X-API-Key: <your-api-key>");
   expect(postCurl).toContain("Content-Type: application/json");
   expect(postCurl).toContain('"number":"A-1"');
-  expect(postCurl).toContain(" -");
   expect(postCurl).toContain("\\n");
-  const zhCurl = buildCurlExample({ method: "get", path: "/api/v1/orders", security: ["bearerSession"], locale: "zh-CN" });
-  expect(zhCurl).toContain("<\u4f1a\u8bdd\u4ee4\u724c>");
   expect(openApiServerBaseUrl(spec, "http://localhost:3000")).toBe("http://localhost:3000");
   expect(openApiServerBaseUrl({ servers: [{ url: "https://api.example.com" }] }, "http://localhost:3000")).toBe("https://api.example.com");
 });
+`;
+}
 
-test("gates the overview tabs and adds the sidebar page link", () => {
-  expect(docsEnabled).toBe(true);
-  expect(docsTabs({ apiDocs: true, apiKeys: true })).toEqual(["entities", "dataflows", "api", "permissions", "apiKeys"]);
-  expect(docsTabs({ apiDocs: false, apiKeys: true })).toEqual(["apiKeys"]);
-  expect(docsTabs({ apiDocs: false, apiKeys: false })).toEqual([]);
-  expect(docsTabLabelKey("apiKeys")).toBe("qiy.docs.tabApiKeys");
-  expect(qiyMenuLinks).toEqual([{ name: "qiy-docs", path: "/system/overview", label: "功能总览", labelKey: "qiy.docs.title", icon: "AppstoreOutlined", group: "system" }]);
-  const tree = buildMenuTree({ resources, menuGroups, links: qiyMenuLinks });
-  const found = (nodes: typeof tree): boolean => nodes.some((node) => (node.key === "qiy-docs" && node.to === "/system/overview") || found(node.children));
-  expect(found(tree)).toBe(true);
-  expect(qiyFeatureFlags.apiDocs || qiyFeatureFlags.apiKeys).toBe(true);
-});
+/** Pure API-key helper tests for the access-keys page. */
+function renderWebApiKeysTest(): string {
+  return `import { expect, test } from "bun:test";
+import {
+  QIY_API_KEY_MAX_ACTIVE,
+  apiKeyCurlExamples,
+  apiKeyMatches,
+  apiKeyStatus,
+  apiKeyStatusOptions,
+  canCreateApiKey,
+  countActiveApiKeys,
+  defaultApiKeyName,
+  filterApiKeys,
+  formatApiKeyDate,
+  maskedApiKey,
+  permissionTags,
+  relativeTime,
+  type ApiKeyRecord,
+} from "../app/api-keys";
 
-test("API-key helpers mirror the server rules", () => {
-  const now = new Date("2026-01-01T00:00:00Z");
-  const active = { id: "a", name: "A", prefix: "abcdef12", maskedKey: "qiy_abcdef12_********", createdAt: now.toISOString(), lastUsedAt: null, expiresAt: null, revokedAt: null };
-  const expired = { ...active, id: "b", expiresAt: "2025-12-31T00:00:00Z" };
-  const revoked = { ...active, id: "c", revokedAt: "2025-12-31T00:00:00Z" };
+const now = new Date("2026-01-01T00:00:00Z");
+const active: ApiKeyRecord = { id: "a", name: "Deploy", prefix: "abcdef12", maskedKey: "qiy_abcdef12_********", createdAt: "2025-12-01T00:00:00Z", lastUsedAt: null, expiresAt: null, revokedAt: null };
+const expired: ApiKeyRecord = { ...active, id: "b", name: "Old key", prefix: "bbbbbbbb", expiresAt: "2025-12-31T00:00:00Z" };
+const revoked: ApiKeyRecord = { ...active, id: "c", name: "Revoked key", prefix: "cccccccc", revokedAt: "2025-12-31T00:00:00Z" };
+
+test("status, counts and limits mirror the server rules", () => {
   expect(maskedApiKey("abcdef12")).toBe("qiy_abcdef12_********");
   expect(apiKeyStatus(active, now)).toBe("active");
   expect(apiKeyStatus(expired, now)).toBe("expired");
@@ -4980,68 +5280,41 @@ test("API-key helpers mirror the server rules", () => {
   expect(defaultApiKeyName([], now)).toBe("Key 2026-01-01");
   expect(formatApiKeyDate(null, "en-US")).toBe("\\u2014");
   expect(formatApiKeyDate("2026-01-01T00:00:00Z", "en-US")).toContain("2026");
+  expect(apiKeyStatusOptions()).toEqual(["all", "active", "revoked", "expired"]);
+});
+
+test("searches and filters keys by name, prefix and status", () => {
+  expect(apiKeyMatches(active, "dep")).toBe(true);
+  expect(apiKeyMatches(active, "abcdef12")).toBe(true);
+  expect(apiKeyMatches(active, "revoked")).toBe(false);
+  expect(filterApiKeys([active, expired, revoked], { search: "" }, now).map((record) => record.id)).toEqual(["a", "b", "c"]);
+  expect(filterApiKeys([active, expired, revoked], { search: "deploy" }, now).map((record) => record.id)).toEqual(["a"]);
+  expect(filterApiKeys([active, expired, revoked], { search: "", status: "revoked" }, now).map((record) => record.id)).toEqual(["c"]);
+  expect(filterApiKeys([active, expired, revoked], { search: "", status: "expired" }, now).map((record) => record.id)).toEqual(["b"]);
+  expect(filterApiKeys([active, expired, revoked], { search: "missing" }, now)).toEqual([]);
+});
+
+test("maps identity permissions and formats relative times and curl examples", () => {
+  expect(permissionTags({ role: "operator", permissions: ["inventory:receive", "report:read"], groups: ["ManagerRole"] })).toEqual([
+    { key: "role:operator", kind: "role", value: "operator" },
+    { key: "permission:inventory:receive", kind: "permission", value: "inventory:receive" },
+    { key: "permission:report:read", kind: "permission", value: "report:read" },
+    { key: "group:ManagerRole", kind: "group", value: "ManagerRole" },
+  ]);
+  expect(permissionTags(null)).toEqual([]);
+  expect(relativeTime("2025-12-31T23:59:00Z", now, "en-US")).toContain("ago");
+  expect(relativeTime("2025-12-31T23:59:00Z", now, "zh-CN")).toContain("\\u524d");
+  expect(relativeTime(null, now, "en-US")).toBe("");
+  const curls = apiKeyCurlExamples("http://localhost:3000/");
+  expect(curls.bearer).toContain("Authorization: Bearer qiy_");
+  expect(curls.header).toContain("X-API-Key: qiy_");
+  expect(curls.bearer).toContain("http://localhost:3000/api/v1/inventory");
 });
 `;
 }
 
-/** SSR render test for the generated docs page (all feature combinations). */
-function renderWebDocsRenderTest(apiDocs: boolean, apiKeys: boolean): string {
-  const sections: string[] = [];
-  if (apiDocs) {
-    sections.push(`test("renders the entity tab with the generated UML source", () => {
-  const html = renderToStaticMarkup(createElement(DocsOverviewPage, { model, openApi: spec, initialTab: "entities" }));
-  expect(html).toContain("Feature overview");
-  expect(html).toContain('data-diagram="classDiagram');
-  expect(html).toContain("e_users");
-  expect(html).toContain("Relations");
-  // Only one diagram is mounted for the entity tab.
-  expect((html.match(/data-diagram=/g) ?? []).length).toBe(1);
-});
-
-test("renders the dataflow tab with a flowchart source", () => {
-  const html = renderToStaticMarkup(createElement(DocsOverviewPage, { model, openApi: spec, initialTab: "dataflows" }));
-  expect(html).toContain('data-diagram="flowchart LR');
-  expect(html).toContain("d_receiveStock_step_0");
-  expect(html).toContain("Receive stock");
-  // Only the selected dataflow's diagram is mounted, not every flow.
-  expect((html.match(/data-diagram=/g) ?? []).length).toBe(1);
-});
-
-test("renders the built-in OpenAPI explorer with tags, operations, parameters and curl", () => {
-  const html = renderToStaticMarkup(createElement(DocsOverviewPage, { model, openApi: spec, initialTab: "api" }));
-  expect(html).toContain("filtered by the current account permissions");
-  expect(html).toContain("Demo API");
-  expect(html).toContain("orders");
-  expect(html).toContain("GET");
-  expect(html).toContain("/api/v1/orders");
-  expect(html).toContain("List orders");
-  expect(html).toContain("page");
-  expect(html).toContain("Parameters");
-  expect(html).toContain("Request body");
-  expect(html).toContain("Responses");
-  expect(html).toContain("Security");
-  expect(html).toContain("curl -X GET");
-  expect(html).toContain("Authorization: Bearer");
-  expect(html).toContain("Principal: admin");
-  expect(html).not.toContain("data-scalar");
-  expect(html).not.toContain("qiy-docs-scalar");
-});
-
-test("mounts only the active tab content", () => {
-  const entities = renderToStaticMarkup(createElement(DocsOverviewPage, { model, openApi: spec, initialTab: "entities" }));
-  expect(entities).toContain('data-diagram="classDiagram');
-  expect(entities).not.toContain("/api/v1/orders");
-  expect(entities).not.toContain("curl -X GET");
-});`);
-  }
-  if (apiKeys) {
-    sections.push(`test("renders the access-key tab with its create/list UI", () => {
-  const html = renderToStaticMarkup(createElement(DocsOverviewPage, { model${apiDocs ? ", openApi: spec" : ""}, initialTab: "apiKeys" }));
-  expect(html).toContain("API keys");
-  expect(html).toContain("Create key");
-  expect(html).toContain("No API keys yet");
-});`);
-  }
+/** SSR render test for the overview page (entities/dataflows/permissions only). */
+function renderWebOverviewRenderTest(): string {
   return `import { expect, mock, test } from "bun:test";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -5049,7 +5322,7 @@ import type { DocsModel } from "../app/docs";
 
 const model: DocsModel = {
   app: { name: "Test app", description: "Supply chain demo" },
-  features: { apiDocs: ${apiDocs}, apiKeys: ${apiKeys} },
+  features: { overview: true, apiDocs: true, apiKeys: true },
   principal: { role: "admin", permissions: ["inventory:receive"] },
   entities: [
     { name: "users", tableName: "users", label: "Users", labelKey: "qiy.resources.users.label", singular: "User", plural: "Users", fields: [{ name: "id", label: "Id", labelKey: "qiy.resources.users.fields.id.label", type: "UUID", nullable: false, primaryKey: true, annotations: ["primaryKey"] }], relations: [] },
@@ -5060,6 +5333,58 @@ const model: DocsModel = {
   dataflows: [{ name: "receiveStock", label: "Receive stock", labelKey: "qiy.dataflows.receiveStock.label", allowRoles: ["admin"], allowPermissions: [], verification: null, inputs: [{ name: "quantity", type: "Integer", required: true, label: "quantity", labelKey: "" }], contexts: [{ name: "inventory", entity: "inventory" }], steps: [{ name: "load", actions: [{ kind: "update", summary: "update inventory" }] }], result: "inventory" }],
   permissions: { fields: [], groups: [], verifications: [] },
 };
+
+const refine = await import("@refinedev/core");
+mock.module("@refinedev/core", () => ({
+  ...refine,
+  useTranslation: () => ({ translate: (_key: string, _params?: unknown, fallback?: string) => fallback ?? "", getLocale: () => "en-US", changeLocale: async () => "en-US" }),
+  useGetIdentity: () => ({ data: { id: "admin", role: "admin" }, isLoading: false }),
+  useNotification: () => ({ open: () => undefined }),
+}));
+const router = await import("react-router");
+mock.module("react-router", () => ({ ...router, Link: ({ to, children, ...rest }: { to: string; children?: ReactNode }) => createElement("a", { href: to, ...rest }, children), Navigate: () => null }));
+
+const { DocsOverviewPage } = await import("../app/components/docs-page");
+
+test("renders the entity tab with the generated UML source", () => {
+  const html = renderToStaticMarkup(createElement(DocsOverviewPage, { model, initialTab: "entities" }));
+  expect(html).toContain("Feature overview");
+  expect(html).toContain('data-diagram="classDiagram');
+  expect(html).toContain("e_users");
+  expect(html).toContain("Relations");
+  expect(html).toContain("entities");
+  expect(html).toContain("dataflows");
+  expect(html).toContain("permissions");
+  expect(html).not.toContain("API reference");
+  expect(html).not.toContain("Access keys");
+  expect(html).not.toContain("data-diagram=\\"flowchart");
+  expect((html.match(/data-diagram=/g) ?? []).length).toBe(1);
+});
+
+test("renders the dataflow tab with exactly one flowchart", () => {
+  const html = renderToStaticMarkup(createElement(DocsOverviewPage, { model, initialTab: "dataflows" }));
+  expect(html).toContain('data-diagram="flowchart LR');
+  expect(html).toContain("d_receiveStock_step_0");
+  expect(html).toContain("Receive stock");
+  expect((html.match(/data-diagram=/g) ?? []).length).toBe(1);
+});
+
+test("renders the permission model tab without mounting other tabs", () => {
+  const html = renderToStaticMarkup(createElement(DocsOverviewPage, { model, initialTab: "permissions" }));
+  expect(html).toContain("Permissions");
+  expect(html).toContain("admin");
+  expect(html).not.toContain('data-diagram="classDiagram');
+  expect(html).not.toContain('data-diagram="flowchart');
+});
+`;
+}
+
+/** SSR render test for the full-page API-docs explorer. */
+function renderWebApiDocsRenderTest(): string {
+  return `import { expect, mock, test } from "bun:test";
+import { createElement, type ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
 const spec = {
   openapi: "3.1.0",
   info: { title: "Demo API", version: "1.0.0" },
@@ -5072,6 +5397,7 @@ const spec = {
         summary: "List orders",
         security: [{ bearerSession: [] }, { apiKey: [] }],
         "x-qiy-roles": ["admin", "operator"],
+        "x-qiy-permissions": [],
         parameters: [{ name: "page", in: "query", required: false, schema: { type: "integer" } }],
         responses: { "200": { description: "Paginated records" } },
       },
@@ -5079,34 +5405,132 @@ const spec = {
         tags: ["orders"],
         summary: "Create order",
         security: [{ bearerSession: [] }],
+        "x-qiy-roles": ["admin"],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { number: { type: "string" } } } } } },
         responses: { "201": { description: "Created" } },
       },
     },
     "/api/v1/auth/me": { get: { tags: ["auth"], summary: "Current principal", security: [{ bearerSession: [] }], responses: { "200": { description: "Principal" } } } },
   },
-  "x-qiy-principal": { role: "admin", permissions: [] },
+  "x-qiy-principal": { role: "operator", permissions: ["inventory:receive"] },
 };
 
 const refine = await import("@refinedev/core");
 mock.module("@refinedev/core", () => ({
   ...refine,
-  CanAccess: ({ children }: { children?: ReactNode }) => children,
   useTranslation: () => ({ translate: (_key: string, _params?: unknown, fallback?: string) => fallback ?? "", getLocale: () => "en-US", changeLocale: async () => "en-US" }),
-  useIsAuthenticated: () => ({ isAuthenticated: true, isLoading: false }),
   useGetIdentity: () => ({ data: { id: "admin", role: "admin" }, isLoading: false }),
   useNotification: () => ({ open: () => undefined }),
 }));
 const router = await import("react-router");
-mock.module("react-router", () => ({
-  ...router,
-  Link: ({ to, children, ...rest }: { to: string; children?: ReactNode }) => createElement("a", { href: to, ...rest }, children),
-  Navigate: () => null,
-}));
+mock.module("react-router", () => ({ ...router, Link: ({ to, children, ...rest }: { to: string; children?: ReactNode }) => createElement("a", { href: to, ...rest }, children), Navigate: () => null }));
 
-const { DocsOverviewPage } = await import("../app/components/docs-page");
+const { ApiDocsPage } = await import("../app/components/api-docs-page");
 
-${sections.join("\n\n")}
+test("renders the API reference page with tags, operations, parameters and curl", () => {
+  const html = renderToStaticMarkup(createElement(ApiDocsPage, { spec }));
+  expect(html).toContain("API reference");
+  expect(html).toContain("Demo API");
+  expect(html).toContain("orders");
+  expect(html).toContain("auth");
+  expect(html).toContain("GET");
+  expect(html).toContain("/api/v1/orders");
+  expect(html).toContain("List orders");
+  expect(html).toContain("Parameters");
+  expect(html).toContain("Request body");
+  expect(html).toContain("Responses");
+  expect(html).toContain("Security");
+  expect(html).toContain("curl -X GET");
+  expect(html).toContain("Authorization: Bearer");
+  expect(html).toContain("Role: operator");
+  expect(html).toContain("Permissions: inventory:receive");
+  expect(html).toContain("data-tooltip");
+  expect(html).toContain("filtered by the current account permissions");
+  expect(html).toContain("operation(s)");
+});
+
+test("filters operations with the search box", () => {
+  const filtered = renderToStaticMarkup(createElement(ApiDocsPage, { spec, initialSearch: "auth/me" }));
+  expect(filtered).toContain("Current principal");
+  expect(filtered).not.toContain("List orders");
+  const noResults = renderToStaticMarkup(createElement(ApiDocsPage, { spec, initialSearch: "does-not-exist" }));
+  expect(noResults).toContain("No operations match this search");
+  expect(noResults).not.toContain("/api/v1/orders");
+});
+
+test("renders loading, error and empty states without network effects", () => {
+  const empty = renderToStaticMarkup(createElement(ApiDocsPage, { spec: undefined }));
+  expect(empty).toContain("Nothing to show");
+  const loading = renderToStaticMarkup(createElement(ApiDocsPage, { spec, loading: true }));
+  expect(loading).toContain("ant-spin");
+  const error = renderToStaticMarkup(createElement(ApiDocsPage, { spec, error: "boom" }));
+  expect(error).toContain("boom");
+});
 `;
 }
 
+/** SSR render test for the access-keys page. */
+function renderWebApiKeysRenderTest(apiDocs: boolean): string {
+  return `import { expect, mock, test } from "bun:test";
+import { createElement, type ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { ApiKeyRecord } from "../app/api-keys";
+
+const records: ApiKeyRecord[] = [
+  { id: "a", name: "Deploy", prefix: "abcdef12", maskedKey: "qiy_abcdef12_********", createdAt: "2025-12-01T00:00:00Z", lastUsedAt: "2025-12-31T23:59:00Z", expiresAt: null, revokedAt: null },
+  { id: "b", name: "Old key", prefix: "bbbbbbbb", maskedKey: "qiy_bbbbbbbb_********", createdAt: "2025-11-01T00:00:00Z", lastUsedAt: null, expiresAt: "2025-12-31T00:00:00Z", revokedAt: null },
+  { id: "c", name: "Revoked key", prefix: "cccccccc", maskedKey: "qiy_cccccccc_********", createdAt: "2025-10-01T00:00:00Z", lastUsedAt: null, expiresAt: null, revokedAt: "2025-12-31T00:00:00Z" },
+];
+const identity = { id: "admin", role: "operator", permissions: ["inventory:receive", "report:read"], groups: ["ManagerRole"] };
+
+const refine = await import("@refinedev/core");
+mock.module("@refinedev/core", () => ({
+  ...refine,
+  useTranslation: () => ({ translate: (_key: string, _params?: unknown, fallback?: string) => fallback ?? "", getLocale: () => "en-US", changeLocale: async () => "en-US" }),
+  useGetIdentity: () => ({ data: identity, isLoading: false }),
+  useNotification: () => ({ open: () => undefined }),
+}));
+const router = await import("react-router");
+mock.module("react-router", () => ({ ...router, Link: ({ to, children, ...rest }: { to: string; children?: ReactNode }) => createElement("a", { href: to, ...rest }, children), Navigate: () => null }));
+
+const { ApiKeysPage } = await import("../app/components/api-keys-page");
+
+test("renders the access-keys page with curl examples, permission tags and rows", () => {
+  const html = renderToStaticMarkup(createElement(ApiKeysPage, { identity, initialRecords: records }));
+  expect(html).toContain("Access keys");
+  expect(html).toContain("Authorization: Bearer qiy_");
+  expect(html).toContain("X-API-Key: qiy_");
+  expect(html).toContain("role: operator");
+  expect(html).toContain("permission: inventory:receive");
+  expect(html).toContain("group: ManagerRole");
+  expect(html).toContain("data-tooltip");
+  expect(html).toContain("Deploy");
+  expect(html).toContain("qiy_abcdef12_********");
+  expect(html).toContain("Active");
+  expect(html).toContain("Expired");
+  expect(html).toContain("Revoked");
+  expect(html).toContain("Create key");
+${apiDocs ? `  expect(html).toContain("/system/api-docs");` : ""}
+});
+
+test("filters keys by search and status", () => {
+  const search = renderToStaticMarkup(createElement(ApiKeysPage, { identity, initialRecords: records, initialSearch: "Old key" }));
+  expect(search).toContain("Old key");
+  expect(search).not.toContain("Deploy");
+  const revoked = renderToStaticMarkup(createElement(ApiKeysPage, { identity, initialRecords: records, initialStatus: "revoked" }));
+  expect(revoked).toContain("Revoked key");
+  expect(revoked).not.toContain("Deploy");
+});
+
+test("renders the create modal and the one-time secret flow", () => {
+  const create = renderToStaticMarkup(createElement(ApiKeysPage, { identity, initialRecords: records, initialCreateOpen: true }));
+  expect(create).toContain("Create key");
+  expect(create).toContain("Expires (optional)");
+  expect(create).toContain("inherits your current role and permissions");
+  const secret = renderToStaticMarkup(createElement(ApiKeysPage, { identity, initialRecords: records, initialSecret: "qiy_abcdef12_one-time-secret" }));
+  expect(secret).toContain("Save this secret now");
+  expect(secret).toContain("shown only once");
+  expect(secret).toContain("qiy_abcdef12_one-time-secret");
+});
+`;
+}

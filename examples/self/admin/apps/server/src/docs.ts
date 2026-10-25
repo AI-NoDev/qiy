@@ -50,7 +50,7 @@ export interface DocsPermissionVerification { name: string; label: string; label
 export interface DocsMeta {
   app: { name: string; description?: string; descriptionKey?: string };
   userTable: string | null;
-  features: { apiDocs: boolean; apiKeys: boolean };
+  features: { overview: boolean; apiDocs: boolean; apiKeys: boolean };
   loginEnabled: boolean;
   pageRules: Record<string, Record<string, string[]>>;
   restrictions: Array<{ resource: string; roles: string[] }>;
@@ -79,6 +79,7 @@ export const docsMeta: DocsMeta = {
   },
   "userTable": "users",
   "features": {
+    "overview": true,
     "apiDocs": true,
     "apiKeys": true
   },
@@ -3296,6 +3297,8 @@ export function buildOpenApiDocument(principal: DocsPrincipal): GeneratedOpenApi
   }
   if (docsMeta.features.apiDocs) {
     add("/api/v1/openapi.json", "get", { tags: ["docs"], summary: "Permission-filtered OpenAPI 3.1 document", operationId: "openapi_json", security, responses: { "200": { description: "OpenAPI document" } } });
+  }
+  if (docsMeta.features.overview || docsMeta.features.apiDocs) {
     add("/api/v1/docs/model", "get", { tags: ["docs"], summary: "Model metadata for the documentation page", operationId: "docs_model", security, responses: { "200": { description: "Model metadata" } } });
   }
   return {
