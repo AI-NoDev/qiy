@@ -882,7 +882,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { useTranslation } from "@refinedev/core";
 import { completeOidcLogin, isSilentRenewFailure, oidcProviderLabel } from "../auth/oidc-client";
-export default function AuthCallback() { const navigate = useNavigate(); const { translate } = useTranslation(); const [error, setError] = useState<string>(); useEffect(() => { let active = true; void completeOidcLogin(window.location.href).then((target) => { if (active) navigate(target, { replace: true }); }).catch((reason) => { if (!active) return; const message = reason instanceof Error ? reason.message : String(reason); /* A silent renewal the provider refuses is not a failure: fall back to interactive login. */ if (isSilentRenewFailure(message)) { navigate("/auth/login", { replace: true }); return; } setError(message); }); return () => { active = false; }; }, [navigate]); return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#f5f7fa" }}><Card style={{ width: 420 }}>{error ? <Alert type="error" showIcon message={translate("qiy.providerLoginFailed", { provider: oidcProviderLabel })} description={error} /> : <><Spin /><Typography.Paragraph style={{ marginTop: 16 }}>{translate("qiy.completingProviderSignIn", { provider: oidcProviderLabel })}</Typography.Paragraph></>}</Card></div>; }
+export default function AuthCallback() { const navigate = useNavigate(); const { translate } = useTranslation(); const [error, setError] = useState<string>(); useEffect(() => { void completeOidcLogin(window.location.href).then((target) => navigate(target, { replace: true })).catch((reason) => { const message = reason instanceof Error ? reason.message : String(reason); /* A silent renewal the provider refuses is not a failure: fall back to interactive login. */ if (isSilentRenewFailure(message)) { navigate("/auth/login", { replace: true }); return; } setError(message); }); }, [navigate]); return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#f5f7fa" }}><Card style={{ width: 420 }}>{error ? <Alert type="error" showIcon message={translate("qiy.providerLoginFailed", { provider: oidcProviderLabel })} description={error} /> : <><Spin /><Typography.Paragraph style={{ marginTop: 16 }}>{translate("qiy.completingProviderSignIn", { provider: oidcProviderLabel })}</Typography.Paragraph></>}</Card></div>; }
 `,
         "web/tests/oidc-client.test.ts": `import { expect, test } from "bun:test";
 import { beginOidcSilentRenew, buildAuthorizationUrl, clearOidcSession, completeOidcLogin, consumeSilentAttempt, isSilentRenewFailure, oidcSession, readOidcClientConfig } from "../app/auth/oidc-client";
@@ -3206,7 +3206,7 @@ export default function AuthCallback() {
   const navigate = useNavigate();
   const started = useRef(false);
   const [error, setError] = useState<string>();
-  useEffect(() => { if (started.current) return; started.current = true; let active = true; void completeProviderLogin(new URL(window.location.href)).then((target) => { if (active) navigate(target || "/", { replace: true }); }).catch((caught: unknown) => { if (active) setError(caught instanceof Error ? caught.message : String(caught)); }); return () => { active = false; }; }, [navigate]);
+  useEffect(() => { if (started.current) return; started.current = true; void completeProviderLogin(new URL(window.location.href)).then((target) => navigate(target || "/", { replace: true })).catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught))); }, [navigate]);
   return <main style={{ padding: 40, display: "flex", justifyContent: "center" }}><Card>{error ? <Alert type="error" showIcon message={error} /> : <Spin />}</Card></main>;
 }
 `;
@@ -3230,11 +3230,12 @@ export default function AuthCallback() {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    let active = true;
+    // No "active" cleanup guard here: React StrictMode runs the cleanup between
+    // the double-invoked effects, and the second pass is skipped by the ref, so an
+    // active flag would silently swallow the navigation and leave the spinner up.
     void completeProviderCallback(new URL(window.location.href))
-      .then((target) => { if (active) navigate(target, { replace: true }); })
-      .catch((caught: unknown) => { if (active) setError(caught instanceof Error ? caught.message : String(caught)); });
-    return () => { active = false; };
+      .then((target) => navigate(target, { replace: true }))
+      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
   }, [navigate]);
   return <main style={{ padding: 40, display: "flex", justifyContent: "center" }}><Card style={{ width: 420 }}>{error ? <Alert type="error" showIcon message={error} /> : <><Spin /><Typography.Paragraph style={{ marginTop: 16 }}>{translate("qiy.completingSignIn", {}, "Completing sign-in…")}</Typography.Paragraph></>}</Card></main>;
 }
