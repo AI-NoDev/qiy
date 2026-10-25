@@ -27,25 +27,41 @@ menu {
 
 ## 图表概览页（chart）
 
-新的多视图图表 DSL 用 `chart` / `chart panels` 声明概览页布局（`source` + Rows/Cols + 视图）：
+新的图表 DSL 用 `chart` / `chart panels` 声明概览页：每个 chart 声明数据视图（同名不同 kind = 多视图卡片），panel 用 `grid` 栅格和响应式变体摆放 chart：
 
 ```qiy
 chart const UserCount {
-  source users;
-  Row {
-    Col span 12 { view stat @label("用户总数") { aggregate count; } }
-    Col span 12 { view pie @label("按角色") { groupBy role; } }
-  }
+  icon = "TeamOutlined";
+  title = "用户总数";
+  data = count users;
+}
+chart pie UserStatusCount {
+  title = "用户状态分布";
+  data = count users group by role;
+  labels = role;
+}
+chart bar UserStatusCount {          // 同一张卡片的第二个视图
+  title = "用户状态分布";
+  data = count users group by role;
+  labels = role;
 }
 chart panels Overview {
-  Row {
-    Col span 8 { chart UserCount; }
-    Col span 16 { chart UserCount; }
+  title = "概览";
+  grid 24 24;
+  UserCount {
+    larger 0 0 6 2;
+    medium 0 0 12 2;
+    small 0 0 24 3;
+  }
+  UserStatusCount {
+    larger 6 0 12 2;
+    medium 12 0 12 2;
+    small 0 3 24 4;
   }
 }
 ```
 
-视图类型 `stat` / `bar` / `pie` / `line` / `table`，分别复用列表 total、`/aggregate`、`/distribution`、`/trend` 与列表接口；panel 决定行/列与 span（chart 的 Col 默认 24，panel 的 Col 默认 8，每行 ≤ 24）。有 chart 时概览页渲染 `ChartDashboard`，否则回退下面的旧 `dashboard { metric ... }` 指标卡。完整语法、校验和生成结果见 [chart（多视图图表）](/dsl/charts)。
+视图类型 `const`（统计）/ `pie` / `bar` / `line` / `table`，分别复用列表 total、`/aggregate`、`/distribution`、`/trend` 与列表接口；`grid <cols> <rows>` + `larger/medium/small <x> <y> <w> <h>` 定义卡片栅格坐标（数字就是栅格单元数），多个 panel 时页面右上角出现面板切换器，多视图卡片右上角出现视图类型切换器。有 chart 时概览页渲染 `ChartDashboard`，否则回退下面的旧 `dashboard { metric ... }` 指标卡。完整语法、校验和生成结果见 [chart（多视图图表）](/dsl/charts)。
 
 ## Dashboard 指标
 

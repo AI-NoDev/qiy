@@ -29,8 +29,9 @@ describe("modular demo model", () => {
     expect(project.pages).toHaveLength(4);
     expect(project.menuGroups).toHaveLength(6);
     expect(project.dashboardMetrics).toBeUndefined();
-    expect(project.charts).toHaveLength(8);
-    expect(project.chartPanels).toHaveLength(3);
+    expect(project.charts).toHaveLength(4);
+    expect(project.charts?.reduce((sum, chart) => sum + chart.views.length, 0)).toBe(5);
+    expect(project.chartPanels).toHaveLength(2);
     expect(project.dataflows).toHaveLength(8);
     expect(project.actions).toHaveLength(8);
     expect(project.auth?.providers).toEqual(["okta", "keycloak", "google", "kinde", "azure-ad-b2c"]);
@@ -121,8 +122,19 @@ describe("modular demo model", () => {
     for (const metric of project.dashboardMetrics ?? []) add(qiyModelKeys.dashboardLabel(metric.name));
     for (const chart of project.charts ?? []) {
       add(qiyModelKeys.chartLabel(chart.name));
-      let viewIndex = 0;
-      for (const row of chart.rows) for (const column of row.columns) for (const _view of column.views) add(qiyModelKeys.chartViewLabel(chart.name, viewIndex++));
+      for (const view of chart.views) {
+        add(qiyModelKeys.chartViewLabel(chart.name, view.kind));
+        // Distribution label overrides are model-derived too (`qiy.charts.<chart>.labels.<value>`).
+        if (view.labels?.values?.length) {
+          for (const entry of view.labels.values) add(qiyModelKeys.chartLabelValue(chart.name, entry.value));
+          continue;
+        }
+        const fieldName = view.labels?.field ?? view.data.groupBy;
+        const entity = project.database.entities.find((candidate) => candidate.tableName === view.data.entity);
+        const enumName = fieldName ? entity?.fields.find((candidate) => candidate.name === fieldName)?.enumName : undefined;
+        const enumeration = enumName ? project.database.enums?.find((candidate) => candidate.name === enumName) : undefined;
+        for (const value of enumeration?.values ?? []) add(qiyModelKeys.chartLabelValue(chart.name, value.name));
+      }
     }
     for (const panel of project.chartPanels ?? []) add(qiyModelKeys.chartLabel(panel.name));
     const dataflows = new Map((project.dataflows ?? []).map((flow) => [flow.name, flow]));
@@ -160,37 +172,49 @@ describe("modular demo model", () => {
     expect(locales["zh-CN"]!["qiy.menu.inventory.label"]).toBe("库存与仓储");
     expect(locales["en-US"]!["qiy.menu.masterData.label"]).toBe("Master data");
     expect(locales["en-US"]!["qiy.menu.inventory.label"]).toBe("Inventory & warehouse");
-    // Chart titles, view labels and panel titles are translated too.
-    expect(locales["zh-CN"]!["qiy.charts.OverviewKpis.label"]).toBe("关键指标");
-    expect(locales["en-US"]!["qiy.charts.OverviewKpis.label"]).toBe("Key metrics");
-    expect(locales["zh-CN"]!["qiy.charts.InventorySnapshot.views.1.label"]).toBe("平均在库");
-    expect(locales["en-US"]!["qiy.charts.InventorySnapshot.views.1.label"]).toBe("Average per record");
+    // Chart titles, view labels, distribution overrides and panel titles are translated too.
+    expect(locales["zh-CN"]!["qiy.charts.Overview.label"]).toBe("概览");
+    expect(locales["en-US"]!["qiy.charts.Overview.label"]).toBe("Overview");
+    expect(locales["zh-CN"]!["qiy.charts.UserStatusCount.views.pie.label"]).toBe("用户状态分布");
+    expect(locales["en-US"]!["qiy.charts.UserStatusCount.labels.admin"]).toBe("Administrators");
+    expect(locales["zh-CN"]!["qiy.charts.UserStatusCount.labels.admin"]).toBe("管理员账号");
   });
 
   test("declares a realistic multi-view chart dashboard", async () => {
     const { project } = await modularProject();
     const charts = project.charts!;
     const panels = project.chartPanels!;
-    expect(charts.map((chart) => chart.name)).toEqual(["UserCount", "PurchaseOrderCount", "ShipmentCount", "InventorySnapshot", "MovementByType", "PurchaseStatus", "MovementTrend", "InventoryByWarehouse"]);
-    expect(charts.every((chart) => chart.source && chart.rows.length > 0)).toBe(true);
-    const kinds = charts.flatMap((chart) => chart.rows.flatMap((row) => row.columns.flatMap((column) => column.views.map((view) => view.kind))));
+    expect(charts.map((chart) => chart.name)).toEqual(["UserCount", "UserStatusCount", "MovementTrend", "InventoryTable"]);
+    expect(charts.every((chart) => chart.title && chart.views.length > 0)).toBe(true);
+    const kinds = charts.flatMap((chart) => chart.views.map((view) => view.kind));
     // The dashboard covers every supported view kind.
-    for (const kind of ["stat", "bar", "line", "pie", "table"] as const) expect(kinds).toContain(kind);
-    // At least one chart keeps two views in one layout (multi-view).
-    const multiView = charts.find((chart) => chart.rows.flatMap((row) => row.columns.flatMap((column) => column.views)).length > 1);
-    expect(multiView?.name).toBe("InventorySnapshot");
-    expect(multiView?.rows[0]?.columns.map((column) => column.span)).toEqual([12, 12]);
-    // Panels render in declaration order and mix spans 8/16 in one two-row panel.
-    expect(panels.map((panel) => panel.name)).toEqual(["OverviewKpis", "Operations", "InventoryBoard"]);
-    const operations = panels.find((panel) => panel.name === "Operations")!;
-    expect(operations.rows.map((row) => row.columns.map((column) => column.span))).toEqual([[8, 16], [12, 12]]);
-    // Stat cards cover users/orders/shipments/inventory; distributions cover movement type + order status.
+    for (const kind of ["const", "pie", "bar", "line", "table"] as const) expect(kinds).toContain(kind);
+    // One chart is declared twice with different kinds -> multi-view card with pie + bar.
+    const multiView = charts.find((chart) => chart.name === "UserStatusCount")!;
+    expect(multiView.views.map((view) => view.kind)).toEqual(["pie", "bar"]);
+    expect(multiView.views[0]?.data).toEqual({ operation: "count", entity: "users", groupBy: "role" });
+    expect(multiView.views[0]?.labels).toEqual({ field: "role" });
+    expect(multiView.views[1]?.labels).toEqual({ values: [{ value: "admin", label: "管理员" }, { value: "operator", label: "运营" }, { value: "viewer", label: "只读" }] });
+    // Stat / line / table data declarations map onto the documented operations.
+    expect(charts.find((chart) => chart.name === "UserCount")?.views[0]?.data).toEqual({ operation: "count", entity: "users" });
+    expect(charts.find((chart) => chart.name === "MovementTrend")?.views[0]?.data).toEqual({ operation: "trend", entity: "stock_movements", field: "occurredAt", days: 30 });
+    expect(charts.find((chart) => chart.name === "InventoryTable")?.views[0]?.data).toEqual({ operation: "list", entity: "inventory", columns: ["inventoryKey", "warehouseId", "quantity", "reserved"] });
+    // Two panels exercise the page-level view selector; both use a 24x24 grid.
+    expect(panels.map((panel) => panel.name)).toEqual(["Overview", "Operations"]);
+    expect(panels.every((panel) => panel.grid.columns === 24 && panel.grid.rows === 24)).toBe(true);
+    expect(panels[0]?.charts.map((chart) => chart.name)).toEqual(["UserCount", "UserStatusCount", "MovementTrend", "InventoryTable"]);
+    // Every chart has the three responsive variants and stays inside the grid.
+    for (const panel of panels) {
+      for (const entry of panel.charts) {
+        expect(entry.placements.map((placement) => placement.variant)).toEqual(["larger", "medium", "small"]);
+        for (const placement of entry.placements) {
+          expect(placement.x + placement.w).toBeLessThanOrEqual(panel.grid.columns);
+          expect(placement.y + placement.h).toBeLessThanOrEqual(panel.grid.rows);
+        }
+      }
+    }
     const chartNames = new Set(charts.map((chart) => chart.name));
-    for (const name of ["UserCount", "PurchaseOrderCount", "ShipmentCount", "InventorySnapshot", "MovementByType", "PurchaseStatus"]) expect(chartNames.has(name)).toBe(true);
-    // Every panel reference resolves to a chart; table view has explicit columns.
-    for (const panel of panels) for (const row of panel.rows) for (const column of row.columns) for (const reference of column.charts) expect(chartNames.has(reference)).toBe(true);
-    const table = charts.find((chart) => chart.name === "InventoryByWarehouse")!.rows[0]!.columns[0]!.views[0]!;
-    expect(table).toMatchObject({ kind: "table", columns: ["inventoryKey", "warehouseId", "quantity", "reserved"] });
+    for (const panel of panels) for (const entry of panel.charts) expect(chartNames.has(entry.name)).toBe(true);
   });
 
   test("generates the same resources and fields from the modular source", async () => {
@@ -209,17 +233,22 @@ describe("modular demo model", () => {
     expect(messages).toContain('"qiy.resources.products.label": "产品"');
     expect(messages).toContain('"qiy.resources.customers.singular": "客户"');
     expect(messages).toContain('"qiy.resources.customers.plural": "Customers"');
-    expect(messages).toContain('"qiy.charts.InventorySnapshot.views.1.label": "平均在库"');
-    expect(messages).toContain('"qiy.charts.MovementTrend.label": "库存流水趋势"');
-    // Chart dashboard metadata reaches the generated web app and tests.
-    expect(files["apps/web/app/charts.ts"]).toContain('"name": "InventorySnapshot"');
-    expect(files["apps/web/app/charts.ts"]).toContain('"labelKey": "qiy.charts.UserCount.views.0.label"');
-    expect(files["apps/web/app/charts.ts"]).toContain('"charts": [');
-    expect(files["apps/web/app/components/charts.tsx"]).toContain("export function ChartDashboard");
+    expect(messages).toContain('"qiy.charts.UserStatusCount.views.pie.label": "用户状态分布"');
+    expect(messages).toContain('"qiy.charts.UserStatusCount.labels.admin": "管理员账号"');
+    expect(messages).toContain('"qiy.charts.Overview.label": "概览"');
+    // Chart dashboard metadata (views + responsive grid) reaches the generated web app and tests.
+    expect(files["apps/web/app/charts.ts"]).toContain('"name": "UserStatusCount"');
+    expect(files["apps/web/app/charts.ts"]).toContain('"labelKey": "qiy.charts.UserStatusCount.views.bar.label"');
+    expect(files["apps/web/app/charts.ts"]).toContain('"variant": "larger"');
+    expect(files["apps/web/app/charts.ts"]).toContain('"grid": {');
+    expect(files["apps/web/app/components/charts.tsx"]).toContain("export function ChartCard");
+    expect(files["apps/web/app/components/charts.tsx"]).toContain("selectChartPlacement");
+    expect(files["apps/web/app/components/charts.tsx"]).toContain("matchMedia");
     expect(files["apps/web/app/routes/home.tsx"]).toContain("ChartDashboard");
     expect(files["apps/web/app/routes/home.tsx"]).toContain("charts.length > 0");
     expect(files["apps/web/app/dashboard.ts"]).toContain("export const dashboardMetrics: DashboardMetric[] = []");
-    expect(files["apps/web/tests/charts.test.ts"]).toContain("chart layout metadata preserves row/column/view order");
+    expect(files["apps/web/tests/charts.test.ts"]).toContain("variant selection shrinks larger -> medium -> small");
+    expect(files["apps/web/tests/charts-render.test.tsx"]).toContain("renders every chart kind with grid placements and selectors");
     // Grouped sidebar metadata: resource -> group parent, and the group keeps its menu order.
     expect(resources).toContain('"menuParent": "menu-masterData"');
     expect(resources).toContain('"menuParent": "menu-purchasing"');

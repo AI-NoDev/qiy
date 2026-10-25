@@ -83,7 +83,7 @@ include "modules/actions.qiy";
 | `qiy.resources.<resource>.fields.<field>.label` | 列表列头、详情 label、表单 label、筛选占位符 |
 | `qiy.enums.<enum>.label` / `qiy.enums.<enum>.values.<value>` | 枚举值 Tag、下拉选项（显示模板中的枚举字段同样使用） |
 | `qiy.menu.<group>.label` | 菜单分组（本示例 6 个分组，见下方“侧边栏菜单分组”） |
-| `qiy.charts.<chart>.label` / `qiy.charts.<chart>.views.<index>.label` | 概览页图表卡片/面板标题与视图标题（见下方“图表概览页”） |
+| `qiy.charts.<chart>.label` / `qiy.charts.<chart>.views.<kind>.label` / `qiy.charts.<chart>.labels.<value>` | 概览页图表卡片/面板标题、视图标题与分布数值覆盖（见下方“图表概览页”） |
 | `qiy.actions.<action>.label` / `.confirm` / `.inputs.<input>.label` | 业务命令按钮、确认框、命令表单字段 |
 | `errors.*`（本示例自定义） | `@error(t("key"))` 业务规则错误：服务端返回默认语言文案 + `errorKey`，前端按当前语言再翻译 |
 
@@ -130,19 +130,19 @@ menu {
 
 ## 图表概览页（chart / chart panels）
 
-`modules/charts.qiy` 用新的多视图图表 DSL 替换了旧的 `dashboard { metric ... }` 指标卡，概览页 `/` 现在是声明式布局的图表页：
+`modules/charts.qiy` 用新的图表 DSL 替换了旧的 `dashboard { metric ... }` 指标卡：概览页 `/` 由 `chart` 声明视图、`chart panels` 用 `grid 24 24` + `larger/medium/small` 变体摆放卡片：
 
-| 面板 | 行/列布局 | 图表 |
+| 面板 | 栅格布局（larger/medium/small） | 图表 |
 | --- | --- | --- |
-| **关键指标**（`OverviewKpis`） | 1 行 3 列，span 8/8/8 | 用户总数、采购单总数、发运单总数（stat/count） |
-| **运营概览**（`Operations`） | 第 1 行 span 8 + 16；第 2 行 span 12 + 12 | 库存流水类型（bar，按 `type` 枚举）、近 30 天库存流水（line，`occurredAt`）；采购单状态（pie，按 `status` 枚举）、库存概览（多视图 chart：在库总量 sum、平均在库 avg） |
-| **库存看板**（`InventoryBoard`） | 1 行 1 列，span 24 | 按仓库的库存记录（table：`inventoryKey, warehouseId, quantity, reserved`） |
+| **概览**（`Overview`） | `larger`: 6/12/6 + 24；`medium`: 12/12/24 + 24；`small`: 全部 24 宽 | 用户总数（const/count）、用户状态分布（pie + bar 多视图）、近 30 天库存流水（line）、按仓库的库存记录（table） |
+| **运营**（`Operations`） | `larger`: 12 + 12 + 24；`medium`/`small`: 24 宽堆叠 | 用户状态分布、库存流水趋势、库存表格（第二个面板用于演示页面级“视图”切换器） |
 
-- **多视图**：`InventorySnapshot` 一个 chart 内有两个 Row/Col 视图（`views.0` / `views.1`），渲染在同一条卡片布局里；`Operations` 面板同一行混用 span 8/16、下一行 12/12。
-- 视图类型：`stat`（count / sum / avg / min / max）、`bar` / `pie`（枚举 `groupBy` 走 `/distribution`）、`line`（`dateField` + `days` 走 `/trend`，当前为按天 count）、`table`（列表前 5 行的只读预览，无编辑操作）。
-- 每个视图独立 loading/error；图表卡片包在 `CanAccess` 中，所以 data scope 与页面权限继续生效（例如 viewer 看不到受页面规则限制的资源）。渲染不引入新图表依赖：bar 用 `Progress`，line/pie 用内联 SVG，table 用 Ant `Table`。
-- 生成物：`apps/web/app/charts.ts`（面板/图表/视图布局元数据 + `flattenPanelCharts` / `flattenChartViews`）、`apps/web/app/components/charts.tsx`（`ChartDashboard`/`ChartCard` 渲染器）；`apps/web/app/dashboard.ts` 的旧指标列表在 chart 页面下为空，未声明 chart 的项目继续回退旧指标卡。
-- i18n：`qiy.charts.<chart>.label` 与 `qiy.charts.<chart>.views.<index>.label`（index 按布局顺序从 0）；本示例中英文词典见 `modules/messages.qiy`。生成测试 `apps/web/tests/charts.test.ts` 校验布局顺序/span/引用，`tests/charts-qiy.test.ts` 覆盖语法、校验与序列化。
+- **多视图**：`UserStatusCount` 用两个声明（`chart pie UserStatusCount` + `chart bar UserStatusCount`）组成同一张卡片；卡片右上角出现视图类型下拉（统计/饼图/柱状图/折线图/表格），单视图卡片没有选择器。
+- **面板与变体**：每个 panel 声明 `grid 24 24`，每个 chart 用 `larger 0 0 6 2; medium 0 0 12 2; small 0 0 24 3;` 给出栅格坐标；数字直接映射为 CSS Grid 的 `grid-column`/`grid-row` 单元，不是固定像素。页面按 matchMedia 断点（≥1200px larger / ≥768px medium / 否则 small）选变体；两个面板时页面右上角出现“视图/View”下拉并把选择持久化到 `localStorage` 的 `qiy.charts.panel`。
+- **数据迷你语言**：`count users`、`count users group by role`、`sum users...`、`trend stock_movements.occurredAt days 30`、`list inventory columns ...` 分别映射列表 total、`/distribution`、`/aggregate`、`/trend` 与列表接口；`labels = role` 使用枚举 label，`labels { admin "管理员"; }` 或词典 `qiy.charts.UserStatusCount.labels.admin` 可覆盖文案。
+- 每个视图独立 loading/error；图表卡片包在 `CanAccess` 中，所以 data scope 与页面权限继续生效。渲染不引入新图表依赖：bar 用 `Progress`，line/pie 用内联 SVG，table 用 Ant `Table`。
+- 生成物：`apps/web/app/charts.ts`（chart/panel/placement 元数据 + `selectChartPlacement`/`chartViewportCategory`/panel 持久化等纯函数）、`apps/web/app/components/charts.tsx`（`ChartDashboard`/`ChartCard`）；`apps/web/app/dashboard.ts` 的旧指标列表在 chart 页面下为空，未声明 chart 的项目继续回退旧指标卡。
+- i18n：`qiy.charts.<chart>.label`、`qiy.charts.<chart>.views.<kind>.label`、`qiy.charts.<chart>.labels.<value>`；本示例 zh/en 词典见 `modules/messages.qiy`。生成测试 `apps/web/tests/charts.test.ts` 校验视图分组/栅格/变体/持久化，`apps/web/tests/charts-render.test.tsx` 用 SSR + mock 数据校验五种视图与选择器。
 
 ## 已存视图（saved views）
 

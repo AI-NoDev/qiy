@@ -214,6 +214,7 @@
     "apps/web/build.mjs",
     "apps/web/package.json",
     "apps/web/react-router.config.ts",
+    "apps/web/tests/charts-render.test.tsx",
     "apps/web/tests/charts.test.ts",
     "apps/web/tests/download-file.test.ts",
     "apps/web/tests/menu-tree.test.ts",

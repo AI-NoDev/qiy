@@ -19,3 +19,8 @@ body { margin: 0; }
 .qiy-chart-legend { display: flex; flex-direction: column; gap: 4px; }
 .qiy-chart-legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
 .qiy-chart-line { width: 100%; height: 120px; display: block; }
+.qiy-chart-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.qiy-chart-grid { width: 100%; }
+.qiy-chart-grid-cell { min-width: 0; }
+.qiy-chart-grid-cell > .ant-card { height: 100%; }
+.qiy-chart-card .ant-card-body { overflow: auto; }

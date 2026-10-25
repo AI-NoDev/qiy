@@ -35,60 +35,78 @@ export interface QiyIntegrationConfig {
   tenant?: { header: string; identity: string };
 }
 
-export type QiyChartViewKind = "stat" | "bar" | "line" | "pie" | "table";
+/** Chart view kinds. `const` is the stat view (the old `stat` name is gone). */
+export type QiyChartViewKind = "const" | "pie" | "bar" | "line" | "table";
 export type QiyChartAggregate = "count" | "sum" | "avg" | "min" | "max";
+export type QiyChartDataOperation = "count" | "sum" | "avg" | "min" | "max" | "trend" | "list";
 
-/**
- * One view inside a chart column. The kind decides which statements are
- * allowed: `stat` uses `aggregate`/`field`, `bar`/`pie` use `groupBy`,
- * `line` uses `dateField`/`days` and `table` uses `columns`.
- */
-export interface QiyChartView {
-  kind: QiyChartViewKind;
-  /** Fallback title; translated through `qiy.charts.<chart>.views.<index>.label`. */
-  label?: string;
-  aggregate?: QiyChartAggregate;
+export const qiyChartKinds = ["const", "pie", "bar", "line", "table"] as const;
+/** Supported placement variant names and the breakpoint bucket each one belongs to. */
+export const qiyChartVariants = ["larger", "xl", "lg", "large", "medium", "md", "small", "sm", "xs"] as const;
+export type QiyChartVariant = (typeof qiyChartVariants)[number];
+
+/** Parsed `data = ...` mini language of one chart view. */
+export interface QiyChartData {
+  operation: QiyChartDataOperation;
+  /** Entity or table name; normalized to the table name during validation. */
+  entity: string;
   field?: string;
   groupBy?: string;
-  dateField?: string;
   days?: number;
   columns?: string[];
 }
 
-/** A chart layout column: `Col span N { view ... }` (span defaults to 24). */
-export interface QiyChartColumn {
-  span: number;
+export interface QiyChartLabelValue {
+  value: string;
+  label: string;
+}
+
+/** `labels = <enum field>;` or an explicit mapping block `labels { value "Text"; }`. */
+export interface QiyChartLabels {
+  field?: string;
+  values?: QiyChartLabelValue[];
+}
+
+/**
+ * One declaration (`chart pie UserStatusCount { ... }`). Declarations with the
+ * same chart name but different kinds become the views of that chart.
+ */
+export interface QiyChartView {
+  kind: QiyChartViewKind;
+  title?: string;
+  icon?: string;
+  data: QiyChartData;
+  labels?: QiyChartLabels;
+}
+
+/** A chart: one or more view declarations sharing a name, plus fallback title/icon. */
+export interface QiyChart {
+  name: string;
+  title?: string;
+  icon?: string;
   views: QiyChartView[];
 }
 
-/** A chart layout row: `Row { Col ... }`. Spans of one row must sum to ≤ 24. */
-export interface QiyChartRow {
-  columns: QiyChartColumn[];
+/** One responsive placement (`larger 0 0 4 2;`) inside a panel grid. */
+export interface QiyChartPlacement {
+  variant: QiyChartVariant;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
-/** A multi-view chart: one data source, one Rows/Cols layout, one or more views. */
-export interface QiyChart {
+export interface QiyChartPanelChart {
   name: string;
-  label?: string;
-  source: string;
-  rows: QiyChartRow[];
+  placements: QiyChartPlacement[];
 }
 
-/** A panel column placing chart references: `Col span N { chart UserCount; }` (span defaults to 8). */
-export interface QiyChartPanelColumn {
-  span: number;
-  charts: string[];
-}
-
-export interface QiyChartPanelRow {
-  columns: QiyChartPanelColumn[];
-}
-
-/** `chart panels <Name> { Row { Col ... } }`: arranges charts into dashboard rows. */
+/** `chart panels <Name> { grid 24 24; ChartName { variant x y w h; } }`. */
 export interface QiyChartPanel {
   name: string;
-  label?: string;
-  rows: QiyChartPanelRow[];
+  title?: string;
+  grid: { columns: number; rows: number };
+  charts: QiyChartPanelChart[];
 }
 
 export interface QiyProject {
@@ -1560,165 +1578,205 @@ export function parseQiyProject(input: string): QiyProject {
     return { name, resource, label, span, ...(icon && { icon }), ...(description && description), ...(type !== "count" && { type }), ...(groupBy && { groupBy }), ...(days !== undefined && { days }), ...(field && { field }), ...(agg && { agg }) };
   }
   /**
-   * Multi-view chart DSL:
+   * Chart DSL (multi-view declarations + responsive panel grid):
    *
    *   chart const UserCount {
-   *     source users;
-   *     Row {
-   *       Col span 12 { view stat @label("用户总数") { aggregate count; } }
-   *       Col span 12 { view bar @label("按角色") { groupBy role; } }
+   *     icon = "TeamOutlined";
+   *     title = "用户总数";
+   *     data = count users;
+   *   }
+   *   chart pie UserStatusCount {
+   *     title = "用户状态分布";
+   *     data = count users group by role;
+   *     labels = role;
+   *   }
+   *   chart bar UserStatusCount { ... }             // second view of the same chart
+   *   chart panels ChartsPanel1 {
+   *     grid 24 24;
+   *     UserCount {
+   *       larger 0 0 4 2;
+   *       medium 0 0 12 3;
+   *       small 0 0 24 4;
    *     }
    *   }
-   *   chart panels Overview {
-   *     Row { Col span 8 { chart UserCount; } }
-   *   }
    *
-   * `const` after `chart` is an optional alias. `chart panels <Name>` declares a
-   * dashboard layout; every referenced chart must exist.
+   * Declarations sharing a chart name but using different kinds are the views of
+   * one chart. Assignments are `key = value;` (`;` may be omitted before `}`).
    */
-  function chartAttribute(name: string, target: { label?: string }): void {
-    expect("@");
-    const attribute = identifier();
-    expect("(");
-    if (attribute !== "label") throw new Error(`Chart ${name}: unsupported annotation @${attribute}`);
-    if (target.label !== undefined) throw new Error(`Chart ${name}: duplicate @label annotation`);
-    target.label = value();
-    expect(")");
+  function chartPropertySemicolon(context: string): void {
+    if (peek() === ";") { expect(";"); return; }
+    if (peek() === "}") return;
+    throw new Error(`${context}: expected ; after the property value but found ${peek()}`);
   }
-  function chartView(chartName: string): QiyChartView {
-    const kindToken = identifier();
-    if (kindToken !== "stat" && kindToken !== "bar" && kindToken !== "line" && kindToken !== "pie" && kindToken !== "table") throw new Error(`Chart ${chartName}: unknown view kind ${kindToken}; expected stat, bar, line, pie or table`);
-    const kind = kindToken;
-    const view: QiyChartView = { kind };
+  function chartKindToken(token: string): QiyChartViewKind | undefined {
+    return (qiyChartKinds as ReadonlyArray<string>).includes(token) ? token as QiyChartViewKind : undefined;
+  }
+  function chartData(chartName: string, kind: QiyChartViewKind): QiyChartData {
     const prefix = `Chart ${chartName} ${kind} view`;
-    while (peek() === "@") {
-      const target: { label?: string } = { ...(view.label !== undefined && { label: view.label }) };
-      chartAttribute(chartName, target);
-      view.label = target.label;
+    const operation = identifier();
+    if (operation === "count") {
+      const entity = identifier();
+      if (peek() === "group") {
+        expect("group"); expect("by");
+        return { operation: "count", entity, groupBy: identifier() };
+      }
+      return { operation: "count", entity };
     }
+    if (operation === "sum" || operation === "avg" || operation === "min" || operation === "max") {
+      const entity = identifier();
+      expect(".");
+      const field = identifier();
+      if (peek() === "group") {
+        expect("group"); expect("by");
+        return { operation, entity, field, groupBy: identifier() };
+      }
+      return { operation, entity, field };
+    }
+    if (operation === "trend") {
+      const entity = identifier();
+      expect(".");
+      const field = identifier();
+      if (peek() !== "days") throw new Error(`${prefix}: trend data requires "days <1..365>"`);
+      expect("days");
+      const days = integer();
+      if (days < 1 || days > 365) throw new Error(`${prefix}: days must be between 1 and 365`);
+      return { operation: "trend", entity, field, days };
+    }
+    if (operation === "list") {
+      const entity = identifier();
+      if (peek() !== "columns") throw new Error(`${prefix}: list data requires "columns <field>, ..."`);
+      expect("columns");
+      const columns = [identifier()];
+      while (peek() === ",") { expect(","); columns.push(identifier()); }
+      return { operation: "list", entity, columns };
+    }
+    throw new Error(`${prefix}: unknown data operation ${operation}; expected count, sum, avg, min, max, trend or list`);
+  }
+  function chartLabels(chartName: string, kind: QiyChartViewKind): QiyChartLabels {
+    const prefix = `Chart ${chartName} ${kind} view`;
+    if (peek() !== "{") return { field: identifier() };
     expect("{");
+    const values: QiyChartLabelValue[] = [];
     const seen = new Set<string>();
     while (peek() !== "}") {
-      const statement = identifier();
-      if (seen.has(statement)) throw new Error(`${prefix}: duplicate ${statement} statement`);
-      seen.add(statement);
-      if (statement === "aggregate") {
-        const operator = identifier();
-        if (operator !== "count" && operator !== "sum" && operator !== "avg" && operator !== "min" && operator !== "max") throw new Error(`${prefix}: aggregate must be count, sum, avg, min or max`);
-        view.aggregate = operator;
-      } else if (statement === "field") view.field = identifier();
-      else if (statement === "groupBy") view.groupBy = identifier();
-      else if (statement === "dateField") view.dateField = identifier();
-      else if (statement === "days") {
-        const days = integer();
-        if (days < 1 || days > 365) throw new Error(`${prefix}: days must be between 1 and 365`);
-        view.days = days;
-      } else if (statement === "columns") {
-        const columns = [identifier()];
-        while (peek() === ",") { expect(","); columns.push(identifier()); }
-        view.columns = columns;
-      } else throw new Error(`${prefix}: unknown view statement ${statement}`);
+      const raw = peek().startsWith("\"") || peek().startsWith("'") ? stringLiteral() : identifier();
+      if (seen.has(raw)) throw new Error(`${prefix}: duplicate labels mapping ${raw}`);
+      seen.add(raw);
+      values.push({ value: raw, label: stringLiteral() });
       expect(";");
     }
     expect("}");
-    // Per-kind statement support is checked with the entity metadata after parsing.
-    return view;
+    if (values.length === 0) throw new Error(`${prefix}: labels mapping needs at least one entry`);
+    return { values };
   }
-  function chartRow(chartName: string): QiyChartRow {
-    expect("Row");
+  function chartView(chartName: string, kind: QiyChartViewKind): QiyChartView {
+    const prefix = `Chart ${chartName} ${kind} view`;
+    const view: QiyChartView = { kind, data: { operation: "count", entity: "" } };
     expect("{");
-    const columns: QiyChartColumn[] = [];
+    const seenProps = new Set<string>();
+    let hasData = false;
     while (peek() !== "}") {
-      expect("Col");
-      let span = 24;
-      if (peek() === "span") {
-        expect("span");
-        span = integer();
-        if (span < 1 || span > 24) throw new Error(`Chart ${chartName}: span must be between 1 and 24`);
+      const property = identifier();
+      if (seenProps.has(property)) throw new Error(`${prefix}: duplicate ${property} property`);
+      seenProps.add(property);
+      // `labels { value "Text"; }` is the mapping form and omits `=`;
+      // `labels = role;` / `labels = { ... };` are also accepted.
+      if (property === "labels") {
+        if (peek() !== "{") expect("=");
+        view.labels = chartLabels(chartName, kind);
+      } else {
+        expect("=");
+        if (property === "icon") view.icon = value();
+        else if (property === "title") view.title = value();
+        else if (property === "data") { view.data = chartData(chartName, kind); hasData = true; }
+        else throw new Error(`${prefix}: unknown property ${property}; expected icon, title, data or labels`);
       }
-      expect("{");
-      const views: QiyChartView[] = [];
-      while (peek() !== "}") {
-        expect("view");
-        views.push(chartView(chartName));
-      }
-      expect("}");
-      columns.push({ span, views });
+      chartPropertySemicolon(`${prefix} property ${property}`);
     }
     expect("}");
-    if (columns.length === 0) throw new Error(`Chart ${chartName}: Row needs at least one Col`);
-    const total = columns.reduce((sum, column) => sum + column.span, 0);
-    if (total > 24) throw new Error(`Chart ${chartName}: row spans exceed 24 (got ${total})`);
-    return { columns };
+    if (!hasData) throw new Error(`${prefix}: missing data property`);
+    return view;
   }
-  function chartDefinition(): QiyChart {
-    if (peek() === "const") expect("const");
+  /** One `chart [kind] <Name> { ... }` declaration; same names are grouped into one chart. */
+  function chartDeclaration(): { name: string; view: QiyChartView } {
+    let kind: QiyChartViewKind = "const";
+    const declaredKind = chartKindToken(peek());
+    if (declaredKind) { expect(peek()); kind = declaredKind; }
     const name = identifier();
-    const details: { label?: string } = {};
-    while (peek() === "@") chartAttribute(name, details);
+    if (name === "panels") throw new Error("Chart name panels is reserved for chart panels blocks");
+    if (name === "title" || name === "grid") throw new Error(`Chart name ${name} is reserved inside chart panels blocks`);
+    return { name, view: chartView(name, kind) };
+  }
+  function chartPlacement(panelName: string, chartName: string, seen: Set<string>): QiyChartPlacement {
+    const variantToken = identifier();
+    if (!(qiyChartVariants as ReadonlyArray<string>).includes(variantToken)) throw new Error(`Chart panel ${panelName} chart ${chartName}: unknown variant ${variantToken}; expected one of ${qiyChartVariants.join(", ")}`);
+    const variant = variantToken as QiyChartVariant;
+    if (seen.has(variant)) throw new Error(`Chart panel ${panelName} chart ${chartName}: duplicate ${variant} placement`);
+    seen.add(variant);
+    const x = integer();
+    const y = integer();
+    const w = integer();
+    const h = integer();
+    expect(";");
+    return { variant, x, y, w, h };
+  }
+  function chartPanel(): QiyChartPanel {
+    const name = identifier();
     expect("{");
-    let source: string | undefined;
-    const rows: QiyChartRow[] = [];
+    const panel: QiyChartPanel = { name, grid: { columns: 0, rows: 0 }, charts: [] };
+    let hasGrid = false;
+    const seenCharts = new Set<string>();
     while (peek() !== "}") {
-      if (peek() === "source") {
-        expect("source");
-        if (source !== undefined) throw new Error(`Chart ${name}: duplicate source statement`);
-        source = identifier();
+      if (peek() === "title") {
+        expect("title"); expect("=");
+        panel.title = value();
+        chartPropertySemicolon(`Chart panel ${name} title`);
+        continue;
+      }
+      if (peek() === "grid") {
+        expect("grid");
+        if (hasGrid) throw new Error(`Chart panel ${name}: duplicate grid property`);
+        hasGrid = true;
+        panel.grid = { columns: integer(), rows: integer() };
         expect(";");
         continue;
       }
-      if (peek() === "Row") {
-        rows.push(chartRow(name));
-        continue;
-      }
-      throw new Error(`Chart ${name}: expected source, Row or } but found ${peek()}`);
-    }
-    expect("}");
-    if (!source) throw new Error(`Chart ${name}: missing source statement`);
-    if (rows.length === 0) throw new Error(`Chart ${name}: missing Row layout`);
-    return { name, ...(details.label !== undefined && { label: details.label }), source, rows };
-  }
-  function chartPanelDefinition(): QiyChartPanel {
-    if (peek() === "const") expect("const");
-    const name = identifier();
-    const details: { label?: string } = {};
-    while (peek() === "@") chartAttribute(name, details);
-    expect("{");
-    const rows: QiyChartPanelRow[] = [];
-    while (peek() !== "}") {
-      expect("Row");
+      const chartName = identifier();
+      if (seenCharts.has(chartName)) throw new Error(`Chart panel ${name}: duplicate chart ${chartName}`);
+      seenCharts.add(chartName);
       expect("{");
-      const columns: QiyChartPanelColumn[] = [];
-      while (peek() !== "}") {
-        expect("Col");
-        let span = 8;
-        if (peek() === "span") {
-          expect("span");
-          span = integer();
-          if (span < 1 || span > 24) throw new Error(`Chart panel ${name}: span must be between 1 and 24`);
-        }
-        expect("{");
-        const charts: string[] = [];
-        while (peek() !== "}") {
-          expect("chart");
-          charts.push(identifier());
-          expect(";");
-        }
-        expect("}");
-        if (charts.length === 0) throw new Error(`Chart panel ${name}: Col needs at least one chart`);
-        columns.push({ span, charts });
-      }
+      const placements: QiyChartPlacement[] = [];
+      const seenVariants = new Set<string>();
+      while (peek() !== "}") placements.push(chartPlacement(name, chartName, seenVariants));
       expect("}");
-      if (columns.length === 0) throw new Error(`Chart panel ${name}: Row needs at least one Col`);
-      const total = columns.reduce((sum, column) => sum + column.span, 0);
-      if (total > 24) throw new Error(`Chart panel ${name}: row spans exceed 24 (got ${total})`);
-      rows.push({ columns });
+      if (placements.length === 0) throw new Error(`Chart panel ${name}: chart ${chartName} needs at least one placement`);
+      panel.charts.push({ name: chartName, placements });
     }
     expect("}");
-    if (rows.length === 0) throw new Error(`Chart panel ${name}: missing Row layout`);
-    return { name, ...(details.label !== undefined && { label: details.label }), rows };
+    if (!hasGrid) throw new Error(`Chart panel ${name}: missing grid property`);
+    if (panel.charts.length === 0) throw new Error(`Chart panel ${name}: needs at least one chart`);
+    return panel;
   }
-  /** Validates chart layout/views/panel references against the parsed database. */
+  /** Groups declarations by chart name (views) and checks panel references. */
+  function collectChartDeclarations(declarations: Array<{ name: string; view: QiyChartView }>, panels: QiyChartPanel[]): QiyChart[] {
+    const byName = new Map<string, QiyChart>();
+    const panelNames = new Set(panels.map((panel) => panel.name));
+    for (const declaration of declarations) {
+      if (panelNames.has(declaration.name)) throw new Error(`Chart ${declaration.name}: name already used by a chart panel`);
+      const chart = byName.get(declaration.name) ?? { name: declaration.name, views: [] };
+      if (chart.views.some((view) => view.kind === declaration.view.kind)) throw new Error(`Chart ${declaration.name}: duplicate ${declaration.view.kind} view`);
+      chart.views.push(declaration.view);
+      chart.title ??= declaration.view.title;
+      chart.icon ??= declaration.view.icon;
+      byName.set(declaration.name, chart);
+    }
+    const chartNames = new Set(byName.keys());
+    for (const panel of panels) for (const chart of panel.charts) {
+      if (!chartNames.has(chart.name)) throw new Error(`Chart panel ${panel.name}: unknown chart ${chart.name}`);
+    }
+    return [...byName.values()];
+  }
+  /** Validates chart data/labels and panel grids/placements against the parsed database. */
   function validateCharts(charts: QiyChart[], chartPanels: QiyChartPanel[]): void {
     const bySource = new Map<string, EntityIR>();
     for (const entity of entities) {
@@ -1726,96 +1784,67 @@ export function parseQiyProject(input: string): QiyProject {
       bySource.set(entity.tableName, entity);
     }
     const usedNames = new Set<string>();
-    const chartNames = new Set<string>();
     for (const chart of charts) {
       if (usedNames.has(chart.name)) throw new Error(`Duplicate chart or panel name ${chart.name}`);
       usedNames.add(chart.name);
-      chartNames.add(chart.name);
     }
     for (const panel of chartPanels) {
       if (usedNames.has(panel.name)) throw new Error(`Duplicate chart or panel name ${panel.name}`);
       usedNames.add(panel.name);
+      if (panel.grid.columns < 1 || panel.grid.columns > 24) throw new Error(`Chart panel ${panel.name}: grid columns must be between 1 and 24`);
+      if (panel.grid.rows < 1 || panel.grid.rows > 200) throw new Error(`Chart panel ${panel.name}: grid rows must be between 1 and 200`);
+      for (const chart of panel.charts) for (const placement of chart.placements) {
+        if (placement.x < 0 || placement.y < 0) throw new Error(`Chart panel ${panel.name}: placement origin must be >= 0`);
+        if (placement.w < 1 || placement.h < 1) throw new Error(`Chart panel ${panel.name}: placement size must be >= 1`);
+        if (placement.x + placement.w > panel.grid.columns) throw new Error(`Chart panel ${panel.name}: placement ${placement.variant} exceeds ${panel.grid.columns} grid columns`);
+        if (placement.y + placement.h > panel.grid.rows) throw new Error(`Chart panel ${panel.name}: placement ${placement.variant} exceeds ${panel.grid.rows} grid rows`);
+      }
     }
     for (const chart of charts) {
-      const entity = bySource.get(chart.source);
-      if (!entity) throw new Error(`Chart ${chart.name}: unknown source entity ${chart.source}`);
-      // Generated routes and data-provider calls use table names.
-      chart.source = entity.tableName;
-      const fieldOf = (name: string, viewKind: QiyChartViewKind): FieldIR => {
-        const found = entity.fields.find((field) => field.name === name);
-        if (!found) throw new Error(`Chart ${chart.name} ${viewKind} view: unknown field ${name}`);
-        return found;
-      };
-      const numericField = (name: string, viewKind: QiyChartViewKind): FieldIR => {
-        const found = fieldOf(name, viewKind);
-        if (found.type !== "Integer" && found.type !== "Decimal" && found.type !== "Money") throw new Error(`Chart ${chart.name} ${viewKind} view: aggregate field ${name} must be Integer, Decimal or Money`);
-        return found;
-      };
-      let viewCount = 0;
-      for (const row of chart.rows) {
-        for (const column of row.columns) {
-          for (const view of column.views) {
-            viewCount += 1;
-            const prefix = `Chart ${chart.name} ${view.kind} view`;
-            if (view.kind === "stat") {
-              const operator = view.aggregate ?? "count";
-              if (operator === "count") {
-                if (view.field) throw new Error(`${prefix}: aggregate count does not take field`);
-              } else {
-                if (!view.field) throw new Error(`${prefix}: aggregate ${operator} requires field`);
-                numericField(view.field, view.kind);
-              }
-              expectNoChartStatements(view, ["aggregate", "field"], prefix);
-            } else if (view.kind === "bar" || view.kind === "pie") {
-              if (!view.groupBy) throw new Error(`${prefix}: requires groupBy`);
-              const grouped = fieldOf(view.groupBy, view.kind);
-              if (!grouped.enumName) throw new Error(`${prefix}: groupBy field ${view.groupBy} must be an enum field`);
-              expectNoChartStatements(view, ["groupBy"], prefix);
-            } else if (view.kind === "line") {
-              if (!view.dateField) throw new Error(`${prefix}: requires dateField`);
-              const dateField = fieldOf(view.dateField, view.kind);
-              if (dateField.type !== "DateTime") throw new Error(`${prefix}: dateField ${view.dateField} must be a DateTime field`);
-              if (view.aggregate && view.aggregate !== "count") throw new Error(`${prefix}: line views only support aggregate count`);
-              expectNoChartStatements(view, ["dateField", "days", "aggregate"], prefix);
-            } else {
-              if (!view.columns || view.columns.length === 0) throw new Error(`${prefix}: requires columns`);
-              for (const column of view.columns) {
-                const field = fieldOf(column, view.kind);
-                if (field.type === "Vector") throw new Error(`${prefix}: cannot render a Vector column (${column})`);
-              }
-              expectNoChartStatements(view, ["columns"], prefix);
-            }
+      for (const view of chart.views) {
+        const data = view.data;
+        const target = bySource.get(data.entity);
+        if (!target) throw new Error(`Chart ${chart.name} ${view.kind} view: unknown entity ${data.entity}`);
+        data.entity = target.tableName; // generated routes and data-provider calls use table names
+        const prefix = `Chart ${chart.name} ${view.kind} view`;
+        const fieldOf = (name: string): FieldIR => {
+          const field = target.fields.find((candidate) => candidate.name === name);
+          if (!field) throw new Error(`${prefix}: unknown field ${name}`);
+          return field;
+        };
+        if (view.kind === "const") {
+          if (data.operation === "count") {
+            if (data.groupBy) throw new Error(`${prefix}: count data cannot group by (use pie or bar)`);
+          } else if (data.operation === "sum" || data.operation === "avg" || data.operation === "min" || data.operation === "max") {
+            if (data.groupBy) throw new Error(`${prefix}: ${data.operation} ... group by is not supported`);
+            const field = fieldOf(data.field!);
+            if (field.type !== "Integer" && field.type !== "Decimal" && field.type !== "Money") throw new Error(`${prefix}: aggregate field ${data.field} must be Integer, Decimal or Money`);
+          } else {
+            throw new Error(`${prefix}: const views require count or sum/avg/min/max data`);
           }
-        }
-      }
-      if (viewCount === 0) throw new Error(`Chart ${chart.name}: needs at least one view`);
-    }
-    for (const panel of chartPanels) {
-      for (const row of panel.rows) {
-        for (const column of row.columns) {
-          for (const reference of column.charts) {
-            if (!chartNames.has(reference)) throw new Error(`Chart panel ${panel.name}: unknown chart ${reference}`);
+        } else if (view.kind === "pie" || view.kind === "bar") {
+          if (data.operation !== "count" || !data.groupBy) throw new Error(`${prefix}: pie/bar views require "count <entity> group by <enum field>" data`);
+          const grouped = fieldOf(data.groupBy);
+          if (!grouped.enumName) throw new Error(`${prefix}: group by field ${data.groupBy} must be an enum field`);
+          if (view.labels?.field) {
+            const labeled = fieldOf(view.labels.field);
+            if (!labeled.enumName) throw new Error(`${prefix}: labels field ${view.labels.field} must be an enum field`);
+          }
+        } else if (view.kind === "line") {
+          if (data.operation !== "trend") throw new Error(`${prefix}: line views require "trend <entity>.<DateTime field> days <n>" data`);
+          const dateField = fieldOf(data.field!);
+          if (dateField.type !== "DateTime") throw new Error(`${prefix}: trend field ${data.field} must be a DateTime field`);
+        } else {
+          if (data.operation !== "list") throw new Error(`${prefix}: table views require "list <entity> columns ..." data`);
+          for (const column of data.columns ?? []) {
+            const field = fieldOf(column);
+            if (field.type === "Vector") throw new Error(`${prefix}: cannot render a Vector column (${column})`);
           }
         }
       }
     }
   }
-  function expectNoChartStatements(view: QiyChartView, allowed: ReadonlyArray<"aggregate" | "field" | "groupBy" | "dateField" | "days" | "columns">, prefix: string): void {
-    const present: Array<[string, unknown]> = [
-      ["aggregate", view.aggregate],
-      ["field", view.field],
-      ["groupBy", view.groupBy],
-      ["dateField", view.dateField],
-      ["days", view.days],
-      ["columns", view.columns],
-    ];
-    for (const [statement, value] of present) {
-      if (value === undefined) continue;
-      if ((allowed as ReadonlyArray<string>).includes(statement)) continue;
-      throw new Error(`${prefix}: does not support ${statement}`);
-    }
-  }
-  function enumeration(): import("./database-ir").EnumIR {
+function enumeration(): import("./database-ir").EnumIR {
     expect("enum");
     const name = identifier();
     let description: { comment: string; commentKey?: string } | undefined;
@@ -2560,7 +2589,7 @@ export function parseQiyProject(input: string): QiyProject {
     expect("}");
   }
   const dashboardMetrics: NonNullable<QiyProject["dashboardMetrics"]> = [];
-  const charts: NonNullable<QiyProject["charts"]> = [];
+  const chartDeclarations: Array<{ name: string; view: QiyChartView }> = [];
   const chartPanels: NonNullable<QiyProject["chartPanels"]> = [];
   // Dashboard metrics and chart blocks share one position (after menu, before
   // dataflows) and may be written in either order.
@@ -2574,11 +2603,12 @@ export function parseQiyProject(input: string): QiyProject {
     expect("chart");
     if (peek() === "panels") {
       expect("panels");
-      chartPanels.push(chartPanelDefinition());
+      chartPanels.push(chartPanel());
     } else {
-      charts.push(chartDefinition());
+      chartDeclarations.push(chartDeclaration());
     }
   }
+  const charts = collectChartDeclarations(chartDeclarations, chartPanels);
   if (charts.length || chartPanels.length) validateCharts(charts, chartPanels);
   const dataflows: DataflowIR[] = [];
   while (peek() === "dataflow") dataflows.push(dataflow());
@@ -3192,37 +3222,36 @@ export function serializeQiyProject(project: QiyProject): string {
     lines.push("  }");
   }
   for (const chart of project.charts ?? []) {
-    lines.push(`  chart const ${qiyIdentifier(chart.name, "Chart name")}${chart.label !== undefined ? ` @label(${qiyString(chart.label)})` : ""} {`);
-    lines.push(`    source ${qiyIdentifier(chart.source, "Chart source")};`);
-    for (const row of chart.rows) {
-      lines.push("    Row {");
-      for (const column of row.columns) {
-        lines.push(`      Col span ${column.span} {`);
-        for (const view of column.views) {
-          lines.push(`        view ${view.kind}${view.label !== undefined ? ` @label(${qiyString(view.label)})` : ""} {`);
-          if (view.aggregate !== undefined) lines.push(`          aggregate ${view.aggregate};`);
-          if (view.field !== undefined) lines.push(`          field ${qiyIdentifier(view.field, "Chart field")};`);
-          if (view.groupBy !== undefined) lines.push(`          groupBy ${qiyIdentifier(view.groupBy, "Chart groupBy")};`);
-          if (view.dateField !== undefined) lines.push(`          dateField ${qiyIdentifier(view.dateField, "Chart dateField")};`);
-          if (view.days !== undefined) lines.push(`          days ${view.days};`);
-          if (view.columns?.length) lines.push(`          columns ${view.columns.map((column) => qiyIdentifier(column, "Chart table column")).join(", ")};`);
-          lines.push("        }");
-        }
-        lines.push("      }");
+    for (const view of chart.views) {
+      const data = view.data;
+      const operation = data.operation;
+      const dataText = operation === "count"
+        ? `count ${qiyIdentifier(data.entity, "Chart entity")}${data.groupBy ? ` group by ${qiyIdentifier(data.groupBy, "Chart group by field")}` : ""}`
+        : operation === "trend"
+          ? `trend ${qiyIdentifier(data.entity, "Chart entity")}.${qiyIdentifier(data.field!, "Chart trend field")} days ${data.days}`
+          : operation === "list"
+            ? `list ${qiyIdentifier(data.entity, "Chart entity")} columns ${(data.columns ?? []).map((column) => qiyIdentifier(column, "Chart table column")).join(", ")}`
+            : `${operation} ${qiyIdentifier(data.entity, "Chart entity")}.${qiyIdentifier(data.field!, "Chart aggregate field")}${data.groupBy ? ` group by ${qiyIdentifier(data.groupBy, "Chart group by field")}` : ""}`;
+      lines.push(`  chart ${view.kind === "const" ? "const" : view.kind} ${qiyIdentifier(chart.name, "Chart name")} {`);
+      if (view.icon !== undefined) lines.push(`    icon = ${qiyString(view.icon)};`);
+      if (view.title !== undefined) lines.push(`    title = ${qiyString(view.title)};`);
+      lines.push(`    data = ${dataText};`);
+      if (view.labels?.field !== undefined) lines.push(`    labels = ${qiyIdentifier(view.labels.field, "Chart labels field")};`);
+      else if (view.labels?.values?.length) {
+        lines.push("    labels {");
+        for (const entry of view.labels.values) lines.push(`      ${qiyIdentifier(entry.value, "Chart label value")} ${qiyString(entry.label)};`);
+        lines.push("    }");
       }
-      lines.push("    }");
+      lines.push("  }");
     }
-    lines.push("  }");
   }
   for (const panel of project.chartPanels ?? []) {
-    lines.push(`  chart panels ${qiyIdentifier(panel.name, "Chart panel name")}${panel.label !== undefined ? ` @label(${qiyString(panel.label)})` : ""} {`);
-    for (const row of panel.rows) {
-      lines.push("    Row {");
-      for (const column of row.columns) {
-        lines.push(`      Col span ${column.span} {`);
-        for (const reference of column.charts) lines.push(`        chart ${qiyIdentifier(reference, "Chart panel reference")};`);
-        lines.push("      }");
-      }
+    lines.push(`  chart panels ${qiyIdentifier(panel.name, "Chart panel name")} {`);
+    if (panel.title !== undefined) lines.push(`    title = ${qiyString(panel.title)};`);
+    lines.push(`    grid ${panel.grid.columns} ${panel.grid.rows};`);
+    for (const chart of panel.charts) {
+      lines.push(`    ${qiyIdentifier(chart.name, "Chart panel reference")} {`);
+      for (const placement of chart.placements) lines.push(`      ${placement.variant} ${placement.x} ${placement.y} ${placement.w} ${placement.h};`);
       lines.push("    }");
     }
     lines.push("  }");

@@ -33,7 +33,7 @@ application qiy-erp-admin @comment("Operations administration") {
 | `permission` | 原子权限、权限组（角色即权限组）、provider 来源与权限校验表达式 |
 | `menu` | 菜单分组与层级 |
 | `dashboard` | 概览页指标（旧式单卡片） |
-| `chart` / `chart panels` | 概览页多视图图表与面板布局 |
+| `chart` / `chart panels` | 概览页多视图图表 + 响应式栅格面板（`data = ...` 迷你语言、`grid`/变体） |
 | `dataflow` | 声明式服务端业务命令；当前可执行受限的加载、条件校验与事务更新 |
 | `action` | 将显式 Dataflow 命令或手写业务页挂载到列表与详情操作区 |
 
@@ -132,7 +132,7 @@ messages {
 | `qiy.resources.<resource>.fields.<field>.label` | 列表列头、详情字段名、表单 label、筛选占位符、关联表列头 |
 | `qiy.enums.<enum>.label` / `qiy.enums.<enum>.values.<value>` | 枚举值 Tag、下拉选项（显示模板中的枚举字段同样走这里） |
 | `qiy.menu.<group>.label` | 菜单分组 |
-| `qiy.charts.<chart>.label` / `qiy.charts.<chart>.views.<index>.label` | 概览页图表卡片/面板标题与视图标题（视图按布局顺序从 0 编号） |
+| `qiy.charts.<chart>.label` / `qiy.charts.<chart>.views.<kind>.label` / `qiy.charts.<chart>.labels.<value>` | 概览页图表卡片/面板标题、视图标题（kind = const/pie/bar/line/table）与分布数值文案覆盖 |
 | `qiy.dashboard.<metric>.label` | Dashboard 指标卡 |
 | `qiy.actions.<action>.label` / `.confirm` / `.inputs.<input>.label` | 业务命令按钮、确认文案、命令表单字段与枚举选项 |
 

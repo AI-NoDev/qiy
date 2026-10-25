@@ -3,7 +3,7 @@ import { createI18nProvider, filterModeLabel, readStoredLocale, resolveLocale, s
 import { defaultMessageLocale, projectMessages } from "../app/messages";
 import { enumerations, menuGroups, resources } from "../app/resources";
 import { dashboardMetrics } from "../app/dashboard";
-import { chartPanels, charts, flattenChartViews } from "../app/charts";
+import { chartPanels, charts } from "../app/charts";
 import { qiyActions } from "../app/actions";
 
 interface LabelEntry { key: string; fallback: string }
@@ -15,9 +15,12 @@ const labels: LabelEntry[] = [
   ...resources.flatMap((resource) => (resource.relatedResources ?? []).map((relation) => ({ key: relation.labelKey ?? "", fallback: relation.label }))),
   ...menuGroups.map((group) => ({ key: group.labelKey, fallback: group.label })),
   ...dashboardMetrics.map((metric) => ({ key: metric.labelKey ?? "", fallback: metric.label })),
-  ...charts.map((chart) => ({ key: chart.labelKey, fallback: chart.label })),
-  ...chartPanels.map((panel) => ({ key: panel.labelKey, fallback: panel.label })),
-  ...charts.flatMap((chart) => flattenChartViews(chart).map((view) => ({ key: view.labelKey, fallback: view.label }))),
+  ...charts.map((chart) => ({ key: chart.labelKey, fallback: chart.title })),
+  ...chartPanels.map((panel) => ({ key: panel.labelKey, fallback: panel.title })),
+  ...charts.flatMap((chart) => chart.views.flatMap((view) => [
+    { key: view.labelKey, fallback: view.label },
+    ...(view.labels?.values ?? []).map((entry) => ({ key: entry.labelKey, fallback: entry.label })),
+  ])),
   ...qiyActions.flatMap((action) => [
     { key: action.labelKey ?? "", fallback: action.label },
     ...(action.target.kind === "dataflow" ? [
@@ -54,11 +57,11 @@ test("enum values, menu groups and dashboard metrics carry translation keys", ()
   for (const metric of dashboardMetrics) expect(metric.labelKey).toBe("qiy.dashboard." + metric.name + ".label");
   for (const chart of charts) {
     expect(chart.labelKey).toBe("qiy.charts." + chart.name + ".label");
-    const views = flattenChartViews(chart);
-    views.forEach((view, index) => {
-      expect(view.index).toBe(index);
-      expect(view.labelKey).toBe("qiy.charts." + chart.name + ".views." + index + ".label");
-    });
+    expect(chart.views.length).toBeGreaterThan(0);
+    for (const view of chart.views) {
+      expect(view.labelKey).toBe("qiy.charts." + chart.name + ".views." + view.kind + ".label");
+      for (const entry of view.labels?.values ?? []) expect(entry.labelKey).toBe("qiy.charts." + chart.name + ".labels." + entry.value);
+    }
   }
   for (const panel of chartPanels) expect(panel.labelKey).toBe("qiy.charts." + panel.name + ".label");
   for (const mode of ["eq", "contains", "between"]) expect(filterModeLabel("zh-CN", mode).length).toBeGreaterThan(0);

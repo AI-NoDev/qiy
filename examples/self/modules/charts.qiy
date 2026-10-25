@@ -1,93 +1,99 @@
 # Chart dashboard (概览页面). Included after `menu` and before dataflows, at the
-# same position as the legacy `dashboard { metric ... }` block: charts and metrics
-# may be declared in either order, but both come after menu and before dataflows.
+# same position as the legacy `dashboard { metric ... }` block.
 #
-# Each `chart` declares a data source and a Rows/Cols layout with one or more
-# views (stat / bar / line / pie / table). `chart panels` arranges chart
-# references into dashboard rows; panels render in declaration order. Labels fall
-# back to the declared text and are translated through
-# `qiy.charts.<name>.label` / `qiy.charts.<chart>.views.<index>.label` in
-# modules/messages.qiy.
+# `chart [kind] <Name> { ... }` declares one view of a chart: `const` (stat),
+# `pie`, `bar`, `line` or `table`. Declaring the same name with different kinds
+# makes a multi-view chart (the card gets a view selector). `data = ...` is a
+# small mini language mapped onto the existing list/aggregate/distribution/trend
+# endpoints. `chart panels` places chart references on a grid: `grid <cols>
+# <rows>` then `<ChartName> { <variant> <x> <y> <w> <h>; }` with responsive
+# variants (larger/xl/lg >=1200px, medium/md >=768px, small/sm/xs below).
+#
+# Titles fall back to the declared text and are translated through
+# `qiy.charts.<name>.label`, `qiy.charts.<chart>.views.<kind>.label` and the
+# distribution label overrides `qiy.charts.<name>.labels.<value>`.
 
-# --- stat views -------------------------------------------------------------
+# --- stat -------------------------------------------------------------------
 chart const UserCount {
-  source users;
-  Row {
-    Col span 24 { view stat @label("用户总数") { aggregate count; } }
-  }
-}
-chart const PurchaseOrderCount {
-  source purchase_orders;
-  Row {
-    Col span 24 { view stat @label("采购单总数") { aggregate count; } }
-  }
-}
-chart const ShipmentCount {
-  source shipments;
-  Row {
-    Col span 24 { view stat @label("发运单总数") { aggregate count; } }
-  }
+  icon = "TeamOutlined";
+  title = "用户总数";
+  data = count users;
 }
 
-# Multi-view chart: two aggregate views in one Rows/Cols layout.
-chart const InventorySnapshot {
-  source inventory;
-  Row {
-    Col span 12 { view stat @label("在库总量") { aggregate sum; field quantity; } }
-    Col span 12 { view stat @label("平均在库") { aggregate avg; field quantity; } }
-  }
+# --- multi-view chart: pie + bar views of the same chart --------------------
+chart pie UserStatusCount {
+  icon = "PieChartOutlined";
+  title = "用户状态分布";
+  data = count users group by role;
+  labels = role;
 }
-
-# --- distribution views (bar / pie) ----------------------------------------
-chart const MovementByType {
-  source stock_movements;
-  Row {
-    Col span 24 { view bar @label("按类型统计的库存流水") { groupBy type; } }
-  }
-}
-chart const PurchaseStatus {
-  source purchase_orders;
-  Row {
-    Col span 24 { view pie @label("采购单状态") { groupBy status; } }
+chart bar UserStatusCount {
+  icon = "BarChartOutlined";
+  title = "用户状态分布";
+  data = count users group by role;
+  labels {
+    admin "管理员";
+    operator "运营";
+    viewer "只读";
   }
 }
 
 # --- line trend -------------------------------------------------------------
-chart const MovementTrend {
-  source stock_movements;
-  Row {
-    Col span 24 { view line @label("近 30 天库存流水") { dateField occurredAt; days 30; } }
-  }
+chart line MovementTrend {
+  icon = "LineChartOutlined";
+  title = "库存流水趋势";
+  data = trend stock_movements.occurredAt days 30;
 }
 
-# --- table view (read-only preview, no edit actions) -----------------------
-chart const InventoryByWarehouse {
-  source inventory;
-  Row {
-    Col span 24 { view table @label("按仓库的库存记录") { columns inventoryKey, warehouseId, quantity, reserved; } }
-  }
+# --- table view (read-only preview, no edit actions) ------------------------
+chart table InventoryTable {
+  icon = "TableOutlined";
+  title = "按仓库的库存记录";
+  data = list inventory columns inventoryKey, warehouseId, quantity, reserved;
 }
 
 # --- panels -----------------------------------------------------------------
-chart panels OverviewKpis {
-  Row {
-    Col span 8 { chart UserCount; }
-    Col span 8 { chart PurchaseOrderCount; }
-    Col span 8 { chart ShipmentCount; }
+chart panels Overview {
+  title = "概览";
+  grid 24 24;
+  UserCount {
+    larger 0 0 6 2;
+    medium 0 0 12 2;
+    small 0 0 24 3;
+  }
+  UserStatusCount {
+    larger 6 0 12 2;
+    medium 12 0 12 3;
+    small 0 3 24 4;
+  }
+  MovementTrend {
+    larger 18 0 6 2;
+    medium 0 3 24 3;
+    small 0 7 24 4;
+  }
+  InventoryTable {
+    larger 0 2 24 6;
+    medium 0 6 24 5;
+    small 0 11 24 6;
   }
 }
+
 chart panels Operations {
-  Row {
-    Col span 8 { chart MovementByType; }
-    Col span 16 { chart MovementTrend; }
+  title = "运营";
+  grid 24 24;
+  UserStatusCount {
+    larger 0 0 12 3;
+    medium 0 0 24 4;
+    small 0 0 24 4;
   }
-  Row {
-    Col span 12 { chart PurchaseStatus; }
-    Col span 12 { chart InventorySnapshot; }
+  MovementTrend {
+    larger 12 0 12 3;
+    medium 0 4 24 4;
+    small 0 4 24 4;
   }
-}
-chart panels InventoryBoard {
-  Row {
-    Col span 24 { chart InventoryByWarehouse; }
+  InventoryTable {
+    larger 0 3 24 6;
+    medium 0 8 24 5;
+    small 0 8 24 6;
   }
 }

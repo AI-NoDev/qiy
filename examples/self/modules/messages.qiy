@@ -7,7 +7,8 @@
 #   qiy.enums.<enum>.label / .values.<value>        enum value tags and select options
 #   qiy.menu.<group>.label                          menu groups
 #   qiy.charts.<chart>.label                        chart card / panel titles
-#   qiy.charts.<chart>.views.<index>.label          chart view titles (layout order)
+#   qiy.charts.<chart>.views.<kind>.label           per-view titles (kind = const/pie/bar/line/table)
+#   qiy.charts.<chart>.labels.<value>               distribution label overrides
 #   qiy.actions.<action>.label / .confirm / .inputs.<input>.label   business commands
 #
 # The file is included right after the auth block; the parser requires `messages`
@@ -229,27 +230,21 @@ messages {
     "qiy.menu.inventory.label" "库存与仓储";
     "qiy.menu.production.label" "生产";
     "qiy.menu.system.label" "系统管理";
-    # charts (titles, panel titles and view labels)
+    # charts (titles, panel titles, view labels and distribution label overrides)
     "qiy.charts.UserCount.label" "用户总数";
-    "qiy.charts.UserCount.views.0.label" "用户总数";
-    "qiy.charts.PurchaseOrderCount.label" "采购单总数";
-    "qiy.charts.PurchaseOrderCount.views.0.label" "采购单总数";
-    "qiy.charts.ShipmentCount.label" "发运单总数";
-    "qiy.charts.ShipmentCount.views.0.label" "发运单总数";
-    "qiy.charts.InventorySnapshot.label" "库存概览";
-    "qiy.charts.InventorySnapshot.views.0.label" "在库总量";
-    "qiy.charts.InventorySnapshot.views.1.label" "平均在库";
-    "qiy.charts.MovementByType.label" "库存流水类型";
-    "qiy.charts.MovementByType.views.0.label" "按类型统计的库存流水";
-    "qiy.charts.PurchaseStatus.label" "采购单状态";
-    "qiy.charts.PurchaseStatus.views.0.label" "采购单状态";
+    "qiy.charts.UserCount.views.const.label" "用户总数";
+    "qiy.charts.UserStatusCount.label" "用户状态分布";
+    "qiy.charts.UserStatusCount.views.pie.label" "用户状态分布";
+    "qiy.charts.UserStatusCount.views.bar.label" "用户状态分布";
+    "qiy.charts.UserStatusCount.labels.admin" "管理员账号";
+    "qiy.charts.UserStatusCount.labels.operator" "运营账号";
+    "qiy.charts.UserStatusCount.labels.viewer" "只读账号";
     "qiy.charts.MovementTrend.label" "库存流水趋势";
-    "qiy.charts.MovementTrend.views.0.label" "近 30 天库存流水";
-    "qiy.charts.InventoryByWarehouse.label" "按仓库的库存记录";
-    "qiy.charts.InventoryByWarehouse.views.0.label" "按仓库的库存记录";
-    "qiy.charts.OverviewKpis.label" "关键指标";
-    "qiy.charts.Operations.label" "运营概览";
-    "qiy.charts.InventoryBoard.label" "库存看板";
+    "qiy.charts.MovementTrend.views.line.label" "近 30 天库存流水";
+    "qiy.charts.InventoryTable.label" "按仓库的库存记录";
+    "qiy.charts.InventoryTable.views.table.label" "按仓库的库存记录";
+    "qiy.charts.Overview.label" "概览";
+    "qiy.charts.Operations.label" "运营";
     # actions
     "qiy.actions.receiveInventory.label" "收货";
     "qiy.actions.receiveInventory.confirm" "将这批收货过账到库存？";
@@ -544,27 +539,21 @@ messages {
     "qiy.menu.inventory.label" "Inventory & warehouse";
     "qiy.menu.production.label" "Production";
     "qiy.menu.system.label" "System";
-    # charts (titles, panel titles and view labels)
+    # charts (titles, panel titles, view labels and distribution label overrides)
     "qiy.charts.UserCount.label" "Users";
-    "qiy.charts.UserCount.views.0.label" "User total";
-    "qiy.charts.PurchaseOrderCount.label" "Purchase orders";
-    "qiy.charts.PurchaseOrderCount.views.0.label" "Purchase orders";
-    "qiy.charts.ShipmentCount.label" "Shipments";
-    "qiy.charts.ShipmentCount.views.0.label" "Shipments";
-    "qiy.charts.InventorySnapshot.label" "Inventory snapshot";
-    "qiy.charts.InventorySnapshot.views.0.label" "Units in stock";
-    "qiy.charts.InventorySnapshot.views.1.label" "Average per record";
-    "qiy.charts.MovementByType.label" "Movements by type";
-    "qiy.charts.MovementByType.views.0.label" "Movements by type";
-    "qiy.charts.PurchaseStatus.label" "Purchase status";
-    "qiy.charts.PurchaseStatus.views.0.label" "Purchase status";
-    "qiy.charts.MovementTrend.label" "Movements (30 days)";
-    "qiy.charts.MovementTrend.views.0.label" "Movements (30 days)";
-    "qiy.charts.InventoryByWarehouse.label" "Inventory by warehouse";
-    "qiy.charts.InventoryByWarehouse.views.0.label" "Inventory by warehouse";
-    "qiy.charts.OverviewKpis.label" "Key metrics";
+    "qiy.charts.UserCount.views.const.label" "User total";
+    "qiy.charts.UserStatusCount.label" "User status distribution";
+    "qiy.charts.UserStatusCount.views.pie.label" "User status (pie)";
+    "qiy.charts.UserStatusCount.views.bar.label" "User status (bar)";
+    "qiy.charts.UserStatusCount.labels.admin" "Administrators";
+    "qiy.charts.UserStatusCount.labels.operator" "Operators";
+    "qiy.charts.UserStatusCount.labels.viewer" "Viewers";
+    "qiy.charts.MovementTrend.label" "Stock movement trend";
+    "qiy.charts.MovementTrend.views.line.label" "Movements (30 days)";
+    "qiy.charts.InventoryTable.label" "Inventory by warehouse";
+    "qiy.charts.InventoryTable.views.table.label" "Inventory by warehouse";
+    "qiy.charts.Overview.label" "Overview";
     "qiy.charts.Operations.label" "Operations";
-    "qiy.charts.InventoryBoard.label" "Inventory board";
     # actions
     "qiy.actions.receiveInventory.label" "Receive goods";
     "qiy.actions.receiveInventory.confirm" "Post this receipt into stock?";
