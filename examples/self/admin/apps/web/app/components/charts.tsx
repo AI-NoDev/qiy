@@ -223,7 +223,9 @@ function ChartTableView({ view }: { view: ChartViewDefinition }) {
   return (
     <ViewState loading={query.isLoading} error={query.error}>
       <Table<Record<string, unknown>> size="small" rowKey="id" dataSource={result.data ?? []} columns={columns} pagination={false} scroll={{ x: "max-content" }} locale={{ emptyText: translate("qiy.noData", {}, "No data") }} />
-      <Link to={"/" + view.data.entity} style={{ display: "inline-block", marginTop: 8 }}>{translate("qiy.view", {}, "View") + " " + (source?.plural ?? view.data.entity)}</Link>
+      <Link to={"/" + view.data.entity} style={{ display: "inline-block", marginTop: 8 }}>
+        {translate("qiy.viewResource", { resource: translate(source?.pluralKey ?? "", {}, source?.plural ?? view.data.entity) }, "View " + (source?.plural ?? view.data.entity))}
+      </Link>
     </ViewState>
   );
 }
