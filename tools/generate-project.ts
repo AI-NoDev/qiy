@@ -46,7 +46,15 @@ export function generateProject(database: DatabaseIR, name: string, options: Pro
     path.replace(/^api\//, "apps/server/").replace(/^web\//, "apps/web/"), content,
   ]));
   Object.assign(apps, generateEnvironmentFiles(database, options));
+  // The relation-cell / record-details UI regression tests use the demo `orgs`
+  // display-template fixture; models without it must not ship failing tests.
+  const hasRelationCellFixture = database.entities.some((entity) => entity.name === "orgs" && entity.display) && (database.relations ?? []).some((relation) => relation.toEntity === "orgs");
+  if (!hasRelationCellFixture) {
+    delete apps["apps/web/tests/relation-cell.test.tsx"];
+    delete apps["apps/web/tests/record-details.test.tsx"];
+  }
   for (const [path, content] of Object.entries(template)) {
+    if (!hasRelationCellFixture && (path === "apps/web/tests/relation-cell.test.tsx" || path === "apps/web/tests/record-details.test.tsx")) continue;
     if (path in apps) continue;
     apps[path] = content;
   }
