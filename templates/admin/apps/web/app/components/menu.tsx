@@ -1,6 +1,6 @@
-import { CanAccess, useIsExistAuthentication, useLogout, useTranslation, useWarnAboutChange } from "@refinedev/core";
+import { useIsExistAuthentication, useLogout, useMenu, useTranslation, useWarnAboutChange } from "@refinedev/core";
 import { ThemedTitle, useThemedLayoutContext, type RefineThemedLayoutSiderProps } from "@refinedev/antd";
-import { Button, ConfigProvider, Drawer, Grid, Layout, Menu, theme } from "antd";
+import { Button, ConfigProvider, Drawer, Grid, Layout, Menu, theme, type MenuProps } from "antd";
 import { BarsOutlined, LeftOutlined, LogoutOutlined, RightOutlined, UnorderedListOutlined } from "@ant-design/icons";
 import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
@@ -233,17 +233,6 @@ export function QiySider({ Title }: RefineThemedLayoutSiderProps) {
   }, [routeOpenKeys]);
 
   const label = useCallback((node: QiyMenuNode) => (node.labelKey ? translate(node.labelKey, {}, node.label) : node.label), [translate]);
-  const renderNodes = (nodes: ReadonlyArray<QiyMenuNode>): ReactNode => nodes.map((node) => node.children.length > 0
-    ? <CanAccess key={node.key} resource={node.key} action="list">
-        <Menu.SubMenu key={node.key} icon={menuIcon(node.icon)} title={label(node)}>
-          {renderNodes(node.children)}
-        </Menu.SubMenu>
-      </CanAccess>
-    : <CanAccess key={node.key} resource={node.key} action="list">
-        <Menu.Item key={node.key} icon={menuIcon(node.icon)}>
-          <Link to={node.to ?? "/"}>{label(node)}</Link>
-        </Menu.Item>
-      </CanAccess>);
 
   const isAuthenticated = useIsExistAuthentication();
   const { warnWhen, setWarnWhen } = useWarnAboutChange();
@@ -259,21 +248,49 @@ export function QiySider({ Title }: RefineThemedLayoutSiderProps) {
     }
   };
 
-  const logoutItem = isAuthenticated
-    ? <Menu.Item key="logout" icon={<LogoutOutlined />} onClick={handleLogout}>{translate("buttons.logout", "Logout")}</Menu.Item>
-    : null;
+  // Refine's `useMenu` already applies the access-control provider to the
+  // configured resources; using it keeps the grouped tree filtered without
+  // wrapping menu entries in CanAccess (antd's `items` API cannot host wrappers).
+  const { menuItems } = useMenu();
+  const allowedResourceNames = useMemo(() => {
+    const allowed = new Set<string>();
+    const known = new Set(resources.map((resource) => resource.name));
+    const walk = (items: ReadonlyArray<{ name?: unknown; children?: ReadonlyArray<unknown> }> | undefined): void => {
+      for (const item of items ?? []) {
+        if (typeof item.name === "string" && known.has(item.name)) allowed.add(item.name);
+        walk(item.children as ReadonlyArray<{ name?: unknown; children?: ReadonlyArray<unknown> }> | undefined);
+      }
+    };
+    walk(menuItems as ReadonlyArray<{ name?: unknown; children?: ReadonlyArray<unknown> }> | undefined);
+    return allowed;
+  }, [menuItems]);
+
+  const siderMenuItems = useMemo<NonNullable<MenuProps["items"]>>(() => {
+    const build = (nodes: ReadonlyArray<QiyMenuNode>): NonNullable<MenuProps["items"]> => nodes.flatMap<NonNullable<MenuProps["items"]>[number]>((node) => {
+      if (node.children.length > 0) {
+        const children = build(node.children);
+        return children.length > 0 ? [{ key: node.key, icon: menuIcon(node.icon), label: label(node), children }] : [];
+      }
+      const isResource = resources.some((resource) => resource.name === node.key);
+      if (isResource && !allowedResourceNames.has(node.key)) return [];
+      return [{ key: node.key, icon: menuIcon(node.icon), label: <Link to={node.to ?? "/"}>{label(node)}</Link> }];
+    });
+    const items = build(tree);
+    if (isAuthenticated) {
+      items.push({ key: "logout", icon: <LogoutOutlined />, label: translate("buttons.logout", "Logout"), onClick: handleLogout });
+    }
+    return items;
+  }, [tree, label, allowedResourceNames, isAuthenticated, translate, handleLogout]);
 
   const renderMenu = () => <Menu
     mode="inline"
+    items={siderMenuItems}
     selectedKeys={selectedKey ? [selectedKey] : []}
     {...(siderCollapsed ? {} : { openKeys, onOpenChange: (keys: string[]) => setOpenKeys(keys) })}
     inlineCollapsed={siderCollapsed}
     style={{ border: "none" }}
     onClick={() => setMobileSiderOpen(false)}
-  >
-    {renderNodes(tree)}
-    {logoutItem}
-  </Menu>;
+  />;
 
   const TitleComponent = Title ?? ThemedTitle;
   const title = (collapsed: boolean) => <div

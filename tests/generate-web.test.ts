@@ -234,7 +234,9 @@ describe("Refine SPA generation", () => {
     // The sider builds real nested submenus from that metadata and keeps the route open.
     expect(files["web/app/components/menu.tsx"]).toContain("export function buildMenuTree");
     expect(files["web/app/components/menu.tsx"]).toContain("export function QiySider");
-    expect(files["web/app/components/menu.tsx"]).toContain("<Menu.SubMenu");
+    expect(files["web/app/components/menu.tsx"]).toContain("const siderMenuItems = useMemo<NonNullable<MenuProps[\"items\"]>>");
+    expect(files["web/app/components/menu.tsx"]).toContain("items={siderMenuItems}");
+    expect(files["web/app/components/menu.tsx"]).not.toContain("<Menu.SubMenu");
     expect(files["web/app/components/menu.tsx"]).toContain("useThemedLayoutContext");
     expect(files["web/app/components/menu.tsx"]).toContain("export const qiySiderWidth = 248");
     expect(files["web/app/components/menu.tsx"]).toContain("inlineCollapsed={siderCollapsed}");
