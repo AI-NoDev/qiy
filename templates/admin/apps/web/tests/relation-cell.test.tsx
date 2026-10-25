@@ -103,9 +103,9 @@ test("keeps the per-cell query disabled while the batch is still loading", () =>
         children: createElement(RelationCell, { field: field as never, value: related.id }),
       }),
     );
-    // The first paint shows the loading placeholder, not the raw id, and still
+    // The first paint shows the loading skeleton, not the raw id, and still
     // never enables the per-cell query.
-    expect(html).toContain("…");
+    expect(html).toContain("ant-skeleton");
     expect(html).not.toContain(">" + related.id + "<");
     expect(useOneCalls).toHaveLength(1);
     expect(useOneCalls[0]!.queryOptions?.enabled).toBe(false);

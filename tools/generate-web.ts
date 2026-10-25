@@ -1623,7 +1623,7 @@ export const localeMessages = {
     visibleColumns: "显示列", confirmDelete: "确认删除选中记录？", deleted: "删除成功", unknownResource: "未知资源", detail: "详情",
     createResource: "新建{{resource}}", editResource: "编辑{{resource}}", openDetail: "打开详情", searchRelation: "搜索…",
     drawerBreadcrumb: "关联记录路径", recordDetails: "字段详情", recordSummary: "关联摘要", close: "关闭",
-    language: "语言", save: "保存", cancel: "取消", deleteSuccess: "删除成功", requiredWithLabel: "请输入\${label}", quickAccess: "快速访问", upload: "上传文件",
+    language: "语言", save: "保存", cancel: "取消", deleteSuccess: "删除成功", requiredWithLabel: "请输入\${label}", loading: "加载中", quickAccess: "快速访问", upload: "上传文件",
     overview: "概览", overviewDescription: "从数据资源快速进入业务管理。", profile: "个人中心", filters: "筛选", search: "搜索",
     matchAll: "全部匹配", matchAny: "任一匹配", commaSeparated: "（逗号分隔）", forbidden: "没有访问该页面的权限",
     noData: "暂无数据", vectorData: "向量数据", pickDate: "选择日期", pickTime: "选择时间", pickDateTime: "选择日期和时间",
@@ -1667,7 +1667,7 @@ export const localeMessages = {
     visibleColumns: "Columns", confirmDelete: "Delete selected records?", deleted: "Deleted", unknownResource: "Unknown resource", detail: "Detail",
     createResource: "Create {{resource}}", editResource: "Edit {{resource}}", openDetail: "Open details", searchRelation: "Search…",
     drawerBreadcrumb: "Related record path", recordDetails: "Field details", recordSummary: "Relation summary", close: "Close",
-    language: "Language", save: "Save", cancel: "Cancel", deleteSuccess: "Deleted", requiredWithLabel: "\${label} is required", quickAccess: "Quick access", upload: "Upload file",
+    language: "Language", save: "Save", cancel: "Cancel", deleteSuccess: "Deleted", requiredWithLabel: "\${label} is required", loading: "Loading", quickAccess: "Quick access", upload: "Upload file",
     overview: "Overview", overviewDescription: "Jump into your data resources from one place.", profile: "Profile", filters: "Filters", search: "Search",
     matchAll: "Match all", matchAny: "Match any", commaSeparated: " (comma separated)", forbidden: "You are not allowed to open this page",
     noData: "No data", vectorData: "Vector data", pickDate: "Select date", pickTime: "Select time", pickDateTime: "Select date and time",
@@ -1809,7 +1809,7 @@ import { Alert, Button, Checkbox, Dropdown, Input, Popconfirm, Popover, Select, 
 import type { ColumnsType } from "antd/es/table";
 import { DeleteOutlined, DownloadOutlined, SaveOutlined, SettingOutlined, UploadOutlined } from "@ant-design/icons";
 import { Link, useParams } from "react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { canSeeField, getResource, type ResourceField } from "../resources";
 import { RelationCell } from "../components/relation-field";
 import { RelationBatchProvider, buildRelationBatchPlan } from "../components/relation-batch";
@@ -1927,14 +1927,18 @@ export default function ResourceList() {
   const { data: deletePermission } = useCan({ resource: name ?? "", action: "delete", queryOptions: { enabled: !!resource } });
   const [search, setSearch] = useState(""); const enumFields = resource?.fields.filter((field) => field.filterable && field.enumValues?.length) ?? []; const advancedFields = resource?.fields.filter((field) => field.filterable && !field.enumValues?.length && field.filterModes?.length) ?? []; const [enumFilters, setEnumFilters] = useState<Record<string, string | undefined>>({}); const [advancedFilters, setAdvancedFilters] = useState<Record<string, { operator: string; value: string }>>({}); const [advancedJoin, setAdvancedJoin] = useState<"and" | "or">("and");
   const { visibleKeys, setVisibleKeys } = useColumnVisibility(resource);
+  const relationBatchFields = useMemo(() => (resource?.fields ?? []).filter((field) => field.relation && field.listVisible && canSeeField(field, identity?.role)), [resource, identity?.role]);
+  const relationBatchRows = (tableProps.dataSource ?? []) as Array<Record<string, unknown>>;
+  // One batched FK request per target resource instead of one getOne per cell. The
+  // plan is memoized so a re-render (e.g. an identity or selection update) cannot
+  // retrigger the batch queries.
+  const relationBatchPlan = useMemo(() => buildRelationBatchPlan(relationBatchFields, relationBatchRows), [relationBatchFields, relationBatchRows]);
   if (!resource) return <Alert type="error" message={translate("qiy.unknownResource", {}, t(locale, "unknownResource"))} />;
   // Menu/list titles use @plural, create/edit titles use @singular; both fall
   // back to the translated resource label so older dictionaries keep working.
   const singular = translate(resource.singularKey, {}, translate(resource.labelKey, {}, resource.singular));
   const plural = translate(resource.pluralKey, {}, translate(resource.labelKey, {}, resource.label));
   const fields = resource.fields.filter((field) => field.type !== "Vector" && visibleKeys.includes(field.name) && canSeeField(field, identity?.role));
-  // One batched FK request per target resource instead of one getOne per cell.
-  const relationBatchPlan = buildRelationBatchPlan(resource.fields.filter((field) => field.relation && field.listVisible && canSeeField(field, identity?.role)), (tableProps.dataSource ?? []) as Array<Record<string, unknown>>);
   const columns: ColumnsType<Record<string, unknown>> = fields.map((field) => {
     const Icon = field.icon ? qiyIcons[field.icon as keyof typeof qiyIcons] : undefined;
     return { title: <Space>{Icon && <Icon />}<span>{translate(field.labelKey, {}, field.label)}</span></Space>, dataIndex: field.name, key: field.name, sorter: field.sortable, render: (value: unknown) => renderCell(field, value, notify, translate, locale) };

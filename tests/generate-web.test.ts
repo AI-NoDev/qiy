@@ -193,7 +193,10 @@ describe("Refine SPA generation", () => {
     expect(files["web/app/components/relation-batch.tsx"]).toContain("pending: ReadonlySet<string>");
     expect(files["web/app/components/relation-batch.tsx"]).toContain("if (query.isPending) pending.add(entry.resource)");
     // List and show pages mount the batch provider; the cell disables its fallback query.
-    expect(files["web/app/routes/list.tsx"]).toContain("buildRelationBatchPlan(resource.fields.filter((field) => field.relation && field.listVisible && canSeeField(field, identity?.role)), (tableProps.dataSource ?? [])");
+    expect(files["web/app/routes/list.tsx"]).toContain("const relationBatchFields = useMemo(() => (resource?.fields ?? []).filter((field) => field.relation && field.listVisible && canSeeField(field, identity?.role)), [resource, identity?.role])");
+    expect(files["web/app/routes/list.tsx"]).toContain("const relationBatchPlan = useMemo(() => buildRelationBatchPlan(relationBatchFields, relationBatchRows), [relationBatchFields, relationBatchRows])");
+    expect(files["web/app/components/relation-batch.tsx"]).toContain("refetchOnMount: false");
+    expect(files["web/app/components/relation-field.tsx"]).toContain("Skeleton.Input");
     expect(files["web/app/routes/list.tsx"]).toContain("<RelationBatchProvider plan={relationBatchPlan}>");
     expect(files["web/app/routes/show.tsx"]).toContain("<RelationBatchProvider plan={buildRelationBatchPlan(visibleDetailFields(resource, identity?.role), [result])}>");
     expect(files["web/app/components/relation-field.tsx"]).toContain("const batched = useBatchedRelation(resource, id)");

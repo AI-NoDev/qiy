@@ -76,7 +76,15 @@ function RelationBatchLayer({ entry, children }: { entry: RelationBatchPlanEntry
   const { result, query } = useMany<Record<string, unknown>>({
     resource: entry.resource,
     ids: entry.ids,
-    queryOptions: { staleTime: 60_000, retry: false },
+    queryOptions: {
+      staleTime: 60_000,
+      gcTime: 300_000,
+      retry: false,
+      // The list page owns this query; a remount or window focus must not refetch
+      // the same id set (that produced duplicate per-page requests).
+      refetchOnMount: false,
+      refetchOnWindowFocus: false,
+    },
   });
   const value = useMemo(() => {
     const records = new Map<string, Record<string, unknown>>();

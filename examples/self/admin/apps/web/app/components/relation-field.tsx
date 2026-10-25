@@ -1,6 +1,6 @@
 import { useSelect } from "@refinedev/antd";
 import { useOne, useTranslation } from "@refinedev/core";
-import { Alert, Breadcrumb, Button, Drawer, Select, Space, Spin, Typography, type SelectProps } from "antd";
+import { Alert, Breadcrumb, Button, Drawer, Select, Skeleton, Space, Spin, Typography, type SelectProps } from "antd";
 import { useMemo, useState, type FC, type ReactNode } from "react";
 import { Link } from "react-router";
 import { mergeRelationOptions, type QiyRelationOption } from "../relation-options";
@@ -135,7 +135,7 @@ function RelationLink({ target, resource, id, labelField }: RelationLinkProps) {
           setOpen(true);
         }}
       >
-        {text || (loading ? "…" : id)}
+        {text ? text : loading ? <Skeleton.Input active size="small" style={{ width: 120, height: 16 }} aria-label={translate("qiy.loading", {}, "Loading")} /> : id}
       </Link>
       <Drawer
         open={open}
