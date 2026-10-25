@@ -55,7 +55,7 @@ relation salesOrderCustomer sales_orders customerId customers id one;
 - 模板按标签配对校验；未闭合或错配、悬空的 `<` / `>`、`{name}` 这类非法占位符都会给出带实体和注解名的错误信息。
 - 模板里的文本与占位符值都会 HTML 转义；模板本身的语言中性（字段引用和分隔符），不参与 i18n；单数/复数名通过 `qiy.resources.<resource>.singular` / `.plural` 翻译键切换语言。
 
-生成后的列表页/详情页/关联表里，每个外键列显示目标实体的 `@tableDisplay` 文本并链接到该记录；点击打开 Drawer，正文是目标实体的 `@relationDetail`（无模板时回退到可见字段的 Description 列表），并有“打开详情”按钮跳转详情页。创建/编辑表单的外键下拉同样使用目标实体的显示文本。
+生成后的列表页/详情页/关联表里，每个外键列显示目标实体的 `@tableDisplay` 文本并链接到该记录；点击打开 Drawer，正文与目标记录的详情页一致（`RecordDetails`：全部 `showVisible` 字段、枚举 Tag、外键继续链接、日期本地化、文件下载链接、空值占位），`@relationDetail` 摘要保留在字段详情上方，头部面包屑是「目标资源列表 → 当前记录详情页」，并有“打开详情”入口。列表页的外键值会按目标资源批量加载（`getMany` + `useMany`，`id in (...)` 过滤），详情页/抽屉正文/外键下拉仍按单条记录 `useOne` 加载。创建/编辑表单的外键下拉同样使用目标实体的显示文本，详见 [relation 与 index](/dsl/relation-index#外键批量查询getmany--usemany)。
 
 ## 类型
 

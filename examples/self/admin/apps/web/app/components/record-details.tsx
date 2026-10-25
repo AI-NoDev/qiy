@@ -88,6 +88,14 @@ export interface RecordDetailsProps {
 }
 
 /**
+ * The fields a detail view renders for `role`. Shared by `RecordDetails` and by
+ * pages that pre-plan batched FK lookups, so hidden fields are never fetched.
+ */
+export function visibleDetailFields(resource: ResourceDefinition, role: string | undefined | null): ResourceField[] {
+  return resource.fields.filter((field) => field.showVisible && canSeeField(field, role));
+}
+
+/**
  * Renders every field a detail view may show for the current role. Both the
  * show page and the related-record drawer use it, so the field list, labels,
  * permissions and formatting are identical in both places.
@@ -97,7 +105,7 @@ export function RecordDetails({ resource, record, size = "default" }: RecordDeta
   const { data: identity } = useGetIdentity<{ role?: string }>();
   const locale: QiyLocale = resolveLocale(getLocale());
   const display = translate as unknown as DisplayTranslate;
-  const fields: ResourceField[] = resource.fields.filter((field) => field.showVisible && canSeeField(field, identity?.role));
+  const fields: ResourceField[] = visibleDetailFields(resource, identity?.role);
   return (
     <Descriptions bordered column={1} size={size} className="qiy-record-details">
       {fields.map((field) => (

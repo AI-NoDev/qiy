@@ -78,7 +78,8 @@ describe("Refine SPA generation", () => {
     database.entities[0]!.fields[1]!.formVisible = true;
     const files = generateWeb(database);
     expect(files["web/app/routes/list.tsx"]).toContain("visibleKeys");
-    expect(files["web/app/components/record-details.tsx"]).toContain("resource.fields.filter((field) => field.showVisible && canSeeField(field, identity?.role))");
+    expect(files["web/app/components/record-details.tsx"]).toContain("visibleDetailFields(resource, identity?.role)");
+    expect(files["web/app/components/record-details.tsx"]).toContain("resource.fields.filter((field) => field.showVisible && canSeeField(field, role))");
     expect(files["web/app/routes/show.tsx"]).toContain("RecordDetails");
     expect(files["web/app/components/resource-form.tsx"]).toContain("const fields = (id ? editFormFields(resource) : createFormFields(resource)).filter((field) => canSeeField(field, identity?.role))");
   });
@@ -171,6 +172,39 @@ describe("Refine SPA generation", () => {
     expect(files["web/app/i18n.ts"]).toContain('close: "关闭"');
     expect(files["web/tests/chrome-i18n.test.ts"]).toContain('"qiy.drawerBreadcrumb"');
     expect(files["web/tests/chrome-i18n.test.ts"]).toContain('"qiy.recordDetails"');
+  });
+
+  test("batches foreign-key lookups into one list request per target resource", () => {
+    const files = generateWeb(fixture);
+    // REST and GraphQL providers implement Refine's getMany with an id-set filter.
+    expect(files["web/app/data-provider.ts"]).toContain("getMany: async ({ resource, ids })");
+    expect(files["web/app/data-provider.ts"]).toContain("normalizeGetManyIds");
+    expect(files["web/app/data-provider.ts"]).toContain("getManyRequestUrls");
+    expect(files["web/app/data-provider.ts"]).toContain('{ field: "id", operator: "in", value: chunk.join(",") }');
+    expect(files["web/app/data-provider.ts"]).toContain("page=1&pageSize=");
+    expect(files["web/app/data-provider.ts"]).toContain("export const maxGetManyIds = 200");
+    // The plan groups FK ids per target resource; each group loads with one useMany.
+    expect(files["web/app/components/relation-batch.tsx"]).toContain("export function buildRelationBatchPlan");
+    expect(files["web/app/components/relation-batch.tsx"]).toContain("export function RelationBatchProvider");
+    expect(files["web/app/components/relation-batch.tsx"]).toContain("export function useBatchedRelation");
+    expect(files["web/app/components/relation-batch.tsx"]).toContain("useMany<Record<string, unknown>>");
+    expect(files["web/app/components/relation-batch.tsx"]).toContain("staleTime: 60_000");
+    expect(files["web/app/components/relation-batch.tsx"]).toContain("export const maxRelationBatchIds = 200");
+    expect(files["web/app/components/relation-batch.tsx"]).toContain("pending: ReadonlySet<string>");
+    expect(files["web/app/components/relation-batch.tsx"]).toContain("if (query.isPending) pending.add(entry.resource)");
+    // List and show pages mount the batch provider; the cell disables its fallback query.
+    expect(files["web/app/routes/list.tsx"]).toContain("buildRelationBatchPlan(resource.fields.filter((field) => field.relation && field.listVisible && canSeeField(field, identity?.role)), (tableProps.dataSource ?? [])");
+    expect(files["web/app/routes/list.tsx"]).toContain("<RelationBatchProvider plan={relationBatchPlan}>");
+    expect(files["web/app/routes/show.tsx"]).toContain("<RelationBatchProvider plan={buildRelationBatchPlan(visibleDetailFields(resource, identity?.role), [result])}>");
+    expect(files["web/app/components/relation-field.tsx"]).toContain("const batched = useBatchedRelation(resource, id)");
+    expect(files["web/app/components/relation-field.tsx"]).toContain("enabled: !batched.record && !batched.pending && Boolean(resource && id)");
+    expect(files["web/app/components/relation-field.tsx"]).toContain("const loading = query.isLoading || batched.pending");
+    // Generated tests cover the plan helper, the data-provider URL shape and the batched cell.
+    expect(files["web/tests/relation-batch.test.ts"]).toContain("groups FK values by target resource");
+    expect(files["web/tests/data-provider.test.ts"]).toContain("batches getMany ids into one list request");
+    expect(files["web/tests/data-provider.test.ts"]).toContain("GraphQL getMany batches ids into one list query");
+    expect(files["web/tests/relation-cell.test.tsx"]).toContain("renders from the batch provider without a per-cell detail request");
+    expect(files["web/tests/relation-cell.test.tsx"]).toContain("keeps the per-cell query disabled while the batch is still loading");
   });
 
   test("rejects display templates that interpolate a foreign key raw id", () => {

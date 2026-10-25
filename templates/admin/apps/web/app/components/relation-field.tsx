@@ -8,6 +8,7 @@ import { getResource, type ResourceDefinition, type ResourceField } from "../res
 import { recordDisplayText, relationDetailHtml, type DisplayTemplateOptions, type DisplayTranslate } from "../display-template";
 import { formatFieldValue } from "../date-fields";
 import { RecordDetails } from "./record-details";
+import { useBatchedRelation } from "./relation-batch";
 
 /**
  * Foreign-key rendering. A FK cell never shows a raw UUID: it shows the target
@@ -18,12 +19,12 @@ import { RecordDetails } from "./record-details";
  * then every `showVisible` field via the shared `RecordDetails` component.
  * Foreign keys inside the drawer open their own stacked drawer.
  *
- * Records are fetched per id through Refine's `useOne`: React Query dedupes
- * identical ids and caches them for a minute, which keeps repeated FK values on
- * one page to a single request. Batching distinct ids through `getList` with an
- * `id in [...]` filter was rejected because it needs a page-level provider that
- * related-record tables and drawers cannot share without duplicating the fetch
- * path; each FK cell already needs its target record for the drawer body.
+ * Records normally arrive from the surrounding `RelationBatchProvider`
+ * (`./relation-batch`), which loads a list page's FK ids per target resource with
+ * one `useMany`/`getMany` request. The per-cell `useOne` lookup stays as the
+ * fallback for pages without a batch provider (show-page related tables, drawer
+ * bodies, selects) and for host integrations whose data provider has no
+ * `getMany`; it is disabled whenever a batched record is already available.
  */
 export function displayOptions(resource: ResourceDefinition | undefined, translate: DisplayTranslate, locale?: string): DisplayTemplateOptions {
   return { fields: resource?.fields, translate, ...(locale ? { locale } : {}) };
@@ -108,11 +109,17 @@ function RelationLink({ target, resource, id, labelField }: RelationLinkProps) {
   const { translate, getLocale } = useTranslation();
   const locale = getLocale();
   const [open, setOpen] = useState(false);
-  const { result, query } = useOne<Record<string, unknown>>({ resource, id, queryOptions: { enabled: Boolean(resource && id), staleTime: 60_000, retry: false } });
+  // A list page batches all FK ids through RelationBatchProvider; while that batch
+  // is loading (or once its record arrived) the per-cell `useOne` query stays
+  // disabled, so the first paint does not fire one detail request per cell.
+  // Without a batch provider the single-record fallback runs as before.
+  const batched = useBatchedRelation(resource, id);
+  const { result, query } = useOne<Record<string, unknown>>({ resource, id, queryOptions: { enabled: !batched.record && !batched.pending && Boolean(resource && id), staleTime: 60_000, retry: false } });
   // Refine's `useOne` returns the record itself in `result` (the data provider's
   // response is already unwrapped); wrapping it in `.data` produced an empty label
   // and an empty drawer for every foreign key.
-  const record = (result ?? undefined) as Record<string, unknown> | undefined;
+  const record = (batched.record ?? result ?? undefined) as Record<string, unknown> | undefined;
+  const loading = query.isLoading || batched.pending;
   const display = translate as unknown as DisplayTranslate;
   const text = relatedRecordLabel(target, record, display, labelField, locale);
   const title = relatedEntityTitle(target, display);
@@ -128,7 +135,7 @@ function RelationLink({ target, resource, id, labelField }: RelationLinkProps) {
           setOpen(true);
         }}
       >
-        {text || (query.isLoading ? "…" : id)}
+        {text || (loading ? "…" : id)}
       </Link>
       <Drawer
         open={open}
@@ -146,7 +153,7 @@ function RelationLink({ target, resource, id, labelField }: RelationLinkProps) {
         footer={<Space style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}><Button onClick={() => setOpen(false)}>{translate("qiy.close", {}, "Close")}</Button></Space>}
         styles={{ body: { paddingTop: 12 } }}
       >
-        {query.isLoading && <Spin />}
+        {loading && <Spin />}
         {query.error && <Alert type="error" showIcon message={String(query.error)} />}
         {!target && <Alert type="error" showIcon message={translate("qiy.relatedUnknown", { resource }, "Unknown related resource: {{resource}}")} />}
         {target && record && <RelatedRecordBody target={target} record={record} />}

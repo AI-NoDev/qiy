@@ -9,7 +9,7 @@
 - **WMS**：组织（scope tree claim）、仓库、库位、库存（在手/预留/批次）、库存流水、上架/调拨/盘点/预留/发运等 dataflow 命令（幂等 + 审计 + 事务回滚）；
 - **实时**：库存、库存流水、发运的 realtime outbox；
 - **权限**：原子权限 + 权限组（角色即权限组）+ 数据库列/OAuth claim provider + 权限校验块；pages 页面级角色、restrict 字段 mask、scope 按 claim 过滤仓库仍然保留；
-- **实体显示文本（Django 风格）**：每个实体都声明 `@singular` / `@plural` / `@display` / `@tableDisplay` / `@relationDetail`，外键列显示目标记录的显示文本并链接到 Drawer/详情页，不再显示 UUID；外键 Drawer 与详情页共用 `app/components/record-details.tsx` 的 `RecordDetails`，按当前角色渲染全部 `showVisible` 字段（枚举 Tag、外键 `RelationCell`、日期/时间本地化、文件下载链接、Vector/空值占位），`@relationDetail` 摘要保留在字段详情上方，头部面包屑是「目标资源列表 → 当前记录详情页」并叠加嵌套 Drawer；
+- **实体显示文本（Django 风格）**：每个实体都声明 `@singular` / `@plural` / `@display` / `@tableDisplay` / `@relationDetail`，外键列显示目标记录的显示文本并链接到 Drawer/详情页，不再显示 UUID；外键 Drawer 与详情页共用 `app/components/record-details.tsx` 的 `RecordDetails`，按当前角色渲染全部 `showVisible` 字段（枚举 Tag、外键 `RelationCell`、日期/时间本地化、文件下载链接、Vector/空值占位），`@relationDetail` 摘要保留在字段详情上方，头部面包屑是「目标资源列表 → 当前记录详情页」并叠加嵌套 Drawer；**外键批量加载**：列表页把当前页外键值按目标资源分组，通过 `RelationBatchProvider` 的 `useMany`/`getMany` 用一条 `filters=[{"field":"id","operator":"in","value":"..."}]` 列表请求取回（例如库存流水的仓库/库位/产品三列只要 1~3 条请求），单元格自身的 `useOne` 查询被禁用；详情页关联表、抽屉正文和外键下拉仍走单条 `useOne`；
 - **日期与时间类型**：采购单 `expectedDate Date`、发运 `departureTime Time` 与既有的 `orderedAt` / `shippedAt` / `plannedAt` 等 `DateTime` 字段一起演示三种时间粒度 —— 创建/编辑表单分别渲染日期 picker、时间 picker、日期时间 picker，列表/详情按当前语言格式化，seed 提供真实值，服务端对非法日期/时间返回 400；
 - **混合登录**：`providers local, okta, keycloak, google, kinde, azure-ad-b2c;` 同时启用密码登录和 5 个 OIDC Provider；每个 Provider 映射到自己的身份列（`oktaSubject`、`keycloakSubject`、`googleSubject`、`kindeSubject`、`azureSubject`），`profileField oauthProfiles` 记录各 Provider 返回的 email/name，供个人中心展示。
 

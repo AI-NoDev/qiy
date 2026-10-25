@@ -59,7 +59,7 @@ ui {
 - `//` 和 `#` 都可用于行注释；`application`、`database`、实体、字段、索引、关系、枚举、枚举值、菜单分组、Dashboard 指标、Dataflow 的根/input/context/step 及手写 Action 页支持 `@comment("...")` 与 `@comment(t("key"))`。尚未列出的配置块不能假定支持注释，未知或重复注解会在生成前失败。
 - `application` 注释成为根、Server 和 Web `package.json` 的 `description`；`database` 注释成为生成 Drizzle `schema.ts` 的文件级 JSDoc。实体、字段、索引与外键关系说明进入 PostgreSQL/MySQL/SQLite Drizzle schema 的 JSDoc；实体说明也进入 repository 接口和 service 工厂函数。生成代码使用默认语言并保留 `i18n: key`，前端继续在运行时切换语言。这些是源码和包元数据说明，不会执行数据库 `COMMENT ON` 或修改迁移行为。
 - 字符串使用双引号或单引号。
-- `entity` 支持显示注解 `@singular`、`@plural`、`@display`、`@tableDisplay`、`@relationDetail`：外键列按目标实体的显示模板渲染成链接与 Drawer，而不是裸 UUID；模板语法与校验见 [entity 与 field 的实体显示注解](/dsl/entity#实体显示注解-django-风格)。
+- `entity` 支持显示注解 `@singular`、`@plural`、`@display`、`@tableDisplay`、`@relationDetail`：外键列按目标实体的显示模板渲染成链接与 Drawer，而不是裸 UUID；列表页的外键值按目标资源批量加载（`getMany` + `useMany` 的 `id in (...)` 过滤，一页每资源一条请求），详情页/抽屉/下拉保留单条 `useOne` 回退；模板语法与校验见 [entity 与 field 的实体显示注解](/dsl/entity#实体显示注解-django-风格)。
 - `field` 支持服务端生成值：`@code("ORG-{YYYY}{MM}-{seq:4}")` 渲染业务编码，`@generated(uuid)` 生成 UUIDv4；非主键且没有 relation 的 `UUID` 字段默认由服务端生成并在表单中隐藏。语法、模板 token、时区与并发唯一性见 [自动生成值与业务编码](/dsl/generated-values)。
 - 项目可以通过 [`include` 模块](../guide/modules) 将 `application` 内容拆分到多个相对 `.qiy` 文件。
 
