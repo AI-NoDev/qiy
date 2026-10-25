@@ -52,7 +52,7 @@ Keycloak 26 用 HTTPS + realm 导入：`qiy-acceptance` client 带 audience mapp
 
 然后把真实值写到生成项目的 `.env.production`：
 
-```env
+```bash
 QIY_OIDC_ISSUER=https://<tenant>/
 QIY_OIDC_AUDIENCE=<api audience>
 QIY_OIDC_JWKS_URL=https://<tenant>/.well-known/jwks.json
