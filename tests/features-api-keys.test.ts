@@ -157,6 +157,12 @@ describe("application feature flags", () => {
     expect(enabled["apps/web/app/docs.ts"]).toContain("escapeMermaidLabel(entity.label)");
     expect(enabled["apps/web/app/components/mermaid.tsx"]).toContain("QIY_MERMAID_TIMEOUT_MS");
     expect(enabled["apps/web/app/components/mermaid.tsx"]).toContain("qiy-mermaid-fallback");
+    // Diagram theme follows the app color mode (亮色/暗色/跟随系统), not the OS
+    // prefers-color-scheme, and re-renders on change.
+    expect(enabled["apps/web/app/components/mermaid.tsx"]).toContain("useQiyUi");
+    expect(enabled["apps/web/app/components/mermaid.tsx"]).toContain('theme: resolvedColorMode === "dark" ? "dark" : "default"');
+    expect(enabled["apps/web/app/components/mermaid.tsx"]).not.toContain("prefers-color-scheme");
+    expect(enabled["apps/web/app/styles.css"]).toContain('[data-color-mode="dark"] .qiy-docs-code');
     const disabled = generateProject(parseQiyProject(model()).database, "feature-demo", parseQiyProject(model()));
     for (const path of ["apps/server/src/docs.ts", "apps/server/src/auth/api-keys.ts", "apps/web/app/routes/docs.tsx", "apps/web/app/docs.ts", "apps/web/app/components/api-docs-page.tsx"]) {
       expect(disabled[path], path).toBeUndefined();

@@ -77,6 +77,14 @@ export function useQiyUi(): QiyUiState {
   return context;
 }
 
+/**
+ * Optional variant for leaf components that must also render outside the app
+ * shell (SSR tests, host integrations). Returns undefined instead of throwing.
+ */
+export function useQiyUiOptional(): QiyUiState | undefined {
+  return useContext(QiyUiContext);
+}
+
 export function QiyThemeControls() {
   const { themeKey, colorMode, setThemeKey, setColorMode } = useQiyUi();
   const { translate } = useTranslation();

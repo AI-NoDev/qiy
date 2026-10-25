@@ -26,6 +26,9 @@ body { margin: 0; }
 .qiy-chart-card .ant-card-body { overflow: auto; }
 .qiy-mermaid { display: flex; flex-direction: column; gap: 8px; overflow: auto; }
 .qiy-mermaid svg { max-width: 100%; height: auto; }
-.qiy-mermaid-fallback { max-height: 320px; overflow: auto; background: #f6f8fa; border-radius: 6px; padding: 8px 12px; font-size: 12px; white-space: pre-wrap; }
-.qiy-docs-code { background: #f6f8fa; border-radius: 6px; padding: 8px 12px; overflow: auto; font-size: 12px; margin: 0; white-space: pre-wrap; }
+.qiy-mermaid-fallback { max-height: 320px; overflow: auto; background: rgba(127, 127, 127, 0.12); border-radius: 6px; padding: 8px 12px; font-size: 12px; white-space: pre-wrap; }
+.qiy-docs-code { background: rgba(127, 127, 127, 0.12); border-radius: 6px; padding: 8px 12px; overflow: auto; font-size: 12px; margin: 0; white-space: pre-wrap; }
+/* The app color mode lives on <html data-color-mode>; keep code blocks readable in dark mode. */
+[data-color-mode="dark"] .qiy-mermaid-fallback,
+[data-color-mode="dark"] .qiy-docs-code { background: rgba(255, 255, 255, 0.08); }
 .qiy-docs-explorer-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
