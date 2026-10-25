@@ -62,10 +62,31 @@ export function createDataProvider(fetcher: QiyFetcher = fetch): DataProvider {
     return content;
   }
 
+  /**
+   * Coalesces identical `getMany` id sets. React Query already dedupes by key, but
+   * two independent mounted consumers (or a StrictMode remount) can still ask for
+   * the same page of FK records within the same tick; this cache guarantees one
+   * network request per `(resource, id set)` for a short window.
+   */
+  const idBatchCache = new Map<string, { at: number; data: Array<{ id: string }> }>();
+  const idBatchInflight = new Map<string, Promise<Array<{ id: string }>>>();
+  const idBatchCacheTtlMs = 30_000;
+  function idBatchKey(resource: string, ids: ReadonlyArray<string>): string {
+    return resource + "|" + [...ids].sort().join(",");
+  }
+  function invalidateIdBatchCache(): void {
+    idBatchCache.clear();
+    idBatchInflight.clear();
+  }
+
   return {
     getApiUrl: () => api,
     custom: async ({ url, method, query, payload, meta }) => {
-      if (method === "post") return workflowCommand(fetcher, url, method, payload, meta);
+      if (method === "post") {
+        const result = await workflowCommand(fetcher, url, method, payload, meta);
+        invalidateIdBatchCache();
+        return result;
+      }
       const match = /^\/api\/v1\/([a-z][a-z0-9_-]*)\/(distribution|trend)$/.exec(url);
       if (method !== "get" || !match || !allowed.has(match[1]!)) throw new Error("Unknown analytics resource");
       const resource = resources.find((item) => item.name === match[1]);
@@ -107,21 +128,31 @@ export function createDataProvider(fetcher: QiyFetcher = fetch): DataProvider {
     getMany: async ({ resource, ids }) => {
       const normalized = normalizeGetManyIds(ids);
       if (normalized.length === 0) return { data: [] };
-      const data: Array<{ id: string }> = [];
-      for (const url of getManyRequestUrls(resource, normalized)) {
-        const page = await request(url) as { data?: Array<{ id: string }> };
-        data.push(...(page.data ?? []));
-      }
-      return { data };
+      const key = idBatchKey(resource, normalized);
+      const cached = idBatchCache.get(key);
+      if (cached && Date.now() - cached.at < idBatchCacheTtlMs) return { data: cached.data };
+      const inflight = idBatchInflight.get(key);
+      if (inflight) return { data: await inflight };
+      const promise = (async () => {
+        const data: Array<{ id: string }> = [];
+        for (const url of getManyRequestUrls(resource, normalized)) {
+          const page = await request(url) as { data?: Array<{ id: string }> };
+          data.push(...(page.data ?? []));
+        }
+        idBatchCache.set(key, { at: Date.now(), data });
+        return data;
+      })().finally(() => { idBatchInflight.delete(key); });
+      idBatchInflight.set(key, promise);
+      return { data: await promise };
     },
     create: async ({ resource, variables }) => ({
-      data: await request(urlFor(resource), { method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(variables) }) as { id: string },
+      data: (invalidateIdBatchCache(), await request(urlFor(resource), { method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(variables) }) as { id: string }),
     }),
     update: async ({ resource, id, variables }) => ({
-      data: await request(urlFor(resource, id), { method: "PATCH", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(variables) }) as { id: string },
+      data: (invalidateIdBatchCache(), await request(urlFor(resource, id), { method: "PATCH", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(variables) }) as { id: string }),
     }),
-    deleteOne: async ({ resource, id }) => ({ data: await request(urlFor(resource, id), { method: "DELETE", headers: authHeaders() }) as { id: string } }),
-    deleteMany: async ({ resource, ids }) => ({ data: await request(`${urlFor(resource)}?ids=${ids.map((id) => encodeURIComponent(String(id))).join(",")}`, { method: "DELETE", headers: authHeaders() }) as Array<{ id: string }> }),
+    deleteOne: async ({ resource, id }) => ({ data: (invalidateIdBatchCache(), await request(urlFor(resource, id), { method: "DELETE", headers: authHeaders() }) as { id: string }) }),
+    deleteMany: async ({ resource, ids }) => ({ data: (invalidateIdBatchCache(), await request(`${urlFor(resource)}?ids=${ids.map((id) => encodeURIComponent(String(id))).join(",")}`, { method: "DELETE", headers: authHeaders() }) as Array<{ id: string }>) }),
   } as DataProvider;
 }
 
