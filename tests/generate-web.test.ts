@@ -210,6 +210,52 @@ describe("Refine SPA generation", () => {
     expect(files["web/tests/relation-cell.test.tsx"]).toContain("keeps the per-cell query disabled while the batch is still loading");
   });
 
+  test("renders a model menu block as nested sider submenus with persisted collapse", () => {
+    const project = parseQiyProject(`qiy v0; application grouped-menu {
+      database sqlite {}
+      entity users { field id UUID @id; field email Text; }
+      entity orders { field id UUID @id; field number Text; }
+      entity products { field id UUID @id; field sku Text; }
+      menu {
+        group masterData @label("Master data") @icon(AppstoreOutlined) { resource products; }
+        group operations @label("Operations") @icon(ShoppingOutlined) { resource orders; resource users; }
+      }
+    }`);
+    const files = generateWeb(project.database, project);
+    const resources = files["web/app/resources.ts"]!;
+    // Every grouped resource points at its group; the groups keep the declared order/resources.
+    expect(resources).toContain('"menuParent": "menu-masterData"');
+    expect(resources).toContain('"menuParent": "menu-operations"');
+    expect(resources).toContain("export interface MenuGroupDefinition");
+    expect(resources).toContain("export const menuGroups: MenuGroupDefinition[]");
+    expect(resources).toContain('"name": "menu-operations"');
+    expect(resources).toContain('"resources": [');
+    expect(resources).toContain('"orders"');
+    // The sider builds real nested submenus from that metadata and keeps the route open.
+    expect(files["web/app/components/menu.tsx"]).toContain("export function buildMenuTree");
+    expect(files["web/app/components/menu.tsx"]).toContain("export function QiySider");
+    expect(files["web/app/components/menu.tsx"]).toContain("<Menu.SubMenu");
+    expect(files["web/app/components/menu.tsx"]).toContain("useThemedLayoutContext");
+    expect(files["web/app/components/menu.tsx"]).toContain("export const qiySiderWidth = 248");
+    expect(files["web/app/components/menu.tsx"]).toContain("inlineCollapsed={siderCollapsed}");
+    expect(files["web/app/components/menu.tsx"]).toContain("openMenuKeys");
+    // Collapse state is persisted through the themed layout wrapper.
+    expect(files["web/app/ui/index.tsx"]).toContain("Sider={Sider ?? QiySider}");
+    expect(files["web/app/ui/index.tsx"]).toContain("siderCollapsedStorageKey");
+    expect(files["web/app/ui/index.tsx"]).toContain("initialSiderCollapsed={initialCollapsed}");
+    expect(files["web/app/styles.css"]).toContain(".qiy-sider-mobile-trigger");
+    // Generated tests cover tree nesting/order and the persisted collapse state.
+    expect(files["web/tests/menu-tree.test.ts"]).toContain("groups resources into nested items in declared order");
+    expect(files["web/tests/menu-tree.test.ts"]).toContain("nests @parent groups instead of flattening them");
+    expect(files["web/tests/sider-state.test.ts"]).toContain("persists the collapsed state across reads");
+  });
+
+  test("keeps a flat menu when the model declares no menu block", () => {
+    const files = generateWeb(fixture);
+    expect(files["web/app/resources.ts"]).toContain("export const menuGroups: MenuGroupDefinition[] = []");
+    expect(files["web/app/components/menu.tsx"]).toContain("buildMenuTree");
+  });
+
   test("rejects display templates that interpolate a foreign key raw id", () => {
     const project = parseQiyProject(`qiy v0; application display-demo {
       database sqlite {}

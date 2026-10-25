@@ -1,0 +1,39 @@
+# Sidebar menu groups. Included after `pages` and before `dashboard`, matching the
+# parser order: relations -> scope -> restrict -> pages -> menu -> dashboard.
+#
+# Each group becomes a collapsible submenu in the generated sidebar; resources are
+# listed in the order they should appear. Group labels are translated through the
+# `qiy.menu.<group>.label` keys in modules/messages.qiy. Every entity appears
+# exactly once (17 resources across 6 groups).
+
+menu {
+  group masterData @label("基础资料") @icon(AppstoreOutlined) {
+    resource suppliers;
+    resource customers;
+    resource products;
+    resource boms;
+  }
+  group purchasing @label("采购") @icon(ShoppingCartOutlined) {
+    resource purchase_orders;
+    resource purchase_order_lines;
+    resource receipts;
+  }
+  group sales @label("销售") @icon(ShoppingOutlined) {
+    resource sales_orders;
+    resource sales_order_lines;
+    resource shipments;
+  }
+  group inventory @label("库存与仓储") @icon(DatabaseOutlined) {
+    resource warehouses;
+    resource bins;
+    resource inventory;
+    resource stock_movements;
+  }
+  group production @label("生产") @icon(ToolOutlined) {
+    resource work_orders;
+  }
+  group system @label("系统管理") @icon(SafetyOutlined) {
+    resource users;
+    resource orgs;
+  }
+}

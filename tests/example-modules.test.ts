@@ -27,6 +27,7 @@ describe("modular demo model", () => {
     expect(project.database.enums!.reduce((sum, enumeration) => sum + enumeration.values.length, 0)).toBe(36);
     expect(project.database.relations).toHaveLength(23);
     expect(project.pages).toHaveLength(4);
+    expect(project.menuGroups).toHaveLength(6);
     expect(project.dashboardMetrics).toHaveLength(6);
     expect(project.dataflows).toHaveLength(8);
     expect(project.actions).toHaveLength(8);
@@ -80,6 +81,22 @@ describe("modular demo model", () => {
     expect(project.pages?.map((page) => page.resource)).toEqual(["inventory", "stock_movements", "purchase_orders", "sales_orders"]);
   });
 
+  test("groups every resource into one sidebar menu group in a readable order", async () => {
+    const { project } = await modularProject();
+    const groups = project.menuGroups!;
+    // Group order is the sidebar order; every group has an icon and a label.
+    expect(groups.map((group) => group.name)).toEqual(["masterData", "purchasing", "sales", "inventory", "production", "system"]);
+    expect(groups.every((group) => Boolean(group.icon && group.label))).toBe(true);
+    expect(groups.find((group) => group.name === "masterData")?.resources).toEqual(["suppliers", "customers", "products", "boms"]);
+    expect(groups.find((group) => group.name === "purchasing")?.resources).toEqual(["purchase_orders", "purchase_order_lines", "receipts"]);
+    expect(groups.find((group) => group.name === "inventory")?.resources).toEqual(["warehouses", "bins", "inventory", "stock_movements"]);
+    // All 17 resources are grouped exactly once, so nothing is flattened or missing.
+    const groupedResources = groups.flatMap((group) => group.resources);
+    expect(groupedResources).toHaveLength(17);
+    expect(new Set(groupedResources).size).toBe(17);
+    expect([...groupedResources].sort()).toEqual(project.database.entities.map((entity) => entity.tableName).sort());
+  });
+
   test("ships a complete zh-CN / en-US dictionary for every model-derived label", async () => {
     const { project } = await modularProject();
     expect(project.messages?.defaultLocale).toBe("zh-CN");
@@ -130,6 +147,11 @@ describe("modular demo model", () => {
     expect(locales["en-US"]!["qiy.actions.completeWorkOrder.label"]).toBe("Complete work order");
     expect(locales["zh-CN"]!["errors.inventory.quantityPositive"]).toBe("数量必须大于 0");
     expect(locales["en-US"]!["errors.inventory.quantityPositive"]).toBe("Quantity must be greater than zero");
+    // Menu groups are translated through the same dictionary.
+    expect(locales["zh-CN"]!["qiy.menu.masterData.label"]).toBe("基础资料");
+    expect(locales["zh-CN"]!["qiy.menu.inventory.label"]).toBe("库存与仓储");
+    expect(locales["en-US"]!["qiy.menu.masterData.label"]).toBe("Master data");
+    expect(locales["en-US"]!["qiy.menu.inventory.label"]).toBe("Inventory & warehouse");
   });
 
   test("generates the same resources and fields from the modular source", async () => {
@@ -149,6 +171,16 @@ describe("modular demo model", () => {
     expect(messages).toContain('"qiy.resources.customers.singular": "客户"');
     expect(messages).toContain('"qiy.resources.customers.plural": "Customers"');
     expect(messages).toContain('"qiy.dashboard.movementTrend.label": "近 30 天库存流水"');
+    // Grouped sidebar metadata: resource -> group parent, and the group keeps its menu order.
+    expect(resources).toContain('"menuParent": "menu-masterData"');
+    expect(resources).toContain('"menuParent": "menu-purchasing"');
+    expect(resources).toContain('"menuParent": "menu-system"');
+    expect(resources).toContain("export const menuGroups: MenuGroupDefinition[]");
+    expect(resources).toContain('"resources": [');
+    expect(files["apps/web/app/components/menu.tsx"]).toContain("export function buildMenuTree");
+    expect(files["apps/web/app/components/menu.tsx"]).toContain("export function QiySider");
+    expect(files["apps/web/app/ui/index.tsx"]).toContain("Sider={Sider ?? QiySider}");
+    expect(files["apps/web/tests/menu-tree.test.ts"]).toContain("groups resources into nested items in declared order");
     expect(files["apps/web/tests/project-messages.test.ts"]).toContain("qiy.resources.stock_movements.label");
     expect(files["apps/web/tests/model-i18n.test.ts"]).toContain("model labels switch between the declared Chinese and English dictionaries");
   });

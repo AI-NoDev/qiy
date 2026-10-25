@@ -11,3 +11,5 @@ body { margin: 0; }
 .qiy-header { flex-shrink: 0; min-height: 64px; display: flex; align-items: center; justify-content: flex-end; padding: 12px 16px; }
 .qiy-list-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 8px; margin-bottom: 16px; }
 .qiy-list-filters > *, .qiy-list-filters .ant-input { min-width: 0; width: 100%; }
+.qiy-sider-title { flex-shrink: 0; }
+.qiy-sider-mobile-trigger { border-start-start-radius: 0; border-end-start-radius: 0; position: fixed; top: 64px; z-index: 999; }

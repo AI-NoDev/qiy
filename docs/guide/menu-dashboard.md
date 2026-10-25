@@ -23,6 +23,8 @@ menu {
 
 不写 `menu` 时自动生成一层扁平菜单；写了 `menu` 就以分组为准。`@parent` 支持多级嵌套，资源名可以是实体名或 `table` 名。
 
+生成的侧边栏由 `app/components/menu.tsx` 的 `QiySider` 渲染：它把 `resources` 元数据和 `menuGroups` 组装成嵌套的 Ant Design `Menu.SubMenu`，因此分组是真正可折叠的子菜单，而不是把资源平铺成一行。侧边栏展开宽度 248px，可折叠为 72px 的图标模式（Ant Design 在折叠时自动为条目显示 tooltip、为子菜单显示弹出层），折叠状态写入 `localStorage` 的 `qiy.ui.sider-collapsed`，刷新和导航后保持；当前路由所属分组默认展开。角色可见性仍由 `CanAccess` 包裹每个分组/资源，与 Refine 默认侧边栏一致。移动端（`lg` 断点以下）继续使用抽屉式侧边栏。分组文案通过 `qiy.menu.<group>.label` 翻译，未声明时回退 `@label`。
+
 ## Dashboard 指标
 
 ```ts

@@ -205,6 +205,12 @@ test("switches model descriptions and falls back to the configured default local
   expect(createI18nProvider("zh-CN").translate("qiy.enums.shipmentStatus.values.shipped")).toBe("已发运");
   expect(createI18nProvider("zh-CN").translate("qiy.enums.shipmentStatus.values.delivered")).toBe("已送达");
   expect(createI18nProvider("zh-CN").translate("qiy.enums.shipmentStatus.values.cancelled")).toBe("已取消");
+  expect(createI18nProvider("zh-CN").translate("qiy.menu.masterData.label")).toBe("基础资料");
+  expect(createI18nProvider("zh-CN").translate("qiy.menu.purchasing.label")).toBe("采购");
+  expect(createI18nProvider("zh-CN").translate("qiy.menu.sales.label")).toBe("销售");
+  expect(createI18nProvider("zh-CN").translate("qiy.menu.inventory.label")).toBe("库存与仓储");
+  expect(createI18nProvider("zh-CN").translate("qiy.menu.production.label")).toBe("生产");
+  expect(createI18nProvider("zh-CN").translate("qiy.menu.system.label")).toBe("系统管理");
   expect(createI18nProvider("zh-CN").translate("qiy.dashboard.inventoryRecords.label")).toBe("库存记录");
   expect(createI18nProvider("zh-CN").translate("qiy.dashboard.productCount.label")).toBe("产品数");
   expect(createI18nProvider("zh-CN").translate("qiy.dashboard.purchaseOrderCount.label")).toBe("采购单数");
@@ -489,6 +495,12 @@ test("switches model descriptions and falls back to the configured default local
   expect(createI18nProvider("en-US").translate("qiy.enums.shipmentStatus.values.shipped")).toBe("Shipped");
   expect(createI18nProvider("en-US").translate("qiy.enums.shipmentStatus.values.delivered")).toBe("Delivered");
   expect(createI18nProvider("en-US").translate("qiy.enums.shipmentStatus.values.cancelled")).toBe("Cancelled");
+  expect(createI18nProvider("en-US").translate("qiy.menu.masterData.label")).toBe("Master data");
+  expect(createI18nProvider("en-US").translate("qiy.menu.purchasing.label")).toBe("Purchasing");
+  expect(createI18nProvider("en-US").translate("qiy.menu.sales.label")).toBe("Sales");
+  expect(createI18nProvider("en-US").translate("qiy.menu.inventory.label")).toBe("Inventory & warehouse");
+  expect(createI18nProvider("en-US").translate("qiy.menu.production.label")).toBe("Production");
+  expect(createI18nProvider("en-US").translate("qiy.menu.system.label")).toBe("System");
   expect(createI18nProvider("en-US").translate("qiy.dashboard.inventoryRecords.label")).toBe("Inventory records");
   expect(createI18nProvider("en-US").translate("qiy.dashboard.productCount.label")).toBe("Products");
   expect(createI18nProvider("en-US").translate("qiy.dashboard.purchaseOrderCount.label")).toBe("Purchase orders");
@@ -773,6 +785,12 @@ test("switches model descriptions and falls back to the configured default local
   expect(projectMessage("en-US", "qiy.enums.shipmentStatus.values.shipped")).toBe("Shipped");
   expect(projectMessage("en-US", "qiy.enums.shipmentStatus.values.delivered")).toBe("Delivered");
   expect(projectMessage("en-US", "qiy.enums.shipmentStatus.values.cancelled")).toBe("Cancelled");
+  expect(projectMessage("en-US", "qiy.menu.masterData.label")).toBe("Master data");
+  expect(projectMessage("en-US", "qiy.menu.purchasing.label")).toBe("Purchasing");
+  expect(projectMessage("en-US", "qiy.menu.sales.label")).toBe("Sales");
+  expect(projectMessage("en-US", "qiy.menu.inventory.label")).toBe("Inventory & warehouse");
+  expect(projectMessage("en-US", "qiy.menu.production.label")).toBe("Production");
+  expect(projectMessage("en-US", "qiy.menu.system.label")).toBe("System");
   expect(projectMessage("en-US", "qiy.dashboard.inventoryRecords.label")).toBe("Inventory records");
   expect(projectMessage("en-US", "qiy.dashboard.productCount.label")).toBe("Products");
   expect(projectMessage("en-US", "qiy.dashboard.purchaseOrderCount.label")).toBe("Purchase orders");

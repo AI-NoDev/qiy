@@ -26,6 +26,8 @@ menu {
 
 属性：`@label` 显示名、`@icon` 图标、`@parent` 父分组、`@comment` 分组用途说明。省略 `menu` 时生成扁平菜单。菜单说明保存在生成元数据中，供自定义布局、命令面板或二次开发使用。
 
+生成前端把 `menu` 块渲染成真正的多层可折叠子菜单（`apps/web/app/components/menu.tsx` 的 `QiySider` + `buildMenuTree`）：分组顺序、组内资源顺序都按声明保留；`@parent` 生成二级子菜单；未分组的资源追加在根级，因此不写 `menu` 的旧模型仍是扁平菜单。分组名通过 `qiy.menu.<group>.label` 翻译（`modules/messages.qiy` 中声明的 zh-CN / en-US 词典）。侧边栏本身可折叠并记住状态（`localStorage` 的 `qiy.ui.sider-collapsed`）：展开宽度 248px，折叠后只显示图标（悬停显示分组/资源 tooltip），当前路由所属子菜单默认展开，移动端仍使用抽屉式侧边栏。完整示例见 `examples/self/modules/menu.qiy`。
+
 ## dashboard
 
 ```qiy

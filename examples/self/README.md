@@ -7,6 +7,7 @@
 - **供应链**：供应商、客户、采购单/明细、收货、销售单/明细、发运、单据状态机；
 - **ERP**：产品、BOM、工作单（生产/领料/产出流水）、成本与价格字段（字段级 mask）、仪表盘分布/趋势指标；
 - **WMS**：组织（scope tree claim）、仓库、库位、库存（在手/预留/批次）、库存流水、上架/调拨/盘点/预留/发运等 dataflow 命令（幂等 + 审计 + 事务回滚）；
+- **侧边栏菜单**：`modules/menu.qiy` 用 `menu { group ... }` 把 17 个资源分成 6 个可折叠子菜单（基础资料 / 采购 / 销售 / 库存与仓储 / 生产 / 系统管理），分组中英文文案来自 `qiy.menu.<group>.label`，侧边栏支持折叠并记住状态、当前路由分组默认展开、移动端抽屉式导航；
 - **实时**：库存、库存流水、发运的 realtime outbox；
 - **权限**：原子权限 + 权限组（角色即权限组）+ 数据库列/OAuth claim provider + 权限校验块；pages 页面级角色、restrict 字段 mask、scope 按 claim 过滤仓库仍然保留；
 - **实体显示文本（Django 风格）**：每个实体都声明 `@singular` / `@plural` / `@display` / `@tableDisplay` / `@relationDetail`，外键列显示目标记录的显示文本并链接到 Drawer/详情页，不再显示 UUID；外键 Drawer 与详情页共用 `app/components/record-details.tsx` 的 `RecordDetails`，按当前角色渲染全部 `showVisible` 字段（枚举 Tag、外键 `RelationCell`、日期/时间本地化、文件下载链接、Vector/空值占位），`@relationDetail` 摘要保留在字段详情上方，头部面包屑是「目标资源列表 → 当前记录详情页」并叠加嵌套 Drawer；**外键批量加载**：列表页把当前页外键值按目标资源分组，通过 `RelationBatchProvider` 的 `useMany`/`getMany` 用一条 `filters=[{"field":"id","operator":"in","value":"..."}]` 列表请求取回（例如库存流水的仓库/库位/产品三列只要 1~3 条请求），单元格自身的 `useOne` 查询被禁用；详情页关联表、抽屉正文和外键下拉仍走单条 `useOne`；
@@ -44,6 +45,7 @@ examples/self/modules/relations.qiy   # 全部 relation（必须在所有实体�
 examples/self/modules/messages.qiy    # zh-CN / en-US 完整词典
 examples/self/modules/permissions.qiy # 权限字段/组/provider 来源/校验块
 examples/self/modules/pages.qiy       # 页面级角色规则（在 scope/restrict 之后）
+examples/self/modules/menu.qiy        # 侧边栏分组（在 pages 之后、dashboard 之前）
 examples/self/modules/dashboard.qiy   # 仪表盘指标
 examples/self/modules/dataflows.qiy   # 事务型业务命令
 examples/self/modules/actions.qiy     # 绑定到 dataflow 的列表/详情按钮
@@ -62,6 +64,7 @@ include "modules/relations.qiy";       // 所有 relation 在实体之后
 scope warehouses orgId claim org.id;   // scope/restrict 留在主文件
 restrict products { ... }
 include "modules/pages.qiy";           // pages 在 restrict 之后
+include "modules/menu.qiy";            // menu 在 pages 之后、dashboard 之前
 include "modules/dashboard.qiy";
 include "modules/dataflows.qiy";
 include "modules/actions.qiy";
@@ -79,7 +82,7 @@ include "modules/actions.qiy";
 | `qiy.resources.<resource>.singular` / `.plural` | 新建/编辑/详情/抽屉标题、新建按钮（单数）与菜单、列表标题（复数） |
 | `qiy.resources.<resource>.fields.<field>.label` | 列表列头、详情 label、表单 label、筛选占位符 |
 | `qiy.enums.<enum>.label` / `qiy.enums.<enum>.values.<value>` | 枚举值 Tag、下拉选项（显示模板中的枚举字段同样使用） |
-| `qiy.menu.<group>.label` | 菜单分组（本示例没有 menu 块） |
+| `qiy.menu.<group>.label` | 菜单分组（本示例 6 个分组，见下方“侧边栏菜单分组”） |
 | `qiy.dashboard.<metric>.label` | 仪表盘指标卡 |
 | `qiy.actions.<action>.label` / `.confirm` / `.inputs.<input>.label` | 业务命令按钮、确认框、命令表单字段 |
 | `errors.*`（本示例自定义） | `@error(t("key"))` 业务规则错误：服务端返回默认语言文案 + `errorKey`，前端按当前语言再翻译 |
@@ -87,6 +90,43 @@ include "modules/actions.qiy";
 实体显示模板（`@display` / `@tableDisplay` / `@relationDetail`）由字段引用和分隔符组成，本身不参与翻译；单数/复数名通过 `singular` / `plural` 键切换语言。示例里所有 17 个实体都带完整显示注解，`tests/example-modules.test.ts` 会断言每个外键目标实体都有表格文本与 Drawer 正文。
 
 静态页面文字（列表工具栏/导入导出/已存视图、分页、主题与明暗模式、403 页、个人中心、登录/onboarding 页面等 UI chrome）使用生成器内置的中英词典，项目 `messages` 可用同名 `qiy.*` key 覆盖，缺省回退内置值。语言选择写在生成 header 的 Select 中：切换后 Ant Design `ConfigProvider`、Refine i18n、`document.documentElement.lang` 同步更新，选择保存在 `localStorage` 的 `qiy.locale`，刷新后保持；未声明的语言回退到默认语言。生成的 `apps/web/tests/model-i18n.test.ts` 会断言每个模型 label 都有稳定 key、中文/英文词典分别解析、以及切换语言后存储值更新；`apps/web/tests/chrome-i18n.test.ts` 断言工具栏、主题控件、分页和登录/个人中心 chrome 在中英文下都能解析。
+
+## 侧边栏菜单分组
+
+`modules/menu.qiy` 用 `menu { group ... }` 把 17 个资源分成 6 组，生成后是真正可折叠的多级子菜单（不再把资源平铺成一列）：
+
+| 分组（`qiy.menu.<group>.label`） | 图标 | 资源（按声明顺序） |
+| --- | --- | --- |
+| 基础资料（`masterData`） | `AppstoreOutlined` | 供应商、客户、产品、物料清单 |
+| 采购（`purchasing`） | `ShoppingCartOutlined` | 采购单、采购单行、收货单 |
+| 销售（`sales`） | `ShoppingOutlined` | 销售单、销售单行、发运单 |
+| 库存与仓储（`inventory`） | `DatabaseOutlined` | 仓库、库位、库存、库存流水 |
+| 生产（`production`） | `ToolOutlined` | 工单 |
+| 系统管理（`system`） | `SafetyOutlined` | 用户、组织 |
+
+```qiy
+menu {
+  group masterData @label("基础资料") @icon(AppstoreOutlined) {
+    resource suppliers;
+    resource customers;
+    resource products;
+    resource boms;
+  }
+  group purchasing @label("采购") @icon(ShoppingCartOutlined) {
+    resource purchase_orders;
+    resource purchase_order_lines;
+    resource receipts;
+  }
+  # ... sales / inventory / production / system
+}
+```
+
+生成结果与行为：
+
+- `apps/web/app/resources.ts` 中每个资源带 `menuParent: "menu-<group>"`，`menuGroups` 保持声明顺序并记录组内资源顺序；`menu.qiy` 必须放在 `pages.qiy` 之后、`dashboard.qiy` 之前（解析顺序 `... -> pages -> menu -> dashboard -> ...`）。
+- `apps/web/app/components/menu.tsx` 的 `buildMenuTree` 把资源元数据与分组组装成嵌套的 Ant Design `Menu.SubMenu`；`QiySider` 负责渲染，`CanAccess` 仍按 `qiyAccessControlProvider` 过滤每个分组/资源（例如 viewer 看不到“用户”，admin 全部可见）。
+- 侧边栏展开宽度 248px，可折叠为 72px 图标模式（折叠时 Ant Design 显示条目 tooltip / 子菜单弹出层）；折叠状态写入 `localStorage` 的 `qiy.ui.sider-collapsed`，刷新和导航后保持；当前路由所属子菜单默认展开。移动端（`lg` 断点以下）继续用抽屉式侧边栏。
+- 生成测试：`apps/web/tests/menu-tree.test.ts` 断言分组/组内顺序、`@parent` 嵌套、未分组资源回退与当前路由展开键；`apps/web/tests/sider-state.test.ts` 断言折叠状态持久化与非法值回退。
 
 ## 已存视图（saved views）
 

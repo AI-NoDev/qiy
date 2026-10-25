@@ -1,7 +1,8 @@
 import { App, ConfigProvider, Segmented, Select, Space, theme as antdTheme, type ThemeConfig } from "antd";
 import { ThemedLayout, ThemedTitle, useNotificationProvider } from "@refinedev/antd";
 import { useTranslation } from "@refinedev/core";
-import { createContext, useContext, useEffect, useMemo, useState, type ComponentProps } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ComponentProps } from "react";
+import { QiySider } from "../components/menu";
 import { qiyUiConfig } from "./theme-config";
 
 export type QiyThemeKey = "blue" | "purple" | "green" | "orange" | "red";
@@ -104,8 +105,30 @@ export function QiyThemeControls() {
   </Space>;
 }
 
-export function QiyThemedLayout(props: ComponentProps<typeof ThemedLayout>) {
-  return <div className="qiy-shell"><ThemedLayout {...props} /></div>;
+/** Whether the sider was left collapsed last time the app was used. */
+export const siderCollapsedStorageKey = "qiy.ui.sider-collapsed";
+type SiderStorage = Pick<Storage, "getItem" | "setItem">;
+function siderStorage(): SiderStorage | undefined {
+  try { return typeof window === "undefined" ? undefined : window.localStorage; } catch { return undefined; }
+}
+/** Restores the persisted sider state; a missing or unknown value keeps it expanded. */
+export function readStoredSiderCollapsed(storage: SiderStorage | undefined = siderStorage()): boolean {
+  try { return storage?.getItem(siderCollapsedStorageKey) === "collapsed"; } catch { return false; }
+}
+/** Persists the sider state so collapse survives navigation and reloads. */
+export function storeSiderCollapsed(collapsed: boolean, storage: SiderStorage | undefined = siderStorage()): void {
+  try { storage?.setItem(siderCollapsedStorageKey, collapsed ? "collapsed" : "expanded"); } catch { /* quota or private mode */ }
+}
+
+export function QiyThemedLayout({ Sider, initialSiderCollapsed, onSiderCollapsed, ...props }: ComponentProps<typeof ThemedLayout>) {
+  // Read the stored collapse state once; later changes flow through onSiderCollapsed.
+  const [initialCollapsed] = useState(() => initialSiderCollapsed ?? readStoredSiderCollapsed());
+  const handleSiderCollapsed = useCallback((collapsed: boolean) => {
+    storeSiderCollapsed(collapsed);
+    onSiderCollapsed?.(collapsed);
+  }, [onSiderCollapsed]);
+  // Nested group submenus come from the custom menu sider; callers can still override it.
+  return <div className="qiy-shell"><ThemedLayout {...props} Sider={Sider ?? QiySider} initialSiderCollapsed={initialCollapsed} onSiderCollapsed={handleSiderCollapsed} /></div>;
 }
 export const QiyThemedTitle = ThemedTitle;
 export const useQiyNotificationProvider = useNotificationProvider;
