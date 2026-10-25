@@ -33,6 +33,14 @@ features:
     details: OIDC / OAuth2 / SSO 映射到用户模型，生成 AuthProvider、AccessControlProvider 与 Bearer JWT 守卫。
   - title: 跨平台 CLI
     details: Qiy 可打包为 Windows、Linux 与 macOS 独立可执行文件；在任何支持的系统上用同一条命令从 .qiy 生成完整应用。
+  - title: 完整语言参考
+    details: 从 application、entity/field、relation/index 到 permissions、dataflow、charts、i18n、annotations，逐项覆盖语法、默认值、校验、生成结果与进阶用法。
+    link: /dsl/overview
+    linkText: 打开 DSL 参考
+  - title: 按目标分组的用法手册
+    details: 数据建模、权限与多角色、业务自动化、概览图表、多语言主题、系统管理等可直接复制的配方与生成前检查清单。
+    link: /guide/dsl-cookbook
+    linkText: 查看用法手册
 ---
 
 <div class="qiy-home">

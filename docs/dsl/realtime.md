@@ -1,6 +1,13 @@
-# Realtime
+# realtime（实时订阅）
 
-`realtime` 为生成的 Refine 资源声明实时订阅。传输由 `api.client` 推导：`rest` 用 Ably，`graphql` 另外生成 SSE 的 GraphQL Subscription（两者可以同时存在）。Realtime 必须同时声明生成式 `auth`，因为 token、死信、指标、重放和清理端点都必须重新认证并执行角色授权；未声明认证的模型会在生成前失败。
+`realtime` 把生成的 Refine 资源声明为可实时订阅：收到 `created`/`updated`/`deleted` 事件后自动刷新相关查询（`mode auto`）或把事件交给页面自定义处理（`mode manual`）。**当前生成器只为详情页（show）传入 `liveMode`**；列表页由生成的 `routes/list.tsx` 覆盖，使用 `useTable` 时没有 `liveMode`，因此默认不会因 realtime 自动刷新——需要时在自定义列表页给 `useTable` 显式传 `liveMode`（`manual`/`auto`）。传输由 `api.client` 推导：
+
+| `api.client` | 传输 | 生成物 |
+| --- | --- | --- |
+| `rest` | **Ably**（订阅 `qiy:<table>[:<claimValue>]`，命令事件 `qiy:event:<event>`） | `web/app/live-provider` 逻辑（`createQiyLiveProvider`）、`POST /api/v1/realtime/token`、outbox worker |
+| `graphql` | Ably **+** GraphQL Subscription over **SSE**（`GET /api/v1/graphql/subscribe`） | 追加订阅根与 `web/app/subscriptions.ts` |
+
+`realtime` 必须同时声明生成式 `auth`：token、死信、指标、重放、清理端点都要重新认证并执行角色授权，未声明认证的模型在生成前失败；`mode integration` 也不允许生成独立 realtime（改用宿主 LiveProvider adapter）。
 
 ```qiy [examples/realtime/app.qiy]
 qiy v0;
@@ -14,83 +21,158 @@ application operations-admin {
       events created, updated, deleted;
       roles admin, operator, viewer;
     }
+    resource stock_movements {
+      events created;
+      roles admin, operator;
+      when warehouseCode claim warehouse.code;   // 按 claim 分段通道（字段须 Text/Integer）
+    }
   }
 
   auth { provider local; user users; roleField role; usernameField email; passwordField passwordHash; }
 
-  enum userRole {
-    value admin;
-    value operator;
-    value viewer;
-  }
+  enum userRole { value admin; value operator; value viewer; }
 
   entity users {
     field id UUID @id;
     field email Text @unique;
     field passwordHash Text @nullable @listVisible(false) @showVisible(false) @formVisible(false);
     field role userRole;
+    field orgId UUID @nullable;
   }
 
   entity orders {
     field id UUID @id;
     field number Text @unique;
   }
-}
-```
 
-## 配置
-
-- `mode auto`：Refine 收到相关事件后自动刷新 `useTable` / `useOne` 查询。
-- `mode manual`：事件交给 Refine 的 `onLiveEvent`，页面自行决定如何响应。
-- `resource` 使用实体名或物理资源名；生成前会归一化并拒绝未知或重复资源。
-- `events` 当前只接受 `created`、`updated`、`deleted`，必须至少声明一个且不能重复。
-- `roles` 当前只接受 `admin`、`operator`、`viewer`。服务端签发的 Ably capability 只有被允许 channel 的 `subscribe` 权限，不向浏览器授予 publish 权限。
-- `auth` 为必需配置。Realtime 不会生成匿名 token 服务，也不会依赖默认的空认证器；本地登录、OIDC/OAuth2/SSO 或受支持的企业身份 provider 均可作为认证来源。
-- `when <field> claim <claim>`（可选）：把资源切成**按 claim 分段**的 channel（`qiy:<table>:<value>`）。订阅者只拿到自己 claim 对应那一段的 capability；缺失 claim 时**不授予任何 channel**（token 端点 403）。字段必须是实体上的非空 `Text`/`Integer`，且不能与 `restrict` 的行谓词同时声明（行谓词已经由分段隔离取代）。
-
-```ts
-realtime {
-  mode auto;
-  resource orders {
-    events created, updated;
-    roles admin, operator;
-    when tenantId claim tenant;
+  entity stock_movements {
+    field id UUID @id;
+    field warehouseCode Text;
+    field quantity Integer;
   }
 }
 ```
 
-分段 channel 的工作方式：
+## 语法
 
-| 位置 | 行为 |
+```text
+realtime "{" [ "mode" ( "auto" | "manual" ) ";" ]
+  ( "resource" <entity> "{"
+      "events" ( "created" | "updated" | "deleted" ) ( "," … )* ";"
+      "roles" role ( "," role )* ";"
+      [ "when" <field> "claim" <claim> ";" ]
+    "}" )+
+"}"
+```
+
+| 元素 | 必填 | 默认 | 校验 |
+| --- | --- | --- | --- |
+| `mode` | 否 | `auto` | 只有 `auto`/`manual`；重复或未知报 `Unsupported realtime mode` |
+| `resource <r>` | 是（≥1） | — | 实体名或表名；生成前归一化为表名；未知报 `Realtime: unknown resource`，重复报 `Duplicate realtime resource` |
+| `events` | 是 | — | 至少一个，且不重复；只接受 `created`/`updated`/`deleted` |
+| `roles` | 是 | — | 至少一个，且不重复；只接受 `admin`/`operator`/`viewer`；决定谁能拿到该资源的 subscribe capability |
+| `when <field> claim <claim>` | 否 | 无 | 字段必须存在、**非空**、类型 `Text`/`Integer`；claim 允许点号 |
+| 整个块 | — | — | 至少一个 `resource`；无 `auth` → `Realtime requires generated authentication`；`mode integration` → 拒绝 |
+
+## `mode auto` 与 `manual`
+
+| 模式 | 客户端行为 |
 | --- | --- |
-| 入队 | Outbox 行的 `channel` 直接写成 `qiy:orders:<record.tenantId>`，因此投递（含多副本尾随）只会发到该段 |
-| capability | `realtimeCapabilities(principal)` 只为该 principal 的 claim 值签发 `qiy:orders:<value>`；claim 缺失则一条都不签发 |
-| GraphQL Subscription | 订阅根从 capability 里解析实际授予的 channel，非本段事件不会进入流 |
-| Web（Ably） | LiveProvider 从 token 的 `capability` 解析实际授予的 channel 后再订阅，而不是假设基础资源名 |
-| 脱敏 | 与普通资源一致：mask 字段在入队时就被裁掉 |
+| `auto` | 生成的 LiveProvider 收到事件后让 Refine 自动刷新相关 `useTable`/`useOne`/`useMany` 查询（详情页按 `id`、批量页按 `ids` 裁剪；列表页需页面显式传 `liveMode`，生成器目前未为列表页启用） |
+| `manual` | 只把事件交给 Refine 的 `onLiveEvent`，页面自行决定如何响应（适合「先提示再刷新」或局部更新） |
+
+记录级裁剪：`subscribe({ params: { id } })` / `params: { ids: [...] }` 时只有 `payload.id`（或 `data.id`）命中才回调；没有这些参数时仍收到该资源全部事件。生成的 show 页会按记录 id 订阅，list 页默认不订阅。
+
+## 权限模型
+
+一个 channel（`qiy:<table>`）被同一资源的所有订阅者共享，服务端**无法按订阅者裁剪单条事件**。因此生成器在两侧同时约束：
+
+| 约束 | 机制 |
+| --- | --- |
+| 谁能订阅 | `roles` → Ably TokenRequest 的 **subscribe-only** capability；浏览器永远没有 publish 权限 |
+| 订阅哪些 channel | capability 由服务端 `realtimeCapabilities(principal)` 计算；客户端从 token 的 `capability` 解析实际授予的 channel 再订阅（不假设基础资源名） |
+| 字段脱敏 | 入队前按「可订阅角色」裁剪 payload：任何对该资源可订阅角色生效的 `mask`（含全局 mask 与 `claim present/absent` mask）都会从事件里删掉；只对不能订阅角色生效的 mask 不误伤 |
+| 行级隔离 | **共享 channel 做不到**，因此带 `restrict` 行谓词（`when`）的资源**禁止**开启 realtime：`restrict row predicates cannot be enforced on a shared channel` |
+| 租户分段 | 用 `when <field> claim <claim>` 把资源切成 `qiy:<table>:<value>`；claim 缺失时**不签发任何 channel**（`/token` 403） |
+
+::: warning 行谓词 vs 分段通道
+`restrict { when … }` 与 `when <field> claim <claim>` 是两种隔离手段，不能同时用于同一资源：分段通道已经完成行级隔离，生成期会报 `a claim-scoped channel already isolates rows; remove the restrict row predicates`。只有 `roles`/`mask`（没有 `when`）的 `restrict` 可以和 realtime 共存。
+:::
 
 ## 生成结果
 
-REST 模式生成：
+REST 模式：
 
-- Refine `LiveProvider`，直接使用 Ably JavaScript SDK 2.x；
-- List/Show hook 的资源级 `liveMode`；
-- `POST /api/v1/realtime/token`，重复执行 Qiy 身份认证并签发 role-scoped、subscribe-only TokenRequest；
-- CRUD repository 在业务写入和审计记录的同一个 Drizzle 事务中写入 `qiy_realtime_outbox`，提交后由 service 立即触发投递；
-- Server 启动后台 worker，按照 `QIY_REALTIME_POLL_MS` 扫描未投递记录；PostgreSQL/MySQL worker 使用数据库事务、lease 和 `FOR UPDATE SKIP LOCKED` 原子领取，失败记录释放租约并按指数退避重试；
-- 达到 `QIY_REALTIME_MAX_ATTEMPTS` 后写入 `deadLetteredAt` 并停止自动领取；只有 `admin` 可以通过受保护的 Outbox API 查看并重放；
-- `GET /api/v1/realtime/outbox/dead` 列出最近 100 条死信，`GET /api/v1/realtime/outbox/metrics` 返回 JSON 指标，`GET /api/v1/realtime/outbox/metrics/prometheus` 输出 Prometheus 0.0.4 文本，`GET /api/v1/realtime/outbox/health` 按阈值返回 `200 ok` 或 `503 degraded`；`POST /api/v1/realtime/outbox/:id/replay` 重放单条，`POST /api/v1/realtime/outbox/replay` 接受 1–100 个唯一 UUID 并返回 `replayed/notFound`；`DELETE /api/v1/realtime/outbox/delivered?retentionDays=N` 清理已投递历史；这些运维端点只允许 `admin`；
-- 单条重放、批量重放和手动清理会以当前管理员为 actor 写入 `audit_events`，动作分别是 `realtime.outbox.replayed`、`realtime.outbox.bulk_replayed` 和 `realtime.outbox.cleaned`。Outbox 修改与审计写入处于同一数据库事务；审计失败时运维操作也回滚。后台自动清理没有交互式管理员，不写管理员审计；
-- Dataflow `emit "order.approved"` 同时写入业务 `dataflow_outbox` 和实时 `qiy:event:order.approved` channel，二者与业务修改一起提交或回滚；
-- Dataflow 的 `allow roles` 会转换为对应业务事件 channel 的 subscribe-only capability；
-- Server 环境变量 `QIY_ABLY_API_KEY`、`QIY_REALTIME_POLL_MS`、`QIY_REALTIME_LEASE_MS`、`QIY_REALTIME_MAX_ATTEMPTS`、`QIY_REALTIME_RETENTION_DAYS`、`QIY_REALTIME_CLEANUP_MS`、三个 `QIY_REALTIME_ALERT_*` 阈值和测试专用 `QIY_REALTIME_DISABLED`。Worker 启动时执行一次清理，之后按独立维护周期清理 delivered 历史，不会在每次投递轮询时扫描历史表。
-- `bun run realtime:admin -- <command>` 运维客户端。它只调用上述受保护 HTTP API，不直连数据库、不绕过角色检查或审计；`QIY_REALTIME_ADMIN_TOKEN` 必须是管理员 access token，`QIY_REALTIME_ADMIN_URL` 默认为当前 Server 的 `/api/v1/realtime/outbox`。
+- Refine `LiveProvider`（Ably JavaScript SDK 2.x），List/Show hook 的资源级 `liveMode`；
+- `POST /api/v1/realtime/token`：重复执行 Qiy 身份认证，签发 role-scoped、subscribe-only TokenRequest；
+- CRUD repository 在**业务写入与审计的同一个 Drizzle 事务**里写 `qiy_realtime_outbox`，提交后由 service 立即触发一次投递；
+- 服务端后台 worker 按 `QIY_REALTIME_POLL_MS` 扫描未投递行；PostgreSQL/MySQL 用事务 + lease + `FOR UPDATE SKIP LOCKED` 原子领取，失败释放租约并按指数退避重试；
+- 达到 `QIY_REALTIME_MAX_ATTEMPTS` 后写 `deadLetteredAt` 并停止自动领取，只有 `admin` 能通过受保护 API 查看/重放；
+- Dataflow `emit` 同时写业务 `dataflow_outbox` 与实时 channel `qiy:event:<event>`，与业务写入同生共死；dataflow 的 `allow roles` 会转成对应事件 channel 的 subscribe-only capability；
+- 字段脱敏在**入队时**完成（批量删除同样适用）。
 
-`QIY_ABLY_API_KEY` 只能配置在 Server 环境或 secret manager，不能使用 `VITE_` 前缀，也不能写入 `.qiy`。浏览器只取得短期、受 capability 限制的 TokenRequest。
+运维端点（全部要求 `admin`，除 Prometheus 文本端点可用只读 token）：
+
+| 端点 | 说明 |
+| --- | --- |
+| `GET /api/v1/realtime/outbox/dead` | 最近 100 条死信 |
+| `GET /api/v1/realtime/outbox/metrics` | JSON 指标 |
+| `GET /api/v1/realtime/outbox/metrics/prometheus` | Prometheus 0.0.4 文本 |
+| `GET /api/v1/realtime/outbox/health` | 按阈值返回 `200 ok` / `503 degraded` |
+| `POST /api/v1/realtime/outbox/:id/replay` | 重放单条死信 |
+| `POST /api/v1/realtime/outbox/replay` | 批量重放 1–100 个唯一 UUID，返回 `{ replayed, notFound }` |
+| `DELETE /api/v1/realtime/outbox/delivered?retentionDays=N` | 清理已投递历史 |
+
+- 重放与手动清理以当前管理员为 actor 写 `audit_events`（`realtime.outbox.replayed`、`realtime.outbox.bulk_replayed`、`realtime.outbox.cleaned`），Outbox 修改与审计同事务；审计失败则操作回滚。后台自动清理没有交互式管理员，不写审计。
+- `QIY_REALTIME_DISABLED=1` 时 worker 不投递、`/token` 返回 503，生成测试用它避免依赖真实 Ably。
+
+## GraphQL Subscription（SSE）
+
+`api { client graphql; }` + `realtime` 时追加订阅根：
+
+```graphql
+type OrdersEvent { event: String! record: Orders! }
+type Subscription { ordersChanged: OrdersEvent! }
+```
+
+- 传输：**Server-Sent Events**，`GET /api/v1/graphql/subscribe?query=...`，每帧 `data: {...}`。
+- 鉴权：匿名 401；角色不在该资源 `roles` → 403（复用 Ably 的 capability 计算）；未知订阅字段/非订阅文档/语法错误 400；客户端 abort 关闭迭代器并清理订阅。
+- 脱敏：负载来自 outbox（已裁剪），被 mask 的字段**没有键**；GraphQL 只能对客户端显式请求的字段返回 `null`，不会泄漏值。
+- 事件源：进程内总线（本实例刚投递的事件）+ 按 `QIY_REALTIME_SUBSCRIBE_POLL_MS`（默认 1000，最小 100）尾随 `deliveredAt` 已写入的 outbox 行，因此**多副本时任意实例投递的事件都能被订阅者收到**（按行 id 去重）。
+
+客户端：
+
+```ts
+const stop = subscribeGraphql({
+  query: "subscription { ordersChanged { event record { id number } } }",
+  onData: (data) => console.log(data),
+  onError: (error) => console.warn(error.message),
+});
+stop();
+```
+
+## 环境变量
+
+| 变量 | 默认 | 校验/说明 |
+| --- | --- | --- |
+| `QIY_ABLY_API_KEY` | 空 | 启用 realtime 时必需；**只放服务端**，浏览器只拿短期 TokenRequest |
+| `QIY_REALTIME_DISABLED` | `0` | `1` 时 worker 不投递、`/token` 503（测试与灰度用） |
+| `QIY_REALTIME_POLL_MS` | `5000` | 投递轮询间隔，最小 250 |
+| `QIY_REALTIME_LEASE_MS` | `30000` | 领取租约，最小 1000；必须大于正常 publish 延迟 |
+| `QIY_REALTIME_MAX_ATTEMPTS` | `10` | 1–1000；超过进入死信 |
+| `QIY_REALTIME_RETENTION_DAYS` | `7` | 1–3650；delivered 历史保留天数 |
+| `QIY_REALTIME_CLEANUP_MS` | `86400000` | 清理周期，最小 60000 |
+| `QIY_REALTIME_SUBSCRIBE_POLL_MS` | `1000` | SSE 尾随间隔，最小 100 |
+| `QIY_REALTIME_ADMIN_URL` | 本机 `/api/v1/realtime/outbox` | 运维 CLI 的目标 |
+| `QIY_REALTIME_ADMIN_TOKEN` | 空 | 运维 CLI 用的**管理员** access token |
+| `QIY_REALTIME_METRICS_TOKEN` | 空 | 只读抓取 token：**仅**允许 Prometheus 文本端点 |
+| `QIY_REALTIME_ALERT_MAX_PENDING` | `1000` | health 阈值 |
+| `QIY_REALTIME_ALERT_MAX_DEAD_LETTERED` | `0` | health 阈值 |
+| `QIY_REALTIME_ALERT_MAX_OLDEST_PENDING_MS` | `300000` | health 阈值 |
+
+非法值在启动/首次使用时 fail-closed 抛错（例如 `QIY_REALTIME_LEASE_MS must be an integer of at least 1000ms`）。
 
 ## 运维 CLI
-
-在生成的 Server package 中设置管理员 access token，然后执行：
 
 ```powershell [apps/server]
 $env:QIY_REALTIME_ADMIN_TOKEN = "<admin-access-token>"
@@ -102,21 +184,28 @@ bun run realtime:admin -- replay 00000000-0000-4000-8000-000000000001
 bun run realtime:admin -- cleanup 30
 ```
 
-除 `prometheus` 原样输出文本外，其余命令输出单行 JSON，适合脚本、CI 或运维平台解析。`replay` 接受 1–100 个唯一 UUID；`cleanup` 的可选保留天数范围为 1–3650。远程 Server 通过 `QIY_REALTIME_ADMIN_URL=https://admin.example.com/api/v1/realtime/outbox` 指定。不要把 token 写入 `.qiy`、提交到仓库或传给浏览器；CLI 请求在服务端重新验证管理员角色，重放与清理仍以 token 对应的 principal 作为审计 actor。
+除 `prometheus` 原样输出文本外，其余输出单行 JSON。`replay` 接受 1–100 个唯一 UUID；`cleanup` 保留天数 1–3650；远程 Server 用 `QIY_REALTIME_ADMIN_URL=https://admin.example.com/api/v1/realtime/outbox`。CLI 只调用受保护 HTTP API，不直连数据库、不绕过角色检查或审计。
 
-默认告警阈值为 pending `1000`、dead-lettered `0`、最老 pending 年龄 `300000ms`。分别使用 `QIY_REALTIME_ALERT_MAX_PENDING`、`QIY_REALTIME_ALERT_MAX_DEAD_LETTERED` 和 `QIY_REALTIME_ALERT_MAX_OLDEST_PENDING_MS` 调整。Prometheus 指标不包含用户、tenant、channel 或事件 ID 标签，避免高基数；可由 Prometheus 直接抓取，也可由 OpenTelemetry Collector 的 Prometheus receiver 接入。抓取请求可以携带管理员 Bearer token，或单独配置的只读 `QIY_REALTIME_METRICS_TOKEN`。只读 token 仅允许 Prometheus 文本端点，不能访问 JSON 指标、健康、死信、重放、清理或 Ably token 端点；默认留空，轮换后需重启 Server 并等待抓取端重新加载凭据。
+## Prometheus 与 Grafana
 
-## Prometheus Operator 与 Grafana
+声明 realtime 的独立项目额外生成：
 
-声明 Realtime 的独立项目额外生成 `deploy/kubernetes/realtime-servicemonitor.yaml`、`deploy/kubernetes/realtime-prometheusrule.yaml` 和 `deploy/observability/grafana/qiy-realtime-outbox.json`。ServiceMonitor 使用 Service 的 `http` 端口，在同一 namespace 从应用 Secret 的 `QIY_REALTIME_METRICS_TOKEN` key 读取 Bearer 凭据；Deployment 从同一 Secret 注入该变量和 `QIY_ABLY_API_KEY`。替换 Secret 示例占位值后再部署。
+- `deploy/kubernetes/realtime-servicemonitor.yaml`（用 Service 的 `http` 端口，从应用 Secret 的 `QIY_REALTIME_METRICS_TOKEN` 读取 Bearer 凭据）；
+- `deploy/kubernetes/realtime-prometheusrule.yaml`（持续 5 分钟健康降级 / 1 分钟死信 / 10 分钟指标缺失）；
+- `deploy/observability/grafana/qiy-realtime-outbox.json`（导入时选择 Prometheus datasource）。
 
-集群必须安装 Prometheus Operator CRD，并配置 Prometheus 的 ServiceMonitor/Rule selector 选中生成对象的 `app` label 和 namespace。告警覆盖持续 5 分钟的健康降级、持续 1 分钟的死信，以及持续 10 分钟的指标缺失；告警表达式按应用 `service` label 限定。通知接收人和 Alertmanager 路由由部署者配置。Grafana 导入 JSON 时选择 Prometheus datasource；当前面板展示该 datasource 中的 Qiy Outbox 指标。监控端点应通过私有网络访问，跨可信网络边界时使用 TLS。
+指标：`qiy_realtime_outbox_pending`、`…_leased`、`…_dead_lettered`、`…_delivered`、`…_oldest_pending_age_seconds`、`…_health`。**不带**用户/tenant/channel/事件 ID 标签（避免高基数）。
+
+## 扩展性与语义边界
+
+- **at-least-once**：PostgreSQL/MySQL 用租约 + `SKIP LOCKED` 避免正常并发重复领取；SQLite 定位单进程。provider 成功但未标记 delivered 时崩溃、或 publish 超过租约被另一 worker 重新领取，仍可能重复投递——**消费者必须幂等**，Qiy 不宣称 exactly-once。
+- `QIY_REALTIME_LEASE_MS` 必须大于正常 publish 延迟；修改 outbox schema 后已有项目必须重新生成并执行 migration。
+- 多副本 SSE 依赖 outbox 尾随：每个订阅者都会轮询数据库，订阅规模很大时建议换成专用消息中间件。
+- 事件负载是**字段级**裁剪；行级隔离靠「禁止行谓词 + claim 分段通道」实现。
 
 ## 可重复验收
 
-仓库中的 `examples/realtime/app.qiy` 同时包含本地登录、角色模型和 Realtime 资源。可以用公开 CLI 链路生成并验证完整工作区：
-
-```powershell [PowerShell]
+```powershell
 qiy create -f examples/realtime/app.qiy -n realtime-admin -o out/realtime-admin
 bun install --cwd out/realtime-admin
 bun run --cwd out/realtime-admin typecheck
@@ -124,75 +213,86 @@ bun run --cwd out/realtime-admin test
 bun run --cwd out/realtime-admin build
 ```
 
-生成的 Server 测试会强制设置 `QIY_REALTIME_DISABLED=1`，不会依赖开发环境 `.env` 的默认值，也不会把本地测试误认为真实 Ably 验收。Realtime 专项测试再显式开启该开关，并验证允许角色、匿名 `401`、无 channel 权限角色 `403`、subscribe-only capability、失败退避、重试、并发 worker 单次领取、死信阈值和管理员运维权限。SQLite 生成包还会真实删除 Outbox 表制造插入失败，证明 CRUD、审计与 Outbox 同成同败；Dataflow 测试验证业务事件成功入队，并在后续业务规则失败时随事务回滚。仓库的 PostgreSQL/MySQL 容器验收会在真实迁移后启动两个 worker 竞争同一行，并实际执行死信、重放及 delivered 清理。
+生成 Server 测试会强制 `QIY_REALTIME_DISABLED=1`，不依赖开发环境 `.env`，也不把本地测试当真实 Ably 验收；realtime 专项测试显式开启该开关并验证允许角色、匿名 401、无 channel 权限 403、subscribe-only capability、失败退避、重试、并发 worker 单次领取、死信阈值与管理员运维权限。SQLite 生成包还会真实删表制造 outbox 插入失败，证明 CRUD/审计/outbox 同成同败。
 
-## 投递存储的真实数据库验收
-
-生成的 Server 测试注入的是内存假 store，因此**真实数据库 store**（租约列、`SKIP LOCKED` 领取、退避、死信、重放、清理）由源码仓库的工具单独验收：
+真实数据库 store（租约列、`SKIP LOCKED`、退避、死信、重放、清理）：
 
 ```sh
 bun tools/verify-realtime-outbox.ts sqlite
 bun tools/verify-realtime-outbox.ts postgresql <容器名>
 bun tools/verify-realtime-outbox.ts mysql <容器名>
+bun tools/verify-realtime-claim.ts        # claim 分段通道
+bun tools/verify-realtime-policy.ts       # 行谓词拒绝 + mask 裁剪
 ```
 
-它生成带 Realtime 的应用、迁移到真实数据库，然后用假 Ably client 驱动真实 `databaseOutboxStore`，逐项断言：单次投递并清空租约；已投递不再重投；**worker 崩溃后租约到期可被重新领取**而有效租约不被抢占；失败退避期内不再领取、到期后成功；达到 `QIY_REALTIME_MAX_ATTEMPTS` 进入死信并被 `deadLetters` 列出；重放重置计数、清空死信并写入审计；清理只删除超过 `QIY_REALTIME_RETENTION_DAYS` 的已投递历史；PostgreSQL/MySQL 上**两个 worker 并发只投递一次**（SQLite 定位为单进程，不断言并发）。
+MySQL 需要 `datetime(3)`（毫秒精度）：不带小数秒时 MySQL 会**四舍五入**，刚入队的 `availableAt` 可能被推到未来导致 worker 跳过；生成的 MySQL schema 现已统一 `fsp: 3`，已有项目需重新生成并迁移。
 
-MySQL 需要 `datetime(3)`（毫秒精度）：`datetime` 不带小数秒时 MySQL 会**四舍五入**，刚入队的 `availableAt` 可能被推到未来，worker 会跳过该行。生成的 MySQL schema 现已统一使用 `fsp: 3`；已有 MySQL 项目需要重新生成并执行 migration 才能获得毫秒精度。
+## 校验错误
 
-## GraphQL Subscription
+| 错误（节选） | 触发 |
+| --- | --- |
+| `Realtime requires at least one resource` | 空 `realtime {}` |
+| `Realtime requires generated authentication` | 无 `auth` |
+| `application mode integration cannot generate standalone realtime; use the host LiveProvider adapter instead.` | `mode integration` |
+| `Unsupported realtime mode <m>` | 非法 mode |
+| `Duplicate realtime resource <r>` / `Realtime: unknown resource <r>` | 资源重复/不存在 |
+| `Realtime resource <r>: events requires at least one event` / `unsupported event <e>` / `duplicate event <e>` | events |
+| `Realtime resource <r>: roles requires at least one role` / `unsupported role <r>` / `duplicate role <r>` | roles |
+| `Realtime resource <r>: duplicate when clause` / `when requires "claim"` | `when` 语法 |
+| `Realtime <r>: unknown claim field <f>` / `must be non-nullable` / `must be Text or Integer` | `when` 字段契约 |
+| `Realtime <r>: restrict row predicates cannot be enforced on a shared channel; remove the realtime events or the row predicates` | 行谓词 + realtime |
+| `Realtime <r>: a claim-scoped channel already isolates rows; remove the restrict row predicates` | 分段通道 + 行谓词 |
+| `QIY_REALTIME_LEASE_MS must be an integer of at least 1000ms` 等 | 环境变量非法 |
 
-`api { client graphql; }` 与 `realtime` 同时启用时，生成的 GraphQL schema 会增加订阅根：
+## 常见错误
 
-```graphql
-type OrdersEvent { event: String! record: Orders! }
-type Subscription { ordersChanged: OrdersEvent! }
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| `/api/v1/realtime/token` 403 | principal 缺少分段通道所需的 claim | 给 users 行/IdP 补 claim，或去掉 `when … claim …` |
+| 页面收不到事件 | 角色不在 `roles`，或 channel capability 与资源名不一致（分段通道） | 检查 `roles` 与 claim；客户端必须从 token 的 capability 取 channel |
+| 事件里少了字段 | 该字段被 `mask` 且对可订阅角色生效 | 调整 mask 或角色 |
+| 列表刷新但详情页不刷新 | 详情页按 `id` 裁剪，事件 payload 的 id 与页面不一致 | 检查记录 id；`useMany` 需传 `params.ids` |
+| 死信持续增长 | Ably 不可达/凭据错误/超过重试上限 | 看 `outbox/health`、`outbox/dead`，修复后 `replay` |
+| 生成期拒绝 realtime | 资源带 `restrict` 行谓词 / 无 `auth` / integration 模式 | 去掉行谓词、加 auth，或改用宿主 LiveProvider |
+| `/token` 503 `Realtime is disabled` | `QIY_REALTIME_DISABLED=1` | 取消该变量 |
+
+## 进阶用法
+
+**1）分段 + 脱敏组合**：按 claim 分段隔离租户，同时用 `mask` 对可订阅角色裁剪敏感字段（入队前生效）。
+
+```qiy
+realtime {
+  resource stock_movements {
+    events created, updated;
+    roles admin, operator;
+    when warehouseCode claim warehouse.code;
+  }
+}
+restrict stock_movements {
+  allow roles admin, operator;
+  mask unitCost roles operator mode redact replacement "***";
+}
 ```
 
-订阅通过 **Server-Sent Events** 传输（`GET /api/v1/graphql/subscribe?query=...`），每个 GraphQL 结果是一帧 `data: {...}`：
+**2）auto 与 manual 混用**：列表页用 `mode auto` 自动刷新，详情页自行处理 `onLiveEvent`（例如只对「当前步骤」的变化弹提示），避免整页重渲染。
 
-- **鉴权与授权**：匿名 401；角色不在该资源的 `events`/`roles` 里返回 403（复用 Ably token 的同一套 capability 计算）。
-- **错误映射**：未知订阅字段、非订阅文档、语法错误都返回 400；客户端中止（abort）会关闭迭代器并清理订阅。
-- **脱敏**：事件负载来自 Outbox，已经过 `qiyRealtimePayload` 裁剪，因此被 mask 的字段在服务端负载里**没有键**；GraphQL 只能对客户端显式请求的字段返回 `null`（GraphQL 不能删除被请求的字段），值不会泄漏。
-- **行谓词**：与 REST 一致——带 `restrict` 行谓词的资源不允许开启 realtime，生成期即报错。
+**3）死信运维闭环**：
 
-实现要点：`api/src/realtime-bus.ts` 提供进程内总线与 `realtimeEventIterator()`；`dispatchRealtimeOutbox` 在 `delivered` 之后把**已投递、已脱敏**的负载发布到总线；订阅根是惰性 getter，因此普通查询不会触发订阅。
-
-客户端使用生成的 `web/app/subscriptions.ts`：
-
-```ts
-const stop = subscribeGraphql({
-  query: "subscription { ordersChanged { event record { id title } } }",
-  onData: (data) => console.log(data),
-  onError: (error) => console.warn(error.message),
-});
-// 取消订阅
-stop();
+```powershell
+bun run realtime:admin -- health      # 503 先看阈值
+bun run realtime:admin -- dead        # 定位事件
+bun run realtime:admin -- replay <id> # 修复 provider 后重放
+bun run realtime:admin -- cleanup 30  # 清理已投递历史
 ```
 
-它带 Bearer token 请求 SSE 端点、按 `\n\n` 分帧（能处理跨 chunk 拆分的帧）、把 `errors` 交给 `onError`、把 HTTP 4xx 的 `error` 也交给 `onError`，并在 `stop()` 时 abort 请求、取消 reader 且不再回调。
+**4）多副本部署**：确保 `QIY_REALTIME_LEASE_MS` 明显大于 publish 延迟；SSE 订阅者通过 outbox 尾随获得跨实例事件，但每个订阅者都会轮询数据库——订阅量很大时改用专用消息中间件。
 
-当前边界：订阅事件源是**总线 + Outbox 尾随**——`realtimeChannelIterator()` 先从进程内总线取本实例刚投递的事件（低延迟），再按 `QIY_REALTIME_SUBSCRIBE_POLL_MS`（默认 1000ms，最小 100ms）尾随 `deliveredAt` 已写入的 Outbox 行，因此**多副本部署时任意实例投递的事件都能被订阅者收到**（按 Outbox 行 id 去重）。仍未做：`graphql-ws` WebSocket 传输、订阅级 filter 参数、基于 claim/租户的订阅表达式；尾随读取会给数据库带来与订阅数量成正比的轮询压力，超大订阅规模建议改用专用消息中间件。
+**5）前端订阅封装**：把 `subscribeGraphql()` 的 `stop()` 交给 React `useEffect` 清理，避免路由切换后残留订阅；事件负载已脱敏，可直接用于 UI 局部刷新。
 
-## 记录级订阅（页面级裁剪）
-详情页（`useOne`）与批量页（`useMany`）只关心特定记录，因此生成的 LiveProvider 会按请求参数裁剪事件：`subscribe({ params: { id } })` 或 `params: { ids: [...] }` 时，只有 payload 的 `id`（或 `data.id`）命中才回调；列表页不带这些参数，仍然收到该资源的全部事件。这样"页面级订阅"在客户端就生效，不会把整资源的更新都灌进单条记录页面。
+## 相关
 
-`createQiyLiveProvider(fetcher, injected?)` 的第二个参数用于注入 Ably 客户端，生成测试据此断言裁剪行为（命中/不命中、嵌套 `data.id`、无 id 事件、unsubscribe 代理）。
-
-## 权限数据范围与事件负载
-
-一个 Realtime channel（`qiy:<table>`）被同一资源的所有订阅者共享，服务端**无法按订阅者裁剪单条事件**。因此生成器在两侧都做约束：
-
-- **字段脱敏**：入队前按"可订阅角色"裁剪负载。任何对 `realtime` 中声明的可订阅角色生效的 `mask` 字段（含无 `roles` 的全局 mask、以及带 `claim present/absent` 的 mask）都会从 `created`/`updated`/`deleted` 负载中删除；只对**不能订阅**的角色生效的 mask 不会误伤负载。裁剪发生在写事务内的 Outbox 插入处，批量删除同样适用。
-- **行级谓词**：`restrict` 的 `when ...` 行谓词**无法**在共享 channel 上生效，因此带行谓词的资源**不能开启 Realtime**，生成阶段直接报错（`restrict row predicates cannot be enforced on a shared channel`），而不是把订阅者无权读取的行推给所有订阅者。需要实时且需要行级隔离时，请把隔离维度并入独立资源或改用轮询式拉取。
-- 角色层面仍由 Ably token 的 channel capability 限制为 subscribe-only；未授权角色拿到 token 也无法订阅。
-
-## 当前边界
-
-- 当前实现是**多实例 at-least-once**：PostgreSQL/MySQL 使用带过期时间的租约与 `SKIP LOCKED` 避免正常并发扫描重复领取；SQLite 仍定位为单进程开发/轻量部署。
-- provider 已成功但数据库尚未标记 delivered 时进程崩溃，或 publish 超过 `QIY_REALTIME_LEASE_MS` 后被另一 worker 重新领取，仍可能重复投递。消费者必须幂等，Qiy 不宣称 exactly-once。
-- `QIY_REALTIME_LEASE_MS` 默认 `30000`，必须大于正常 provider publish 延迟；修改 Outbox Schema 后，已有生成项目必须生成并执行数据库 migration，不能只替换运行时代码。
-- `QIY_REALTIME_MAX_ATTEMPTS` 默认 `10`，`QIY_REALTIME_RETENTION_DAYS` 默认 `7`，`QIY_REALTIME_CLEANUP_MS` 默认 `86400000`（24 小时，最小 60 秒）。当前提供受保护的 HTTP 运维 API、机器可读运维 CLI、单条/批量死信重放、事务性管理员审计、JSON/Prometheus 指标、阈值健康告警、自动历史清理及 Prometheus Operator/Grafana 文件；尚无云监控专属适配器或原生 OTLP exporter，集群安装和 Grafana 实际导入仍需环境验收。
-- 尚未实现 GraphQL Subscription、页面自定义 channel、record/global scope、permission 表达式和租户 capability 细分。
-- 事件负载只做**字段级**裁剪，不做行级裁剪；行级隔离通过"禁止对带行谓词的资源开启 Realtime"实现，见上文。
-- 真实 Ably tenant、浏览器断线重连、跨租户拒绝和多副本部署仍需环境级验收；投递 store 本身已由 `tools/verify-realtime-outbox.ts` 在真实数据库上验收。
+- [dataflow](/dsl/dataflow)：`emit` 与实时 outbox 的联动。
+- [权限（permission）](/dsl/permissions)：`roles`/`mask`/行谓词与 realtime 的关系。
+- [API 与数据源](/guide/api)：DataProvider 与 LiveProvider 的生成约定。
+- 示例：[examples/realtime/app.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/realtime/app.qiy)。
+- 测试：`tests/realtime-qiy.test.ts`、`tools/verify-realtime-outbox.ts`、`tools/verify-realtime-claim.ts`、`tools/verify-realtime-policy.ts`、`tools/verify-graphql-subscription.ts`。

@@ -8366,13 +8366,20 @@ function renderDocsModule(database: DatabaseIR, options: NonNullable<Parameters<
       }),
     };
   });
-  const docsDataflows = (options.dataflows ?? []).map((flow) => ({
-    name: flow.name,
-    label: flow.label ?? flow.name,
-    labelKey: flow.labelKey ?? "qiy.dataflows." + flow.name + ".label",
-    allowRoles: flow.roles ?? [],
-    allowPermissions: flow.permission ?? [],
-    verification: flow.verification ?? null,
+  const docsDataflows = (options.dataflows ?? []).map((flow) => {
+    // `allow permission` names may be permission fields or groups; the runtime
+    // principal holds expanded permission VALUES, so the docs metadata (and the
+    // x-qiy-permissions extensions) must carry the expanded values too.
+    const allowPermissions = flow.permission
+      ? (options.permissions ? requiredPermissionValues(options.permissions, flow.permission) : flow.permission)
+      : [];
+    return {
+      name: flow.name,
+      label: flow.label ?? flow.name,
+      labelKey: flow.labelKey ?? "qiy.dataflows." + flow.name + ".label",
+      allowRoles: flow.roles ?? [],
+      allowPermissions,
+      verification: flow.verification ?? null,
     inputs: flow.input.map((input) => ({ name: input.name, type: input.type, required: input.required, label: input.name, labelKey: "" })),
     contexts: flow.context.map((context) => {
       const entity = entityByName.get(context.entity);
@@ -8391,9 +8398,10 @@ function renderDocsModule(database: DatabaseIR, options: NonNullable<Parameters<
         if (action.kind === "emit") return { kind: "emit", summary: "emit " + action.event };
         return { kind: "call", summary: "call " + action.adapter };
       }),
-    })),
-    result: flow.result,
-  }));
+      })),
+      result: flow.result,
+    };
+  });
   const permissionModel = options.permissions;
   const docsPermissions = {
     fields: (permissionModel?.fields ?? []).map((field) => ({ name: field.name, value: field.value, label: field.label ?? field.name, labelKey: field.labelKey ?? "" })),

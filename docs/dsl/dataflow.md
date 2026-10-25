@@ -1,319 +1,439 @@
-# dataflow
+# dataflow（事务型业务命令）
 
-`dataflow` 是 Qiy 的业务命令 DSL：它描述用户在后台点击“确认”“审批”“撤销”等动作后，服务端按什么顺序读取、校验和变更数据。当前 CLI 已实现一个**受限、可生成的子集**：生成 Elysia 命令端点，在同一事务内加载、校验、更新，并可写入审计、事务性 outbox 和持久化幂等回执。Dataflow 自身可以声明可国际化的名称、确认文案和说明；细粒度授权、外部调用和 broker 投递仍待实现。
+`dataflow` 把一个业务操作（审批、收货、发货、撤销……）声明成**封闭、可静态检查、单事务**的服务端命令：先按主键加载上下文，再按步骤做条件校验与写入，最后返回一条记录。它替代「前端串联多次 CRUD」，但**不是**通用脚本语言：语句集固定、条件表达式受限、副作用受控。
 
-## 流程元数据
+一个 `dataflow` 生成：
 
-```qiy
-dataflow explainReview
-  @label(t("review.action"))
-  @confirm(t("review.confirm"))
-  @comment(t("review.description")) {
-  // input/context/step/result
-}
-```
+- REST 端点 `POST /api/v1/commands/<name>`（批量时再加 `/batch`）；
+- GraphQL `run<Name>` mutation（批量再加 `run<Name>Batch`）；
+- OpenAPI 操作（`tags: ["Dataflow"]`）与受保护文档条目；
+- （由 `action` 声明时）Refine 列表/详情按钮、确认表单、幂等键传递；
+- 生成包内的 Bun 测试（含幂等回放、回滚、权限拒绝）。
 
-- `@label(...)` 是面向操作人员的流程名称；绑定它的 Action 未声明 `label` 时自动继承；
-- `@confirm(...)` 是默认确认文案；Action 可省略 `confirm` 或显式覆盖；
-- `@comment(...)` 进入生成源码注释、REST OpenAPI endpoint 描述、GraphQL command input 与 mutation 描述；
-- 三个注解都支持字面量或 `t("message.key")`。翻译 key 必须在默认 locale 中存在；生成 IR 保留默认语言 fallback 和 key；
-- Dataflow 与 Action 都没有 label 时生成失败，避免出现无标题业务按钮。
+与 `workflow` 的区别：`workflow orderInventory;` 是历史 ERP 压力测试切片（固定实体、固定四个动作，见 [业务工作流](/guide/workflow)），`dataflow` 才是通用命令 DSL。
 
-完整多语言示例见 [documented-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/documented-inputs.qiy)。
+## 语法总览
 
-## 当前可执行子集
+```qiy [app.qiy]
+dataflow revokeConnector @label("撤销连接器") @confirm("确认撤销？") @comment("撤销一个活跃连接器") {
+  allow roles admin, operator;          // 或 allow permission / allow verification
+  idempotency required;                 // 可选
+  audit "connector.revoked";            // 可选
 
-独立生成项目可使用下列语法：
-
-```qiy
-dataflow revokeConnector {
-  allow roles admin, operator;
-  idempotency required;
-  audit "connector.revoked";
   input {
     field connectorId UUID @required;
-    field reason Text @required @comment("Operator-provided reason");
+    field reason Text @required @comment("操作原因");
   }
 
   context {
     connector = entity connectors by id input.connectorId @required;
   }
 
-  step validate @order(10) {
-    require connector.status != "revoked"
-      @error("errors.connector.alreadyRevoked");
+  step validate @order(10) @comment("检查状态") {
+    require connector.status != "revoked" @error("errors.connector.alreadyRevoked");
   }
 
-  step revoke @order(20) @comment("Write revoked state") {
-    update connector {
-      status = "revoked";
-      revokedReason = input.reason;
-    }
+  step revoke @order(20) {
+    update connector { status = "revoked"; }
+    emit "connector.revoked" { connectorId = connector.id; reason = input.reason; }
   }
 
   result { return connector; }
 }
 ```
 
-当前限制：
-
-- input 支持 `UUID`、`Text`、`Integer`、`Decimal`、`Boolean` 和模型中已声明的 enum 名称；作为 context 主键来源的 input 必须带 `@required`；
-- context 只支持按实体 UUID 主键从 `input.<field>` 加载，且必须带 `@required`；
-- `require` 比较必填 input 或已加载 context；Text/enum 支持字符串相等/不等，非空 Integer 支持整数字面量的六种比较，见下方整数业务规则；
-- `update` 支持 Text/enum 字符串字面量，也支持 Text、Integer 字段赋值为同类型必填 input（如 `revokedReason = input.reason;`、`quantity = input.quantity;`）；编译时拒绝未知、可选、类型不匹配的输入和向 enum 写入自由文本。不能写主键、scope 租户范围字段或本地认证 passwordField，不能重复写同一字段，不支持表达式或函数调用。Integer 请求范围为 -2147483648 至 2147483647，与 PostgreSQL/MySQL 的整数列保持一致；Elysia 可将数字字符串转换为整数，非数字字符串、非整数与越界值返回 422；
-- step 的 `@order(<正整数>)` 必须唯一；生成器按排序后的步骤执行；
-- `allow roles admin;` 或 `allow roles operator;` 声明命令角色白名单，也可写 `allow roles admin, operator;`；未声明时默认允许 admin/operator。当前只支持这两个内置角色，拒绝空列表、重复声明和未知角色；
-- standalone 模式生成 `apps/server/src/dataflows/index.ts` 和 `POST /api/v1/commands/<dataflow>`。同时生成 `run<Dataflow>` GraphQL mutation；有 input 时生成强类型 `*CommandInput`，空 `input {}` 不生成非法空 input type，启用幂等时 mutation 要求 `idempotencyKey`。native、GraphQL Yoga 和 Apollo 都委托同一条 REST Dataflow Elysia 路由，因此事务、角色、scope、审计、outbox 与幂等逻辑只有一份。not-found 为 404，业务 `require` 失败为 409，缺失数据 scope claim 为 403；
-- integration 模式不会生成服务端命令，包含 `dataflow` 的 integration 模型会明确拒绝，避免在宿主 API 旁生成第二套业务实现。
-
-生成器为每个命令使用 `db.transaction(...)`；SQLite 回调使用同步查询，业务失败抛出异常以回滚。PostgreSQL/MySQL 的 context 查询使用 `FOR UPDATE` 锁定业务行，后续校验在锁内执行。`audit` 在同一事务写入事件；审计或回执插入失败也回滚数据变更。角色检查发生在幂等回执查询与事务之前：匿名返回 401，不在白名单内返回 403，均不写业务数据、审计或回执。admin 不绕过白名单，因此 `allow roles operator;` 也会拒绝 admin。回放时重新检查角色和数据 scope，已有成功回执不赋予访问权。
-
-完整的本地认证与双角色命令示例见 [examples/dataflow/roles.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/roles.qiy)。通过该模型生成的 Refine 命令 action 自动继承角色白名单，服务端仍是最终授权边界；前端 `CanAccess` 同时传递当前记录 ID，成功/失败提示使用 Refine `useNotification`，文案走项目 i18n provider。自定义角色和 `allow permission` 尚未实现。
-
-完整的整数写入示例见 [examples/dataflow/typed-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/typed-inputs.qiy)。生成的 SQLite 测试覆盖数量变更、幂等回放、非法输入无写入，以及业务、审计和回执失败时完整回滚。业务上下限可使用整数 `require`，见下面示例。Boolean input 已支持请求契约，但当前实体字段尚无 Boolean 类型，因此不能用它更新字段；Decimal 动态写入也未实现。
-
-### 创建与删除
-
-```qiy
-// examples/dataflow/create-delete.qiy
-step create {
-  create review = entity reviews {
-    userId = input.userId;
-    note = input.note;
-    status = "pending";
-  }
-}
-result { return review; }
-```
-
-`create` 绑定新实体记录，后续步骤可以校验、更新、删除或返回该记录。UUID 主键由服务端生成；scope 字段从已认证用户的 claim 推导，禁止通过输入覆盖。所有非空、非主键、非 scope 字段必须赋值；nullable 字段可以省略。同类型必填 input 可写 UUID、Text、Integer、Decimal 或已声明 enum；字面量暂仅支持 Text/enum。禁止写本地认证密码字段，不接受任意表达式。
-
-```qiy
-// examples/dataflow/create-delete.qiy
-step remove {
-  delete review;
-}
-result { return review; }
-```
-
-`delete` 物理删除已加载或刚创建的记录；外键删除策略由数据库约束决定。删除后不能再次校验、更新或删除该绑定，允许返回删除前的快照。创建、更新、删除均属于同一事务，后续业务规则、审计或回执写入失败时全部回滚。已有成功回执在加载记录前查询，因此删除后的同键重试仍返回首次快照；角色和 scope 检查仍先执行，变更租户 claim 后复用原键返回 409。
-
-`input {}` 和 `context {}` 可为空，用于无需读取已有记录的创建命令。完整示例同时展示创建审核记录、删除审核记录、纯创建用户，以及创建后更新并删除的组合命令。
-
-### 事务性事件
-
-```qiy
-// examples/dataflow/emit.qiy
-step commit {
-  update order { status = "approved"; }
-  emit "order.approved";
+```text
+dataflow <Name> ( "@label" "(" doc ")" | "@confirm" "(" doc ")" | "@comment" "(" doc ")" )* {
+  ( "allow" ( "roles" role ("," role)* | "permission" ref ("," ref)* | "verification" Name ) ";"
+  | "idempotency" "required" ";"
+  | "audit" <string> ";"
+  | "input" "{" ( "field" <name> <type> ( "@required" | "@comment" "(" doc ")" )* ";" )* "}"
+  | "context" "{" ( <binding> "=" "entity" <Entity> "by" <pk> "input." <field> ( "@required" | "@comment" "(" doc ")" )* ";" )* "}"
+  | "step" <Name> ( "@order" "(" <int> ")" | "@comment" "(" doc ")" )* "{" <statement>* "}"
+  | "result" "{" "return" <binding> ";" "}"
+  )+
 }
 ```
 
-`emit` 接受非空固定事件名，也可带受控 payload：字段只能来自必填 input、已加载 context 字段或字符串/整数常量，最多 32 个字段，禁止重复键和敏感本地密码字段。例如：
+`input`、`context`、`result` 三个块**必须存在**（可以为空块 `{}`，`result` 必须返回一个已声明绑定），且至少一个 `step`。序列化顺序固定：注解 → `allow` → `idempotency` → `audit` → `input` → `context` → `step...` → `result`。
+
+## 流程注解
+
+| 注解 | 作用 | 缺省 |
+| --- | --- | --- |
+| `@label("...")` / `@label(t("key"))` | 命令显示名；绑定它的 `action` 未声明 `label` 时继承 | 无（`action` 必须有 label，或从 flow 继承） |
+| `@confirm("...")` / `@confirm(t("key"))` | 默认确认文案；`action` 可省略或覆盖 | 无（不弹确认框） |
+| `@comment("...")` / `@comment(t("key"))` | 进入 JSDoc、OpenAPI `description`、GraphQL mutation 描述 | 无 |
+
+- `t("key")` 的 key 必须存在于 `messages.default` 语言，否则生成前报 `Missing default locale message for ...`；默认语言文案写入 IR，同时保留 `labelKey`/`confirmKey` 供前端按当前语言翻译。
+- 三个注解各最多一次，重复报 `duplicate @label annotation` 等；未知注解报 `unsupported annotation`。
+
+## 授权：`allow`
 
 ```qiy
+allow roles admin, operator;                 // 仅 admin/operator
+allow permission InventoryReceivePermission;  // 需持有展开后的全部权限值
+allow verification CanShipOrders;             // 用 flow input 求值校验式
+```
+
+| 形式 | 允许值 | 运行期行为 | 生成期校验 |
+| --- | --- | --- | --- |
+| `roles` | `admin`、`operator`（**不接受** `viewer`） | 未认证 401；不在白名单 403 `Command execution is restricted` | 空列表、重复、未知角色、重复 `allow` 都报错 |
+| `permission` | 权限字段名或权限组名，逗号分隔 | 展开为权限值；缺任一 → 403 `errorKey: "command.forbidden"` + `missing` | 必须有 `permission` 声明；未知引用报错 |
+| `verification` | 校验块名 | 用 flow 输入求值；不满足 → 403 `errorKey: "command.forbidden"` | 校验块存在；每个 input 必须在 flow `input` 中有同名 `@required` 的 `Text` 或 enum 字段 |
+
+- 每个 dataflow 只允许**一种** `allow`（重复声明报 `duplicate allow declaration`）；未声明时默认 `admin, operator`。
+- **admin 不绕过**显式白名单；`allow permission` / `allow verification` 的成功与否只看权限集合，不看角色。
+- 检查发生在幂等回执查询与事务**之前**：拒绝不写业务数据、审计、回执。
+- 完整权限语义见 [权限（permission）](/dsl/permissions#命令策略allow)。
+
+## 幂等：`idempotency required`
+
+```qiy
+idempotency required;
+```
+
+- 请求必须带 `Idempotency-Key` 头：**1–128 个可打印 ASCII**（`\x21-\x7E`），缺失或非法 → 400 `A valid Idempotency-Key header is required`。
+- 回执按 `(actorId, flow, sha256(key))` 唯一；请求内容哈希不同 → 409 `Idempotency key was already used with a different request`；相同 → 直接回放首次响应（不重复写业务、审计、事件）。
+- 回执表 `dataflow_idempotency`（业务表 + `requestKeyHash` + `requestHash` + `response` JSON 文本）；自动迁移生成该表，但**不会自动清理**历史回执。
+- 批量命令用 `<flow>:batch` 作为独立 flow 名，只写一条回执。
+- 生成 `action` 会自动传递幂等键：失败后相同输入重试保留键，输入变化或成功后换新键。
+- 只有 `required` 一种模式（不支持 `optional`）。
+
+## 审计：`audit "<action>"`
+
+```qiy
+audit "connector.revoked";
+```
+
+- 动作名非空字符串（不做 i18n 翻译）。
+- 在**同一事务**写入 `audit_events`：`actorId`（principal id，可空）、`action`、`resource`（result 绑定记录的实体表名）、`resourceId`（该记录主键）、`metadata`（`{ "flow": "<name>" }`）。
+- 审计写入失败 → 整个命令回滚（不留业务数据、事件或回执）。
+
+## `input`：请求契约
+
+| 项目 | 规则 |
+| --- | --- |
+| 类型 | `UUID`、`Text`、`Integer`、`Decimal`、`Boolean`，或模型中已声明的 enum 名 |
+| `@required` | 声明必填；缺省为可选。context 主键来源、`require`/`update`/`create`/`emit`/`call` 引用到的 input 必须 `@required` |
+| `@comment(...)` | 进入 TypeBox/OpenAPI 描述与 Refine 表单字段名（支持 `t("key")`） |
+| 默认值 | 无默认值语法；可选字段缺省时为 `undefined` |
+| 请求边界 | 只接受声明的字段（`additionalProperties: false`）；`Integer` 范围 −2147483648…2147483647；类型不合法 → 422 |
+
+```qiy
+input {
+  field decision reviewState @required;   // enum 输入：必须是同一个 enum
+  field quantity Integer @required;
+  field note Text;
+}
+```
+
+## `context`：事务内加载
+
+```qiy
+context {
+  order = entity sales_orders by id input.orderId @required;
+  item  = entity sales_order_lines by id input.lineId @required;
+}
+```
+
+| 项目 | 规则 |
+| --- | --- |
+| 加载方式 | **只能**按实体主键、从 `input.<field>` 读取（`by <pk> input.<field>`）；不支持任意 where |
+| `@required` | 必须声明（`context bindings must declare @required until optional-flow semantics are implemented`；未来若实现可选加载会放宽） |
+| 输入约束 | 对应 input 必须 `@required`，且是 UUID（主键类型） |
+| 缺失记录 | 404 `{ error: "Not found", resource: "<table>" }` |
+| 名称 | 不能叫 `input`（保留名）；不能与 `create` 绑定重名 |
+| 行锁 | PostgreSQL/MySQL 用 `SELECT … FOR UPDATE` 锁行；SQLite 在单事务内同步执行 |
+
+## `step`：有序步骤
+
+- 每个 step 有一个名字与一个**唯一正整数** `@order`；省略时按声明顺序取 1、2、3…。
+- 生成器按 `order` 排序执行；重复/非正/非整数报 `step order must be a unique positive integer`。
+- `@comment(...)` 进入 JSDoc（空 step 也保留说明）。
+- step 里的语句**顺序敏感**：`require` 看到的是此前 `update`/`create`/`delete` 之后的状态。
+
+## 语句集
+
+### `require`：业务断言
+
+```qiy
+require connector.status != "revoked" @error("errors.connector.alreadyRevoked");
+require input.quantity >= 100 @error(t("inventory.quantityTooLow"));
+require item.quantity >= 0 @error("inventory.corruptStock");
+```
+
+| 左值类型 | 允许运算符 | 右值 |
+| --- | --- | --- |
+| `Text` / enum | `==`、`!=` | 字符串字面量（enum 必须是已声明值） |
+| `Integer`（非 nullable） | `==`、`!=`、`>`、`>=`、`<`、`<=` | 有符号 32 位整数字面量（可为负） |
+| 其它（Decimal/Money/Date/Time/DateTime/Boolean/UUID/Vector） | **不支持** | — |
+
+- 左值只能是 `input.<field>`（该 input 必须 `@required`）或已加载且未被删除的 context 字段。
+- `@error(...)` 必填（字面量或 `t("key")`）；失败 → **409**，body 含默认语言 `error` 与稳定 `errorKey`。
+- 字段间比较、算术、函数调用、Boolean/Decimal 条件都**不支持**。
+
+### `update`：更新已加载记录
+
+```qiy
+update connector { status = "revoked"; revokedReason = input.reason; }
+```
+
+| 值来源 | 允许的目标字段类型 |
+| --- | --- |
+| 字面量（`"text"` / enum 名） | `Text`、enum |
+| `input.<field>` | 与 input 类型一致的 `Text`、`Integer`、`UUID`，或同一个已声明 enum |
+
+- 必须至少写一个字段；同一字段不能写两次（`duplicate update field`）。
+- 禁止：主键（`cannot update primary key`）、`scope` 字段（`cannot update scope field`）、本地认证的 `passwordField`（`cannot update password field`）、已删除的 context（`cannot update deleted context`）。
+- 写入后同一 step/后续 step 的 `require` 看到新值；写入后断言失败会回滚。
+
+### `create`：新建记录
+
+```qiy
+create review = entity reviews {
+  userId = input.userId;
+  note = input.note;
+  status = "pending";
+}
+```
+
+| 项目 | 规则 |
+| --- | --- |
+| 绑定名 | 进入 context 命名空间，后续可 `require`/`update`/`delete`/`result` 引用；不能与已有 binding 或 `input` 重名 |
+| 主键 | 自动生成（UUID）；**禁止**显式赋值（`create primary key ... is generated automatically`） |
+| scope 字段 | 由已认证 principal 的 claim 推导，禁止通过输入覆盖 |
+| 必填列 | 所有非空、非主键、非 scope 字段**必须**赋值；nullable 可省略。漏写报 `create requires value for <entity>.<field>` |
+| 值来源 | 字面量仅 `Text`/enum；`input.<field>` 支持 `UUID`/`Text`/`Integer`/`Decimal` 与同名 enum |
+| 密码字段 | 禁止写本地认证的 `passwordField` |
+
+### `delete`：物理删除
+
+```qiy
+delete review;
+```
+
+- 只能删除已加载或刚创建的绑定；数据库外键策略决定级联/拒绝。
+- 删除后不能再 `require`/`update`/`delete` 该绑定（`cannot use deleted context` / `context ... is already deleted`），但**允许**在 `result` 里返回删除前的快照。
+- 删除与其它语句同事务：后续失败会回滚。
+
+### `emit`：事务性事件
+
+```qiy
+emit "order.approved";
 emit "order.approved" {
   orderId = order.id;
-  requestedBy = input.orderId;
+  requestedBy = input.reason;
   source = "dashboard";
   priority = 2;
-}
+};
 ```
 
-它在当前事务的 `dataflow_outbox` 表中保存事件、操作者、JSON 文本 payload 和创建时间。先执行数据库迁移；SQLite、PostgreSQL 与 MySQL 均生成该表。后续业务、审计、回执或 outbox 写入失败时，业务变更和事件一起回滚；启用幂等的同键成功回放不会重复写事件。
+| 项目 | 规则 |
+| --- | --- |
+| 事件名 | 非空固定字符串（不支持变量/拼接） |
+| payload | 最多 **32** 个字段、键唯一 |
+| 字段来源 | `@required` input、当前未删除 context 的字段、字符串/安全整数常量 |
+| 禁止 | 本地认证密码字段；已删除/未知 context；未知 input/字段 |
+| 落库 | 当前事务写入 `dataflow_outbox`（事件名、actor、payload JSON 文本、创建时间） |
+| 实时联动 | 声明了 `realtime` 时**同时**写 `qiy_realtime_outbox`，channel 为 `qiy:event:<event>`，与业务写入同生共死 |
 
-PostgreSQL/MySQL 实库测试覆盖 12 个同键并发请求只生成一条事件、payload 可解析、actor 与时间正确、受控 payload 字段正确、晚阶段失败不留事件，以及 outbox/审计/回执故障解除后的同键重试。此能力只持久化事件；worker、broker 连接、投递重试、消费者幂等与死信策略需要另行实现。任意动态对象、外部消息实时订阅尚未支持。
+- `emit` 只持久化事件，**不**直接投递 broker；worker/消费者幂等/死信要另行实现。
+- 启用幂等的同键成功回放**不会**重复写事件。
 
-### 整数业务规则
+### `call`：受控同步本地校验
 
 ```qiy
-// examples/dataflow/guarded-inputs.qiy
-step validate {
-  require input.quantity >= 100 @error("inventory.quantityTooLow");
-  require input.quantity <= 200 @error("inventory.quantityTooHigh");
-  require item.quantity >= 0 @error("inventory.corruptStock");
-}
-step adjust {
-  update item { quantity = input.quantity; }
-  require item.quantity >= 100 @error("inventory.invalidUpdatedStock");
+call reviewPolicy {
+  reviewId = review.id;
+  status = review.status;
+  reason = input.reason;
+  source = "qiy-dashboard";
+  priority = 1;
 }
 ```
 
-`require` 可比较必填 input 或 context 字段。Integer 支持 `==`、`!=`、`>`、`>=`、`<`、`<=`，右侧必须是有符号 32 位整数字面量，可为负数；nullable Integer 暂不支持。Text/enum 仅支持 `==`、`!=` 与字符串字面量。context 名称不能是保留的 `input`。规则在事务中按步骤顺序执行，失败返回 409；写入后的规则失败也会回滚，且不留下审计或幂等回执。错误暂返回声明的字符串，不自动翻译。
+| 项目 | 规则 |
+| --- | --- |
+| 适配器名 | 标识符；同一 flow 可多次调用不同 adapter |
+| payload | 最多 32 个字段、键唯一；来源与 `emit` 相同（必填 input / 未删除 context / 字符串或安全整数常量） |
+| 禁止 | 密码字段；已删除 context；未知字段 |
+| 生成契约 | `apps/server/src/dataflows/calls.ts` 类型契约 |
+| 实现入口 | `apps/server/src/extensions/dataflow-calls.ts`（不受 `--sync` 管理） |
+| 默认实现 | **fail-closed**：必须返回 `{ ok: true }` 或 `{ ok: false, error, errorKey? }` |
+| 失败效果 | `{ ok: false }` → 409（带 `error`/`errorKey`）；抛错 → 事务回滚；调用后的任何失败也回滚此前写入 |
+| 同步要求 | handler **不能返回 Promise**（三种数据库共享同一事务语义）；适合纯计算/进程内策略，**不适合** HTTP、支付、消息等不可逆副作用 |
 
-完整模型见 [guarded-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/guarded-inputs.qiy)。SQLite 自动测试为多个整数条件寻找共同合法输入，并生成输入规则失败、无写入与同键重试用例。上下文字段的初始夹具只使用首次写入前的规则。互相矛盾的整数条件会报告无法推导成功夹具；此生成测试机制不等同通用流程求解器，复杂场景仍需手写测试。字段间比较、算术、Boolean 与 Decimal 条件尚未支持。
+## `result`：返回值
 
-枚举输入必须引用与目标字段相同的 enum，不能以任意 Text 输入替代。枚举字面量更新及 `require` 比较也会检查值是否已声明。示例 [examples/dataflow/enum-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/enum-inputs.qiy) 使用 `field decision reviewState @required;` 和 `update review { status = input.decision; }`；生成 Elysia 字面量联合类型契约和 Refine Action 的 Ant Design Select，选项使用 enum 的 label。未知状态、数字和对象被请求边界拒绝，不产生写入。enum 限定合法值集合，具体状态转换仍需业务策略，例如示例中的 pending 状态检查。
-
-`idempotency required` 要求请求携带 1–128 个可打印 ASCII 字符的 `Idempotency-Key`。回执按操作者、命令、键哈希隔离：相同输入返回首次结果，不同输入返回 409。显式 action 自动传递该键，失败后相同输入重试保留键，输入变化或成功后换键。幂等表需要运行迁移；当前不自动清理回执。SQLite 已实测提交、回放、冲突、审计失败和回执失败回滚；PostgreSQL 与 MySQL 实库均已验证同键并发回放、不同键状态冲突、两张业务表联动、业务/审计/回执失败完整回滚和解除故障后的同键重试。此子集不覆盖消息投递、外部调用补偿或复杂并发状态机。
-
-维护者可运行以下命令复验实库路径：
-
-```sh
-bun tools/verify-postgres-dataflow.ts <postgres-container>
-bun tools/verify-mysql-dataflow.ts <mysql-container>
+```qiy
+result { return connector; }
+result { return review; }   // 也可以是 create 绑定的记录
 ```
 
-容器需发布本地数据库端口；PostgreSQL 使用容器的 `POSTGRES_USER` / `POSTGRES_PASSWORD`，MySQL 使用 `MYSQL_ROOT_PASSWORD`（仅用于创建、删除隔离测试库）。脚本创建独立临时数据库，生成并迁移新项目，运行 24 项 API/数据库测试与 server 类型检查，最后删除测试库，不操作原有业务库。包含整数和枚举实际存储、非法输入与数量业务上下限拒绝、创建/删除同键并发、租户隔离、同键重试、晚阶段回滚和事务性 outbox。认证使用测试注入的 admin/operator 和 tenant claim，包含无权限执行、降权后回放拒绝、缺失/其他租户 claim 拒绝和回执不能绕过当前 scope。测试专用 header 仅在夹具认证器使用，不进入生产认证。对应 CI 为 `.github/workflows/database-smoke.yml`，分别运行 PostgreSQL 16 和 MySQL 8.4；脚本及 CI 配置存在不等于某环境已验收，实际执行结果见 [V3 状态](https://github.com/AI-NoDev/qiy/blob/main/openwiki/v3-status.md)。
+- 必须 `return` 一个已声明的 context 绑定（含 `create` 绑定），否则报 `result must return a declared context binding`。
+- REST 成功响应体就是该记录的 JSON（200）；GraphQL 返回对应实体类型。
+- 被删除的记录也可以返回（返回删除前快照）。
 
-## 当前描述与消息支持
+## 事务、原子性与失败映射
 
-input、context 和 step 均可使用 `@comment("描述")` 或 `@comment(t("message.key"))`，消息在同一 application 的 `messages` 块声明，格式见 [DSL 总览](./overview#消息与模型描述)。input 描述进入 TypeBox/OpenAPI，并用于 Refine 命令确认表单的本地化字段名称；input/context/step 描述同时生成 JSDoc，翻译引用保留为 `i18n: key`，便于二次开发。空 step 的说明也保留，非空 step 的说明位于其首个操作之前。注释内容中的 `*/` 会转义，防止结束注释并插入代码；运行时描述保持原文。`action` 的 `label` 与 `confirm` 已支持字面量或 `t("key")`，列表、详情、弹窗、确认框和成功通知会随当前语言变化。流程自身的 `@label` / `@confirm` 仍属于下方目标语法。
+| 数据库 | 事务与锁 |
+| --- | --- |
+| SQLite | `db.transaction(...)` 同步执行；业务失败抛错回滚；单进程定位 |
+| PostgreSQL | `db.transaction(...)`；context 用 `SELECT … FOR UPDATE` 锁行，后续校验在锁内执行 |
+| MySQL | 同上，连接与事务由生成仓储管理 |
+
+一个命令内**所有**效果同成同败：业务写入、审计、`emit` outbox、`call` 拒绝、幂等回执。幂等回执在事务内最后写入；该插入失败也会回滚业务数据（可安全重试）。
+
+| HTTP | 场景 | body 关键字段 |
+| --- | --- | --- |
+| 200 | 成功 / 幂等回放 | 结果记录 |
+| 400 | 缺/非法 `Idempotency-Key`；请求体形状错误 | `error` |
+| 401 | 未认证 | `error: "Authentication required"` |
+| 403 | 角色/权限/校验式拒绝；缺 scope claim | `error`、`errorKey`（`command.forbidden` 等）、`missing?` |
+| 404 | context 加载不到记录 | `error: "Not found"`、`resource` |
+| 409 | `require` 失败；`create` 无法写入；幂等键内容冲突 | `error`、`errorKey?`、`resource?` |
+| 422 | 类型/范围不合法（Elysia 校验） | 校验错误详情 |
+| 500 | 未预期异常 | `error` |
+
+GraphQL 命令把同样的状态与 key 放进 `extensions.status` / `extensions.errorKey`，前端可统一处理。
 
 ### 业务错误翻译
 
+- `require ... @error("text")` 始终是字面量，不会把任意字符串猜成翻译 key。
+- `require ... @error(t("inventory.quantityTooLow"))` 的 key 必须在 `messages.default` 语言存在；默认语言文案写入 IR。
+- REST 拒绝返回 **409** + 默认语言 `error` + 稳定 `errorKey`；GraphQL command 在 `extensions.status`/`extensions.errorKey` 保留同一机器契约。
+- 生成的 Refine DataProvider 按当前界面语言翻译该 key（缺当前语言回退默认语言，未知 key 用 API 原文）；不带 i18n 的 API 客户端也能显示默认文案。
+- 同样的机制适用于 `permission` 的 `@label(t(...))` 与 action 的 `label`/`confirm`。
+
+## 生成结果
+
+| 产物 | 内容 |
+| --- | --- |
+| `apps/server/src/dataflows/index.ts` | `createDataflowRoutes(authenticate)`：每个 flow 一个 `.post("/<name>")`，批量再加 `/batch` |
+| OpenAPI | `POST /api/v1/commands/<name>`，`tags: ["Dataflow"]`，描述来自 `@comment`/`@label` |
+| GraphQL | `run<Name>(input: <Name>CommandInput!, idempotencyKey: String!): <Entity>!`；批量 `run<Name>Batch(items: [...], idempotencyKey: String!)`；native/Yoga/Apollo 都委托同一 REST 路由 |
+| Web（有 `action` 时） | 按钮、确认弹窗、必填输入表单、幂等键、本地化通知；`when` 控制可见性 |
+| 迁移 | `dataflow_idempotency`（有 `idempotency required`）、`dataflow_outbox`（有 `emit`） |
+| 测试 | 生成包内 dataflow 测试：成功、权限拒绝、幂等回放/冲突、业务失败回滚、审计与 outbox |
+
+命令路由**自行执行 allow 规则**：`/api/v1/commands` 已从通用角色守卫中豁免，guard 只做认证。
+
+## 批量执行（batch）
+
 ```qiy
-// examples/dataflow/localized-errors.qiy
-step validate {
-  require input.quantity >= 100 @error(t("inventory.quantityTooLow"));
+dataflow archiveReview @label("归档所选") {
+  input {
+    field reviewId UUID @required;
+    field reason Text @required;
+  }
+  context { review = entity reviews by id input.reviewId @required; }
+  step archive { update review { status = "archived"; note = input.reason; } }
+  idempotency required;
+  result { return review; }
+}
+
+action archiveSelected {
+  resource reviews;
+  dataflow archiveReview;
+  placement list;
+  batch true;
 }
 ```
 
-`@error(t("key"))` 引用默认语言必须存在的消息；完整样例见 [localized-errors.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/localized-errors.qiy)。REST 拒绝请求时返回 HTTP 409，并包含默认语言的 `error` 文案和稳定 `errorKey`；GraphQL command 返回 GraphQL error，并在 `extensions.status` 与 `extensions.errorKey` 保留相同机器契约。生成的 Refine DataProvider 按当前界面语言翻译该 key，缺少当前语言时回退到默认语言；未知 key 使用 API 原文。API 客户端无需 i18n 即可显示默认文案。`@error("text")` 始终是字面量，不会把任意字符串猜测为翻译 key。
+- 端点 `POST /api/v1/commands/<name>/batch`，body `{ "items": [ {…}, … ] }`（1–100 项，ID 必须唯一，否则 400 `Batch item identifiers must be unique`）。
+- 单事务顺序执行；任意一项失败 → 整批回滚，响应带 `item: { index, id }`（以及 `resource`/`errorKey`）。
+- 只写一条幂等回执（flow 名 `<name>:batch`），相同 key + 相同 items 回放；顺序或内容不同 409。
+- 生成 `action` 侧约束：只能 `placement list`、不能有记录级 `when`、必须绑定 `idempotency required` 的 flow、目标资源必须由**一个必填 UUID input** 加载。详见 [actions](/dsl/actions#批量)。
 
-## 为什么不接受自由表达式
+## 与 realtime 的联动
 
-业务流程不能由前端串联多次 CRUD 来保证一致性；但也不能让 `.qiy` 直接执行任意 TypeScript/JavaScript。后者无法可靠做类型检查、权限审计、事务分析、代码生成或 LLM 校验。
+- `emit` 在写 `dataflow_outbox` 的同时写实时 outbox（`qiy:event:<event>`），两者与业务写入一起提交/回滚。
+- `allow roles` 会转换为对应业务事件 channel 的 subscribe-only capability。
+- 字段 `mask` 在入队前裁剪，所以被 mask 的字段不会出现在实时负载里。
+- 细节见 [realtime](/dsl/realtime)。
 
-因此 `dataflow` 采用封闭、声明式的命令集合。每一条语句都必须有明确的输入类型、读写对象、错误路径和生成语义。复杂的第三方调用或既有系统逻辑通过受控 `call` 适配器接入，并生成可手写实现的扩展点。
+## 进阶用法
 
-## 受控本地 `call`
-
-`call` 用于把无法可靠生成、但必须参与事务成败判断的**同步本地校验**接入 Dataflow：
+**1）状态机 + 双表联动**
 
 ```qiy
-// examples/dataflow/call.qiy
+dataflow approvePurchaseOrder @label("审批采购单") @confirm("确认审批？") {
+  allow permission PurchaseApprovePermission;
+  idempotency required;
+  audit "purchase_order.approved";
+  input {
+    field orderId UUID @required;
+    field quantity Integer @required;
+  }
+  context {
+    order = entity purchase_orders by id input.orderId @required;
+    item  = entity purchase_order_lines by id input.lineId @required;
+  }
+  step guard {
+    require order.status == "submitted" @error("errors.purchaseOrder.notSubmitted");
+    require input.quantity > 0 @error("数量必须大于 0");
+  }
+  step apply {
+    update order { status = "approved"; }
+    update item { quantity = input.quantity; }
+    emit "purchase_order.approved" { orderId = order.id; quantity = input.quantity; }
+  }
+  result { return order; }
+}
+```
+
+**2）创建后立刻使用**
+
+```qiy
+step draft {
+  create review = entity reviews {
+    orderId = input.orderId;
+    status = "pending";
+  }
+}
+step restrict {
+  require review.status == "pending" @error("errors.review.unexpectedState");
+  update review { status = "scored"; }
+}
+result { return review; }
+```
+
+**3）同步策略适配器（fail-closed）**
+
+```qiy
 step approve {
   update review { status = "approved"; }
-  call reviewPolicy {
-    reviewId = review.id;
-    status = review.status;
-    reason = input.reason;
-    source = "qiy-dashboard";
-    priority = 1;
-  }
+  call reviewPolicy { reviewId = review.id; status = review.status; reason = input.reason; }
 }
+result { return review; }
 ```
 
-payload 最多 32 个唯一字段，只能来自必填 input、当前未删除 context 字段、字符串/安全整数常量；本地密码字段禁止传入。Qiy 生成 `apps/server/src/dataflows/calls.ts` 类型契约和不受 `--sync` 管理的 `apps/server/src/extensions/dataflow-calls.ts` 实现入口。默认实现 fail-closed，开发者必须返回 `{ ok: true }`，或返回 `{ ok: false, error, errorKey? }` 以产生 HTTP 409/GraphQL command error。拒绝、抛错或之后的事务失败都会回滚此前数据库写入。
+在 `apps/server/src/extensions/dataflow-calls.ts`（不受 `--sync` 管理）里实现：
 
-为了保持 Bun SQLite、PostgreSQL 和 MySQL 的同一事务语义，handler 必须是同步函数，不接受 Promise。它适合纯计算、进程内策略和同步校验，**不适合 HTTP、消息发送、支付或其他不可逆副作用**。这些行为应先用 `emit` 写入事务性 outbox，再由提交后的 worker 投递。完整示例见 [examples/dataflow/call.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/call.qiy)。
+```ts
+import type { DataflowCallHandlers } from "../dataflows/calls";
 
-## 后续目标语法
-
-下面示例混合了已实现的流程元数据和仍待实现的权限、时间函数及富审计语法。关键字和未实现部分可能继续微调；语义与边界不变。
-
-```qiy
-dataflow revokeConnector
-  @label(t("actions.connector.revoke"))
-  @confirm(t("confirm.connector.revoke"))
-  @comment(t("flow.connector.revoke")) {
-
-  input {
-    field connectorId UUID @required @comment(t("connector.id"));
-    field reason Text @required @maxLength(500) @comment(t("connector.revokeReason"));
-  }
-
-  context {
-    connector = entity connectors by id input.connectorId @required
-      @comment(t("flow.connector.load"));
-    actor = principal;
-  }
-
-  step validate @order(10) @comment(t("flow.connector.validate")) {
-    require connector.status != "revoked"
-      @error(t("errors.connector.alreadyRevoked"));
-    allow permission "connector:revoke";
-  }
-
-  step revoke @order(20) @transaction {
-    update connector {
-      status = "revoked";
-      revokedAt = now();
-    }
-    audit "connector.revoked" {
-      connectorId = connector.id;
-      reason = input.reason;
-      actorId = actor.id;
-    }
-    emit ConnectorRevoked { connectorId = connector.id; }
-  }
-
-  result {
-    return connector;
-  }
-}
+export const dataflowCallHandlers: DataflowCallHandlers = {
+  reviewPolicy: (request) => {
+    const reason = String(request.payload.reason ?? "").trim();
+    if (!reason) return { ok: false, error: "A reason is required", errorKey: "review.reasonRequired" };
+    return { ok: true };
+  },
+};
 ```
 
-## 生命周期目标
+契约由 `apps/server/src/dataflows/calls.ts` 生成：`(request: { flow, actor: { id, role }, payload: Record<string, unknown> }) => { ok: true } | { ok: false, error, errorKey? }`，返回类型**不含 Promise**——handler 必须是同步函数。
 
-生成器按下列固定生命周期处理每个命令：
+**4）幂等 + 回放测试**：同一 `Idempotency-Key` 重放返回首次结果；换输入返回 409；`action` 在失败重试时保留 key、成功后换 key。
 
-1. **声明与编译**：当前已解析 `input`、`context`、`step`、`result`，并检查实体/字段引用、类型、步骤顺序和写入冲突。
-2. **请求边界**：当前生成 Elysia TypeBox body 契约；只接受 `input` 声明的字段。OpenAPI 暴露 Dataflow REST body，GraphQL 生成强类型 command input/mutation，并复用同一 REST 命令实现；Zod 描述尚未生成。前端确认表单不属于 Dataflow 隐式行为，需要通过独立 `action` 声明生成。
-3. **上下文加载**：当前按 `context` 在事务内加载实体。`@required` 缺失时返回 404；不会使用 `!` 这类后缀语法。
-4. **校验与授权**：请求先验证 `allow roles`，再在事务内执行 `require` 并遵循已声明 data scope。`allow permission`、自定义角色和通用字段/动作权限尚未实现。
-5. **事务写入**：当前所有受支持 `create`、`update`、`delete`、同步本地 `call`、`emit`、可选审计和幂等回执在同一个事务内执行；`call` 拒绝会回滚，`emit` 只写 `dataflow_outbox`，不直接调用外部 broker。
-6. **结果与 UI**：当前返回最终 context。显式 `action` 可挂载到 Refine 列表/详情操作区，并生成确认表单、幂等键和本地化错误提示；批量业务 UI 尚未生成。客户端不拥有业务权威。
-7. **可观测性**：已生成可选审计事件和持久化幂等键策略；结构化日志与审计关联 ID 尚未实现。
-
-## 受控语句集
-
-第一阶段只实现下列可静态验证的语句：
-
-| 语句 | 语义 |
-| --- | --- |
-| `require` | 断言条件；失败返回声明的本地化业务错误 |
-| `allow` | 要求 permission、role 或 scope |
-| `create` / `update` / `delete` | 对已验证实体执行受控写入 |
-| `audit` | 在同一事务记录审计事件 |
-| `emit` | 在同一事务写入固定事件名的 outbox 记录，由 worker 投递 |
-| `call` | 调用同步、类型化、默认拒绝的本地校验 adapter；失败回滚事务，禁止网络副作用 |
-| `return` / `fail` | 返回契约化结果或明确失败 |
-
-第一阶段不支持任意循环、动态 SQL、反射式字段访问、内嵌 JavaScript/TypeScript，或未声明的跨服务副作用。更丰富的查询语法会在数据权限、方言能力和 Dataflow IR 稳定后单独设计。
-
-## 注释与国际化
-
-所有可命名对象都将支持 `@comment(...)`。它可使用文字，也可使用 `t("entity.user.id")` 这类消息键：
-
-```qiy
-field email Text @comment(t("entity.user.email"));
-step approve @comment("审核并写入审批记录") {
-  // 设计中的 DSL
-}
-```
-
-当前解析器接受 `//` 与 `#` 行注释；实体、字段、索引、关系、Dataflow input/context/step 和 manual Action 页支持文字及 `@comment(t("key"))`。实体/字段描述进入 GraphQL 类型与 CRUD 输入，字段和 Dataflow input 描述进入 TypeBox/OpenAPI 与 Refine 表单；manual 页说明可随语言切换。context/step 描述保留在 IR。Zod `describe`、完整 TypeScript 文档和步骤审计说明仍待实现。
-
-国际化仍以 `.qiy` 模块为中心。当前可执行的消息声明为：
-
-```qiy
-messages {
-  default "en-US";
-  locale "en-US" { "entity.user.id" "User ID"; }
-  locale "zh-CN" { "entity.user.id" "用户 ID"; }
-}
-```
-
-当前选择性导入直接写在 `application` 中，不使用额外的 `i18n {}` 包装：
-
-```qiy
-application catalog-admin {
-  database sqlite {}
-  include "modules/catalog.qiy" @messages;
-}
-```
-
-`@message` / `@messages` 已实现，只允许选择目标文件唯一的顶层 `messages` 块，并复用现有安全模块规则：只允许项目根内相对路径、拒绝 `..` 穿越、符号链接逃逸和循环引用。`@menu.operations` 等通用对象路径选择器仍是后续能力，当前会明确报错。
+**5）业务错误本地化**：`@error(t("key"))` → REST 返回默认语言文案 + `errorKey`，Refine 通知按当前语言翻译；GraphQL 把 `errorKey` 放进 `extensions`。
 
 ## `app.test.qiy` 声明式场景
 
-当入口是 `app.qiy` 时，CLI 会自动查找同目录的 `app.test.qiy`。当前已实现的第一阶段运行器使用 `given → when dataflow → expect`，把场景编译为生成 Server 的 Bun 测试：
+入口是 `app.qiy` 时，CLI 自动查找同目录 `app.test.qiy`，把 `given → when dataflow → expect` 编译成生成 Server 的 Bun 测试：
 
-```qiy
-// examples/dataflow/call.test.qiy
+```qiy [examples/dataflow/call.test.qiy]
 qiy test v0;
 application dataflow-call;
 
@@ -332,42 +452,23 @@ scenario approve-review {
 }
 ```
 
-- `application` 必须与主模型一致；scenario、fixture alias、字段和 input 都在生成前检查重复与引用；
-- `given` 必须提供实体全部非空字段，值必须符合 UUID/Text/Integer/Decimal/Date/Time/DateTime/enum 的受支持测试表示（`Date` 用 `"YYYY-MM-DD"`、`Time` 用 `"HH:mm:ss"`、`DateTime` 用毫秒时间戳）；
-- `when dataflow` 只能调用主模型已声明的流程，必填 input 不可遗漏，输入可引用 fixture 的已给定字段；
-- `expect status` 必填；还可写 `expect errorKey == "...";` 和多个 `expect alias.field == value;`；
-- 场景测试复用生成的认证角色、幂等 header、事务路由和同步 `call` adapter 契约，不绕过生产 Dataflow 实现。
+| 元素 | 规则 |
+| --- | --- |
+| `application` | 必须与主模型名称一致 |
+| `given` | 至少一条；必须提供实体全部非空字段；值符合类型（`Date` `"YYYY-MM-DD"`、`Time` `"HH:mm:ss"`、`DateTime` 毫秒时间戳、enum 名） |
+| `identity` | 可选。`identity anonymous;` 或 `identity { id = …; role = "operator"; claims { "tenant.id" = review.tenantId; } }`；id 非空、角色固定三种、claims 支持字段引用 |
+| `when dataflow` | 只能调用已声明 flow；必填 input 不可遗漏；输入可引用 `given` 字段 |
+| `expect status` | **必填**（100–599） |
+| `expect errorKey == "…"` | 可选，断言稳定错误 key |
+| `expect <alias>.<field> == value` | 可选，多条；重复断言报错 |
+| `expect exists <alias> == false` | 断言记录已删除；不能与同 alias 的字段断言共存 |
+| `expect outbox "<event>" count == <n>` | 断言 `dataflow_outbox` 中该事件数量；事件必须由模型 `emit` 声明 |
 
-可在 `given` 后、`when` 前声明测试身份。省略 `identity` 时，为兼容已有测试，使用流程首个允许角色（默认 admin）和固定测试用户；声明 `identity anonymous;` 则向路由注入未登录身份。
-
-```qiy [examples/dataflow/identity.test.qiy]
-qiy test v0;
-application dataflow-identity;
-scenario matching-tenant {
-  given review = entity reviews {
-    id = "00000000-0000-4000-8000-000000000001";
-    tenantId = "tenant-a";
-    status = "pending";
-  }
-  identity {
-    id = "operator-a";
-    role = "operator";
-    claims { "tenant.id" = review.tenantId; }
-  }
-  when dataflow approveReview { reviewId = review.id; }
-  expect status == 200;
-  expect review.status == "approved";
-}
-```
-
-身份必须包含非空字符串 `id` 和 `admin`、`operator` 或 `viewer` 角色；id 和 claims 可引用 `given` 字段。claims 的 key 使用字符串，支持 `"tenant.id"` 这类声明的 scope key，其值按模型字段类型校验；允许省略 claim 来测试缺失权限。未知角色、重复设置、无效引用和不匹配的 scope 类型在生成前拒绝。完整的 [身份场景模型](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/identity.qiy) 与 [测试文件](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/identity.test.qiy) 包含匹配租户成功、匿名 401、viewer 403、缺少租户 403、跨租户记录 404，并检查拒绝后原数据未被修改。
-
-这里测试的是认证器返回身份后的业务授权和数据隔离；不会签发或校验真实 JWT、Cookie 或 IdP 登录，不能替代认证 provider 验收。
-
-自动执行器支持 SQLite、PostgreSQL 和 MySQL。SQLite 使用内存数据库；后两者复用生成的 Drizzle schema 与真实事务，必须先对隔离数据库执行迁移，再同时设置 `DATABASE_URL` 和 `QIY_TEST_DATABASE_URL` 为同一个连接，数据库名必须以 `qiy_test_` 开头。缺少显式测试连接时，场景在导入数据库和清理数据前拒绝执行。
+- 场景复用生成的认证角色、幂等 header、事务路由与 `call` 契约，不绕过生产实现；`call` 使用返回成功的测试 adapter。
+- 自动执行器支持 SQLite（内存库）、PostgreSQL、MySQL（真实事务）。后两者需先迁移隔离库，并同时设置 `DATABASE_URL` 与 `QIY_TEST_DATABASE_URL`（数据库名必须以 `qiy_test_` 开头），否则拒绝执行；场景会清理模型表，**绝不能指向业务库**。
+- 按显式 relation 的父表顺序插入、子表顺序清理；循环外键无法自动清理，生成期拒绝。浏览器 Action 场景尚未实现。
 
 ```bash [apps/server]
-# 只使用专用测试库；场景会清理模型表，绝不能指向业务数据库。
 export DATABASE_URL='postgres://user:password@127.0.0.1:5432/qiy_test_admin'
 export QIY_TEST_DATABASE_URL="$DATABASE_URL"
 bun run --bun drizzle-kit generate
@@ -375,31 +476,62 @@ bun run --bun drizzle-kit migrate
 bun test tests/qiy-scenarios.test.ts
 ```
 
-MySQL 使用 `mysql://` 连接。场景按显式 relation 的父表顺序插入夹具、按子表顺序清理；循环外键当前无法自动清理，生成时拒绝。测试前后清理整个模型的业务表及相关 Dataflow 辅助表，因此应使用独立数据库、避免并行共享。同步 `call` 使用返回成功的测试 adapter，不验证用户实现的策略。浏览器 Action 场景仍待实现。
+测试的是「认证器返回身份之后」的授权与隔离，不签发/校验真实 JWT、Cookie 或 IdP 登录。
 
-### 删除与事件断言
+## 校验错误一览
 
-```qiy [examples/dataflow/side-effects.test.qiy]
-qiy test v0;
-application dataflow-side-effects;
-scenario delete-and-emit {
-  given review = entity reviews {
-    id = "00000000-0000-4000-8000-000000000001";
-    status = "pending";
-  }
-  when dataflow removeReview { reviewId = review.id; }
-  expect status == 200;
-  expect exists review == false;
-  expect outbox "review.deleted" count == 1;
-}
-```
+| 分类 | 错误（节选） |
+| --- | --- |
+| 结构 | `requires input, context, and result blocks`、`requires at least one step`、`duplicate input block`、`duplicate context block`、`duplicate result block`、`unsupported section <s>`、`unsupported action <a>`、`Duplicate dataflow <n>` |
+| 注解 | `duplicate @label annotation`、`duplicate @confirm annotation`、`unsupported annotation @x` |
+| input | `unsupported input type <t>`、`duplicate input field <f>`、`unsupported input annotation @x` |
+| context | `unknown entity <e>`、`<e>.<k> must be a primary key`、`context <c> must load by an input field`、`requires input.<f> to be @required`、`context bindings must declare @required …`、`input is a reserved context name`、`duplicate context binding <b>` |
+| step | `duplicate step <s>`、`step order must be a unique positive integer`、`unsupported step annotation @x` |
+| require | `unknown field reference <ref>`、`require input must be @required`、`nullable Integer require is not supported`、`require comparisons support Text, enum and Integer fields only`、`Text and enum require support == and != string comparisons only`、`unknown enum value <e>.<v>`、`require integer literal must fit signed 32-bit range` |
+| update | `unknown context binding <c>`、`cannot update deleted context <c>`、`update must write at least one field`、`unknown update field <e>.<f>`、`cannot update primary key`、`cannot update scope field`、`cannot update password field`、`unknown input field input.<f>`、`update requires input.<f> to be @required`、`input updates require matching Text, Integer or UUID fields…`、`literal updates currently support Text and enum fields only`、`duplicate update field <e>.<f>` |
+| create | `unknown create entity <e>`、`duplicate or reserved created context <c>`、`create must write at least one field`、`unknown create field <e>.<f>`、`create primary key … is generated automatically`、`create scope field … is derived from the authenticated principal`、`create requires value for <e>.<f>`、`create input requires a matching UUID, Text, Integer, Decimal or declared enum field`、`create literals currently support Text and enum fields only` |
+| delete | `unknown context binding <c>`、`context <c> is already deleted`、`cannot use deleted context <c>` |
+| emit / call | `emitted event cannot be empty`、`emit payload supports at most 32 fields`、`duplicate emit payload field <f>`、`unknown emit input input.<f>`、`emit input must be @required`、`cannot emit from deleted or unknown context`、`unknown emit field <c>.<f>`、`cannot emit password field <e>.<f>`、`call payload supports at most 32 fields`、`unknown call input input.<f>`、`cannot pass password field to call <e>.<f>`、`emit integer literal must be a safe integer` |
+| result | `result must return a declared context binding` |
+| allow | `duplicate allow declaration`、`allow must be roles, permission or verification`、`unsupported command role <r>`、`allow permission requires permission declarations`、`unknown permission field or group <r>`、`allow verification requires permission declarations`、`unknown permission verification <v>`、`permission verification <v> input <i> has no matching dataflow input`、`must be @required`、`requires a Text or enum dataflow input` |
+| 其它 | `idempotency must be required`、`audit action cannot be empty`、`duplicate idempotency declaration`、`duplicate audit declaration` |
+| 跨块 | `Restrict <resource>: dataflow <name> cannot use a restricted resource …`、`Action <a>: dataflow <f> does not load resource <t>`、`Action <a>: batch actions require dataflow <f> to declare idempotency required`、`application mode integration cannot configure generated server features` |
 
-`exists` 按 fixture 的主键检查数据库记录是否存在；`false` 不能与同一 fixture 的字段断言共存。`outbox` 按事件名统计当前隔离场景的 `dataflow_outbox` 记录，事件必须由模型中的 `emit` 声明，数量必须为非负整数。重复断言在生成前拒绝。事件持久化成功不代表已投递到 Ably 或其他外部服务。
+## 常见错误
 
-完整的 [模型](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/side-effects.qiy) 与 [场景](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/side-effects.test.qiy) 覆盖删除并写入事件、无权限时没有副作用、更新/事件/删除后的规则失败使全部写入回滚。
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| 400 `A valid Idempotency-Key header is required` | 声明了 `idempotency required` 但调用没带键 | 带头；用 `action` 时由生成代码自动带 |
+| 409 且 `errorKey` 是业务 key | `require` 断言失败 | 按 key 补前端文案，或修正调用参数 |
+| 404 `Not found` + `resource` | `context` 加载不到记录（ID 不存在或跨 scope） | 检查 ID 与数据范围 |
+| 403 `command.forbidden` | `allow permission` / `allow verification` 不满足 | 检查 `/auth/me` 的 `permissions`/`groups`；见 [权限](/dsl/permissions) |
+| `cannot update scope field` | 命令试图写 scope 租户列 | scope 列只能由 principal 推导；改设计 |
+| `create requires value for <e>.<f>` | 漏写非空字段 | 补齐赋值或把字段改成 `@nullable` |
+| `Dataflow <n> requires input, context, and result blocks` | 缺块（即使为空也要写 `input {}`） | 补空块 |
+| `result must return a declared context binding` | `return` 了未声明名字 | 用 context/create 绑定名 |
+| `literal updates currently support Text and enum fields only` | 用字面量写 Integer/Decimal/Date | 改用 `input.<f>`（类型一致）或改由 `call` 处理 |
+| `call` 总是 409 | 扩展实现仍返回 fail-closed 默认值 | 在 `extensions/dataflow-calls.ts` 实现并返回 `{ ok: true }` |
+| 生成期 `cannot use a restricted resource` | 命令读写了带 `restrict` 块的资源 | 去掉该资源的 `restrict`，或把命令拆到别的资源 |
+| GraphQL mutation 报缺少幂等键参数 | 启用了幂等 | 传 `idempotencyKey` 参数（REST 用 `Idempotency-Key` 头） |
 
-## 集成模式边界
+## 非目标（明确不做）
 
-在独立生成项目中，当前受限 `dataflow` 会生成 Elysia 服务端命令；在既有 Bun/现有 API integration 模式中，包含 `dataflow` 的模型会明确拒绝，而不是生成看似可用的第二套业务实现。请在未托管的宿主 API/adapter 中实现既有 JWT、HttpOnly Cookie、领域服务和审计体系的命令契约。
+- ❌ 任意表达式、算术、函数调用、循环、动态 SQL、反射式字段访问、内嵌 JS/TS。
+- ❌ 任意 `where` 加载、join、聚合读取（需要查询时用资源 REST/GraphQL 接口）。
+- ❌ 异步/外部副作用：`call` 必须同步且无网络；HTTP、支付、消息发送请写 `emit` + 提交后 worker。
+- ❌ 直接投递 broker / 消费者幂等 / 死信：`emit` 只落 outbox。
+- ❌ 可选 context（`@required` 目前必须写）、字段间比较、Decimal/Boolean 条件、Decimal 动态写入。
+- ❌ 嵌套事务、跨命令补偿、分布式事务。
+- ❌ 在 integration（宿主 API）模式下生成命令：含 `dataflow` 的 integration 模型会被明确拒绝，避免生成第二套业务实现。
+- ❌ 自定义角色：命令 `allow roles` 只有 `admin`/`operator`；需要更细粒度请用 `allow permission`。
 
-完整的实施顺序和验收门槛见 [V3 状态与规划](https://github.com/AI-NoDev/qiy/blob/main/openwiki/v3-status.md)。
+## 相关
+
+- [actions](/dsl/actions)：把 dataflow 挂到列表/详情按钮，`when`、确认、批量。
+- [权限（permission）](/dsl/permissions)：`allow permission` / `allow verification` 语义与 provider 来源。
+- [application](/dsl/application#restrict)：`restrict` / `scope` 与命令的互斥关系。
+- [realtime](/dsl/realtime)：`emit` 与实时 outbox、订阅通道。
+- [业务工作流](/guide/workflow)：`workflow orderInventory` 切片。
+- [多语言（messages）](/dsl/application#messages)：`t("key")` 字典。
+- 示例：[roles.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/roles.qiy)、[typed-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/typed-inputs.qiy)、[enum-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/enum-inputs.qiy)、[create-delete.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/create-delete.qiy)、[emit.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/emit.qiy)、[call.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/call.qiy)、[guarded-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/guarded-inputs.qiy)、[batch-actions.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/batch-actions.qiy)、[browser-actions.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/browser-actions.qiy)、[documented-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/documented-inputs.qiy)、[localized-errors.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/localized-errors.qiy)、[examples/self/modules/dataflows.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/self/modules/dataflows.qiy)。
+- 测试：`tests/dataflow-qiy.test.ts`、`tests/action-qiy.test.ts`、`tests/qiy-test.test.ts`；实库验收 `tools/verify-postgres-dataflow.ts`、`tools/verify-mysql-dataflow.ts`。

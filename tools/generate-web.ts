@@ -313,12 +313,13 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
   const actionNames = new Set<string>();
   const dashboardNames = new Set<string>();
   const iconNames = [...new Set([
-    "AppstoreOutlined", "DashboardOutlined", "DatabaseOutlined", "ShoppingOutlined", "TableOutlined", "UserOutlined",
+    "AppstoreOutlined", "DashboardOutlined", "DatabaseOutlined", "ShoppingOutlined", "TableOutlined", "UserOutlined", "FileTextOutlined", "KeyOutlined",
     ...database.entities.map((entity) => entity.icon).filter((icon): icon is string => Boolean(icon)),
     ...database.entities.flatMap((entity) => entity.fields.map((field) => field.icon)).filter((icon): icon is string => Boolean(icon)),
     ...(database.enums ?? []).flatMap((enumeration) => enumeration.values.map((item) => item.icon)).filter((icon): icon is string => Boolean(icon)),
     ...menuGroups.map((group) => group.icon).filter((icon): icon is string => Boolean(icon)),
     ...(options.dashboardMetrics ?? []).map((metric) => metric.icon).filter((icon): icon is string => Boolean(icon)),
+    ...(options.charts ?? []).flatMap((chart) => [chart.icon, ...chart.views.map((view) => view.icon)]).filter((icon): icon is string => Boolean(icon)),
   ])].sort();
   for (const icon of iconNames) if (!/^[A-Z][a-zA-Z0-9]*Outlined$/.test(icon)) errors.push(`Invalid Ant Design icon ${icon}`);
   for (const metric of options.dashboardMetrics ?? []) {

@@ -2331,7 +2331,7 @@ export const docsMeta: DocsMeta = {
       "labelKey": "qiy.dataflows.receiveInventory.label",
       "allowRoles": [],
       "allowPermissions": [
-        "InventoryReceivePermission"
+        "inventory:receive"
       ],
       "verification": null,
       "inputs": [
@@ -2451,7 +2451,7 @@ export const docsMeta: DocsMeta = {
       "labelKey": "qiy.dataflows.putawayStock.label",
       "allowRoles": [],
       "allowPermissions": [
-        "InventoryPutawayPermission"
+        "inventory:putaway"
       ],
       "verification": null,
       "inputs": [
@@ -2597,7 +2597,7 @@ export const docsMeta: DocsMeta = {
       "labelKey": "qiy.dataflows.adjustStock.label",
       "allowRoles": [],
       "allowPermissions": [
-        "InventoryAdjustPermission"
+        "inventory:adjust"
       ],
       "verification": null,
       "inputs": [
@@ -2736,7 +2736,7 @@ export const docsMeta: DocsMeta = {
       "labelKey": "qiy.dataflows.transferInventory.label",
       "allowRoles": [],
       "allowPermissions": [
-        "InventoryTransferPermission"
+        "inventory:transfer"
       ],
       "verification": null,
       "inputs": [
@@ -2809,7 +2809,7 @@ export const docsMeta: DocsMeta = {
       "labelKey": "qiy.dataflows.completeWorkOrder.label",
       "allowRoles": [],
       "allowPermissions": [
-        "WorkOrderCompletePermission"
+        "workorder:complete"
       ],
       "verification": null,
       "inputs": [
@@ -2909,7 +2909,7 @@ export const docsMeta: DocsMeta = {
       "labelKey": "qiy.dataflows.approvePurchaseOrder.label",
       "allowRoles": [],
       "allowPermissions": [
-        "PurchaseApprovePermission"
+        "purchasing:approve"
       ],
       "verification": null,
       "inputs": [

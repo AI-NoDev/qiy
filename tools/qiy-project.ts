@@ -2918,7 +2918,7 @@ function qiyComment(target: { comment?: string; commentKey?: string }): string {
 
 export function serializeQiyProject(project: QiyProject): string {
   const errors = validateDatabaseIR(project.database);
-  if (errors.length) throw new Error(errors.join("`n"));
+  if (errors.length) throw new Error(errors.join("\n"));
   if (project.permissions) {
     const permissionErrors = validatePermissionModel(project.permissions, {
       oauthProviders: project.auth ? authOAuthProviders(project.auth) : [],
@@ -2927,7 +2927,7 @@ export function serializeQiyProject(project: QiyProject): string {
       ...(project.auth?.userEntity ? { userEntity: project.auth.userEntity } : {}),
       hasAuth: Boolean(project.auth),
     });
-    if (permissionErrors.length) throw new Error(permissionErrors.join("`n"));
+    if (permissionErrors.length) throw new Error(permissionErrors.join("\n"));
   }
   const name = normalizePackageName(project.name);
   if (!/^[a-z][a-z0-9-]*$/.test(name)) throw new Error("Qiy project name must normalize to a lowercase package name");
@@ -2936,6 +2936,7 @@ export function serializeQiyProject(project: QiyProject): string {
   const lines = ["qiy v0;", `application ${name}${applicationAnnotation} {`, `  database ${project.database.dialect}${databaseAnnotation} {`];
   for (const extension of project.database.extensions) lines.push(`    extension ${qiyIdentifier(extension, "Database extension")};`);
   lines.push("  }");
+  if (project.mode === "standalone") lines.push("  mode standalone;");
   if (project.mode === "integration") {
     if (!project.integration) throw new Error("application mode integration requires integration settings");
     lines.push("  mode integration;", "  integration {");
@@ -3028,7 +3029,7 @@ export function serializeQiyProject(project: QiyProject): string {
       lines.push(`    resource ${qiyIdentifier(subscription.resource, "Realtime resource")} {`);
       lines.push(`      events ${subscription.events.join(", ")};`);
       lines.push(`      roles ${subscription.roles.join(", ")};`);
-      if (subscription.claim) lines.push(`      when ${qiyIdentifier(subscription.claim.field, "Realtime claim field")} claim ${qiyIdentifier(subscription.claim.claim, "Realtime claim name")};`);
+      if (subscription.claim) lines.push(`      when ${qiyIdentifier(subscription.claim.field, "Realtime claim field")} claim ${qiyClaim(subscription.claim.claim)};`);
       lines.push("    }");
     }
     lines.push("  }");

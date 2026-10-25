@@ -83,7 +83,7 @@ bun run --cwd apps/<server-alias> attachments:orphans -- --apply # 审核后删�
 ```
 
 - 同样需要 `QIY_STORAGE_METADATA=database` 与 `DATABASE_URL`；`local` 与 `s3` 两种 provider 都能枚举对象（`local` 递归遍历存储目录，`s3` 走 `ListObjectsV2`，分页上限 20×1000 个 key）。
-- 输出 `{ objects, metadata, orphans, missingObjects, removed, dryRun, truncated }`：`orphans` 是无记录的存储对象，`missingObjects` 是有记录但没有对象的数量（由 `attachments:cleanup` 处理）。`--limit`（或 `QIY_ATTACHMENT_ORPHAN_LIMIT`，默认 1000，上限 10000）限制单次处理量，超出时 `truncated` 为 true 并提示再次运行。
+- 输出 `{ objects, metadata, orphans, missingObjects, removed, dryRun, truncated }`：`orphans` 是无记录的存储对象，`missingObjects` 是有记录但没有对象的数量（由 `attachments:cleanup` 处理）。处理量通过环境变量控制：孤儿扫描用 `QIY_ATTACHMENT_ORPHAN_LIMIT`（默认 1000，上限 10000），`attachments:cleanup` 用 `QIY_ATTACHMENT_CLEANUP_LIMIT`（默认 1000，上限 10000）；超出时 `truncated` 为 true 并提示再次运行。两个命令都**没有** `--limit` 参数。
 - **默认只预演**，不删除任何对象；只有 `--apply` 才删除，且只删除 `orphans` 列表里的对象。`missingObjects` 不会被本命令删除，两条命令各管一个方向。
 - 孤儿通常来自元数据写入失败、绕过 API 手工删除记录，或迁移/恢复后遗留的对象；建议定期预演并在审核后执行。删除对象**不可撤销**，S3 上还会产生删除费用。
 

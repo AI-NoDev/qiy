@@ -1,109 +1,491 @@
-# application
+﻿# application
 
-```ts
-application qiy-erp-admin {
-  // 数据库
-  database postgresql {
+一个 `.qiy` 项目有且只有一个 `application <name> { ... }` 块。块内的声明**顺序即语法**：解析器按固定顺序逐个匹配，顺序错了会报 `Expected <关键字> near token N`，而不是“任意顺序配置”。
+
+```qiy
+qiy v0;
+
+application qiy-erp-admin @comment("Operations administration") {
+  database postgresql @comment("Primary operational database") {
     extension pgvector;
   }
 
-  // Refine UI 与主题
-  ui {
-    library antd;
-    theme blue;
-    themes blue, purple, green, orange, red;
-    colorMode system;
-    allowThemeSwitch true;
-    allowColorModeSwitch true;
+  mode standalone;
+
+  workspace { name admin; }
+  ui { library antd; theme blue; colorMode system; }
+  api { client rest; }
+  features { overview true; apiDocs true; apiKeys true; }
+  realtime { mode auto; resource orders { events created, updated; roles admin, operator; } }
+  elysia { bearer; serverTiming; }
+  storage { provider local; }
+  auth {
+    providers local, oidc;
+    user users;
+    subjectField subject;
+    roleField role;
+    usernameField email;
+    passwordField passwordHash;
+    provider oidc { subjectField oidcSubject; }
+  }
+  env { variable PAYMENT_API_URL { production required; } }
+  messages {
+    default "zh-CN";
+    locale "zh-CN" { "app.title" "运营后台"; }
   }
 
-  // 前端数据源
-  api {
-    client graphql;
-    cors {
-      origin "https://admin.example.com";
-    }
-  }
+  permission field ApiGetOrderPermission "orders:read";
+  permission group admin { ApiGetOrderPermission }
+  permission group operator { ApiGetOrderPermission }
+  permission group viewer { ApiGetOrderPermission }
 
-  // 服务端插件
-  elysia {
-    bearer;
-    jwt { name accessToken; secretEnv QIY_ACCESS_SECRET; }
-    graphqlAdapter adapter yoga;
-  }
+  enum userRole { value admin; value operator; value viewer; }
+  enum orderStatus { value draft; value paid; }
 
-  storage { provider s3; }
-  auth { provider oidc; user users; subjectField externalSubject; roleField role; }
-  workflow orderInventory;
+  entity users {
+    field id UUID @id;
+    field subject Text @unique;
+    field oidcSubject Text @nullable @unique;
+    field email Text @unique;
+    field passwordHash Text @nullable;
+    field role userRole;
+  }
+  entity customers { field id UUID @id; field name Text; }
+  entity orders { field id UUID @id; field customerId UUID; field status orderStatus; }
+
+  relation orderCustomer orders customerId customers id one;
+
+  restrict orders { allow roles admin, operator; }
+
+  pages orders { list roles admin, operator; }
+  menu { group sales @label("销售") { resource orders; } }
+  dashboard { metric orderCount orders @label("订单总数"); }
+
+  // dataflow / action 见各自章节
 }
 ```
 
+## 块顺序与基数
+
+| # | 块 | 基数 | 说明 |
+| --- | --- | --- | --- |
+| 1 | `database` | 必填 ×1 | 必须是 `application {` 之后的第一个声明 |
+| 2 | `mode` | 0..1 | `standalone`（默认）/ `integration` |
+| 3 | `integration` | 0..1 | 仅 `mode integration` 可用 |
+| 4 | `workspace` | 0..1 | `qiy init` 的目录/包名映射 |
+| 5 | `ui` | 0..1 | UI adapter、主题、明暗模式 |
+| 6 | `api` | 0..1 | 前端 client 与 CORS |
+| 7 | `features` | 0..1 | 系统管理页面开关 |
+| 8 | `realtime` | 0..1 | 实时订阅 |
+| 9 | `elysia` | 0..1 | 服务端插件组合 |
+| 10 | `storage` | 0..1 | 文件存储 provider |
+| 11 | `auth` | 0..1 | 认证与身份映射 |
+| 12 | `env` | 0..1 | 自定义环境变量 |
+| 13 | `messages` | 0..1 | 多语言词典（见 [多语言](/dsl/i18n)） |
+| 14 | `permission …` | 0..N | 原子权限/权限组/来源/校验，连续书写 |
+| 15 | `workflow <name>;` | 0..N | 目前只有 `orderInventory` |
+| 16 | `enum …` | 0..N | 枚举（见 [enum/menu/dashboard](/dsl/enum-menu-dashboard)） |
+| 17 | `entity …` | 0..N | 实体（见 [entity 与 field](/dsl/entity)） |
+| 18 | `relation …;` | 0..N | 关系（见 [relation 与 index](/dsl/relation-index)） |
+| 19 | `scope …;` | 0..N | 数据范围 |
+| 20 | `restrict … { }` | 0..N | 行级/字段级策略 |
+| 21 | `pages … { }` | 0..N | 页面级角色规则 |
+| 22 | `menu { … }` | 0..1 | 侧边栏分组 |
+| 23 | `dashboard { … }` / `chart …` | 0..N | 概览页，二者共享位置、可混排 |
+| 24 | `dataflow … { }` | 0..N | 事务型命令（见 [dataflow](/dsl/dataflow)） |
+| 25 | `action … { }` | 0..N | 命令按钮/手写页（见 [action](/dsl/actions)） |
+
+## application 设置总表
+
+下表覆盖 `application` 内全部配置块的可写键（顶层声明 `enum`/`entity`/`relation`/`menu`/`dashboard`/`dataflow`/`action` 见各自章节）；每一块的语法、默认值与错误在后续小节逐一展开。
+
+| 块 | 键 / 语法 | 取值 | 默认 | 生成效果 |
+| --- | --- | --- | --- | --- |
+| `database` | `postgresql` / `mysql` / `sqlite` | 方言标识符 | 必填 | Drizzle schema 方言、迁移语句、连接驱动 |
+| `database` | `@comment(...)` | 字面量或 `t("key")` | 无 | `schema.ts` 文件级 JSDoc |
+| `database` | `extension <name>;` | 标识符 | 无 | 扩展声明；`pgvector`/`postgis` 仅 PostgreSQL |
+| `mode` | `standalone` / `integration` | 标识符 | `standalone` | 是否生成独立 server workspace |
+| `integration` | `apiBase "…"` | `http(s)://…` 或以 `/` 开头的路径 | 必填 | host DataProvider 的 base URL |
+| `integration` | `auth none\|bearer\|cookie\|portal;` | 四选一 | `none` | host 认证传输方式 |
+| `integration` | `auth cookie { csrfCookie …; csrfHeader …; }` | 字符串 | 无 | 写请求附带 CSRF 头 |
+| `integration` | `response { data …; total …; error …; }` | 点分 JSON 路径 | 无 | 解析 host 响应包络 |
+| `integration` | `pagination page\|offset\|none;` | 三选一 | `page` | host 列表分页参数 |
+| `integration` | `tenant { header …; identity …; }` | 头部名 + identity key | 无 | 请求携带宿主租户头 |
+| `workspace` | `name <id>;` | 标识符 | `application` 名 | `qiy init` 的目标目录前缀 |
+| `workspace` | `aliases { server …; web …; deploy …; }` | 标识符 | `<name>-server` / `<name>-web` / `<name>` | 生成目录名 |
+| `workspace` | `packages { server …; web …; }` | 引号字符串 | 默认包名 | 生成包名 |
+| `ui` | `library antd;` | 仅 `antd` | `antd` | UI adapter |
+| `ui` | `theme <key>;` | `blue`/`purple`/`green`/`orange`/`red` | `themes` 的第一个 | 默认品牌色 |
+| `ui` | `themes …;` | 上述 key 的逗号列表 | 全部五个 | Header 主题切换项 |
+| `ui` | `colorMode light\|dark\|system;` | 三选一 | `system` | 默认明暗模式 |
+| `ui` | `allowThemeSwitch <bool>;` | `true`/`false` | `true` | 是否渲染主题控件 |
+| `ui` | `allowColorModeSwitch <bool>;` | `true`/`false` | `true` | 是否渲染明暗控件 |
+| `api` | `client rest\|graphql;` | 二选一 | `rest` | 前端 DataProvider 传输层 |
+| `api` | `cors { origin "…"; … }` | 精确 http(s) origin | 无 | `QIY_CORS_ORIGINS` 与服务端 CORS 白名单 |
+| `features` | `overview <bool>;` | 布尔 | `true` | `/system/overview` 功能总览页 |
+| `features` | `apiDocs <bool>;` | 布尔 | `false` | `/system/api-docs`、`/api/v1/openapi.json` |
+| `features` | `apiKeys <bool>;` | 布尔 | `false` | `/system/api-keys`、`qiy_api_keys` 表与端点 |
+| `realtime` | `mode auto\|manual;` | 二选一 | `auto` | Refine LiveProvider 订阅模式 |
+| `realtime` | `resource <table> { … }` | 表名 | 必填 | 每个资源的订阅配置 |
+| `realtime` | `events created, updated, deleted;` | 事件列表 | 必填 | 发布哪些事件 |
+| `realtime` | `roles admin, operator, viewer;` | 角色列表 | 必填 | 可订阅角色（capability token） |
+| `realtime` | `when <field> claim <claim>;` | 字段 + claim | 无 | 行级通道隔离 |
+| `elysia` | `bearer;` / `serverTiming;` / `html;` / `drizzle;` | 开关 | 关 | 服务端插件 |
+| `elysia` | `jwt { name …; secretEnv …; }` | 标识符 | `jwt` / `QIY_JWT_SECRET` | JWT 插件与 secret 环境变量 |
+| `elysia` | `static { assets …; prefix …; }` | 字符串 | `public` / `/public` | 静态资源目录与前缀 |
+| `elysia` | `graphqlAdapter adapter native\|yoga\|apollo;` | 三选一 | `native` | GraphQL 适配器依赖 |
+| `elysia` | `cron { job <name> pattern "<cron>" task cleanupMissingAttachments; }` | job 列表 | 无 | 定时清理任务 |
+| `storage` | `provider local\|s3;` | 二选一 | `local` | 文件存储适配与 `QIY_STORAGE_*` |
+| `auth` | `provider <id>;` / `providers <id>, …;` | 11 种 provider | 必填 | 登录页与 token 校验 |
+| `auth` | `provider <id> { subjectField …; claim …; }` | 映射块 | 无 | 每 provider 的标识列/claim |
+| `auth` | `user <entity>;` | 实体名 | 必填 | 用户表 |
+| `auth` | `subjectField` / `roleField` / `usernameField` / `passwordField` / `profileField` | 字段名 | 视 provider | 身份/角色/口令列 |
+| `env` | `variable NAME { … }` | 大写变量名 | 无 | server/web `.env.*` 文件 |
+| `messages` | `default "…";` / `locale "…" { "k" "v"; }` | BCP 47 + 词典 | 无 | i18n provider 与模型 label 翻译 |
+| `permission` | `field` / `group` / `from` / `verification` | 见 [permissions](/dsl/permissions) | 无 | 权限提供者与守卫 |
+| `workflow` | `orderInventory;` | 唯一取值 | 无 | 采购/库存事务链路 |
+| `scope` | `scope <resource> <field> claim <claim> [tree …];` | 见下 | 无 | 行级数据范围 |
+| `restrict` | `allow roles` / `when` / `mask` | 见下 | 无 | 行策略与字段脱敏 |
+| `pages` | `<action> roles …;` / `field <f> roles …;` | 见下 | 无 | 页面级 RBAC |
+
 ## database
 
-```ts
-database postgresql { extension pgvector; }
+### 语法
+
+```text
+database <postgresql|mysql|sqlite> [@comment(...)] {
+  extension <name> ;
+  ...
+}
+```
+
+### 参数
+
+| 参数 | 取值 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| 方言 | `postgresql`、`mysql`、`sqlite` | 必填 | 其它值报 `Unsupported database dialect X` |
+| `@comment(...)` | 字面量或 `t("key")` | 无 | 生成 `schema.ts` 文件级 JSDoc（含 `i18n: key`） |
+| `extension <name>` | 标识符，可多条 | 空 | 数据库扩展声明；当前 `pgvector`、`postgis` 被识别，二者要求 PostgreSQL |
+
+### 默认值与校验
+
+- `database` 是 `application` 内的第一个声明，缺失或位置错误报 `Expected database near token N`。
+- 扩展必须在 `database` 中声明后才能在字段 `@extension(...)` 中使用，否则 `undeclared extension X`。
+- `pgvector`/`postgis` 出现在非 PostgreSQL 方言报 `pgvector and postgis require PostgreSQL`。
+- `Vector` 字段还要求 `database postgresql` + 已声明 `extension pgvector`，否则 `Vector requires PostgreSQL and a declared pgvector extension`。
+
+### 生成结果
+
+Drizzle schema 的方言、列类型映射、迁移 SQL 生成器，以及（PostgreSQL 时）`vector` 列与 `hnsw`/`ivfflat` 索引支持。
+
+### 示例
+
+```qiy
+database postgresql @comment("Primary operational database") {
+  extension pgvector;
+}
+
 database sqlite {}
 database mysql {}
 ```
 
-必须放在 `application` 开头。当前支持 PostgreSQL、SQLite 与 MySQL。
+### 进阶用法
 
-## workspace
+- 同一模型只能有一个方言；需要多库时生成两个项目（或让宿主服务负责跨库读写）。
+- `extension` 只是声明，是否真的创建扩展仍取决于目标数据库的迁移权限与 DBA 流程。
+- 生产环境建议 `postgresql`：`Vector`、`pgvector` 索引与 `@concurrently` 只在 PostgreSQL 可用。
 
-`workspace` 是可选的现有 Bun 项目集成配置，属于 `.qiy` 模型本身。它只影响 `qiy init`，不会把凭据写入模型：
+### 常见错误
 
-```qiy
-workspace {
-  name admin;
-  aliases {
-    server ops-api;
-    web ops-console;
-    deploy ops-admin;
-  }
-  packages {
-    server "@example/ops-api";
-    web "@example/ops-console";
-  }
+| 错误 | 修复 |
+| --- | --- |
+| `Unsupported database dialect oracle` | 只用三种受支持方言 |
+| `Vector requires PostgreSQL and a declared pgvector extension` | 换 `postgresql` 并声明 `extension pgvector;`，字段再加 `@extension(pgvector)` |
+| `@comment` 里 `t("key")` 报 `Missing default locale message for database comment: key` | 在 `messages` 的默认语言里补该 key |
+
+## mode 与 integration
+
+### 语法
+
+```text
+mode standalone | integration ;
+
+integration {
+  apiBase "<absolute-http-url-or-/path>" ;
+  auth none | bearer | cookie | portal ;
+  auth cookie { csrfCookie "<name>" ; csrfHeader "<header>" ; } ;   // 仅 cookie
+  response { data "<path>" ; total "<path>" ; error "<path>" ; } ;   // 至少一项
+  pagination page | offset | none ;
+  tenant { header "<header>" ; identity "<identity-key>" ; } ;       // 两者都要
 }
 ```
 
-`name`、目录 alias 和 package name 都是可选的；未声明时分别回退到 `application` 名称、`<name>-server`、`<name>-web`、`<name>` 和默认 package name。`-n` 可以作为一次性 CLI 覆盖。package name 使用引号，目录 alias 使用小写字母、数字和连字符。
+### 参数
+
+| 参数 | 取值 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `apiBase` | `https://…`、`http://…` 或以 `/` 开头的路径 | 必填 | 其它形态报 `integration apiBase must be an absolute http(s) URL or a path starting with /` |
+| `auth none` | — | 是 | 不带认证 |
+| `auth bearer` | — | — | `Authorization: Bearer <token>` |
+| `auth cookie` | 可带 `csrfCookie`/`csrfHeader` | — | Cookie 凭证 + CSRF 头；选项只允许 cookie transport |
+| `auth portal` | — | — | 宿主门户注入身份（BFF/门户场景） |
+| `response.data` / `.total` / `.error` | 点分 JSON 路径（`items`、`meta.count`） | 无 | 只接受纯 key 组成，`$.items` 会报 `dotted JSON path` |
+| `pagination` | `page` / `offset` / `none` | `page` | 分页参数约定 |
+| `tenant.header` | 简单 HTTP 头名 | 无 | 转发宿主租户 |
+| `tenant.identity` | 简单 identity key | 无 | 从当前身份里取值的键 |
+
+### 默认值与校验
+
+- `mode` 缺省为 `standalone`。
+- `mode integration` 必须有 `integration` 块（`application mode integration requires an integration block`）。
+- 有 `integration` 块但 `mode` 不是 `integration` 报 `integration block requires application mode integration`。
+- 每个键最多出现一次（`Duplicate integration setting X`）；`response` 至少一项；同一 `response` 键不能重复。
+- **integration 模式禁止生成式服务端特性**：同时出现 `api { cors { … } }`、`elysia`、`storage`、`auth`、`env`、`scope`、`restrict`、`workflow`、`dataflow`、`permission` 时直接报 `application mode integration cannot configure generated server features; use integration auth and host adapters instead.`（`api { client … }` 本身允许。）
+- `realtime` 在 integration 模式报 `application mode integration cannot generate standalone realtime; use the host LiveProvider adapter instead.`
+- `mode integration` **不能**用 `qiy generate`/`qiy create` 生成独立工作区：`application mode integration must be mounted with qiy init inside an existing Bun workspace`。
+
+### 生成结果
+
+- `apps/<web>/app/host/data-provider.ts`：按 `apiBase`、`response` 包络、`pagination`、`tenant` 生成可运行的 host DataProvider（`getList/getOne/create/update/deleteOne`）。
+- `apps/<web>/app/host/auth.ts`：`bearer`/`cookie`/`portal` 认证注入，以及 `X-Tenant-Id` 之类的租户头；identity 缺失时抛 `Host tenant identity is missing`。
+- `apps/<web>/QIY_INTEGRATION.md`：说明宿主需要实现的契约。
+- 不生成 server 包；业务规则、路由映射与授权保留在宿主适配层。
+
+### 示例
+
+```qiy
+qiy v0;
+application host-catalog {
+  database sqlite {}
+  mode integration;
+  integration {
+    apiBase "https://api.example.com/api/v2";
+    auth bearer;
+    response { data "items"; total "meta.count"; error "message"; };
+    pagination offset;
+    tenant { header "X-Tenant-Id"; identity "tenantId"; };
+  }
+  entity products { field id UUID @id; field title Text; }
+}
+```
+
+### 进阶用法
+
+`response` 只描述**读**包络；写请求假设宿主返回记录本身。`pagination none` 表示宿主不分页（前端一次取全量）。`auth portal` 用于宿主已经建立会话、由反向代理注入身份头的场景，`tenant.identity` 再决定从哪取租户值。宿主适配器（URL 映射、业务校验、鉴权）必须写在未被 Qiy 登记的文件里，`--sync` 不会覆盖。
+
+### 常见错误
+
+| 错误 | 修复 |
+| --- | --- |
+| `integration requires apiBase` | 补 `apiBase` |
+| `Integration auth options are only supported for cookie transport` | `csrfCookie`/`csrfHeader` 只在 `auth cookie { … }` 里写 |
+| `integration tenant requires header and identity` | 两个键都要写 |
+| `application mode integration cannot configure generated server features` | 把 `auth`/`storage`/`env` 等换成宿主实现；integration 项目不生成 server |
+| `Duplicate integration setting response` | 每个 `response`/`tenant`/`auth` 只出现一次 |
+
+## workspace
+
+### 语法
+
+```text
+workspace {
+  name <identifier> ;
+  aliases { server <identifier>; web <identifier>; deploy <identifier>; }
+  packages { server "<package-name>"; web "<package-name>"; }
+}
+```
+
+### 参数与默认值
+
+| 键 | 取值 | 默认 |
+| --- | --- | --- |
+| `name` | 标识符 | `application` 名 |
+| `aliases.server` | 标识符 | `<name>-server` |
+| `aliases.web` | 标识符 | `<name>-web` |
+| `aliases.deploy` | 标识符 | `<name>` |
+| `packages.server` | 引号字符串 | 由 workspace 名推导 |
+| `packages.web` | 引号字符串 | 由 workspace 名推导 |
+
+校验：`workspace` 下只允许 `name`/`aliases`/`packages`；`aliases` 只允许 `server`/`web`/`deploy`；`packages` 只允许 `server`/`web`；重复键报 `Duplicate workspace …`；alias 不能是非法标识符。
+
+### 生成结果
+
+只影响 `qiy init`（把 admin 挂载进已有 Bun 工程）：生成目录名、包名、`deploy/` 目录名与 `docker-compose.<alias>.yml`。`qiy create`/`qiy generate` 忽略 alias 之外的细节，仍生成标准 `apps/server`、`apps/web`。`-n` 可以一次性覆盖 `name`。
+
+### 示例
+
+```qiy
+workspace {
+  name ops;
+  aliases { server ops-api; web ops-console; deploy ops-admin; }
+  packages { server "@example/ops-api"; web "@example/ops-console"; }
+}
+```
+
+### 常见错误
+
+| 错误 | 修复 |
+| --- | --- |
+| `Unsupported workspace alias api` | alias 只有 `server`/`web`/`deploy` |
+| `Duplicate workspace server configuration` | 每个区块只写一次 |
+| `Workspace name cannot be represented in Qiy syntax` | 用标识符（字母/数字/`_`/`-`） |
 
 ## ui
 
-`ui` 控制生成的 Refine UI adapter、品牌色主题和明暗模式。当前正式支持 `antd`；`mui`、`mantine`、`chakra` 等名称会在生成前被拒绝，而不是生成混合 UI。
+### 语法
+
+```text
+ui {
+  library antd;
+  theme <blue|purple|green|orange|red>;
+  themes <key> [, <key>]*;
+  colorMode <light|dark|system>;
+  allowThemeSwitch <true|false>;
+  allowColorModeSwitch <true|false>;
+}
+```
+
+### 参数
+
+| 参数 | 取值 | 默认 | 生成效果 |
+| --- | --- | --- | --- |
+| `library` | 仅 `antd` | `antd` | UI adapter（`mui`/`mantine`/`chakra` 报 `Unsupported UI library X; only antd is implemented`） |
+| `theme` | 五个主题 key | `themes` 的第一个 | 默认品牌色 |
+| `themes` | 五个 key 的逗号列表 | `blue, purple, green, orange, red` | Header 主题切换项与 `qiy.theme*` 文案 |
+| `colorMode` | `light`/`dark`/`system` | `system` | 初始明暗模式 |
+| `allowThemeSwitch` | 布尔 | `true` | 是否渲染主题控件 |
+| `allowColorModeSwitch` | 布尔 | `true` | 是否渲染明暗控件 |
+
+### 默认值与校验
+
+- 未声明 `ui` 时使用 antd + 全部五个主题 + `blue` + `system` + 两个开关 `true`。
+- `theme` 必须包含在 `themes` 中，否则 `UI default theme X must be included in themes`。
+- `themes` 不能为空（`requires at least one theme key`）、不能重复（`Duplicate UI theme X`）。
+- 每个键最多一次（`Duplicate UI setting X`）；未知键报 `Unsupported UI setting X`。
+
+### 生成结果
+
+- `apps/web/app/ui/`：`ConfigProvider` 主题算法、`QiyUiProvider`、`QiyThemedLayout`、Header 右上角的主题/明暗控件。
+- 选择写入浏览器 `localStorage`；`system` 监听 `prefers-color-scheme`；折叠侧边栏状态独立保存。
+- 语言选择器与 i18n 分开保存（`qiy.locale`），切换后同步 Ant Design locale 与 `<html lang/dir>`。
+- 页面优先使用 `@refinedev/antd` 的 `List`/`Show`/`Create`/`Edit`/按钮，再用 Ant Design 原生组件补足动态字段、批量操作与 Action。
+
+### 示例
 
 ```qiy
 ui {
   library antd;
-  theme purple;
-  themes purple, blue, green, orange;
+  theme green;
+  themes green, blue, purple;
   colorMode system;
   allowThemeSwitch true;
   allowColorModeSwitch true;
 }
 ```
 
-- `theme` 是默认主题，必须包含在 `themes` 中；
-- 主题 key 支持 `blue`、`purple`、`green`、`orange`、`red`；
-- `colorMode` 支持 `light`、`dark`、`system`；
-- 启用切换后，Header 右上角生成主题和明暗模式控件，并使用 `localStorage` 保存选择；
-- `system` 会监听浏览器 `prefers-color-scheme`；
-- 生成页面优先使用 `@refinedev/antd` 的 `List`、`Show`、`Create`、`Edit` 和操作按钮，其次使用 Ant Design 原生组件，最后才使用 Qiy 自定义组件；
-- 主题实现集中在 `apps/web/app/ui/`，业务页面不直接维护主题算法。
+### 进阶用法
 
-未声明 `ui` 时，默认使用 Ant Design、全部五个主题 key、`blue` 默认色和 `system` 明暗模式。
+只要定制品牌色，就把 `themes` 收窄到需要的 key 并让 `theme` 指其中一个；如果不想让用户切换，关掉两个 `allow*` 开关即可（控件不渲染，服务端不受影响）。完整主题示例见 [examples/themes/app.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/themes/app.qiy)。
+
+### 常见错误
+
+| 错误 | 修复 |
+| --- | --- |
+| `Unsupported UI library mui` | 只有 `antd` 可用 |
+| `UI default theme purple must be included in themes` | 把 `purple` 加进 `themes` |
+| `Duplicate UI theme blue` | 去掉重复 key |
 
 ## api
 
-```ts
-api { client rest; }
-api { client graphql; }
+### 语法
+
+```text
+api {
+  client <rest|graphql> ;
+  cors {
+    origin "<exact-origin>" ;
+    ...
+  }
+}
 ```
 
-前端只能选一个客户端；服务端仍会同时提供 REST 端点。
+### 参数
+
+| 参数 | 取值 | 默认 | 生成效果 |
+| --- | --- | --- | --- |
+| `client` | `rest` / `graphql` | `rest` | 前端 DataProvider：REST 走 `/api/v1/*`，GraphQL 走 `/graphql` |
+| `cors.origin` | 精确 `http(s)://host[:port]`，可多条 | 无 | `QIY_CORS_ORIGINS` 与服务端 CORS 白名单 |
+
+### 默认值与校验
+
+- `client` 必须写在 `cors` 之前（解析器 `expect("client")` 后才会看 `cors`）。
+- 不支持 `basePath` 配置：REST 前缀固定 `/api/v1`，GraphQL 固定 `/graphql`。
+- `origin` 必须是引号字符串（`CORS origins must be quoted strings`）。
+- 不能带通配符、路径、用户信息；`*`、`https://x/*`、`https://x/path` 都报 `CORS origin must be an exact http(s) origin without a path or wildcard`。
+- 至少一个 origin（`CORS configuration requires at least one origin`）；重复 origin 自动去重。
+
+### 生成结果
+
+- Web：`app/data-provider.ts`（REST）或 `app/graphql/data-provider.ts`；`VITE_QIY_API_TRANSPORT` 记录 transport。
+- Server：始终同时提供 REST 与 `/graphql`；配置了 CORS 时把 origin 列表注入 `QIY_CORS_ORIGINS` 并启用 CORS 中间件。
+
+### 示例
+
+```qiy
+api {
+  client graphql;
+  cors {
+    origin "https://admin.example.com";
+    origin "http://localhost:5173";
+  }
+}
+```
+
+### 进阶用法
+
+- REST 与 GraphQL 服务端**同时存在**：`client` 只决定 Web 用哪套 DataProvider，切换不需要改服务端。
+- 前后端分离部署（Web 在 CDN、API 在另一域）必须配置 `cors`，并把精确 origin 写全（含端口）。
+- 本地开发端口（Vite `5173`、preview `3000`）要逐个加入 origin，通配符不会被接受。
+
+### 常见错误
+
+| 错误 | 修复 |
+| --- | --- |
+| `Unsupported API client grpc` | 只用 `rest`/`graphql` |
+| `CORS origins must be quoted strings` | 写 `origin "https://…";` |
+| `Invalid CORS origin https://example.com/` | 去掉尾部斜杠/路径 |
 
 ## features
+
+### 语法
+
+```text
+features {
+  overview <true|false> ;
+  apiDocs <true|false> ;
+  apiKeys <true|false> ;
+}
+```
+
+### 参数与默认值
+
+| 键 | 默认 | 生成内容 | 依赖 |
+| --- | --- | --- | --- |
+| `overview` | `true` | `/system/overview` 功能总览（实体 Mermaid、Dataflow、权限模型） | 至少一个 docs 开关打开才实际生成 |
+| `apiDocs` | `false` | `/system/api-docs` 页面 + `/api/v1/openapi.json` + `/api/v1/docs/model` | — |
+| `apiKeys` | `false` | `/system/api-keys` 页面、`qiy_api_keys` 表、`/api/v1/auth/api-keys` 端点、Bearer/`X-API-Key` 认证 | 必须同时声明 `auth` |
+
+### 默认值与校验
+
+- 未知键报 `Unsupported features setting X; expected overview, apiDocs or apiKeys`；重复键报 `Duplicate features setting X`。
+- `apiKeys true` 但没有 `auth` 块：解析期就报 `features apiKeys requires an auth block`；生成期还会校验 `auth` 的 user 实体存在（`features apiKeys requires the auth user entity X`）。
+- `overview` 只有在 `apiDocs` 或 `apiKeys` 打开时才生成页面（总览页需要 docs API 提供数据）。
+
+### 生成结果
+
+系统管理菜单组下的三个页面、OpenAPI 端点与 API Key 表；菜单项只在对应页面生成时出现。细节见 [features](/dsl/features) 与 [API 文档与访问密钥](/guide/api-docs-and-keys)。
+
+### 示例
 
 ```qiy
 features {
@@ -113,39 +495,344 @@ features {
 }
 ```
 
-系统管理开发者页面开关：`overview` 默认 true，生成 `/system/overview` 功能总览页（实体 Mermaid/Dataflow/权限模型，要求至少一个 docs-api 开关打开）；`apiDocs` 生成独立 `/system/api-docs` 页面与受保护的 `/api/v1/openapi.json`、`/api/v1/docs/model`；`apiKeys` 生成独立 `/system/api-keys` 页面、`qiy_api_keys` 表、`/api/v1/auth/api-keys` 端点和 Bearer/`X-API-Key` 认证。菜单项只在对应页面生成时出现。`apiKeys` 需要同时声明 `auth`。详见 [features](/dsl/features) 与 [API 文档与访问密钥](/guide/api-docs-and-keys)。
+### 进阶用法
+
+- `apiDocs` 与 `apiKeys` 是独立开关：只开 `apiDocs` 时没有密钥表；只开 `apiKeys` 时没有 `openapi.json`，但仍有 `/api/v1/docs/model`。
+- 三个页面都受登录保护且按当前角色的权限过滤内容，所以“生成页面”≠“授权访问”，访问控制仍由 `auth` + `permission` 决定。
+
+### 常见错误
+
+| 错误 | 修复 |
+| --- | --- |
+| `features apiKeys requires an auth block` | 同时写 `auth { … }` |
+| 总览菜单没出现 | `overview` 是 true 但 `apiDocs`/`apiKeys` 都是 false |
+
+## realtime
+
+### 语法
+
+```text
+realtime {
+  mode <auto|manual> ;
+  resource <tableName> {
+    events <created|updated|deleted> [, ...] ;
+    roles <admin|operator|viewer> [, ...] ;
+    when <field> claim <claim> ;
+  }
+  ...
+}
+```
+
+### 参数
+
+| 参数 | 取值 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `mode` | `auto` / `manual` | `auto` | `auto`：写操作后自动发布；`manual`：由显式调用发布 |
+| `resource` | 表名（`tableName`） | 必填 | 每个资源最多一次（`Duplicate realtime resource X`） |
+| `events` | 三个事件的逗号列表，至少一个 | 必填 | 空或重复报 `events requires at least one event` / `duplicate event X` |
+| `roles` | 角色列表，至少一个 | 必填 | 决定 capability token 的订阅范围 |
+| `when <field> claim <claim>` | 字段名 + claim（点分或引号） | 无 | 行级通道：订阅者只收到该字段等于自己 claim 的记录 |
+
+### 默认值与校验
+
+- 需要生成的 `auth`：`Realtime requires generated authentication`。
+- 至少一个资源（`Realtime requires at least one resource`）。
+- 集成模式禁用（见 [integration](#mode-与-integration)）。
+- 生成期额外校验：claim 字段必须存在、非可空、类型为 `Text` 或 `Integer`；带行谓词（`restrict … when`）的资源不能开 realtime（共享 channel 无法按订阅者裁剪）；已声明 `when … claim` 时也不能再叠加行谓词。
+
+### 生成结果
+
+- Server：`/api/v1/realtime/token`（角色 + 资源范围、只订阅权限）、`realtime` outbox 表与投递 worker、`/api/v1/realtime/outbox` 管理端点、Prometheus 指标。
+- Web：Refine LiveProvider（REST 用 Ably；GraphQL 另有 SSE subscription transport）；字段 `mask` 会在入队前从负载中删除。
+- 环境变量：`QIY_ABLY_API_KEY`、`QIY_REALTIME_*`。完整说明见 [realtime](/dsl/realtime)。
+
+### 示例
+
+```qiy
+realtime {
+  mode auto;
+  resource orders {
+    events created, updated;
+    roles admin, operator;
+  }
+  resource invoices {
+    events created;
+    roles admin;
+    when tenantId claim tenant.id;
+  }
+}
+```
+
+### 进阶用法
+
+- 只订阅需要的资源与事件：每个订阅都会产生 outbox 行与投递开销。
+- 行级隔离优先用 `when <field> claim <claim>`（按 claim 分 channel），而不是在客户端过滤。
+- 需要“只让管理员收删除事件、运营收更新事件”时，拆成两个 `resource` 声明是不允许的（同一资源只能一条）；用角色集合表达共同可见范围。
+
+### 常见错误
+
+| 错误 | 修复 |
+| --- | --- |
+| `Realtime requires generated authentication` | 添加 `auth { … }` |
+| `Realtime X: restrict row predicates cannot be enforced on a shared channel` | 去掉该资源的 `restrict … when`，或改用 `when <field> claim` |
+| `claim field X must be non-nullable` | 把 claim 字段改为非空 |
 
 ## elysia
 
-| 配置 | 说明 |
+### 语法
+
+```text
+elysia {
+  bearer;
+  serverTiming;
+  html;
+  drizzle;
+  jwt { name <identifier>; secretEnv <identifier>; }   // 或 jwt;
+  static { assets <string>; prefix <string>; }         // 或 static;
+  graphqlAdapter adapter <native|yoga|apollo>;
+  cron {
+    job <name> pattern "<5-or-6-field cron>" task cleanupMissingAttachments;
+  }
+}
+```
+
+### 参数与默认值
+
+| 配置 | 取值 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `bearer` | 开关 | 关 | 解析 Bearer 令牌 |
+| `serverTiming` | 开关 | 关 | 输出 `Server-Timing` |
+| `html` | 开关 | 关 | HTML 响应帮助器 |
+| `drizzle` | 开关 | 关 | Drizzle→TypeBox 校验插件 |
+| `jwt` | 裸写或带块 | `name`=`jwt`，`secretEnv`=`QIY_JWT_SECRET` | JWT 命名空间与 secret 环境变量 |
+| `static` | 裸写或带块 | `assets`=`public`，`prefix`=`/public` | 静态资源；`prefix` 必须以 `/` 开头 |
+| `graphqlAdapter adapter X` | `native`/`yoga`/`apollo` | `native` | 选择 `@elysia/graphql-yoga`/`@elysia/apollo` 依赖 |
+| `cron` | 若干 `job` | 无 | 只支持任务 `cleanupMissingAttachments` |
+
+### 默认值与校验
+
+- 未知插件报 `Unsupported Elysia plugin configuration X`；`cron` 的 `task` 不是 `cleanupMissingAttachments` 报 `Unsupported Cron task X`；`graphqlAdapter` 非法报 `Unsupported GraphQL adapter X`。
+- `static.prefix` 不以 `/` 开头：解析期报 `Elysia static prefix must start with /`；生成期还要求 `assets` 是 `public` 或其子目录、`prefix` 不能落在 `/api`、`/graphql`、`/assets`（例如 `Elysia Static: prefix must be a dedicated path outside /api, /graphql and /assets`）。
+- `cron` 的 job 名必须匹配 `^[a-zA-Z_][a-zA-Z0-9_]*$` 且唯一；`pattern` 必须是 5 或 6 段（`Cron X: pattern must have 5 or 6 fields`）。
+
+### 生成结果
+
+- Server 的 Elysia 插件注册、依赖项（`@elysia/bearer`、`@elysia/server-timing`、`@elysia/cron`、`@elysia/jwt`、`@elysia/static`、`@elysia/html`、`@elysia/graphql-yoga`、`@elysia/apollo`）。
+- `QIY_CRON_ENABLED=0`（cron 需要显式开启）；JWT 的 `secretEnv` 出现在生成的 `.env.*` 注释中。
+- 静态资源路由把 `assets` 目录挂到 `prefix`。
+
+### 示例
+
+```qiy
+elysia {
+  bearer;
+  serverTiming;
+  jwt { name accessToken; secretEnv QIY_ACCESS_SECRET; }
+  static { assets "public"; prefix "/public-assets"; }
+  graphqlAdapter adapter yoga;
+  cron {
+    job pruneAttachments pattern "0 3 * * *" task cleanupMissingAttachments;
+  }
+}
+```
+
+### 进阶用法
+
+`jwt`/`static` 的裸写形式适合默认值；需要自定义命名空间或目录时再写块。`graphqlAdapter` 一旦选择 `yoga`/`apollo`，生成器会换成对应适配器依赖并保持 REST 端点不变。
+
+### 常见错误
+
+| 错误 | 修复 |
 | --- | --- |
-| `bearer;` | Bearer 令牌解析 |
-| `serverTiming;` | Server-Timing 响应头 |
-| `html;` | HTML 响应 |
-| `drizzle;` | Drizzle 查询插件 |
-| `jwt { name ...; secretEnv ...; }` | JWT；secret 从环境变量读取 |
-| `static { assets "public"; prefix "/public-assets"; }` | 静态资源；prefix 必须以 `/` 开头 |
-| `graphqlAdapter adapter native|yoga|apollo;` | GraphQL 适配器 |
-| `cron { job ... pattern "..." task cleanupMissingAttachments; }` | 定时任务 |
+| `Unsupported Elysia plugin configuration cors` | CORS 写在 `api { cors { … } }` |
+| `Elysia Static: assets must be public or a subdirectory of public` | 把目录放到 `public/` 下 |
+| `Cron prune: pattern must have 5 or 6 fields` | 用标准 5 段 cron（如 `0 3 * * *`） |
 
 ## storage
 
-```ts
-storage { provider local; }
+### 语法
+
+```text
+storage { provider local | s3 ; }
+```
+
+### 参数与默认值
+
+| 参数 | 取值 | 默认 | 生成效果 |
+| --- | --- | --- | --- |
+| `provider` | `local` / `s3` | `local` | 文件存储适配、`QIY_STORAGE_PROVIDER`、`QIY_STORAGE_ROOT`、`QIY_STORAGE_METADATA` |
+
+校验：只允许 `local`/`s3`（`Unsupported storage provider X`）；`provider` 必写。
+
+### 生成结果
+
+- 存储适配层（本地磁盘或 S3 兼容）、`attachments` 元数据表、`/api/v1/files` 上传/下载路由。
+- `s3` 额外生成 `QIY_S3_BUCKET`、`QIY_S3_REGION`、`QIY_S3_ENDPOINT`、`QIY_S3_ACCESS_KEY_ID`、`QIY_S3_SECRET_ACCESS_KEY`、`QIY_S3_SESSION_TOKEN` 环境变量。
+- 字段级策略（`@upload`/`@maxBytes`/`@mime`/`@maxFiles`）见 [entity 与 field](/dsl/entity#字段属性矩阵)。
+
+### 示例
+
+```qiy
 storage { provider s3; }
 ```
 
+### 进阶用法
+
+- 本地 `local` 适合开发与单机部署；多副本部署必须用 `s3`（或共享卷），否则各副本看不到彼此上传的文件。
+- `s3` 的凭据只放在环境变量/secret manager，绝不写进 `.qiy`。
+- 字段级上传策略（大小、MIME、数量）在模型里声明，服务端会二次校验；不要只依赖前端 accept。
+
+### 相关
+
+完整上传、认证、Attachment 元数据与 S3 说明见[文件存储](/guide/storage)。
+
 ## auth
 
-```ts
-auth { provider oidc; user users; subjectField externalSubject; roleField role; }
+这里只列**块级语法与校验**；provider 细节、登录流程、绑定与 onboarding 见 [认证与登录（auth）](/dsl/auth)。
+
+### 语法
+
+```text
+auth {
+  provider <provider-id> ;
+  providers <provider-id> [, <provider-id>]* ;        // 与 provider 互斥
+  provider <provider-id> {                            // 每 provider 映射
+    subjectField <user-field> ;
+    claim <plain-claim-name> ;
+  }
+  user <entity> ;
+  subjectField <user-field> ;
+  roleField <user-field> ;
+  usernameField <user-field> ;                        // local / otp
+  passwordField <user-field> ;                        // local
+  profileField <user-field> ;                         // 需要至少一个 OAuth/OIDC
+}
 ```
 
-`provider` 支持 `local`、`otp`、`oidc`、`oauth2`、`sso`、`okta`、`auth0`、`azure-ad-b2c`、`keycloak`、`google`、`kinde`；`user` 指向应用内的用户实体。外部身份 provider 使用唯一非空 Text `subjectField`，`local` 使用 `usernameField` + nullable Text `passwordField`，`otp` 只使用唯一非空 Text `usernameField`。
+### 参数
+
+| 键 | 取值 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `provider` | `local`、`otp`、`oidc`、`oauth2`、`sso`、`okta`、`auth0`、`azure-ad-b2c`、`keycloak`、`google`、`kinde` | 必填（或改用 `providers`） | 单 provider 模式 |
+| `providers` | 上面列表的逗号组合（可含 `local`，不能含 `otp`） | 无 | 多 provider / hybrid 模式 |
+| `provider <id> { … }` | 映射块 | 无 | 每 provider 的标识列与 claim |
+| `user` | 实体名 | 必填 | 用户表 |
+| `subjectField` | 用户表字段 | 无 | 外部身份标识列（OAuth 家族必填） |
+| `roleField` | 用户表字段 | 必填 | 角色列 |
+| `usernameField` | 用户表字段 | 无 | `local`/`otp` 必填 |
+| `passwordField` | 用户表字段 | 无 | `local` 必填 |
+| `profileField` | 用户表字段 | 无 | 每 provider 的 profile 元数据 |
+
+### 默认值与校验
+
+解析期（`parseQiyProject`）：
+
+- `provider` 与 `providers` 互斥（`Auth accepts either provider or providers, not both`）；`providers` 不能重复、不能包含 `otp`。
+- `user` 必填（`Auth requires a user entity`）；`roleField` 必填（`Auth requires roleField`）。
+- OAuth/OIDC 家族需要 `subjectField`（`Auth requires subjectField for OAuth/OIDC providers`）。
+- `local` 需要 `usernameField` + `passwordField`；`otp` 需要 `usernameField` 且拒绝 `passwordField`；非 local/otp 的 provider 不接受用户名/口令字段。
+- `profileField` 只允许在至少一个 OAuth provider 时声明。
+- provider 映射：`subjectField` 必填；`claim` 必须是**裸标识符**（纯 claim 名，写引号会报 `Expected identifier`）；映射的 provider 必须在已配置列表内；每 provider 只能一个映射。
+
+生成期（`generateServer`）额外校验用户表形态：
+
+| 规则 | 错误信息 |
+| --- | --- |
+| `usernameField`：非空、唯一、`Text` | `Auth: usernameField must be a required unique Text field` |
+| `passwordField`：可空 `Text`（存 hash） | `Auth: passwordField must be a nullable Text field storing the password hash` |
+| `subjectField`：非空、唯一、`Text` | `Auth: subjectField must be a required unique Text field` |
+| `roleField`：必须是枚举，且值恰好是 `admin`/`operator`/`viewer` | `Auth: roleField must be an enum with admin, operator and viewer values` |
+| hybrid（local + OAuth）每 provider 需要独立的可空唯一 `Text` 列 | `Auth: provider X needs its own nullable subjectField mapping …` |
+| hybrid 首次登录要能补齐所有非空列 | `Auth: OAuth onboarding cannot populate required user fields: …; make them nullable` |
+| `profileField`：可空 `Text` | `Auth: profileField must be a nullable Text field storing per-provider profile metadata` |
+| 未知用户实体 | `Auth: unknown user entity X` |
+
+### 生成结果
+
+- 登录页（单 provider / provider 选择器 / hybrid 密码 + OAuth）、回调、OTP、个人中心绑定/解绑、首次登录 onboarding。
+- 服务端令牌校验（OIDC JWKS 或本地签名）、角色与 claim 注入、`/api/v1/auth/providers`、GraphQL/REST 守卫。
+- 环境变量：`QIY_OIDC_*`（单 provider）或每 provider 的 `QIY_OIDC_<PROVIDER>_*`；hybrid 另有 `QIY_OIDC_DEFAULT_ROLE`；local 有 `QIY_AUTH_SECRET`。
+
+### 示例
+
+```qiy
+auth {
+  provider oidc;
+  user users;
+  subjectField externalSubject;
+  roleField role;
+}
+```
+
+### 进阶用法
+
+混合登录（密码 + 多个 OAuth provider）与 per-provider 映射：
+
+```qiy
+auth {
+  providers local, okta, google;
+  user users;
+  subjectField subject;
+  roleField role;
+  usernameField email;
+  passwordField passwordHash;
+  profileField oauthProfiles;
+  provider okta { subjectField oktaSubject; }
+  provider google { subjectField googleSubject; claim "sub"; }
+}
+```
+
+### 常见错误
+
+| 错误 | 修复 |
+| --- | --- |
+| `Auth providers cannot include otp` | OTP 用 `provider otp;` 单独声明 |
+| `Auth provider local requires usernameField and passwordField` | 补两个字段 |
+| `Auth provider google does not accept usernameField or passwordField` | 去掉口令字段（只有 local/otp 用） |
+| `Auth: roleField must be an enum with admin, operator and viewer values` | 声明包含这三个值的 enum 并让 `roleField` 引用它 |
+| `Provider mapping okta is not part of the configured providers` | provider 必须出现在 `provider`/`providers` 中 |
 
 ## env
 
-Qiy 从模型生成 server 与 web 包各自的环境文件。独立 `create` 项目默认位于 `apps/server/`、`apps/web/`；`qiy init` 使用 `.qiy` 的 workspace alias，例如 `apps/ops-api/.env.production`、`apps/ops-console/.env.development`。环境文件位于 Admin 自己的包内；`qiy init` 不读取、覆盖或合并宿主根目录已有的 `.env`、`.env.example` 或 `.env.development`。启动脚本分别加载 development/production 文件。
+### 语法
+
+```text
+env {
+  variable <UPPER_NAME> {
+    secret;
+    development <"literal" | required | generate> ;
+    production  <"literal" | required> ;
+    example     <"literal" | required> ;
+  }
+}
+```
+
+### 参数与默认值
+
+| 键 | 取值 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| 变量名 | `^[A-Z_][A-Z0-9_]*$` | 必填 | 非法报 `Environment variable name must use uppercase letters, digits and underscores` |
+| `secret;` | 开关 | 关 | 标记为机密；机密变量不能写任何字面值 |
+| `development`/`production`/`example` | 引号字面量 / `required` / `generate` | 未配置则留空 | `required` 生成待填写空值；`generate` 只允许 `secret` 的 `development` |
+
+### 默认值与校验
+
+- 变量名重复报 `Duplicate environment variable X`；同一 mode 重复报 `Duplicate env X.development`。
+- `generate` 用在非 `secret` 或非 `development` 报 `env X: generate is only allowed for secret development values`。
+- `secret` 变量含字面值报 `env X: secret variables cannot contain literal values`。
+- `VITE_` 前缀变量进入浏览器 bundle，不能 `secret`（`env X: frontend VITE_ variables cannot be secret`）。
+- 名字里含 `SECRET`/`TOKEN`/`PASSWORD`/`API_KEY`/`ACCESS_KEY` 却未标 `secret` 会报 `mark credential-like values as secret`。
+
+### 生成结果
+
+生成 `apps/server/.env.{development,production,example}` 与 `apps/web/.env.{development,production,example}` 六个文件：
+
+- 非 `VITE_` 变量只进 server 文件，`VITE_` 变量只进 web 文件。
+- `generate` 在写入时替换为 32 字节随机 hex；`--sync`/`init` 会保留已有文件里的同名值（合并而不是覆盖）。
+- 机密变量附 `# … is secret; supply it through a secret manager in production.` 注释；`production required` 附提醒注释。
+- 生成器自身的内置变量（`QIY_DEV_MODE`、`QIY_STORAGE_*`、`QIY_OIDC_*`、`QIY_REALTIME_*`、`QIY_S3_*` 等）与模型变量合并输出。
+
+### 示例
 
 ```qiy
 env {
@@ -160,45 +847,165 @@ env {
     production required;
     example required;
   }
+  variable VITE_PAYMENT_PUBLIC_KEY {
+    development "pk_dev";
+    production required;
+  }
 }
 ```
 
-变量名使用大写字母、数字和下划线。未配置的自定义变量在相应文件中留空；`required` 会生成待填写的空值；`generate` 仅可用于 secret 的 development 值，每次新建 admin 时生成随机值。标记为 `secret` 的变量不能在 `.qiy` 中写入字面值。`VITE_` 前缀变量写入 web 环境文件并进入浏览器 bundle，不能标记为 secret。开发和生产 server env 文件会被 Git/Docker 忽略；example 文件用于检查字段及复制示例，不包含真实 secret。
+### 常见错误
 
-OIDC-family provider 会在 server 环境加入 `QIY_OIDC_ISSUER`、`QIY_OIDC_AUDIENCE`、`QIY_OIDC_JWKS_URL`、`QIY_OIDC_JWKS_TIMEOUT_MS`、`QIY_OIDC_JWKS_COOLDOWN_MS`、`QIY_OIDC_JWKS_CACHE_MAX_AGE_MS`，在 web 环境加入 `VITE_QIY_AUTHORIZATION_URL`、`VITE_QIY_TOKEN_URL`、`VITE_QIY_CLIENT_ID`、scope、redirect 和 logout URL。Web 使用 Authorization Code + PKCE，禁止 client secret。`otp` 会加入 `QIY_AUTH_SECRET`、`QIY_OTP_DELIVERY_URL`、`QIY_OTP_DELIVERY_TOKEN`、`QIY_OTP_DELIVERY_TIMEOUT_MS` 和仅开发使用的 `QIY_OTP_DEV_CODE`。
+| 错误 | 修复 |
+| --- | --- |
+| `env API_TOKEN: mark credential-like values as secret` | 加 `secret;` |
+| `env DB_PASSWORD: secret variables cannot contain literal values` | 改为 `production required;` 或 `development generate;` |
+| `env VITE_TOKEN: frontend VITE_ variables cannot be secret` | 机密值放非 `VITE_` 变量 |
+
+## messages
+
+`messages` 声明默认语言与词典，是 `@comment(t("key"))`、模型 label 自动翻译键与界面文案覆盖的数据源。完整语法、key 规则、语言回退与 RTL 行为见 [多语言（messages / i18n）](/dsl/i18n)。
+
+要点（与块顺序相关）：
+
+- 位置在 `env` 之后、`permission`/`workflow`/`enum`/`entity` 之前。
+- `default "<BCP 47>"` 必填且必须存在同名 `locale` 块，否则 `Missing default message locale X`。
+- 语言标识必须是规范 BCP 47（`zh-CN`、`en-US`），`fr_fr`/`FR-fr` 报 `Invalid message locale X`。
+- key 形如 `[a-zA-Z_][a-zA-Z_0-9.-]*`，禁止 `__proto__`/`prototype`/`constructor` 段；重复 key 报 `Duplicate message key`。
+- `@comment(t("key"))` 在 `enum`/`entity`/`field` 等后续声明中**立即**解析，因此 `messages` 必须写在它们之前；`application`/`database` 的 `@comment(t(...))` 在 `messages` 解析后统一解析。
+
+## permission
+
+`permission` 声明原子权限、权限组、provider 来源与校验表达式；这些声明必须**连续书写**，位置在 `messages` 之后、`workflow` 之前。
+
+```qiy
+permission field ApiGetUserPermission "api:getUser" @label("Read user API");
+permission group UserApiPermissionGroup { ApiGetUserPermission, ApiPutUserPermission }
+permission group SuperAdminManager = UserApiPermissionGroup & ManagerRole;
+permission from database field users.permissions;
+permission from claim azure-ad-b2c "roles";
+permission verification CanAccessUserApi {
+  input { field permission Array<String>; }
+  return input.permission all included in self.permissions;
+}
+```
+
+`permission` 需要生成的 `auth`（`Permission declarations require a generated auth block`），且至少要有一个 `field`。完整语法、运算符（`some/all/not … included in`、`=`、`!=`）、HTTP 接口与 `dataflow`/`action` 的 `allow permission` 见 [权限（permission）](/dsl/permissions)。
 
 ## workflow
 
-```ts
+### 语法
+
+```text
+workflow orderInventory ;
+```
+
+### 参数与校验
+
+| 参数 | 取值 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| 名称 | 仅 `orderInventory` | 必填 | 其它值报 `Unsupported workflow X`；重复报 `Duplicate workflow X` |
+
+生成期要求：PostgreSQL 方言，且存在 `orders`、`orderItems`、`inventoryItems` 三个实体并满足约定字段（缺字段会报 `orderInventory workflow requires orders.approvedBy` 这类具体错误）。与 `restrict` 冲突时直接失败（`orderInventory does not apply row policy yet`）。字段清单见[业务工作流](/guide/workflow)。
+
+### 生成结果
+
+订单提交/审批/出库/取消与库存预占的事务链路、`order_reservations` 与 `order_idempotency` 表。说明见[业务工作流](/guide/workflow)。
+
+### 示例
+
+```qiy
 workflow orderInventory;
 ```
 
-生成订单提交、审批、出库、取消与库存预占事务链路。目前仅 PostgreSQL、且要求约定的 `orders`、`orderItems`、`inventoryItems` 实体。
+### 进阶用法
+
+- `orderInventory` 是**一个固定的内置流程**，不能参数化；需要自定义状态机时用 [dataflow](/dsl/dataflow) 显式写步骤。
+- 它会生成额外的预占与幂等表，迁移评审时要一并检查。
 
 ## scope
 
-```ts
-scope orders customerId claim tenant.customerId;
+### 语法
+
+```text
+scope <resource> <field> claim <claim> [ tree <treeEntity> <parentField> ] ;
 ```
 
-声明资源级的单字段租户范围。读取与写入都会把该字段限制为已认证 claim。默认是"一个字段等于一个 claim"。
+### 参数
 
-### 层级范围（tree）
+| 参数 | 取值 | 说明 |
+| --- | --- | --- |
+| `resource` | 实体名或表名 | 同一资源只能声明一次 |
+| `field` | 该实体的 `UUID` 或 `Text` 字段 | 被限制的租户列 |
+| `claim` | 点分标识符或引号字符串 | 例如 `org.id`、`"tenant_id"` |
+| `tree <entity> <parentField>` | 自引用实体 + 父字段 | 把 claim 从单节点扩展为整棵子树 |
+
+### 默认值与校验
+
+- 字段必须是 `UUID` 或 `Text`（`Scope X.Y: field must be UUID or Text`）。
+- claim 必须匹配 `^[a-zA-Z_][a-zA-Z0-9_.-]*$`（`invalid claim`）。
+- 同一资源重复声明报 `Scope: duplicate resource X`；未知资源报 `Scope: unknown resource X`。
+- `tree`：实体必须存在，父字段必须存在且为 `UUID`/`Text`；`scope.field` 类型必须与树实体主键、父字段类型一致，否则报 `field X (T) must match tree id Y (T)`。
+
+### 生成结果
+
+- 所有读路径（list/byId/aggregate/distribution/trend/export）都下推 claim 谓词；写路径强制把 `field` 写成 claim 值。
+- claim 缺失 fail-closed（403 `Missing required data scope claim`）；claim 指向不存在的节点时返回空结果。
+- `tree` 生成 `WITH RECURSIVE` 子树 CTE（64 层上限）+ 组织树页面（`/<treeResource>/tree`，`buildTree` 把缺失父节点/自引用/环放进 orphans）。
+- 与 `restrict` 叠加，不互相替代。
+
+### 示例
 
 ```qiy
-scope orders orgId claim org tree organizations parentId;
+scope orders customerId claim tenant.customerId;
+scope warehouses orgId claim org.id tree orgs parentId;
 ```
 
-`tree <entity> <parentField>` 把 claim 从"一个节点"扩展成"该节点及其整棵子树"：
+### 进阶用法
 
-- `organizations` 是自引用实体（`parentId` 指向自身 `id`），生成时校验它存在、父字段存在，且 `orders.orgId` 与 `organizations.id`、`parentId` 类型一致；不一致直接失败。
-- 行谓词变成 `WITH RECURSIVE` 的子树 CTE（SQLite / PostgreSQL / MySQL 8 都支持），下推到 `list`、`byId`、`deleteMany`、`aggregate`、`distribution`、`trend` 等**所有读取路径**；GraphQL 与 REST 共用同一 predicate。
-- 子树查询以 **64 层**为深度上限，避免脏数据形成的环把查询拖死。子树 id 属于结构元数据，不重复套用行策略。
-- claim 缺失仍然 fail-closed（403 `Missing required data scope claim`）；claim 指向不存在的节点时子树为空，返回空结果而不是回退成全量。
-- **写入语义**：写入仍然落在调用者自己的节点（`scope` 字段被强制写成 claim 值），不会自动写入下级节点；需要"为下级节点写入"时应由 Dataflow 或宿主服务完成。
-- **管理界面**：声明了 tree scope 的应用会额外生成组织树页面（`/<tree 资源>/tree`）：`web/app/tree.ts` 提供 `buildTree(records, parentField, labelField)`（缺失父节点、自引用、环都会进入 orphans 而不是死循环），`components/tree-view.tsx` 用 antd Tree 展示并支持点击进入详情，列表页工具栏出现 `Tree view` 入口。树数据仍走普通资源接口（列表不关闭分页时请用分页参数或接口全量拉取）。
+把数据范围写进布尔表达式：`restrict orders { when ( scope or ownerId claim user.id ); }`，读路径变成“子树内 **或** 本人记录”；写入仍落在调用者自己的节点。`scope` 只在同资源声明了 `scope` 时合法（`when scope requires a matching scope declaration`）。
+
+### 常见错误
+
+| 错误 | 修复 |
+| --- | --- |
+| `Scope orders.amount: field must be UUID or Text` | 用 UUID/Text 列做范围列 |
+| `Scope orders.orgId: unknown field` | 字段必须先在实体中声明 |
+| `when scope requires a matching scope declaration` | 先写 `scope orders …` |
 
 ## pages
+
+### 语法
+
+```text
+pages <resource> {
+  list   roles <role> [, <role>]* ;
+  show   roles <role> [, <role>]* ;
+  create roles <role> [, <role>]* ;
+  edit   roles <role> [, <role>]* ;
+  delete roles <role> [, <role>]* ;
+  field <fieldName> roles <role> [, <role>]* ;
+}
+```
+
+### 参数与校验
+
+| 参数 | 取值 | 说明 |
+| --- | --- | --- |
+| `resource` | 实体名或表名 | 必须存在（`Pages X: unknown resource`）；同一资源只能一个块（`duplicate page rules`） |
+| 动作 | `list`/`show`/`create`/`edit`/`delete` | 每个动作最多一次（`duplicate page action X`） |
+| `roles` | `admin`/`operator`/`viewer`，至少一个 | 空列表报 `X requires at least one role` |
+| `field <name> roles …` | 字段名 + 角色 | 字段必须属于该实体；重复报 `duplicate field rule X` |
+
+空块（既无动作也无字段规则）报 `Pages X: requires at least one page action or field rule`。
+
+### 生成结果
+
+- 服务端 guard 同时覆盖 REST 与 GraphQL：REST 按方法推导动作（`GET /:resource`→list、`GET /:resource/:id`→show、`POST`→create、`PATCH`→edit、`DELETE`→delete、`GET …/export`→list、`POST …/import`→create）；GraphQL 按字段名推导（`orders`→list、`ordersById`→show、`aggregate|distribution|trend`→list、`create*/update*/delete*`→create/edit/delete）。
+- 未声明的动作不受页面规则限制（仍受 `restrict.roles` 与角色模型约束）。
+- Web 的 access-control provider 使用同一张规则表，因此按钮/菜单与 403 一致；`field … roles` 只影响界面渲染，真正的数据保护要靠 `restrict … mask`。
+
+### 示例
 
 ```qiy
 pages orders {
@@ -207,101 +1014,150 @@ pages orders {
   create roles admin;
   edit roles admin;
   delete roles admin;
-}
-```
-
-页面级规则：按资源、按**页面动作**限定允许的角色。它比 `restrict` 的 `allow roles` 更细——后者只决定"能不能用这个资源"，`pages` 决定"能不能打开这个页面/执行这个写操作"。
-
-- 动作固定为 `list`、`show`、`create`、`edit`、`delete`；同一资源每个动作最多一次，未声明的动作**不受页面规则限制**（仍受 `restrict.roles` 与角色模型约束）。
-- **服务端强制**：生成式授权的 guard 同时覆盖 REST 与 GraphQL，命中禁止规则时返回 403 `Page access denied`。REST 的动作推导：`GET /:resource`→list、`GET /:resource/:id`→show、`POST /:resource`→create、`PATCH /:resource/:id`→edit、`DELETE`→delete、`GET .../export`→list、`POST .../import`→create。GraphQL 用字段名推导（`orders`→list、`ordersById`→show、`ordersAggregate|Distribution|Trend`→list、`create*/update*/delete*`→create/edit/delete）。
-- **界面一致**：生成的 Refine access-control provider 先按同一张表判断，因此被禁止的按钮/菜单与真实请求的 403 一致。
-- 与 `restrict` 叠加：角色必须同时通过 `restrict.roles` 与对应的 `pages` 规则。
-
-### 页面内字段布局（field）
-
-```qiy
-pages orders {
-  show roles admin, operator;
   field internalNote roles admin;
 }
 ```
 
-- `field <name> roles ...` 限定该字段在**列表列、详情页、表单**中只对列出的角色渲染；未声明规则的字段对所有角色可见。
-- 这是**界面层**规则：服务端仍以 `restrict` 的 `mask` 为最终的数据保护，字段规则只是不渲染。若需要真正隐藏数据，应同时声明 `mask`。
-- 生成的 `resources.ts` 会为字段附加 `roles`，页面用 `canSeeField(field, role)` 过滤；生成的 `web/tests/field-rules.test.ts` 会按模型逐条断言角色矩阵（含"无规则字段对所有人可见"）。
+### 进阶用法
 
+- 只声明需要的动作：未声明的动作不受页面规则限制，因此“只限制 delete”是合法且最小的写法。
+- 列表/详情与导出/导入分别映射到 `list`/`show`/`create`，给导出单独收紧权限要靠自定义路由，而不是 `pages`。
+- 与 `restrict.roles` 叠加时取交集：两边都允许才放行。
+
+### 相关
+
+页面规则与 `restrict` 叠加：角色必须同时通过 `restrict.roles` 与对应 `pages` 规则。授权模型细节见 [权限（permission）](/dsl/permissions)。
 
 ## restrict
 
-```qiy
-restrict records {
-  allow roles admin, operator;
-  when ownerId claim user.id;
-  when status in "draft", "pending";
-  mask salary roles operator mode redact replacement "***";
-  mask note claim absent compliance.level mode omit;
+### 语法
+
+```text
+restrict <resource> {
+  allow roles <role> [, <role>]* ;                         // 至多一次
+  when <field> claim <claim> ;                             // 行谓词：字段 == claim
+  when <field> ==|!= "<v>" [, "<v>"] ;                     // 字面量比较（==/!= 只允许一个值）
+  when <field> in|notIn "<v>" [, "<v>"] ;                  // 集合（最多 64 个）
+  when ( <condition> or <condition> ) ;                    // 析取组
+  when <boolean-expression> ;                              // not / and / or / 括号
+  mask <field> [roles <r>, …] [claim <present|absent> <claim>] mode <omit|null|redact> [replacement "<text>"] ;
 }
 ```
 
-`restrict` 与 `scope` 叠加，不替代它。同一资源只能有一个块。行条件按 AND 组合并下推到 SQL，不在客户端过滤：
+表达式叶子（`<condition>`）：
 
-- `allow roles` 限定可以使用该资源的角色。未声明时不额外限制角色。admin 不会自动绕过这里的角色列表。
-- `when <field> claim <claim>` 要求字段等于已认证 claim。claim 缺失或为空时请求返回 403，而不是返回空列表。claim 条件不能用在可空字段或主键上。
-- `when <field> ==|!=|in|notIn <values>` 与字面量比较。`==`/`!=` 只能有一个值，`in`/`notIn` 最多 64 个。字段限于 Text、enum、Integer、Decimal、Money、Date、Time、DateTime。字面量不匹配时该行不可见，不因此让整个请求失败。
-- `mask` 对匹配的角色和 claim 状态隐藏字段。`omit` 删除响应键，`null` 返回 null，`redact` 必须给出 `replacement`。同一字段只能有一个 mask。被 mask 的字段也不能通过 REST 或 GraphQL 写入。
-- `when ( <条件> or <条件> ... )` 是**析取组**：组内 OR，组与其它 `when` 之间仍是 AND。例如 "我的租户 **或** 我自己的记录"：
+```text
+<field> claim <claim>                       // claim 比较
+<field> ==|!= "<v>"[, "<v>"]                // 字面量
+<field> in|notIn "<v>"[, "<v>"]             // 集合
+<field> ==|!=|<|<=|>|>= field <otherField>  // 跨字段比较（仅 ==/!= 可用字面量）
+scope                                       // 引用同资源的 scope
+not <expression> | ( <expression> )
+```
+
+### 参数
+
+| 参数 | 取值 | 说明 |
+| --- | --- | --- |
+| `resource` | 实体名或表名 | 每个资源只能一个 `restrict` |
+| `allow roles` | 至少一个角色 | 能否使用该资源；缺省不额外限制（admin 不自动豁免） |
+| `when` 字段 | 已声明、非主键 | claim 条件不允许可空字段；字面量比较要求 Text/枚举/Integer/Decimal/Money/Date/Time/DateTime |
+| `mask.mode` | `omit` / `null` / `redact` | `omit` 删键、`null` 返回 null、`redact` 必须给 `replacement` |
+| `mask.claim` | `present` / `absent` + claim | 按 claim 存在性决定是否脱敏 |
+| `mask.roles` | 至少一个角色 | 缺省对所有角色生效 |
+
+### 默认值与校验
+
+- 每个资源只能一个 `restrict` 块（`Restrict X: duplicate resource restriction`）。
+- 行条件重复字段报 `duplicate row condition on X`；析取组至少两个条件（`a when group needs at least two conditions`）。
+- `==`/`!=` 只能一个值；`in`/`notIn` 最多 64 个；重复值报 `duplicate row value`。
+- 跨字段比较两侧必须同类（Text/enum/UUID、Integer/Decimal/Money 数值、Date/Time/DateTime 时间），不能是主键，UUID 只支持 `==`/`!=`。
+- 主键不能作为行条件或 mask 目标；`Vector` 字段不能 mask。
+- `mask replacement` 与 `mode redact` 必须同时出现；重复 mask 报 `duplicate mask for X`。
+- 声明 `scope` 原子但没有同资源 `scope` 时，生成期报 `when scope requires a matching scope declaration`。
+- `dataflow`/`workflow` 不能操作受 `restrict` 保护的资源（生成期失败），避免命令接口绕过行策略。
+
+### 生成结果
+
+- 行谓词按 AND 组合成 SQL 条件（析取组/表达式用 `or`/`and`/`not`），下推到 REST/GraphQL/导出/写入可见性检查。
+- claim 缺失时：普通谓词/析取组 403 `policy.missingClaim`（不会退化成空条件、更不会放行全量）。
+- mask 在响应中隐藏字段（REST/GraphQL 一致），并拒绝写入被 mask 的字段；realtime 入队前同样剔除。
+- 语义、布尔表达式求值与边界见 [权限（permission）](/dsl/permissions)。
+
+### 示例
 
 ```qiy
 restrict orders {
   allow roles admin, operator;
-  when ownerId claim user.id;
-  when ( tenantId claim tenant or status in "draft" );
-}
-```
-
-### 布尔表达式：AND / OR / NOT / 跨字段比较
-
-`when` 也接受一般布尔表达式，优先级为 `not` > `and` > `or`，可用括号改变结合：
-
-```qiy
-restrict orders {
   when tenantId claim tenant;
-  when amount > field cost;                    // 跨字段比较
-  when not status in "closed";                 // 取反
+  when status in "draft", "pending";
+  when ( ownerId claim user.id or scope );
+  mask unitCost roles operator, viewer mode redact replacement "***";
+  mask internalNote claim absent compliance.level mode omit;
+}
+```
+
+### 进阶用法
+
+```qiy
+restrict orders {
+  allow roles admin, operator;
+  when tenantId claim tenant;
+  when amount > field cost;
+  when not status in "closed";
   when ( ownerId claim user.id or ( status in "draft" and amount > field cost ) );
 }
 ```
 
-- 叶子仍只能是"字段 vs claim"或"字段 vs 字面量"，或"字段 vs 字段"：`<field> ==|!=|<|<=|>|>= field <otherField>`（`<`/`<=`/`>`/`>=` 只用于跨字段；字面量比较仍用 `==`/`!=`/`in`/`notIn`）。
-- 跨字段两边必须是**同类可比字段**（Text/enum/UUID 文本类、Integer/Decimal/Money 数值类、Date/Time/DateTime 时间类），不能是主键；UUID 只允许 `==`/`!=`。类型不匹配在解析期失败。
-- 缺 claim 的语义与析取组一致：只丢弃该分支；`not` 作用于不可用分支时**不会**变成"放行全部"——整个表达式无法求值时请求返回 403 `policy.missingClaim`。
-- 生成的 SQL 用 `and(...)`/`or(...)`/`not(...)` 与 `eq/ne/lt/lte/gt/gte` 拼装，REST / GraphQL / 导出 / 写入可见性检查共用同一 predicate。
+优先级 `not` > `and` > `or`；缺 claim 的 `not` 分支不会变成“放行全部”，整个表达式无法求值时 403。
 
-### `scope` 原子：把数据范围写进布尔表达式
+### 常见错误
 
-`when` 里可以直接写 **`scope`**，表示"该行落在当前调用者的数据范围内"（即 `scope <resource> <field> claim <claim> [tree ...]` 解析出的范围；tree scope 时按子树展开）。它让 restrict 从"范围 AND 条件"升级为"范围 OR 其它条件"：
+| 错误 | 修复 |
+| --- | --- |
+| `Restrict orders: row conditions cannot target primary key id` | 用非主键列做行条件 |
+| `Restrict orders: row condition on nullable field X is not supported` | 改为非空列，或改用 `mask` |
+| `Restrict orders: > on amount must compare two fields` | `>`/`>=`/`<`/`<=` 只能用于跨字段比较；字面量比较用 `==`/`!=`/`in`/`notIn` |
+| `Restrict orders: mask mode redact for X requires a replacement string` | 补 `replacement "***"` |
+| `Restrict orders: dataflow approve cannot use a restricted resource …` | 去掉该资源的 `restrict`，或让命令走未受限资源 |
 
-```qiy
-scope orders region claim region tree regions parentId;
-restrict orders {
-  allow roles admin, operator;
-  when ( scope or ownerId claim user.id );
-}
-```
+## 常见错误（整块级）
 
-- 语义：列表/详情/聚合/导出等**读路径**按表达式求值——在子树内 **或** 满足其它分支（例如本人记录）都可见。写入仍落在调用者自己的 scope 节点（原有 `scope` 写入强制不变），因此不能借表达式把数据写到范围外。
-- 缺 claim 时 `scope` 分支被丢弃（与其它叶子一致）；如果整个表达式都无法求值，请求 fail-closed 返回 403。
-- `scope` 只在声明了同资源 `scope` 时合法，否则生成期报错 `when scope requires a matching scope declaration`。
-- 表达式里一旦出现 `scope`，生成代码会跳过仓储层原有的隐式 scope 过滤（否则会变成 AND 而覆盖 OR 语义）；没有 `scope` 原子的模型生成结果完全不变。
+| 错误 | 原因 | 修复 |
+| --- | --- | --- |
+| `Expected database near token N` | `database` 不是 `application {` 的第一个声明 | 把它移到最前 |
+| `Expected <block> near token N` | 块顺序错误（例如 `entity` 写在 `enum` 之前、`menu` 写在 `dataflows` 之后） | 按[块顺序表](#块顺序与基数)重排 |
+| `Expected <end> near token N` | `application` 块结束后还有内容，或漏了 `}` | 检查括号与文件末尾 |
+| `Duplicate UI setting theme` / `Duplicate integration setting auth` | 同一键写了两遍 | 合并为一次 |
+| `Unsupported … setting X` | 键名拼写错误或该块不支持该键 | 对照设置总表 |
 
-边界：聚合/分页/详情都已按并集语义处理；写操作仍以自身 scope 为准。
+## 覆盖清单
 
-析取组的补充语义：组内 claim 缺失时**只丢弃该分支**（其它分支照常生效）；如果组内所有分支都因缺 claim 无法成立，请求返回 403 `policy.missingClaim`，不会退化成空条件。组至少需要两个条件，且不能与块内的其它行条件重复字段。生成 SQL 时使用 `or(...)`。
+| 关键字 / 属性 | 覆盖位置 |
+| --- | --- |
+| `qiy v0;`、`application`、`@comment` | 本页 + [总览](/dsl/overview#词法规则) |
+| `database`、`extension` | [database](#database) |
+| `mode`、`integration`、`apiBase`、`auth`（宿主）、`response`、`pagination`、`tenant` | [mode 与 integration](#mode-与-integration) |
+| `workspace`、`name`、`aliases`、`packages` | [workspace](#workspace) |
+| `ui`、`library`、`theme`、`themes`、`colorMode`、`allowThemeSwitch`、`allowColorModeSwitch` | [ui](#ui) |
+| `api`、`client`、`cors`、`origin` | [api](#api) |
+| `features`、`overview`、`apiDocs`、`apiKeys` | [features](#features) |
+| `realtime`、`mode`、`resource`、`events`、`roles`、`when … claim` | [realtime](#realtime) |
+| `elysia`、`bearer`、`serverTiming`、`html`、`drizzle`、`jwt`、`static`、`graphqlAdapter`、`cron` | [elysia](#elysia) |
+| `storage`、`provider` | [storage](#storage) |
+| `auth`、`provider`、`providers`、`user`、`subjectField`、`roleField`、`usernameField`、`passwordField`、`profileField`、provider 映射 | [auth](#auth) |
+| `env`、`variable`、`secret`、`development`、`production`、`example`、`required`、`generate` | [env](#env) |
+| `messages` | 本节 + [多语言](/dsl/i18n) |
+| `permission` | 本节 + [permission](/dsl/permissions) |
+| `workflow` | [workflow](#workflow) |
+| `scope`、`claim`、`tree` | [scope](#scope) |
+| `pages`、`list/show/create/edit/delete roles`、`field … roles` | [pages](#pages) |
+| `restrict`、`allow roles`、`when`、`mask`、`omit/null/redact` | [restrict](#restrict) |
 
-策略只从已认证 principal 推导，不接受请求体里的角色或 claim。GraphQL 使用同一套行条件和 mask，不能绕过 REST。**CSV 导出**（`GET /api/v1/:resources/export`）与列表共用同一条查询路径，因此同样受行谓词约束，且 `mode omit` 的字段整列不导出；写入落在自身行谓词之外时返回 403 `policy.outsideScope`。
+## 相关
 
-Realtime 是共享 channel，无法按订阅者裁剪单条事件，因此：对**可订阅角色**生效的 `mask` 字段会在入队时从事件负载中删除；带行谓词（`when ...`）的资源**不能开启 Realtime**，生成阶段直接报错。
-
-当前边界：策略条件仍是封闭谓词集合（单字段比较、析取组、上述 `and/or/not` 与跨字段比较），没有任意函数、子查询或跨资源策略统一；组织层级用 `scope ... tree` 表达。Dataflow 和 `orderInventory` 还不能应用同一行策略；如果它们操作受 `restrict` 保护的资源，生成会失败，避免命令接口绕过记录范围。已生成认证时，Web 访问控制会隐藏角色不允许的资源；字段脱敏仍以 API 响应为准，界面不会单独保存真实值。
-
-实现提示：Elysia 的 `onRequest` 钩子是**全局**的，因此每个受限资源的"禁止写脱敏字段"守卫只在 `path.startsWith("/api/v1/<resource>")` 时生效——否则一个资源的守卫会拒绝另一个角色的无关请求（例如 GraphQL）。
+- [DSL 总览](/dsl/overview)：词法、顺序、校验流水线与 i18n 键
+- [模块化模型](/dsl/modules)：用 `include` 拆分 `application`
+- [entity 与 field](/dsl/entity) / [relation 与 index](/dsl/relation-index) / [enum / menu / dashboard](/dsl/enum-menu-dashboard)
+- [认证与登录（auth）](/dsl/auth)、[权限（permission）](/dsl/permissions)、[realtime](/dsl/realtime)、[storage](/guide/storage)、[features](/dsl/features)
+- [dataflow](/dsl/dataflow)、[action](/dsl/actions)、[chart](/dsl/charts)

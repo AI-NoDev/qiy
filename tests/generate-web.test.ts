@@ -88,7 +88,11 @@ describe("Refine SPA generation", () => {
     const database = structuredClone(fixture);
     database.entities[0]!.icon = "SafetyOutlined";
     const files = generateWeb(database);
-    expect(files["web/app/icons.tsx"]).toContain("DatabaseOutlined, SafetyOutlined, ShoppingOutlined");
+    const icons = files["web/app/icons.tsx"]!;
+    expect(icons).toContain("SafetyOutlined");
+    expect(icons).toContain("FileTextOutlined");
+    expect(icons).toContain("KeyOutlined");
+    expect(icons).toContain('from "@ant-design/icons"');
     expect(files["web/app/root.tsx"]).toContain("qiyIcons");
     expect(files["web/app/routes/home.tsx"]).toContain("qiyIcons");
     database.entities[0]!.icon = "../../Unsafe";

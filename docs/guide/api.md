@@ -53,15 +53,18 @@ elysia {
 GET    /api/v1/:resources          列表，分页、排序、过滤、搜索
 POST   /api/v1/:resources          创建
 GET    /api/v1/:resources/:id      详情
-PUT    /api/v1/:resources/:id      更新
+PATCH  /api/v1/:resources/:id      部分更新（没有 PUT）
 DELETE /api/v1/:resources/:id      删除
 DELETE /api/v1/:resources          批量删除
 GET    /api/v1/:resources/export   受权限约束的 CSV 导出
 POST   /api/v1/:resources/import   受权限约束的 CSV 导入
 GET    /api/v1/:resources/distribution  枚举字段分布
 GET    /api/v1/:resources/trend    日期趋势
+GET    /api/v1/:resources/aggregate     聚合（sum/avg/min/max，需 field 与 op）
 GET    /api/v1/graphql/subscribe   GraphQL 订阅（SSE，仅 GraphQL 客户端 + realtime）
 ```
+
+`DataProvider` 的 `update` 使用 `PATCH`（空 body 返回 400）；`aggregate?field=<numeric>&op=sum|avg|min|max` 返回 `{ data: { value, operator } }`，其余分析端点返回 `{ data: { items } }`。
 
 契约由同一份 IR 生成，server 侧的校验与 web 侧 DataProvider 类型不会发生字段漂移。
 

@@ -55,6 +55,21 @@ const withFeatures = (body = "") => model(`features {
 }
 ${body}`);
 
+describe("generated docs permission metadata", () => {
+  test("dataflow allowPermissions carry expanded permission values, not field/group names", () => {
+    const declaredValues = new Set(docsMeta.permissions.fields.map((field) => field.value));
+    for (const flow of docsMeta.dataflows) {
+      for (const permission of flow.allowPermissions) expect(declaredValues.has(permission), `${flow.name}: ${permission}`).toBe(true);
+    }
+    // A principal that really holds the expanded values must see/execute the flow.
+    const permissionFlows = docsMeta.dataflows.filter((flow) => flow.allowPermissions.length > 0);
+    expect(permissionFlows.length).toBeGreaterThan(0);
+    for (const flow of permissionFlows) {
+      expect(flowAllowed(flow, { role: "operator", permissions: flow.allowPermissions })).toBe(true);
+    }
+  });
+});
+
 describe("application feature flags", () => {
   test("parses both flags, defaults them to false and round-trips the block", () => {
     expect(parseQiyProject(model()).features).toBeUndefined();

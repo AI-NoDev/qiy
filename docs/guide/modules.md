@@ -59,14 +59,16 @@ application catalog-admin {
 
 ```text
 examples/self/app.qiy                    # database/api/realtime/auth + include + scope/restrict
+examples/self/modules/messages.qiy       # zh-CN / en-US 消息词典
+examples/self/modules/permissions.qiy    # 权限字段/组/verification（claim、DB 来源）
 examples/self/modules/platform.qiy       # 共享 enum + auth users 实体
 examples/self/modules/scm/entities.qiy   # 组织/供应商/客户/产品/BOM
 examples/self/modules/erp/entities.qiy   # 采购单/行、收货、销售单/行、发运
 examples/self/modules/wms/entities.qiy   # 仓库/库位/库存/流水/工单
 examples/self/modules/relations.qiy      # 全部 relation
-examples/self/modules/messages.qiy       # zh-CN / en-US 消息词典
 examples/self/modules/pages.qiy          # 页面级角色规则
-examples/self/modules/dashboard.qiy      # Dashboard 指标
+examples/self/modules/menu.qiy           # 侧边栏分组菜单
+examples/self/modules/charts.qiy         # 概览图表（chart / chart panels）
 examples/self/modules/dataflows.qiy      # 事务型业务命令
 examples/self/modules/actions.qiy        # 绑定 dataflow 的界面按钮
 ```
@@ -79,22 +81,24 @@ application demo {
   api { client rest; }
   auth { ... }
 
-  include "modules/messages.qiy";   # 配置块之后、enum/entity 之前
+  include "modules/messages.qiy";      # 配置块之后、权限/enum/entity 之前
+  include "modules/permissions.qiy";   # permission 在 messages 之后
 
-  include "modules/platform.qiy";   # enum 先于 entity
+  include "modules/platform.qiy";      # enum 先于 entity
   include "modules/scm/entities.qiy";
   include "modules/erp/entities.qiy";
   include "modules/wms/entities.qiy";
 
-  include "modules/relations.qiy";  # 所有 relation 在所有 entity 之后
+  include "modules/relations.qiy";     # 所有 relation 在所有 entity 之后
 
   scope warehouses orgId claim org.id;
   restrict products { ... }
 
-  include "modules/pages.qiy";      # pages 在 scope/restrict 之后
-  include "modules/dashboard.qiy";
+  include "modules/pages.qiy";         # pages 在 scope/restrict 之后
+  include "modules/menu.qiy";          # menu / chart 在 pages 之后
+  include "modules/charts.qiy";
   include "modules/dataflows.qiy";
-  include "modules/actions.qiy";    # dataflow 之后
+  include "modules/actions.qiy";       # dataflow 之后
 }
 ```
 
