@@ -880,6 +880,8 @@ const commandPolicies: Array<{ resource: string; action: string; roles: string[]
 const commandVerifications: Record<string, QiyPermissionExpression> = ${JSON.stringify(commandVerifications)};
 ${commandPolicyTypes}${commandPolicyFunctions}${resourcePolicyDeclaration}${pageRuleDeclaration}export const qiyAccessControlProvider: AccessControlProvider = { can: async ({ resource, action }) => { const identity = await qiyAuthProvider.getIdentity?.({}) as QiyIdentity | null | undefined; if (!identity) return { can: false, reason: "Authentication required" }; ${resourcePolicyCheck}${pageRuleCheck}const command = commandPolicies.find((policy) => policy.resource === resource && policy.action === action); if (command) { ${commandPermissionEvaluation}return { can: command.roles.includes(identity.role ?? ""), reason: "Command execution is restricted" }; } if (identity.role === "admin") return { can: true }; if (resource === "users") return { can: false, reason: "User administration is restricted" }; const can = identity.role === "operator" || action === "list" || action === "show"; return can ? { can: true } : { can: false, reason: "Role " + (identity.role ?? "unknown") + " cannot " + action + " " + resource }; }, options: { buttons: { enableAccessControl: true, hideIfUnauthorized: true }, queryOptions: { staleTime: 30_000 } } };
 export function qiyAuthToken(): string | undefined { return token(); }
+/** Cached identity for non-hook callers (route modules must not use auth hooks). */
+export async function fetchCurrentIdentity(): Promise<QiyIdentity | null> { return loadIdentity(); }
 `,
       "web/app/routes/login.tsx": hybridAuth
         ? `import { AuthPage } from "@refinedev/antd";
@@ -4647,26 +4649,19 @@ export function DocsOverviewPage(props: DocsPageProps) {
 `;
 }
 
-/** Overview route: feature gate + authenticated model fetch. */
+/** Overview route: feature gate + model fetch. */
 function renderWebDocsRoute(): string {
-  return `import { useIsAuthenticated, useTranslation } from "@refinedev/core";
-import { useEffect, useState } from "react";
+  return `import { useEffect, useState } from "react";
 import { Navigate } from "react-router";
 import { overviewEnabled } from "../features";
 import { fetchDocsModel, type DocsModel } from "../docs";
 import { DocsOverviewPage } from "../components/docs-page";
 
 export default function DocsRoute() {
-  const { translate } = useTranslation();
-  const auth = useIsAuthenticated();
-  const isAuthenticated = auth.data?.authenticated === true;
-  const authLoading = auth.isLoading;
   const [state, setState] = useState<{ model?: DocsModel; loading: boolean; error?: string }>({ loading: true });
   useEffect(() => {
-    if (!isAuthenticated) {
-      setState({ loading: false });
-      return;
-    }
+    // The route lives inside the guarded layout; using auth hooks here caused a
+    // render loop, so fetch the model once and let the layout handle redirects.
     let cancelled = false;
     void (async () => {
       try {
@@ -4677,10 +4672,8 @@ export default function DocsRoute() {
       }
     })();
     return () => { cancelled = true; };
-  }, [isAuthenticated]);
+  }, []);
   if (!overviewEnabled) return <Navigate to="/" replace />;
-  if (!authLoading && !isAuthenticated) return <Navigate to="/auth/login" replace />;
-  if (authLoading) return <div>{translate("qiy.loading", {}, "Loading")}</div>;
   return <DocsOverviewPage {...state} />;
 }
 `;
@@ -4816,41 +4809,33 @@ export function ApiDocsPage(props: ApiDocsPageProps) {
 `;
 }
 
-/** API-docs route: feature gate + authenticated OpenAPI fetch. */
+/** API-docs route: feature gate + OpenAPI/identity fetch (no auth hooks). */
 function renderWebApiDocsRoute(): string {
-  return `import { useGetIdentity, useIsAuthenticated, useTranslation } from "@refinedev/core";
-import { useEffect, useState } from "react";
+  return `import { useEffect, useState } from "react";
 import { Navigate } from "react-router";
 import { qiyFeatureFlags } from "../features";
 import { fetchOpenApiDocument } from "../docs";
-import { ApiDocsPage } from "../components/api-docs-page";
+import { fetchCurrentIdentity } from "../auth";
+import { ApiDocsPage, type ApiDocsPageProps } from "../components/api-docs-page";
 
 export default function ApiDocsRoute() {
-  const { translate } = useTranslation();
-  const auth = useIsAuthenticated();
-  const identityQuery = useGetIdentity<{ role?: string; permissions?: string[]; groups?: string[] }>();
-  const isAuthenticated = auth.data?.authenticated === true;
-  const [state, setState] = useState<{ spec?: unknown; loading: boolean; error?: string }>({ loading: true });
+  const [state, setState] = useState<{ spec?: unknown; identity?: ApiDocsPageProps["identity"]; loading: boolean; error?: string }>({ loading: true });
   useEffect(() => {
-    if (!isAuthenticated) {
-      setState({ loading: false });
-      return;
-    }
+    // No auth hooks in route modules: they caused a render loop. The guard
+    // layout handles redirects; fetch the spec + cached identity once.
     let cancelled = false;
     void (async () => {
       try {
-        const spec = await fetchOpenApiDocument();
-        if (!cancelled) setState({ spec, loading: false });
+        const [spec, identity] = await Promise.all([fetchOpenApiDocument(), fetchCurrentIdentity()]);
+        if (!cancelled) setState({ spec, identity: (identity ?? undefined) as ApiDocsPageProps["identity"], loading: false });
       } catch (cause) {
         if (!cancelled) setState({ loading: false, error: cause instanceof Error ? cause.message : String(cause) });
       }
     })();
     return () => { cancelled = true; };
-  }, [isAuthenticated]);
+  }, []);
   if (!qiyFeatureFlags.apiDocs) return <Navigate to="/" replace />;
-  if (!auth.isLoading && !isAuthenticated) return <Navigate to="/auth/login" replace />;
-  if (auth.isLoading) return <div>{translate("qiy.loading", {}, "Loading")}</div>;
-  return <ApiDocsPage {...state} identity={identityQuery.data ?? undefined} />;
+  return <ApiDocsPage {...state} />;
 }
 `;
 }
@@ -5014,41 +4999,33 @@ export function ApiKeysPage(props: ApiKeysPageProps) {
 `;
 }
 
-/** API-keys route: feature gate + authenticated key list fetch. */
+/** API-keys route: feature gate + key list/identity fetch (no auth hooks). */
 function renderWebApiKeysRoute(): string {
-  return `import { useGetIdentity, useIsAuthenticated, useTranslation } from "@refinedev/core";
-import { useEffect, useState } from "react";
+  return `import { useEffect, useState } from "react";
 import { Navigate } from "react-router";
 import { qiyFeatureFlags } from "../features";
 import { listApiKeys, type ApiKeyRecord, type QiyIdentityLike } from "../api-keys";
+import { fetchCurrentIdentity } from "../auth";
 import { ApiKeysPage } from "../components/api-keys-page";
 
 export default function ApiKeysRoute() {
-  const { translate } = useTranslation();
-  const auth = useIsAuthenticated();
-  const identityQuery = useGetIdentity<QiyIdentityLike>();
-  const isAuthenticated = auth.data?.authenticated === true;
-  const [state, setState] = useState<{ records?: ApiKeyRecord[]; loading: boolean; error?: string }>({ loading: true });
+  const [state, setState] = useState<{ records?: ApiKeyRecord[]; identity?: QiyIdentityLike; loading: boolean; error?: string }>({ loading: true });
   useEffect(() => {
-    if (!isAuthenticated) {
-      setState({ loading: false });
-      return;
-    }
+    // No auth hooks in route modules (render-loop hazard); the guarded layout
+    // owns redirects, this effect fetches the key list + cached identity once.
     let cancelled = false;
     void (async () => {
       try {
-        const records = await listApiKeys();
-        if (!cancelled) setState({ records, loading: false });
+        const [records, identity] = await Promise.all([listApiKeys(), fetchCurrentIdentity()]);
+        if (!cancelled) setState({ records, identity: identity ?? undefined, loading: false });
       } catch (cause) {
         if (!cancelled) setState({ loading: false, error: cause instanceof Error ? cause.message : String(cause) });
       }
     })();
     return () => { cancelled = true; };
-  }, [isAuthenticated]);
+  }, []);
   if (!qiyFeatureFlags.apiKeys) return <Navigate to="/" replace />;
-  if (!auth.isLoading && !isAuthenticated) return <Navigate to="/auth/login" replace />;
-  if (auth.isLoading) return <div>{translate("qiy.loading", {}, "Loading")}</div>;
-  return <ApiKeysPage {...state} identity={identityQuery.data ?? undefined} />;
+  return <ApiKeysPage {...state} />;
 }
 `;
 }

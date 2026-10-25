@@ -134,6 +134,15 @@ describe("application feature flags", () => {
     expect(enabled["apps/web/app/routes/docs.tsx"]).toContain("fetchDocsModel()");
     expect(enabled["apps/web/app/routes/api-docs.tsx"]).toContain("fetchOpenApiDocument()");
     expect(enabled["apps/web/app/routes/api-keys.tsx"]).toContain("listApiKeys()");
+    // Auth hooks in these routes caused an infinite render loop (blank page);
+    // identity is fetched through the cached non-hook helper instead.
+    for (const route of ["apps/web/app/routes/docs.tsx", "apps/web/app/routes/api-docs.tsx", "apps/web/app/routes/api-keys.tsx"]) {
+      expect(enabled[route], route).not.toContain("useIsAuthenticated");
+      expect(enabled[route], route).not.toContain("useGetIdentity");
+    }
+    expect(enabled["apps/web/app/routes/api-docs.tsx"]).toContain("fetchCurrentIdentity()");
+    expect(enabled["apps/web/app/routes/api-keys.tsx"]).toContain("fetchCurrentIdentity()");
+    expect(enabled["apps/web/app/auth.ts"]).toContain("export async function fetchCurrentIdentity");
     expect(enabled["apps/web/app/features.ts"]).toContain('path: "/system/overview"');
     expect(enabled["apps/web/app/features.ts"]).toContain('path: "/system/api-docs"');
     expect(enabled["apps/web/app/features.ts"]).toContain('path: "/system/api-keys"');

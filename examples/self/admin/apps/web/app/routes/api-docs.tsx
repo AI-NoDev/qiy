@@ -1,34 +1,26 @@
-import { useGetIdentity, useIsAuthenticated, useTranslation } from "@refinedev/core";
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router";
 import { qiyFeatureFlags } from "../features";
 import { fetchOpenApiDocument } from "../docs";
-import { ApiDocsPage } from "../components/api-docs-page";
+import { fetchCurrentIdentity } from "../auth";
+import { ApiDocsPage, type ApiDocsPageProps } from "../components/api-docs-page";
 
 export default function ApiDocsRoute() {
-  const { translate } = useTranslation();
-  const auth = useIsAuthenticated();
-  const identityQuery = useGetIdentity<{ role?: string; permissions?: string[]; groups?: string[] }>();
-  const isAuthenticated = auth.data?.authenticated === true;
-  const [state, setState] = useState<{ spec?: unknown; loading: boolean; error?: string }>({ loading: true });
+  const [state, setState] = useState<{ spec?: unknown; identity?: ApiDocsPageProps["identity"]; loading: boolean; error?: string }>({ loading: true });
   useEffect(() => {
-    if (!isAuthenticated) {
-      setState({ loading: false });
-      return;
-    }
+    // No auth hooks in route modules: they caused a render loop. The guard
+    // layout handles redirects; fetch the spec + cached identity once.
     let cancelled = false;
     void (async () => {
       try {
-        const spec = await fetchOpenApiDocument();
-        if (!cancelled) setState({ spec, loading: false });
+        const [spec, identity] = await Promise.all([fetchOpenApiDocument(), fetchCurrentIdentity()]);
+        if (!cancelled) setState({ spec, identity: (identity ?? undefined) as ApiDocsPageProps["identity"], loading: false });
       } catch (cause) {
         if (!cancelled) setState({ loading: false, error: cause instanceof Error ? cause.message : String(cause) });
       }
     })();
     return () => { cancelled = true; };
-  }, [isAuthenticated]);
+  }, []);
   if (!qiyFeatureFlags.apiDocs) return <Navigate to="/" replace />;
-  if (!auth.isLoading && !isAuthenticated) return <Navigate to="/auth/login" replace />;
-  if (auth.isLoading) return <div>{translate("qiy.loading", {}, "Loading")}</div>;
-  return <ApiDocsPage {...state} identity={identityQuery.data ?? undefined} />;
+  return <ApiDocsPage {...state} />;
 }

@@ -1,4 +1,3 @@
-import { useIsAuthenticated, useTranslation } from "@refinedev/core";
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router";
 import { overviewEnabled } from "../features";
@@ -6,16 +5,10 @@ import { fetchDocsModel, type DocsModel } from "../docs";
 import { DocsOverviewPage } from "../components/docs-page";
 
 export default function DocsRoute() {
-  const { translate } = useTranslation();
-  const auth = useIsAuthenticated();
-  const isAuthenticated = auth.data?.authenticated === true;
-  const authLoading = auth.isLoading;
   const [state, setState] = useState<{ model?: DocsModel; loading: boolean; error?: string }>({ loading: true });
   useEffect(() => {
-    if (!isAuthenticated) {
-      setState({ loading: false });
-      return;
-    }
+    // The route lives inside the guarded layout; using auth hooks here caused a
+    // render loop, so fetch the model once and let the layout handle redirects.
     let cancelled = false;
     void (async () => {
       try {
@@ -26,9 +19,7 @@ export default function DocsRoute() {
       }
     })();
     return () => { cancelled = true; };
-  }, [isAuthenticated]);
+  }, []);
   if (!overviewEnabled) return <Navigate to="/" replace />;
-  if (!authLoading && !isAuthenticated) return <Navigate to="/auth/login" replace />;
-  if (authLoading) return <div>{translate("qiy.loading", {}, "Loading")}</div>;
   return <DocsOverviewPage {...state} />;
 }
