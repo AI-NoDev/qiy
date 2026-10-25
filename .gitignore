@@ -11,6 +11,12 @@ dist
 tmp/
 docs/.vitepress/cache/
 
+# generated docs assets (produced by tools/build-docs-assets.ts during docs:dev/build)
+docs/public/llms.txt
+docs/public/llms-full.txt
+docs/public/robots.txt
+docs/public/skills/
+
 # code coverage
 coverage
 *.lcov

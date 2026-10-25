@@ -65,7 +65,7 @@ bun run qiy:admin:typecheck
 - [仓储管理最佳实践](https://ai-nodev.github.io/qiy/guide/best-practice-warehouse)
 - [认证](https://ai-nodev.github.io/qiy/guide/auth) · [UI 与主题](https://ai-nodev.github.io/qiy/guide/ui-theming) · [工作流](https://ai-nodev.github.io/qiy/guide/workflow) · [存储](https://ai-nodev.github.io/qiy/guide/storage)
 - [部署](https://ai-nodev.github.io/qiy/guide/deployment) · [编辑器插件](https://ai-nodev.github.io/qiy/guide/editor-support)
-- [Qiy Agent Skill](https://ai-nodev.github.io/qiy/guide/agent-skill)
+- [Qiy Agent Skill](https://ai-nodev.github.io/qiy/guide/agent-skill) · [Skill 下载](https://ai-nodev.github.io/qiy/skills/qiy-skill.tar.gz) · [llms.txt](https://ai-nodev.github.io/qiy/llms.txt)
 
 仓库维护者和贡献者可从 [OpenWiki 快速入口](openwiki/quickstart.md) 查看架构、实现状态和开发验证说明。
 

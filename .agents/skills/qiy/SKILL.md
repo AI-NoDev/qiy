@@ -1,16 +1,30 @@
 ---
 name: qiy
-description: "Use the Qiy CLI and .qiy models to generate, run, and integrate Refine admin applications with Bun, Elysia, and Drizzle."
+description: "Build and maintain applications with the Qiy CLI and .qiy models: scaffold a Bun + Elysia + Drizzle + Refine admin, add entities/fields/relations, permissions, dataflows, charts, modules, integrations and deployment checks. Use when the user mentions qiy, .qiy, Qiy DSL, qiy create/init/generate/skill/sync, or wants a Refine admin/CRUD app with API, database, auth, RBAC generated from one model."
+license: MIT
 metadata:
-  short-description: "Build and integrate apps with Qiy"
+  short-description: "Build apps from .qiy models with the Qiy CLI"
   version: "0.2.0"
+  homepage: "https://ai-nodev.github.io/qiy/"
+  skill-docs: "https://ai-nodev.github.io/qiy/guide/agent-skill"
+  llms-txt: "https://ai-nodev.github.io/qiy/llms.txt"
 ---
 
-# Use Qiy
+# Qiy
 
-Help users use the published Qiy CLI. Qiy turns a `.qiy` model into editable TypeScript source: a Refine + React Router admin, Bun + Elysia API, Drizzle database layer, tests, and deployment examples.
+Qiy turns a declared `.qiy` model into editable TypeScript: a Refine + React Router admin, a Bun + Elysia REST/GraphQL API, a Drizzle database layer, tests, OpenWiki docs and deployment examples. Work from the public `qiy` CLI and `.qiy` files; never require Qiy generator source, MPS models or private repository internals.
 
-This Skill is for Qiy users, not Qiy maintainers. Use public `.qiy` files and the `qiy` executable. Do not direct users to MPS models, Qiy generator source, or internal repository tests.
+## Use this skill when
+
+- The user wants to create, extend, review or update a Qiy application.
+- The user has a `.qiy` model or asks about Qiy DSL blocks: entities, fields, relations, enums, permissions, dataflows, actions, charts, menus, messages, auth, storage, realtime, scope/restrict, pages.
+- The user mentions `qiy create`, `qiy init`, `qiy generate --sync`, `qiy skill install`, or an existing generated workspace.
+- The user wants an admin/CRUD app generated from a model instead of hand-written boilerplate.
+
+## Do not use this skill when
+
+- The task is about a different framework and does not involve `.qiy` or the Qiy CLI.
+- The user needs Qiy compiler internals or wants to modify the generator itself (that is maintainer work, not this skill).
 
 ## Choose a workflow
 
@@ -22,9 +36,31 @@ If the user has no model, start from the complete modular example at [examples/w
 
 For a first-time user, prefer the warehouse example over inventing a model from scratch. Have them copy the whole example directory, run the exact generation commands, inspect the generated project, and then customize one entity at a time. Do not tell them to copy only `app.qiy`; its includes are required.
 
+## Install this skill (for the agent environment)
+
+The CLI bundles this skill offline:
+
+```bash
+# Current project: <project>/.agents/skills/qiy
+qiy skill install
+
+# User-level: ~/.agents/skills/qiy (for agents that load global skills)
+qiy skill install --global
+
+# Any agent-specific skills directory
+qiy skill install --dir .claude/skills/qiy
+qiy skill install --dir ~/.codex/skills/qiy
+
+# Update official files after a Qiy upgrade
+qiy skill install --force
+```
+
+Repeating an install preserves unrelated files and refuses locally changed official files; `--force` replaces only official files. Existing projects that still have the legacy `.agent/skills/qiy` directory are updated in place. A downloadable copy is published at `https://ai-nodev.github.io/qiy/skills/qiy/SKILL.md` (and `.../qiy-skill.tar.gz`); when the agent supports file URLs, prefer the CLI so versions stay aligned with the installed Qiy binary.
+
+
 ## First run
 
-The CLI can install this complete official Skill offline: run `qiy skill install` from the user's project directory. It writes `.agent/skills/qiy/SKILL.md`, references and the full modular example. Repeating installation preserves unrelated files and refuses changed official files; `qiy skill install --force` explicitly replaces those files. Some AI tools use different discovery directories; configure the tool to discover `.agent/skills` when needed.
+The CLI can install this complete official Skill offline: run `qiy skill install` from the user's project directory. It writes `.agents/skills/qiy/SKILL.md`, references and the full modular example. Repeating installation preserves unrelated files and refuses changed official files; `qiy skill install --force` explicitly replaces those files. Use `--global` for `~/.agents/skills/qiy` or `--dir <path>` for an agent-specific skills directory.
 
 Generated projects include OpenWiki documentation and an `AGENTS.md` entrypoint, with `AGENT.MD` as a compatibility pointer. Standalone projects place them at the root; `init` places the agent entrypoints in the generated Web package and documentation in `openwiki/qiy-<admin-name>/`, preserving host instructions. Read the generated quickstart before changing application code; it lists the actual package paths and scripts, including aliases. These files describe generated capabilities, not production validation.
 
@@ -32,6 +68,21 @@ Generated projects include OpenWiki documentation and an `AGENTS.md` entrypoint,
 2. If the CLI is missing, download the matching Windows, Linux, or macOS executable from the [Qiy GitHub Releases](https://github.com/AI-NoDev/qiy/releases), make it available on `PATH`, and retry. For a Bun project checkout, `bun run qiy -- --help` runs the local CLI.
 3. Generate, install dependencies, and run the generated project using the workflow in [CLI workflows](references/cli-workflows.md).
 4. Run typecheck, tests, and build before treating generated output as usable. `preview` is local-only.
+
+## Progressive disclosure
+
+Start here, then open only the reference that matches the current task. The references are self-contained and safe to read out of order.
+
+| Task | Read |
+| --- | --- |
+| Create/edit `.qiy` entities, fields, relations, modules, permissions, dataflows, charts, messages, auth | [Modeling and generation](references/modeling-and-generation.md) |
+| Run `qiy create` / `init` / `generate` / `--sync`, scripts, preview, tests, upgrade | [CLI workflows](references/cli-workflows.md) |
+| Mount Qiy into an existing Bun workspace, aliases, path collisions, host adapters | [Bun workspace integration](references/workspace-integration.md) |
+| Deployment, security boundaries, real API/IdP/S3 verification | [Production checks](references/production-boundaries.md) |
+| Working example to copy and generate | [Warehouse admin example](examples/warehouse-admin/README.md) |
+| Full DSL reference (web) | https://ai-nodev.github.io/qiy/dsl/overview |
+| Goal-oriented recipes (web) | https://ai-nodev.github.io/qiy/guide/dsl-cookbook |
+| Machine-readable docs index | https://ai-nodev.github.io/qiy/llms.txt |
 
 ## Generated project at a glance
 

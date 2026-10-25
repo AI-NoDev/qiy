@@ -1,7 +1,7 @@
 {
   "name": "qiy",
   "type": "module",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "description": "Model-driven full-stack application generator: one Qiy model generates a Refine admin, Bun + Elysia API, Drizzle schema and deployment config.",
   "license": "MIT",
   "private": false,
@@ -20,9 +20,11 @@
     "qiy": "bun run tools/cli.ts",
     "deploy": "bun run deploy/index.ts",
     "template:build": "bun run tools/build-template.ts",
+    "skill:build": "bun run tools/build-skill.ts",
     "build:exe": "bun run tools/build-exe.ts",
-    "docs:dev": "vitepress dev docs",
-    "docs:build": "vitepress build docs",
+    "docs:assets": "bun run tools/build-docs-assets.ts",
+    "docs:dev": "bun run docs:assets && vitepress dev docs",
+    "docs:build": "bun run docs:assets && vitepress build docs",
     "docs:preview": "vitepress preview docs"
   },
   "devDependencies": {

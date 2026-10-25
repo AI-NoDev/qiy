@@ -2,12 +2,21 @@ import { defineConfig } from "vitepress";
 import { readFileSync } from "node:fs";
 
 const base = (process.env.VITEPRESS_BASE ?? "/").replace(/\/?$/, "/");
+const siteUrl = (process.env.QIY_DOCS_SITE_URL ?? "https://ai-nodev.github.io/qiy").replace(/\/$/, "");
+const siteDescription =
+  "Qiy 是一个面向数据中心业务应用的领域语言与全栈应用生成框架：一份业务模型，生成 Refine 前端、Bun + Elysia API、Drizzle 数据层与部署配置。";
 const qiyLanguage = JSON.parse(readFileSync(new URL("../../editors/syntax/qiy.tmLanguage.json", import.meta.url), "utf8"));
 const qiyLogo = {
   light: "/qiy-logo-light.svg",
   dark: "/qiy-logo-dark.svg",
   alt: "Qiy",
 };
+
+/** Canonical production URL for a VitePress page (used by sitemap/SEO tags). */
+function canonicalUrl(relativePath: string): string {
+  const path = relativePath.replace(/\\/g, "/").replace(/(^|\/)index\.md$/, "$1").replace(/\.md$/, "");
+  return `${siteUrl}/${path}`.replace(/\/+$/, "/");
+}
 
 function localizedTheme(localeRoot: string, guideLabel: string, chineseDocsLabel: string, footerMessage: string) {
   return {
@@ -30,16 +39,40 @@ function localizedTheme(localeRoot: string, guideLabel: string, chineseDocsLabel
 export default defineConfig({
   lang: "zh-CN",
   title: "Qiy",
-  description:
-    "Qiy 是一个面向数据中心业务应用的领域语言与全栈应用生成框架：一份业务模型，生成 Refine 前端、Bun + Elysia API、Drizzle 数据层与部署配置。",
+  description: siteDescription,
   base,
   cleanUrls: true,
   lastUpdated: true,
   appearance: true,
+  // `public/` holds downloadable assets, including the Agent Skill markdown
+  // files; they must be copied verbatim and never treated as documentation pages.
+  srcExclude: ["public/**"],
+  sitemap: { hostname: `${siteUrl}/` },
+  transformHead: ({ pageData, siteConfig }) => {
+    const title = pageData.title ? `${pageData.title} | Qiy` : "Qiy";
+    const description = pageData.description || siteConfig.description || siteDescription;
+    const url = canonicalUrl(pageData.relativePath);
+    return [
+      ["meta", { name: "description", content: description }],
+      ["meta", { name: "robots", content: "index,follow" }],
+      ["meta", { property: "og:type", content: "website" }],
+      ["meta", { property: "og:site_name", content: "Qiy" }],
+      ["meta", { property: "og:title", content: title }],
+      ["meta", { property: "og:description", content: description }],
+      ["meta", { property: "og:url", content: url }],
+      ["meta", { property: "og:image", content: `${siteUrl}/qiy-logo-light.svg` }],
+      ["meta", { name: "twitter:card", content: "summary" }],
+      ["link", { rel: "canonical", href: url }],
+    ];
+  },
   head: [
     ["meta", { name: "theme-color", content: "#10b981" }],
     ["link", { rel: "icon", type: "image/svg+xml", media: "(prefers-color-scheme: light)", href: `${base}qiy-logo-light.svg` }],
     ["link", { rel: "icon", type: "image/svg+xml", media: "(prefers-color-scheme: dark)", href: `${base}qiy-logo-dark.svg` }],
+    // Machine-readable documentation index and full text for LLM/agent retrieval.
+    ["link", { rel: "alternate", type: "text/plain", title: "llms.txt", href: `${base}llms.txt` }],
+    ["link", { rel: "alternate", type: "text/plain", title: "llms-full.txt", href: `${base}llms-full.txt` }],
+    ["link", { rel: "sitemap", type: "application/xml", href: `${base}sitemap.xml` }],
   ],
   locales: {
     root: { label: "简体中文", lang: "zh-CN" },

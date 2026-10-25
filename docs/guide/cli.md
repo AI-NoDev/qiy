@@ -7,7 +7,7 @@ qiy create -f <source> -n <name> -o <output-dir> [--sync]
 qiy init -f <source> [-n <name>] [--sync]
 qiy generate <source> <output-dir> [--sync] # 兼容旧命令
 qiy doctor [--json]
-qiy skill install [--force]
+qiy skill install [--force] [--global] [--dir <path>]
 ```
 
 公开生成入口只接受 `.qiy`。MPS 模型和内部 Database IR 不属于已发布 CLI 的应用输入；仓库维护者可以单独运行内部 MPS/TextGen 验证工具，但最终仍应导出 `.qiy` 后进入同一条生成链路。
@@ -61,10 +61,13 @@ bun run build:exe -- --all
 在需要使用 AI 开发的项目目录运行：
 
 ```sh
-qiy skill install
+qiy skill install                  # 当前项目 .agents/skills/qiy
+qiy skill install --global        # 用户级 ~/.agents/skills/qiy
+qiy skill install --dir .claude/skills/qiy
+qiy skill install --force         # 升级后覆盖被本地修改的官方文件
 ```
 
-命令离线安装可执行文件内置的官方 skill 到当前目录 `.agent/skills/qiy/`，包括 `SKILL.md`、参考文档和完整多文件示例。不会安装其他 skill，也不需要额外用户配置文件。重复安装相同版本可直接执行；本地修改过官方文件时默认拒绝覆盖，确认需要替换后运行 `qiy skill install --force`，无关文件仍保留。不同 AI 工具可能使用不同的 skill 搜索路径，需要让工具发现 `.agent/skills`。该命令安装的是当前 CLI 随附版本，不会联网获取最新版本。
+命令离线安装可执行文件内置的官方 Agent Skill（标准 `SKILL.md` + `references/` + `examples/`），不会安装其他 skill，也不需要额外用户配置文件。重复安装相同版本可直接执行；本地修改过官方文件时默认拒绝覆盖，确认需要替换后加 `--force`，无关文件仍保留。旧目录 `.agent/skills/qiy` 会被原地更新。不同 AI 工具使用不同的 skill 搜索路径时，用 `--dir` 指向该工具的 skills 目录，详见 [Qiy Agent Skill](./agent-skill)（文档站也提供 `/skills/qiy/SKILL.md` 与 `/skills/qiy-skill.tar.gz` 静态下载）。该命令安装的是当前 CLI 随附版本，不会联网获取最新版本。
 
 ## 环境检查
 

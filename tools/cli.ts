@@ -24,7 +24,9 @@ Commands:
                                   Mount a Qiy admin into the current Bun workspace
 
   doctor [--json]                 Check Bun, CLI template, and current workspace readiness
-  skill install [--force]        Install the official skill into .agent/skills/qiy
+  skill install [--force] [--global] [--dir <path>]
+                                  Install the official agent skill (default <project>/.agents/skills/qiy,
+                                  --global writes ~/.agents/skills/qiy, --dir writes a custom directory)
 
 Options:
   -h, --help                     Show this help
@@ -65,8 +67,15 @@ async function main(argv: string[]): Promise<void> {
   const positional = rest.filter((arg) => !arg.startsWith("-"));
   switch (command) {
     case "skill": {
-      if (rest[0] !== "install" || rest.slice(1).some((argument) => argument !== "--force")) throw new Error("Usage: qiy skill install [--force]");
-      installSkill(process.cwd(), flag(rest, "--force"));
+      if (rest[0] !== "install") throw new Error("Usage: qiy skill install [--force] [--global] [--dir <path>]");
+      const installArguments = rest.slice(1);
+      const dir = option(installArguments, "--dir");
+      for (let index = 0; index < installArguments.length; index += 1) {
+        const argument = installArguments[index]!;
+        if (argument === "--dir") { index += 1; continue; }
+        if (argument !== "--force" && argument !== "--global") throw new Error("Usage: qiy skill install [--force] [--global] [--dir <path>]");
+      }
+      installSkill(process.cwd(), flag(installArguments, "--force"), { global: flag(installArguments, "--global"), ...(dir && { dir }) });
       return;
     }
     case "generate": {

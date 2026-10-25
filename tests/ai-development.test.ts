@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { generateApp } from "../tools/commands/generate-app";
 import { initApp } from "../tools/commands/init";
-import { installSkill } from "../tools/commands/skill";
+import { installSkill, resolveSkillDestination } from "../tools/commands/skill";
 import { QIY_SKILL_FILES } from "../tools/qiy-skill.data";
 
 const model = `qiy v0; application inventory {
@@ -74,4 +74,26 @@ test("official skill installs complete resources offline and preflights local ch
   installSkill(root, true);
   expect(readFileSync(join(installed, "SKILL.md"), "utf8")).toBe(QIY_SKILL_FILES["SKILL.md"]!);
   expect(readFileSync(join(installed, "custom.md"), "utf8")).toBe("Keep this");
+});
+
+test("official skill installs into global and agent-specific directories", () => {
+  const root = mkdtempSync(join(tmpdir(), "qiy-skill-project-"));
+  const home = mkdtempSync(join(tmpdir(), "qiy-skill-home-"));
+  expect(resolveSkillDestination(root, { home })).toBe(join(root, ".agents/skills/qiy"));
+  const global = resolveSkillDestination(root, { home, global: true });
+  expect(global).toBe(join(home, ".agents/skills/qiy"));
+  const custom = resolveSkillDestination(root, { home, dir: ".claude/skills/qiy" });
+  expect(custom).toBe(join(root, ".claude/skills/qiy"));
+  expect(resolveSkillDestination(root, { home, dir: "~/.codex/skills/qiy" })).toBe(join(home, ".codex/skills/qiy"));
+
+  const installedGlobal = installSkill(root, false, { home, global: true });
+  expect(readFileSync(join(installedGlobal, "SKILL.md"), "utf8")).toBe(QIY_SKILL_FILES["SKILL.md"]!);
+  const installedCustom = installSkill(root, false, { dir: ".claude/skills/qiy" });
+  expect(readFileSync(join(installedCustom, "references/cli-workflows.md"), "utf8")).toBe(QIY_SKILL_FILES["references/cli-workflows.md"]!);
+
+  // Legacy projects keep updating their original directory.
+  const legacyRoot = mkdtempSync(join(tmpdir(), "qiy-skill-legacy-"));
+  mkdirSync(join(legacyRoot, ".agent/skills/qiy"), { recursive: true });
+  const legacy = installSkill(legacyRoot);
+  expect(legacy).toBe(join(legacyRoot, ".agent/skills/qiy"));
 });
