@@ -116,9 +116,12 @@ function generateIntegrationProject(database: DatabaseIR, options: ProjectOption
   const apps = Object.fromEntries(Object.entries(generateWeb(database, { ...options, readOnly: true })).map(([path, content]) => [
     path.replace(/^web\//, "apps/web/"), content,
   ]));
-  if (options.comment && apps["apps/web/package.json"]) {
-    const packageJson = JSON.parse(apps["apps/web/package.json"]) as Record<string, unknown>;
-    packageJson.description = options.comment;
+  if (apps["apps/web/package.json"]) {
+    const packageJson = JSON.parse(apps["apps/web/package.json"]) as Record<string, unknown> & { description?: string; scripts?: Record<string, string> };
+    if (options.comment) packageJson.description = options.comment;
+    // Integration mode intentionally ships no generated web tests (the host owns
+    // its own suite), so `bun test` must not fail when it finds no test files.
+    packageJson.scripts = { ...packageJson.scripts, test: "bun test --pass-with-no-tests" };
     apps["apps/web/package.json"] = `${JSON.stringify(packageJson, null, 2)}\n`;
   }
   for (const path of Object.keys(apps)) if (path.startsWith("apps/web/tests/")) delete apps[path];

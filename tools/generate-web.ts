@@ -2643,7 +2643,7 @@ describe("CSV export helper", () => {
     for (const [from, to] of [
       ['import { useCan, useDeleteMany, useGetIdentity, useNotification, useTranslation } from "@refinedev/core";', 'import { useGetIdentity, useNotification, useTranslation } from "@refinedev/core";'],
       ['import { CreateButton, DeleteButton, EditButton, List, ShowButton, useTable } from "@refinedev/antd";', 'import { List, ShowButton, useTable } from "@refinedev/antd";'],
-      ['import { DeleteOutlined, DownloadOutlined, SaveOutlined, SettingOutlined, UploadOutlined } from "@ant-design/icons";', 'import { DownloadOutlined, SaveOutlined, SettingOutlined } from "@ant-design/icons";'],
+      ['import { DeleteOutlined, DownloadOutlined, SaveOutlined, SettingOutlined, UploadOutlined } from "@ant-design/icons";', 'import { DownloadOutlined, SaveOutlined, SettingOutlined, UploadOutlined } from "@ant-design/icons";'],
       ['import { Alert, Button, Checkbox, Dropdown, Input, Popconfirm, Popover, Select, Space, Table, Tag, Typography, Upload } from "antd";', 'import { Alert, Button, Checkbox, Dropdown, Input, Popover, Select, Space, Table, Tag, Typography } from "antd";'],
       ['  const { mutateAsync: removeMany } = useDeleteMany(); const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);\n', ""],
       ['  const { data: deletePermission } = useCan({ resource: name ?? "", action: "delete", queryOptions: { enabled: !!resource } });\n', ""],
