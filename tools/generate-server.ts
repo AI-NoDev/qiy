@@ -7417,9 +7417,12 @@ function renderMultiProviderOidcModule(auth: NonNullable<QiyProject["auth"]>): s
   lines.push("      const form = new URLSearchParams({ grant_type: \"authorization_code\", code: input.code, client_id: config.clientId, redirect_uri: input.redirectUri ?? config.redirectUri ?? \"\" });");
   lines.push("      if (input.codeVerifier) form.set(\"code_verifier\", input.codeVerifier);");
   lines.push("      if (config.clientSecret) form.set(\"client_secret\", config.clientSecret);");
-  lines.push("      const response = await fetch(config.tokenUrl, { method: \"POST\", headers: { \"Content-Type\": \"application/x-www-form-urlencoded\", Accept: \"application/json\" }, body: form.toString() });");
-  lines.push("      const tokens = (await response.json().catch(() => ({}))) as { access_token?: string; id_token?: string; expires_in?: number; error?: string };");
-  lines.push("      if (!response.ok || !tokens.access_token) { set.status = 401; return { error: tokens.error ?? \"provider token exchange failed\" }; }");
+  lines.push("      let response: Response;");
+  lines.push("      try {");
+  lines.push("        response = await fetch(config.tokenUrl, { method: \"POST\", headers: { \"Content-Type\": \"application/x-www-form-urlencoded\", Accept: \"application/json\" }, body: form.toString() });");
+  lines.push("      } catch (error) { const reason = error instanceof Error ? error.message : String(error); set.status = 401; return { error: config.id + \": the token endpoint \" + config.tokenUrl + \" is unreachable (\" + reason + \"). If this host needs an HTTP proxy for outbound HTTPS, set HTTPS_PROXY.\" }; }");
+  lines.push("      const tokens = (await response.json().catch(() => ({}))) as { access_token?: string; id_token?: string; expires_in?: number; error?: string; error_description?: string };");
+  lines.push("      if (!response.ok || !tokens.access_token) { const detail = [tokens.error, tokens.error_description].filter((value): value is string => typeof value === \"string\" && value !== \"\").join(\": \"); console.error(\"OIDC exchange failed for \" + config.id + \" (HTTP \" + response.status + \"): \" + (detail || \"no access token\")); set.status = 401; return { error: config.id + \": \" + (detail || \"provider token exchange failed\") }; }");
   lines.push("      return { access_token: tokens.access_token, ...(tokens.id_token ? { id_token: tokens.id_token } : {}), ...(typeof tokens.expires_in === \"number\" ? { expires_in: tokens.expires_in } : {}) };");
   lines.push("    });");
   lines.push("}");
@@ -7745,9 +7748,21 @@ async function exchangeAuthorizationCode(config: QiyOidcProviderConfig, input: {
   const form = new URLSearchParams({ grant_type: "authorization_code", code: input.code, client_id: config.clientId, redirect_uri: input.redirectUri ?? config.redirectUri ?? "" });
   if (input.codeVerifier) form.set("code_verifier", input.codeVerifier);
   if (config.clientSecret) form.set("client_secret", config.clientSecret);
-  const response = await fetch(config.tokenUrl, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: form.toString() });
-  const tokens = (await response.json().catch(() => ({}))) as { access_token?: string; id_token?: string; error?: string };
-  if (!response.ok || !tokens.access_token) throw new Error(tokens.error ?? "The provider token exchange failed");
+  let response: Response;
+  try {
+    response = await fetch(config.tokenUrl, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: form.toString() });
+  } catch (error) {
+    // Outbound HTTPS to an identity provider often needs an explicit proxy on
+    // developer machines and locked-down hosts; say so instead of hiding it.
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(config.id + ": the token endpoint " + config.tokenUrl + " is unreachable (" + reason + "). If this host needs an HTTP proxy for outbound HTTPS, set HTTPS_PROXY.");
+  }
+  const tokens = (await response.json().catch(() => ({}))) as { access_token?: string; id_token?: string; error?: string; error_description?: string };
+  if (!response.ok || !tokens.access_token) {
+    const detail = [tokens.error, tokens.error_description].filter((value): value is string => typeof value === "string" && value !== "").join(": ");
+    console.error("OIDC exchange failed for " + config.id + " (HTTP " + response.status + "): " + (detail || "no access token"));
+    throw new Error(config.id + ": " + (detail || "the provider token exchange failed"));
+  }
   return { accessToken: tokens.access_token, ...(tokens.id_token ? { idToken: tokens.id_token } : {}) };
 }
 
