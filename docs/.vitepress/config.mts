@@ -150,7 +150,6 @@ export default defineConfig({
             { text: "DSL 用法手册（按目标分组）", link: "/guide/dsl-cookbook" },
             { text: "部署", link: "/guide/deployment" },
             { text: "真实外部服务验收", link: "/guide/real-services" },
-            { text: "Android 分发", link: "/guide/android-distribution" },
           ],
         },
       ],

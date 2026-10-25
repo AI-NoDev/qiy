@@ -88,6 +88,16 @@ application qiy-catalog-admin {
 qiy generate examples/catalog/app.qiy out/catalog-admin
 ```
 
+## 文档读者与范围
+
+Qiy 文档面向三类读者：
+
+- **Qiy 使用者**：从 [快速开始](/guide/getting-started)、[定义数据模型](/guide/data-modeling)、[仓储最佳实践](/guide/best-practice-warehouse) 入手，用 `.qiy` 生成并运行完整应用。
+- **应用开发者**：查 [DSL 语言参考](/dsl/overview)、[用法手册](/guide/dsl-cookbook)、[Refine Providers](/guide/refine-providers)、[API 与数据源](/guide/api)、[认证与权限](/guide/auth)、[部署](/guide/deployment)，在生成物之上集成、扩展与发布。
+- **AI Agent**：使用 [Agent Skill](/guide/agent-skill) 与仓库内 `tools/qiy-skill.data.ts` 的机器可读说明；生成物由 `.qiy-generated.json` 标记所有权，reference、生成器与测试是唯一事实来源。
+
+文档只覆盖 Qiy DSL、CLI、生成物与生成应用的运行/集成/部署。仓库内与 Qiy 产品无关的工具（例如 `deploy/` 下的国内应用商店分发脚本）不属于本档范围。
+
 </div>
 
 <style>
