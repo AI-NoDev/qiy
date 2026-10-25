@@ -109,12 +109,18 @@ describe("application feature flags", () => {
     expect(enabled["apps/web/app/features.ts"]).toContain("qiyMenuLinks");
     expect(enabled["apps/web/app/components/menu.tsx"]).toContain("qiyMenuLinks");
     expect(JSON.parse(enabled["apps/web/package.json"]!).dependencies.mermaid).toBe("12.2.0");
-    expect(JSON.parse(enabled["apps/web/package.json"]!).dependencies["@scalar/api-reference-react"]).toBe("0.9.83");
     expect(enabled["apps/web/app/i18n.ts"]).toContain('"docs.title": "功能总览"');
     expect(enabled["apps/web/app/i18n.ts"]).toContain('"apiKey.title": "访问密钥"');
     expect(enabled["apps/web/tests/chrome-i18n.test.ts"]).toContain("qiy.docs.title");
-    expect(enabled["apps/web/app/components/docs-page.tsx"]).toContain("@scalar/api-reference-react");
-    expect(enabled["apps/web/app/components/docs-page.tsx"]).toContain("data-scalar");
+    // The API reference tab is a built-in AntD explorer: no heavy third-party reference app.
+    expect(JSON.parse(enabled["apps/web/package.json"]!).dependencies["@scalar/api-reference-react"]).toBeUndefined();
+    expect(enabled["apps/web/app/components/docs-page.tsx"]).not.toContain("@scalar");
+    expect(enabled["apps/web/app/components/docs-page.tsx"]).toContain("groupOpenApiOperations");
+    expect(enabled["apps/web/app/components/docs-page.tsx"]).toContain("buildCurlExample");
+    expect(enabled["apps/web/app/docs.ts"]).toContain("export function groupOpenApiOperations");
+    expect(enabled["apps/web/app/docs.ts"]).toContain("export function buildCurlExample");
+    expect(enabled["apps/web/app/components/mermaid.tsx"]).toContain("QIY_MERMAID_TIMEOUT_MS");
+    expect(enabled["apps/web/app/components/mermaid.tsx"]).toContain("qiy-mermaid-fallback");
     const disabled = generateProject(parseQiyProject(model()).database, "feature-demo", parseQiyProject(model()));
     for (const path of ["apps/server/src/docs.ts", "apps/server/src/auth/api-keys.ts", "apps/web/app/routes/docs.tsx", "apps/web/app/docs.ts"]) {
       expect(disabled[path], path).toBeUndefined();

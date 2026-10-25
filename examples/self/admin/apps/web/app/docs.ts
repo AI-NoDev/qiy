@@ -189,3 +189,188 @@ export function fetchDocsEnvelope(force = false): Promise<DocsEnvelope> {
   });
   return docsEnvelopePromise;
 }
+
+export interface OpenApiParameter { name: string; in: string; required: boolean; description?: string; schema?: unknown }
+export interface OpenApiResponse { status: string; description?: string; schema?: unknown }
+export interface OpenApiOperation {
+  method: string;
+  path: string;
+  summary?: string;
+  description?: string;
+  operationId?: string;
+  tags: string[];
+  parameters: OpenApiParameter[];
+  requestSchema?: unknown;
+  responses: OpenApiResponse[];
+  security: string[];
+  roles: string[];
+  permissions: string[];
+  verification?: string | null;
+}
+export interface OpenApiTagGroup { name: string; description?: string; operations: OpenApiOperation[] }
+
+function openApiRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+function openApiString(value: unknown): string | undefined { return typeof value === "string" ? value : undefined; }
+function openApiStringArray(value: unknown): string[] { return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []; }
+
+/** Short human-readable schema description used by the built-in API explorer. */
+export function schemaSummary(schema: unknown, depth = 0): string {
+  const record = openApiRecord(schema);
+  if (!record) return "\u2014";
+  if (typeof record.$ref === "string") return record.$ref.split("/").pop() ?? record.$ref;
+  if (depth > 2) return "\u2026";
+  const type = openApiString(record.type);
+  const nullable = record.nullable === true ? "?" : "";
+  const enums = Array.isArray(record.enum) ? record.enum.map(String) : [];
+  const format = openApiString(record.format);
+  if (type === "array") return "array<" + schemaSummary(record.items, depth + 1) + ">" + nullable;
+  if (Array.isArray(record.oneOf)) return "oneOf<" + record.oneOf.map((item) => schemaSummary(item, depth + 1)).join(" | ") + ">";
+  if (Array.isArray(record.anyOf)) return "anyOf<" + record.anyOf.map((item) => schemaSummary(item, depth + 1)).join(" | ") + ">";
+  const properties = openApiRecord(record.properties);
+  if (type === "object" || properties) {
+    if (!properties) return "object" + nullable;
+    const names = Object.keys(properties);
+    const shown = names.slice(0, 6).map((name) => name + ": " + schemaSummary(properties[name], depth + 1));
+    return "object { " + shown.join("; ") + (names.length > 6 ? "; \u2026" : "") + " }";
+  }
+  const base = type ?? "value";
+  const enumText = enums.length ? " (" + enums.slice(0, 8).join(" | ") + (enums.length > 8 ? " | \u2026" : "") + ")" : "";
+  return base + (format ? " (" + format + ")" : "") + enumText + nullable;
+}
+
+/** Deterministic example value for request bodies and curl snippets. */
+export function schemaExample(schema: unknown, depth = 0): unknown {
+  const record = openApiRecord(schema);
+  if (!record || depth > 4) return null;
+  if (typeof record.$ref === "string") return record.$ref.split("/").pop() ?? "";
+  if (Array.isArray(record.enum) && record.enum.length > 0) return record.enum[0];
+  if (Array.isArray(record.oneOf) && record.oneOf.length > 0) return schemaExample(record.oneOf[0], depth + 1);
+  if (Array.isArray(record.anyOf) && record.anyOf.length > 0) return schemaExample(record.anyOf[0], depth + 1);
+  const type = openApiString(record.type);
+  if (type === "integer" || type === "number") return 0;
+  if (type === "boolean") return false;
+  if (type === "array") return [schemaExample(record.items, depth + 1)];
+  const properties = openApiRecord(record.properties);
+  if (type === "object" || properties) {
+    const result: Record<string, unknown> = {};
+    for (const [name, child] of Object.entries(properties ?? {})) result[name] = schemaExample(child, depth + 1);
+    return result;
+  }
+  return "";
+}
+
+function openApiParameter(raw: unknown): OpenApiParameter | undefined {
+  const record = openApiRecord(raw);
+  if (!record) return undefined;
+  const name = openApiString(record.name);
+  if (!name) return undefined;
+  return { name, in: openApiString(record.in) ?? "query", required: record.required === true, ...(openApiString(record.description) ? { description: openApiString(record.description) } : {}), ...(record.schema !== undefined ? { schema: record.schema } : {}) };
+}
+
+function openApiResponse(raw: unknown): { description?: string; schema?: unknown } | undefined {
+  const record = openApiRecord(raw);
+  if (!record) return undefined;
+  const content = openApiRecord(record.content);
+  const jsonContent = content ? openApiRecord(content["application/json"]) : undefined;
+  return { ...(openApiString(record.description) ? { description: openApiString(record.description) } : {}), ...(jsonContent?.schema !== undefined ? { schema: jsonContent.schema } : {}) };
+}
+
+function openApiSecurityNames(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const names = new Set<string>();
+  for (const entry of raw) for (const name of Object.keys(openApiRecord(entry) ?? {})) names.add(name);
+  return [...names];
+}
+
+function openApiOperation(path: string, method: string, raw: unknown): OpenApiOperation | undefined {
+  const record = openApiRecord(raw);
+  if (!record) return undefined;
+  const requestBody = openApiRecord(record.requestBody);
+  const requestContent = requestBody ? openApiRecord(requestBody.content) : undefined;
+  const requestJson = requestContent ? openApiRecord(requestContent["application/json"]) : undefined;
+  const responses: OpenApiResponse[] = Object.entries(openApiRecord(record.responses) ?? {}).map(([status, value]) => {
+    const response = openApiResponse(value);
+    return { status, ...(response ?? {}) };
+  });
+  return {
+    method,
+    path,
+    ...(openApiString(record.summary) ? { summary: openApiString(record.summary) } : {}),
+    ...(openApiString(record.description) ? { description: openApiString(record.description) } : {}),
+    ...(openApiString(record.operationId) ? { operationId: openApiString(record.operationId) } : {}),
+    tags: openApiStringArray(record.tags).length > 0 ? openApiStringArray(record.tags) : ["default"],
+    parameters: Array.isArray(record.parameters) ? record.parameters.map(openApiParameter).filter((item): item is OpenApiParameter => Boolean(item)) : [],
+    ...(requestJson?.schema !== undefined ? { requestSchema: requestJson.schema } : {}),
+    responses,
+    security: openApiSecurityNames(record.security),
+    roles: openApiStringArray(record["x-qiy-roles"]),
+    permissions: openApiStringArray(record["x-qiy-permissions"]),
+    ...(record["x-qiy-verification"] !== undefined ? { verification: record["x-qiy-verification"] as string | null } : {}),
+  };
+}
+
+/** Groups OpenAPI operations by tag in a stable order (declared tags first, then alphabetical). */
+export function groupOpenApiOperations(spec: unknown): OpenApiTagGroup[] {
+  const document = openApiRecord(spec) ?? {};
+  const paths = openApiRecord(document.paths) ?? {};
+  const methods = ["get", "post", "patch", "delete"];
+  const byTag = new Map<string, OpenApiOperation[]>();
+  for (const path of Object.keys(paths)) {
+    const item = openApiRecord(paths[path]);
+    if (!item) continue;
+    for (const method of methods) {
+      const operation = openApiOperation(path, method, item[method]);
+      if (!operation) continue;
+      for (const tag of operation.tags) {
+        const list = byTag.get(tag) ?? [];
+        list.push(operation);
+        byTag.set(tag, list);
+      }
+    }
+  }
+  const declared = (Array.isArray(document.tags) ? document.tags : []).map((tag) => openApiRecord(tag)).filter((tag): tag is Record<string, unknown> => Boolean(tag));
+  const order = declared.map((tag) => openApiString(tag.name) ?? "").filter(Boolean);
+  const names = [...order.filter((name) => byTag.has(name)), ...[...byTag.keys()].filter((name) => !order.includes(name)).sort()];
+  return names.map((name) => {
+    const tag = declared.find((entry) => openApiString(entry.name) === name);
+    const description = tag ? openApiString(tag.description) : undefined;
+    return { name, ...(description ? { description } : {}), operations: byTag.get(name) ?? [] };
+  });
+}
+
+export function openApiOperationCount(spec: unknown): number {
+  return groupOpenApiOperations(spec).reduce((total, group) => total + group.operations.length, 0);
+}
+
+export function openApiServerBaseUrl(spec: unknown, fallback = "http://localhost:3000"): string {
+  const document = openApiRecord(spec) ?? {};
+  const servers = Array.isArray(document.servers) ? document.servers : [];
+  const first = openApiRecord(servers[0]);
+  const url = first ? openApiString(first.url) : undefined;
+  if (!url) return fallback;
+  if (/^https?:/.test(url)) return url.replace(/\/+$/, "");
+  if (url === "/") return fallback;
+  return fallback + (url.startsWith("/") ? "" : "/") + url.replace(/\/+$/, "");
+}
+
+/** Copyable, read-only curl example for one operation (no live requests are made). */
+export function buildCurlExample(input: { method: string; path: string; baseUrl?: string; security?: readonly string[]; requestBody?: unknown; locale?: string }): string {
+  const method = input.method.toUpperCase();
+  const baseUrl = (input.baseUrl ?? "http://localhost:3000").replace(/\/+$/, "");
+  const locale = input.locale ?? "en-US";
+  const chinese = locale.toLowerCase().startsWith("zh");
+  const token = chinese ? "<\u4f1a\u8bdd\u4ee4\u724c>" : "<session-token>";
+  const apiKey = chinese ? "<\u4f60\u7684 API Key>" : "<your-api-key>";
+  const lines = ["curl -X " + method + " '" + baseUrl + input.path + "'"];
+  const security = input.security ?? [];
+  if (security.includes("apiKey") && !security.includes("bearerSession")) lines.push("  -H 'X-API-Key: " + apiKey + "'");
+  else lines.push("  -H 'Authorization: Bearer " + token + "'");
+  if (method !== "GET" && method !== "DELETE" && input.requestBody !== undefined) {
+    lines.push("  -H 'Content-Type: application/json'");
+    lines.push("  -d '" + JSON.stringify(input.requestBody) + "'");
+  }
+  const separator = " " + String.fromCharCode(92) + "\n";
+  return lines.join(separator);
+}

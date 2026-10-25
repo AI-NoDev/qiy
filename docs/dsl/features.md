@@ -20,10 +20,10 @@ application supply-chain {
 
 | 开关 | 打开后生成的内容 |
 | --- | --- |
-| `apiDocs` | `/system/overview` 的「实体系 / Dataflow / API 文档 / 权限模型」标签页、`GET /api/v1/openapi.json`（按当前账号权限过滤的 OpenAPI 3.1 文档）、`GET /api/v1/docs/model`（Mermaid/表格用的模型元数据）、web 依赖 `mermaid` + `@scalar/api-reference-react` |
+| `apiDocs` | `/system/overview` 的「实体系 / Dataflow / API 文档 / 权限模型」标签页、`GET /api/v1/openapi.json`（按当前账号权限过滤的 OpenAPI 3.1 文档）、`GET /api/v1/docs/model`（Mermaid/表格用的模型元数据）、web 依赖 `mermaid`（API 文档使用内置 AntD 浏览器，不引入第三方参考组件） |
 | `apiKeys` | `qiy_api_keys` 表与迁移、`GET/POST/DELETE /api/v1/auth/api-keys`、Bearer `qiy_...` / `X-API-Key` 认证、`/system/overview` 的「访问密钥」标签页（`apiDocs` 未开时该页只有访问密钥页签） |
 
-两者都关闭时：不生成文档路由、`app/features.ts` 的菜单链接为空、不添加 mermaid/Scalar 依赖，概览页与现有应用完全不变。
+两者都关闭时：不生成文档路由、`app/features.ts` 的菜单链接为空、不添加 mermaid 依赖，概览页与现有应用完全不变。
 
 ## 校验
 
@@ -40,7 +40,7 @@ application supply-chain {
   - auth/me、login（启用本地登录时）、api-keys 与 docs 端点；
   - `x-qiy-roles` / `x-qiy-permissions` / `x-qiy-verification` 元数据。
 - **按当前主体过滤**：admin 看到全部资源（包括用户资源）与全部命令；非 admin 看不到用户资源；`restrict.roles` 与 `pages` 的页面规则进一步裁剪端点（例如 operator 看不到 `DELETE` 受限资源的操作）；viewer 在资源路径上只有 GET；命令按 dataflow `allow roles`/`allow permission` 过滤，带 `allow verification` 或没有 allow 规则的命令只对 admin 展示（无法在文档阶段求值 verification，已在限制中说明）。`GET /api/v1/docs/model` 使用同一过滤规则，并给实体附带 `restricted`/`actions` 字段。
-- 文档页的「API 文档」标签通过 Scalar（`@scalar/api-reference-react`）渲染该 spec；实体系/Dataflow 标签用 `mermaid` 动态渲染 `classDiagram`/`flowchart`。
+- 文档页的「API 文档」标签使用内置的 AntD OpenAPI 浏览器渲染该 spec（按 tag 分组的只读操作列表：方法/路径/参数/请求体/响应/认证元数据 + 可复制的 curl 示例，不发真实请求）；实体系/Dataflow 标签用 `mermaid` 动态渲染 `classDiagram`/`flowchart`，渲染超过 10 秒或抛错时回退显示原始 Mermaid 源码。
 
 ## 生成的 API Key
 
@@ -53,4 +53,4 @@ application supply-chain {
 
 - 文档页对**任意已登录用户**开放（feature flag 只控制是否生成），但 API 文档内容、模型元数据与命令列表都按当前用户权限过滤；这是刻意的选择，便于所有角色查阅自己可用的 API。
 - 带 `allow verification` 的命令在 OpenAPI 中只对 admin 展示（verification 依赖运行时输入，无法在文档阶段判定）；资源行的数据 scope（例如 org 范围）不会过滤文档结构，只在真实请求时生效。
-- Scalar 渲染的是服务端已过滤的 spec；客户端不再二次过滤。API key 的 `lastUsedAt` 更新是 best-effort 且节流，失败不影响认证。
+- 内置浏览器渲染的是服务端已过滤的 spec；客户端不再二次过滤。API key 的 `lastUsedAt` 更新是 best-effort 且节流，失败不影响认证。

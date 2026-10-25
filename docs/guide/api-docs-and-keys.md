@@ -6,7 +6,7 @@
 | --- | --- |
 | 实体系 | 由实体/关系/枚举生成的 Mermaid `classDiagram`、每实体字段表（类型/可空/枚举/注解）、关系列表 |
 | Dataflow | 每个 dataflow 的 Mermaid `flowchart`（输入 → context 加载 → 步骤/动作 → 结果），allow rules 与必填输入 |
-| API 文档 | Scalar 渲染的、按当前账号权限过滤的 OpenAPI 3.1 文档 |
+| API 文档 | 内置 AntD OpenAPI 浏览器（按 tag 分组的只读操作、参数/请求体/响应/认证信息与可复制 curl 示例），渲染按当前账号权限过滤的 OpenAPI 3.1 文档 |
 | 权限模型 | 权限字段、权限组、权限校验与当前用户的有效权限 |
 | 访问密钥 | 个人 API key 的列表/创建/撤销（`apiKeys` 开启时） |
 
@@ -80,9 +80,10 @@ curl -X DELETE -H "Authorization: Bearer $QIY_TOKEN" http://localhost:3000/api/v
 
 ## 功能开关与降级
 
-- `apiDocs false`：不生成文档路由、OpenAPI 端点与 mermaid/Scalar 依赖；`/system/overview` 仅在 `apiKeys true` 时存在且只有「访问密钥」标签。
+- `apiDocs false`：不生成文档路由、OpenAPI 端点与 mermaid 依赖；`/system/overview` 仅在 `apiKeys true` 时存在且只有「访问密钥」标签。
 - `apiKeys false`：不生成 `qiy_api_keys` 表与认证兜底；`/api/v1/auth/api-keys` 返回 404。
 - 两者都 false：不生成该页面、菜单项与依赖，应用与未声明 features 时完全一致。
+- API 文档浏览器是只读的：不发送 try-it 请求，curl 示例使用占位 token（当前语言），由使用者替换为真实会话令牌或 API key。
 - 限制：带 `allow verification` 的命令在文档中仅 admin 可见（verification 依赖运行时输入）；资源级数据 scope 只影响真实请求，不影响文档结构；文档页对任意已登录用户开放但内容按权限过滤。
 
 Demo：`examples/self/modules/charts.qiy` 之外，`examples/self/app.qiy` 的 `features` 两开关均打开；启动后访问 `http://localhost:8000/system/overview`，用 seeded 的 `admin@example.com / admin-password`（或 operator/viewer）登录查看差异化文档。

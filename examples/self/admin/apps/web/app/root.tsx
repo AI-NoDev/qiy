@@ -7,6 +7,7 @@ import { Refine, useTranslation, type I18nProvider } from "@refinedev/core";
 import { RefineKbar, RefineKbarProvider } from "@refinedev/kbar";
 import routerProvider from "@refinedev/react-router";
 import { Link, Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import { useRouteError } from "react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { qiyIcons } from "./icons";
 import { dataProvider } from "./data-provider";
@@ -16,6 +17,25 @@ import { Navigate, useLocation } from "react-router";
 import { resources, menuGroups } from "./resources";
 import { getAntdLocale, languageOptions, createI18nProvider, readStoredLocale, resolveLocale, storeLocale, t, type QiyLocale } from "./i18n";
 import { QiyThemeControls, QiyThemedLayout, QiyThemedTitle, QiyUiProvider, useQiyNotificationProvider } from "./ui";
+
+/**
+ * React Router route-module fallbacks. Without them a render error (or a slow
+ * client-side module load) blanks the page; the boundary keeps a readable
+ * message and a reload action instead, and the fallback covers hydration.
+ */
+export function HydrateFallback() {
+  return <div style={{ padding: 24, fontFamily: "system-ui, sans-serif", color: "#888" }}>Loading… / 加载中…</div>;
+}
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "Something went wrong / 页面渲染失败";
+  return <div style={{ padding: 24, fontFamily: "system-ui, sans-serif", maxWidth: 720 }}>
+    <h1 style={{ fontSize: 18, marginBottom: 8 }}>页面渲染失败 / Something went wrong</h1>
+    <p style={{ color: "#888", whiteSpace: "pre-wrap", marginBottom: 16 }}>{message}</p>
+    <button type="button" style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #ddd", cursor: "pointer" }} onClick={() => window.location.reload()}>重新加载 / Reload</button>
+  </div>;
+}
 
 function resolveResourceIcon(name: string) { const Icon = qiyIcons[name as keyof typeof qiyIcons] ?? qiyIcons.TableOutlined; return <Icon />; }
 

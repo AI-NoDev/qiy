@@ -1719,7 +1719,7 @@ export const localeMessages = {
     "docs.title": "功能总览", "docs.subtitle": "当前应用生成的实体、数据流、API 文档与访问密钥",
     "docs.tabEntities": "实体系", "docs.tabDataflows": "Dataflow", "docs.tabApi": "API 文档", "docs.tabPermissions": "权限模型", "docs.tabApiKeys": "访问密钥",
     "docs.entitiesTitle": "实体与关系", "docs.relationsTitle": "关系", "docs.accessNote": "API 文档只列出当前角色和权限允许的操作",
-    "docs.apiFiltered": "该文档已按当前账号的权限过滤", "docs.scalarLoading": "正在加载 API 参考", "docs.mermaidError": "图表渲染失败",
+    "docs.apiFiltered": "该文档已按当前账号的权限过滤", "docs.panelError": "该分区暂时无法渲染", "docs.mermaidError": "图表渲染失败", "docs.mermaidTimeout": "图表渲染超时，已显示源码", "docs.emptySpec": "暂无 OpenAPI 文档", "docs.emptySpecHint": "当前账号没有可见的 API 操作", "docs.principal": "当前主体", "docs.parameters": "参数", "docs.paramName": "名称", "docs.paramIn": "位置", "docs.paramRequired": "必填", "docs.requestBody": "请求体", "docs.responses": "响应", "docs.responseStatus": "状态码", "docs.responseDescription": "说明", "docs.security": "认证", "docs.securityBearer": "会话 JWT", "docs.securityApiKey": "X-API-Key 请求头", "docs.curl": "curl 示例", "docs.roles": "允许角色", "docs.permissions": "所需权限",
     "docs.noData": "暂无可查看的内容", "docs.loadError": "功能总览加载失败", "docs.entity": "实体", "docs.selectEntity": "选择实体",
     "docs.fieldName": "字段", "docs.fieldType": "类型", "docs.fieldNullable": "可空", "docs.fieldEnum": "枚举", "docs.fieldAnnotations": "注解",
     "docs.restricted": "受限", "docs.actions": "操作", "docs.from": "来源", "docs.to": "目标", "docs.onDelete": "删除策略",
@@ -1784,7 +1784,7 @@ export const localeMessages = {
     "docs.title": "Feature overview", "docs.subtitle": "Entities, dataflows, API reference and access keys generated for this application",
     "docs.tabEntities": "Entities", "docs.tabDataflows": "Dataflow", "docs.tabApi": "API reference", "docs.tabPermissions": "Permissions", "docs.tabApiKeys": "API keys",
     "docs.entitiesTitle": "Entities & relations", "docs.relationsTitle": "Relations", "docs.accessNote": "The API reference only lists operations allowed for your role and permissions",
-    "docs.apiFiltered": "This document is filtered by the current account permissions", "docs.scalarLoading": "Loading API reference", "docs.mermaidError": "Diagram failed to render",
+    "docs.apiFiltered": "This document is filtered by the current account permissions", "docs.panelError": "This section could not be rendered", "docs.mermaidError": "Diagram failed to render", "docs.mermaidTimeout": "Diagram rendering timed out; showing the source instead", "docs.emptySpec": "No OpenAPI document", "docs.emptySpecHint": "This account has no documented operations", "docs.principal": "Principal", "docs.parameters": "Parameters", "docs.paramName": "Name", "docs.paramIn": "In", "docs.paramRequired": "Required", "docs.requestBody": "Request body", "docs.responses": "Responses", "docs.responseStatus": "Status", "docs.responseDescription": "Description", "docs.security": "Security", "docs.securityBearer": "Session JWT", "docs.securityApiKey": "X-API-Key header", "docs.curl": "curl example", "docs.roles": "Roles", "docs.permissions": "Permissions",
     "docs.noData": "Nothing to show", "docs.loadError": "Failed to load the overview", "docs.entity": "Entity", "docs.selectEntity": "Entity",
     "docs.fieldName": "Field", "docs.fieldType": "Type", "docs.fieldNullable": "Nullable", "docs.fieldEnum": "Enum", "docs.fieldAnnotations": "Annotations",
     "docs.restricted": "Restricted", "docs.actions": "Actions", "docs.from": "From", "docs.to": "To", "docs.onDelete": "On delete",
@@ -2320,7 +2320,7 @@ const chromeKeys = [
   "qiy.new", "qiy.edit", "qiy.delete", "qiy.batchDelete", "qiy.confirmDelete", "qiy.detail",
   "qiy.createResource", "qiy.editResource", "qiy.openDetail", "qiy.searchRelation",
   "qiy.drawerBreadcrumb", "qiy.recordDetails", "qiy.recordSummary", "qiy.close", "qiy.chartView", "qiy.chartViewKind.const", "qiy.chartViewKind.pie", "qiy.chartViewKind.bar", "qiy.chartViewKind.line", "qiy.chartViewKind.table",
-  "qiy.docs.title", "qiy.docs.subtitle", "qiy.docs.tabEntities", "qiy.docs.tabDataflows", "qiy.docs.tabApi", "qiy.docs.tabPermissions", "qiy.docs.tabApiKeys", "qiy.docs.entitiesTitle", "qiy.docs.relationsTitle", "qiy.docs.accessNote", "qiy.docs.apiFiltered", "qiy.docs.scalarLoading", "qiy.docs.mermaidError", "qiy.docs.noData", "qiy.docs.fieldName", "qiy.docs.fieldType", "qiy.docs.fieldNullable", "qiy.docs.fieldEnum", "qiy.docs.fieldAnnotations",
+  "qiy.docs.title", "qiy.docs.subtitle", "qiy.docs.tabEntities", "qiy.docs.tabDataflows", "qiy.docs.tabApi", "qiy.docs.tabPermissions", "qiy.docs.tabApiKeys", "qiy.docs.entitiesTitle", "qiy.docs.relationsTitle", "qiy.docs.accessNote", "qiy.docs.apiFiltered", "qiy.docs.mermaidError", "qiy.docs.mermaidTimeout", "qiy.docs.noData", "qiy.docs.fieldName", "qiy.docs.fieldType", "qiy.docs.fieldNullable", "qiy.docs.fieldEnum", "qiy.docs.fieldAnnotations", "qiy.docs.emptySpec", "qiy.docs.emptySpecHint", "qiy.docs.principal", "qiy.docs.parameters", "qiy.docs.paramName", "qiy.docs.paramIn", "qiy.docs.paramRequired", "qiy.docs.requestBody", "qiy.docs.responses", "qiy.docs.responseStatus", "qiy.docs.responseDescription", "qiy.docs.security", "qiy.docs.securityBearer", "qiy.docs.securityApiKey", "qiy.docs.curl", "qiy.docs.roles", "qiy.docs.permissions",
   "qiy.apiKey.title", "qiy.apiKey.description", "qiy.apiKey.create", "qiy.apiKey.name", "qiy.apiKey.empty", "qiy.apiKey.prefix", "qiy.apiKey.status", "qiy.apiKey.active", "qiy.apiKey.revoked", "qiy.apiKey.expired", "qiy.apiKey.revoke", "qiy.apiKey.secretTitle", "qiy.apiKey.secretHint", "qiy.apiKey.copy", "qiy.apiKey.copied", "qiy.apiKey.limit",
   "qiy.yes", "qiy.no",
   "qiy.search", "qiy.filters", "qiy.matchAll", "qiy.matchAny", "qiy.commaSeparated", "qiy.forbidden", "qiy.noData",
@@ -3458,7 +3458,6 @@ export default function AuthCallback() {
     // Both libraries are loaded through dynamic imports so the first page visit is
     // unaffected; they are only generated when the docs page exists.
     webPackage.dependencies.mermaid = "12.2.0";
-    if (apiDocsFeature) webPackage.dependencies["@scalar/api-reference-react"] = "0.9.83";
     generated["web/package.json"] = `${JSON.stringify(webPackage, null, 2)}\n`;
   }
 
@@ -4054,6 +4053,191 @@ export function fetchDocsEnvelope(force = false): Promise<DocsEnvelope> {
   });
   return docsEnvelopePromise;
 }
+
+export interface OpenApiParameter { name: string; in: string; required: boolean; description?: string; schema?: unknown }
+export interface OpenApiResponse { status: string; description?: string; schema?: unknown }
+export interface OpenApiOperation {
+  method: string;
+  path: string;
+  summary?: string;
+  description?: string;
+  operationId?: string;
+  tags: string[];
+  parameters: OpenApiParameter[];
+  requestSchema?: unknown;
+  responses: OpenApiResponse[];
+  security: string[];
+  roles: string[];
+  permissions: string[];
+  verification?: string | null;
+}
+export interface OpenApiTagGroup { name: string; description?: string; operations: OpenApiOperation[] }
+
+function openApiRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+function openApiString(value: unknown): string | undefined { return typeof value === "string" ? value : undefined; }
+function openApiStringArray(value: unknown): string[] { return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []; }
+
+/** Short human-readable schema description used by the built-in API explorer. */
+export function schemaSummary(schema: unknown, depth = 0): string {
+  const record = openApiRecord(schema);
+  if (!record) return "\\u2014";
+  if (typeof record.$ref === "string") return record.$ref.split("/").pop() ?? record.$ref;
+  if (depth > 2) return "\\u2026";
+  const type = openApiString(record.type);
+  const nullable = record.nullable === true ? "?" : "";
+  const enums = Array.isArray(record.enum) ? record.enum.map(String) : [];
+  const format = openApiString(record.format);
+  if (type === "array") return "array<" + schemaSummary(record.items, depth + 1) + ">" + nullable;
+  if (Array.isArray(record.oneOf)) return "oneOf<" + record.oneOf.map((item) => schemaSummary(item, depth + 1)).join(" | ") + ">";
+  if (Array.isArray(record.anyOf)) return "anyOf<" + record.anyOf.map((item) => schemaSummary(item, depth + 1)).join(" | ") + ">";
+  const properties = openApiRecord(record.properties);
+  if (type === "object" || properties) {
+    if (!properties) return "object" + nullable;
+    const names = Object.keys(properties);
+    const shown = names.slice(0, 6).map((name) => name + ": " + schemaSummary(properties[name], depth + 1));
+    return "object { " + shown.join("; ") + (names.length > 6 ? "; \\u2026" : "") + " }";
+  }
+  const base = type ?? "value";
+  const enumText = enums.length ? " (" + enums.slice(0, 8).join(" | ") + (enums.length > 8 ? " | \\u2026" : "") + ")" : "";
+  return base + (format ? " (" + format + ")" : "") + enumText + nullable;
+}
+
+/** Deterministic example value for request bodies and curl snippets. */
+export function schemaExample(schema: unknown, depth = 0): unknown {
+  const record = openApiRecord(schema);
+  if (!record || depth > 4) return null;
+  if (typeof record.$ref === "string") return record.$ref.split("/").pop() ?? "";
+  if (Array.isArray(record.enum) && record.enum.length > 0) return record.enum[0];
+  if (Array.isArray(record.oneOf) && record.oneOf.length > 0) return schemaExample(record.oneOf[0], depth + 1);
+  if (Array.isArray(record.anyOf) && record.anyOf.length > 0) return schemaExample(record.anyOf[0], depth + 1);
+  const type = openApiString(record.type);
+  if (type === "integer" || type === "number") return 0;
+  if (type === "boolean") return false;
+  if (type === "array") return [schemaExample(record.items, depth + 1)];
+  const properties = openApiRecord(record.properties);
+  if (type === "object" || properties) {
+    const result: Record<string, unknown> = {};
+    for (const [name, child] of Object.entries(properties ?? {})) result[name] = schemaExample(child, depth + 1);
+    return result;
+  }
+  return "";
+}
+
+function openApiParameter(raw: unknown): OpenApiParameter | undefined {
+  const record = openApiRecord(raw);
+  if (!record) return undefined;
+  const name = openApiString(record.name);
+  if (!name) return undefined;
+  return { name, in: openApiString(record.in) ?? "query", required: record.required === true, ...(openApiString(record.description) ? { description: openApiString(record.description) } : {}), ...(record.schema !== undefined ? { schema: record.schema } : {}) };
+}
+
+function openApiResponse(raw: unknown): { description?: string; schema?: unknown } | undefined {
+  const record = openApiRecord(raw);
+  if (!record) return undefined;
+  const content = openApiRecord(record.content);
+  const jsonContent = content ? openApiRecord(content["application/json"]) : undefined;
+  return { ...(openApiString(record.description) ? { description: openApiString(record.description) } : {}), ...(jsonContent?.schema !== undefined ? { schema: jsonContent.schema } : {}) };
+}
+
+function openApiSecurityNames(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const names = new Set<string>();
+  for (const entry of raw) for (const name of Object.keys(openApiRecord(entry) ?? {})) names.add(name);
+  return [...names];
+}
+
+function openApiOperation(path: string, method: string, raw: unknown): OpenApiOperation | undefined {
+  const record = openApiRecord(raw);
+  if (!record) return undefined;
+  const requestBody = openApiRecord(record.requestBody);
+  const requestContent = requestBody ? openApiRecord(requestBody.content) : undefined;
+  const requestJson = requestContent ? openApiRecord(requestContent["application/json"]) : undefined;
+  const responses: OpenApiResponse[] = Object.entries(openApiRecord(record.responses) ?? {}).map(([status, value]) => {
+    const response = openApiResponse(value);
+    return { status, ...(response ?? {}) };
+  });
+  return {
+    method,
+    path,
+    ...(openApiString(record.summary) ? { summary: openApiString(record.summary) } : {}),
+    ...(openApiString(record.description) ? { description: openApiString(record.description) } : {}),
+    ...(openApiString(record.operationId) ? { operationId: openApiString(record.operationId) } : {}),
+    tags: openApiStringArray(record.tags).length > 0 ? openApiStringArray(record.tags) : ["default"],
+    parameters: Array.isArray(record.parameters) ? record.parameters.map(openApiParameter).filter((item): item is OpenApiParameter => Boolean(item)) : [],
+    ...(requestJson?.schema !== undefined ? { requestSchema: requestJson.schema } : {}),
+    responses,
+    security: openApiSecurityNames(record.security),
+    roles: openApiStringArray(record["x-qiy-roles"]),
+    permissions: openApiStringArray(record["x-qiy-permissions"]),
+    ...(record["x-qiy-verification"] !== undefined ? { verification: record["x-qiy-verification"] as string | null } : {}),
+  };
+}
+
+/** Groups OpenAPI operations by tag in a stable order (declared tags first, then alphabetical). */
+export function groupOpenApiOperations(spec: unknown): OpenApiTagGroup[] {
+  const document = openApiRecord(spec) ?? {};
+  const paths = openApiRecord(document.paths) ?? {};
+  const methods = ["get", "post", "patch", "delete"];
+  const byTag = new Map<string, OpenApiOperation[]>();
+  for (const path of Object.keys(paths)) {
+    const item = openApiRecord(paths[path]);
+    if (!item) continue;
+    for (const method of methods) {
+      const operation = openApiOperation(path, method, item[method]);
+      if (!operation) continue;
+      for (const tag of operation.tags) {
+        const list = byTag.get(tag) ?? [];
+        list.push(operation);
+        byTag.set(tag, list);
+      }
+    }
+  }
+  const declared = (Array.isArray(document.tags) ? document.tags : []).map((tag) => openApiRecord(tag)).filter((tag): tag is Record<string, unknown> => Boolean(tag));
+  const order = declared.map((tag) => openApiString(tag.name) ?? "").filter(Boolean);
+  const names = [...order.filter((name) => byTag.has(name)), ...[...byTag.keys()].filter((name) => !order.includes(name)).sort()];
+  return names.map((name) => {
+    const tag = declared.find((entry) => openApiString(entry.name) === name);
+    const description = tag ? openApiString(tag.description) : undefined;
+    return { name, ...(description ? { description } : {}), operations: byTag.get(name) ?? [] };
+  });
+}
+
+export function openApiOperationCount(spec: unknown): number {
+  return groupOpenApiOperations(spec).reduce((total, group) => total + group.operations.length, 0);
+}
+
+export function openApiServerBaseUrl(spec: unknown, fallback = "http://localhost:3000"): string {
+  const document = openApiRecord(spec) ?? {};
+  const servers = Array.isArray(document.servers) ? document.servers : [];
+  const first = openApiRecord(servers[0]);
+  const url = first ? openApiString(first.url) : undefined;
+  if (!url) return fallback;
+  if (/^https?:/.test(url)) return url.replace(/\\/+$/, "");
+  if (url === "/") return fallback;
+  return fallback + (url.startsWith("/") ? "" : "/") + url.replace(/\\/+$/, "");
+}
+
+/** Copyable, read-only curl example for one operation (no live requests are made). */
+export function buildCurlExample(input: { method: string; path: string; baseUrl?: string; security?: readonly string[]; requestBody?: unknown; locale?: string }): string {
+  const method = input.method.toUpperCase();
+  const baseUrl = (input.baseUrl ?? "http://localhost:3000").replace(/\\/+$/, "");
+  const locale = input.locale ?? "en-US";
+  const chinese = locale.toLowerCase().startsWith("zh");
+  const token = chinese ? "<\\u4f1a\\u8bdd\\u4ee4\\u724c>" : "<session-token>";
+  const apiKey = chinese ? "<\\u4f60\\u7684 API Key>" : "<your-api-key>";
+  const lines = ["curl -X " + method + " '" + baseUrl + input.path + "'"];
+  const security = input.security ?? [];
+  if (security.includes("apiKey") && !security.includes("bearerSession")) lines.push("  -H 'X-API-Key: " + apiKey + "'");
+  else lines.push("  -H 'Authorization: Bearer " + token + "'");
+  if (method !== "GET" && method !== "DELETE" && input.requestBody !== undefined) {
+    lines.push("  -H 'Content-Type: application/json'");
+    lines.push("  -d '" + JSON.stringify(input.requestBody) + "'");
+  }
+  const separator = " " + String.fromCharCode(92) + "\\n";
+  return lines.join(separator);
+}
 `;
 }
 
@@ -4139,41 +4323,65 @@ function renderWebMermaidComponent(): string {
   return `import { Alert, Spin } from "antd";
 import { useEffect, useRef, useState } from "react";
 
+/** Maximum time the deferred Mermaid render may take before the source fallback is shown. */
+export const QIY_MERMAID_TIMEOUT_MS = 10_000;
+
 /**
  * Renders one Mermaid diagram. The server render keeps the diagram source in a
- * stable container (so the docs SSR test and bundle checks can see the generated
- * source); the browser dynamically imports mermaid and injects the SVG.
+ * stable container (so docs SSR tests and bundle checks can see it); the browser
+ * defers the heavy dynamic import to a later task, renders asynchronously, and
+ * falls back to the raw source after a timeout or on any error instead of
+ * leaving a blank/frozen panel.
  */
-export function MermaidDiagram({ id, source, ariaLabel, errorText }: { id: string; source: string; ariaLabel: string; errorText: string }) {
+export function MermaidDiagram({ id, source, ariaLabel, errorText, timeoutText }: { id: string; source: string; ariaLabel: string; errorText: string; timeoutText?: string }) {
   const container = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | undefined>();
   const [rendering, setRendering] = useState(true);
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
-      try {
-        const mermaid = (await import("mermaid")).default;
-        const dark = typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches;
-        mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "default" });
-        const rendered = await mermaid.render("qiy-mermaid-" + id, source);
-        if (!cancelled && container.current) container.current.innerHTML = rendered.svg;
-      } catch (cause) {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
-      } finally {
-        if (!cancelled) setRendering(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [id, source]);
+    let delay: ReturnType<typeof setTimeout> | undefined;
+    let guard: ReturnType<typeof setTimeout> | undefined;
+    const start = () => {
+      guard = setTimeout(() => {
+        if (cancelled) return;
+        setError(timeoutText ?? "Mermaid rendering timed out");
+        setRendering(false);
+      }, QIY_MERMAID_TIMEOUT_MS);
+      void (async () => {
+        try {
+          const mermaid = (await import("mermaid")).default;
+          const dark = typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches;
+          mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "default" });
+          const rendered = await mermaid.render("qiy-mermaid-" + id, source);
+          if (!cancelled && container.current) container.current.innerHTML = rendered.svg;
+        } catch (cause) {
+          if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+        } finally {
+          if (guard) clearTimeout(guard);
+          if (!cancelled) setRendering(false);
+        }
+      })();
+    };
+    // Defer the import/render so the tab shell paints first; unmount/remount
+    // (tab switches, HMR, StrictMode) cancels the pending render.
+    delay = setTimeout(start, 0);
+    return () => {
+      cancelled = true;
+      if (delay) clearTimeout(delay);
+      if (guard) clearTimeout(guard);
+    };
+  }, [id, source, timeoutText]);
   return <div className="qiy-mermaid" data-diagram={source} aria-label={ariaLabel}>
     <div ref={container} />
     {rendering ? <Spin size="small" /> : null}
-    {error ? <Alert type="warning" showIcon message={errorText} description={error} /> : null}
+    {error ? <>
+      <Alert type="warning" showIcon message={errorText} description={error} />
+      <pre className="qiy-mermaid-fallback" data-mermaid-fallback={source}>{source}</pre>
+    </> : null}
   </div>;
 }
 `;
 }
-
 
 /** Docs page component + route. JSX is generated as a template string. */
 function renderWebDocsPageComponent(): string {
@@ -4181,12 +4389,15 @@ function renderWebDocsPageComponent(): string {
   Alert,
   Button,
   Card,
+  Col,
   Descriptions,
   Empty,
   Form,
   Input,
+  Menu,
   Modal,
   Popconfirm,
+  Row,
   Select,
   Space,
   Spin,
@@ -4197,14 +4408,21 @@ function renderWebDocsPageComponent(): string {
   message,
 } from "antd";
 import { useTranslation } from "@refinedev/core";
-import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
-import "@scalar/api-reference-react/style.css";
+import { Component, useMemo, useState, useEffect, type ReactNode } from "react";
 import {
   buildDataflowDiagram,
   buildEntityDiagram,
   describeDataflow,
   docsTabLabelKey,
   docsTabs,
+  buildCurlExample,
+  groupOpenApiOperations,
+  openApiServerBaseUrl,
+  schemaExample,
+  schemaSummary,
+  type OpenApiOperation,
+  type OpenApiParameter,
+  type OpenApiResponse,
   type DocsDataflow,
   type DocsEntity,
   type DocsModel,
@@ -4226,10 +4444,16 @@ import {
 import { MermaidDiagram } from "./mermaid";
 import { qiyFeatureFlags } from "../features";
 
-const ScalarApiReference = lazy(async () => {
-  const module = await import("@scalar/api-reference-react");
-  return { default: module.ApiReferenceReact };
-});
+/** Keeps a crashing third-party panel from blanking the whole feature page. */
+class DocsErrorBoundary extends Component<{ fallback: ReactNode; children?: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
 
 export interface DocsPageProps {
   model?: DocsModel;
@@ -4255,7 +4479,7 @@ function EntityPanel({ model }: { model: DocsModel }) {
   const entity = model.entities.find((candidate) => candidate.tableName === selected) ?? model.entities[0];
   return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
     <Typography.Title level={5} style={{ margin: 0 }}>{translate("qiy.docs.entitiesTitle", {}, "Entities & relations")}</Typography.Title>
-    <MermaidDiagram id="entities" source={buildEntityDiagram(model)} ariaLabel={translate("qiy.docs.entitiesTitle", {}, "Entities & relations")} errorText={translate("qiy.docs.mermaidError", {}, "Diagram failed to render")} />
+    <MermaidDiagram id="entities" source={buildEntityDiagram(model)} ariaLabel={translate("qiy.docs.entitiesTitle", {}, "Entities & relations")} errorText={translate("qiy.docs.mermaidError", {}, "Diagram failed to render")} timeoutText={translate("qiy.docs.mermaidTimeout", {}, "Diagram rendering timed out; showing the source instead")} />
     <Table<DocsEntity> size="small" rowKey="tableName" pagination={false} dataSource={model.entities} columns={[
       { title: translate("qiy.docs.entity", {}, "Entity"), key: "entity", render: (_, row) => <Space><span>{translate(row.labelKey, {}, row.label)}</span>{row.restricted ? <Tag color="orange">{translate("qiy.docs.restricted", {}, "Restricted")}</Tag> : null}</Space> },
       { title: translate("qiy.docs.fieldName", {}, "Field"), key: "fields", render: (_, row) => row.fields.length },
@@ -4287,7 +4511,7 @@ function DataflowPanel({ model }: { model: DocsModel }) {
   return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
     <Typography.Title level={5} style={{ margin: 0 }}>{translate("qiy.docs.dataflowsTitle", {}, "Dataflows")}</Typography.Title>
     <Select value={flow.name} style={{ minWidth: 260 }} onChange={(value: string) => setSelected(value)} options={model.dataflows.map((candidate) => ({ value: candidate.name, label: translate(candidate.labelKey, {}, candidate.label) }))} />
-    <MermaidDiagram id={"dataflow-" + flow.name} source={buildDataflowDiagram(flow)} ariaLabel={flow.label} errorText={translate("qiy.docs.mermaidError", {}, "Diagram failed to render")} />
+    <MermaidDiagram id={"dataflow-" + flow.name} source={buildDataflowDiagram(flow)} ariaLabel={flow.label} errorText={translate("qiy.docs.mermaidError", {}, "Diagram failed to render")} timeoutText={translate("qiy.docs.mermaidTimeout", {}, "Diagram rendering timed out; showing the source instead")} />
     <Descriptions size="small" column={1} bordered items={[
       { key: "roles", label: translate("qiy.docs.allowRoles", {}, "Allowed roles"), children: info.allowRoles.length ? info.allowRoles.join(", ") : "—" },
       { key: "permissions", label: translate("qiy.docs.allowPermissions", {}, "Required permissions"), children: info.allowPermissions.length ? info.allowPermissions.join(", ") : "—" },
@@ -4325,17 +4549,99 @@ function PermissionsPanel({ model }: { model: DocsModel }) {
   </Space>;
 }
 
-function ApiPanel({ openApi }: { openApi?: unknown }) {
+function curlExampleFor(operation: OpenApiOperation, baseUrl: string, locale: string): string {
+  return buildCurlExample({
+    method: operation.method,
+    path: operation.path,
+    baseUrl,
+    security: operation.security,
+    ...(operation.requestSchema !== undefined ? { requestBody: schemaExample(operation.requestSchema) } : {}),
+    locale,
+  });
+}
+
+function OperationCard({ operation, baseUrl }: { operation: OpenApiOperation; baseUrl: string }) {
+  const { translate, getLocale } = useTranslation();
+  const method = operation.method.toUpperCase();
+  const color = operation.method === "get" ? "blue" : operation.method === "post" ? "green" : operation.method === "patch" ? "orange" : "red";
+  const requestExample = operation.requestSchema !== undefined ? JSON.stringify(schemaExample(operation.requestSchema), null, 2) : undefined;
+  const curl = curlExampleFor(operation, baseUrl, getLocale());
+  const securityLabels = operation.security.map((scheme) => scheme === "apiKey"
+    ? translate("qiy.docs.securityApiKey", {}, "X-API-Key header")
+    : scheme === "bearerSession" ? translate("qiy.docs.securityBearer", {}, "Session JWT bearer") : scheme);
+  return <Card size="small" style={{ marginBottom: 12 }} title={<Space wrap><Tag color={color}>{method}</Tag><Typography.Text code>{operation.path}</Typography.Text>{operation.summary ? <Typography.Text type="secondary">{operation.summary}</Typography.Text> : null}</Space>}>
+    {operation.description ? <Typography.Paragraph type="secondary">{operation.description}</Typography.Paragraph> : null}
+    {operation.roles.length > 0 || operation.permissions.length > 0 || operation.verification ? <Space wrap style={{ marginBottom: 8 }}>
+      {operation.roles.length > 0 ? <Tag color="purple">{translate("qiy.docs.roles", {}, "Roles") + ": " + operation.roles.join(", ")}</Tag> : null}
+      {operation.permissions.length > 0 ? <Tag color="geekblue">{translate("qiy.docs.permissions", {}, "Permissions") + ": " + operation.permissions.join(", ")}</Tag> : null}
+      {operation.verification ? <Tag color="gold">{translate("qiy.docs.verification", {}, "Verification") + ": " + operation.verification}</Tag> : null}
+    </Space> : null}
+    {operation.parameters.length > 0 ? <>
+      <Typography.Text strong style={{ display: "block", marginTop: 8 }}>{translate("qiy.docs.parameters", {}, "Parameters")}</Typography.Text>
+      <Table size="small" pagination={false} rowKey={(row: OpenApiParameter) => row.in + ":" + row.name} dataSource={operation.parameters} columns={[
+        { title: translate("qiy.docs.paramName", {}, "Name"), dataIndex: "name", key: "name" },
+        { title: translate("qiy.docs.paramIn", {}, "In"), dataIndex: "in", key: "in" },
+        { title: translate("qiy.docs.paramRequired", {}, "Required"), dataIndex: "required", key: "required", render: (value: boolean) => value ? translate("qiy.yes", {}, "Yes") : translate("qiy.no", {}, "No") },
+        { title: translate("qiy.docs.fieldType", {}, "Type"), dataIndex: "schema", key: "schema", render: (schema: unknown) => schemaSummary(schema) },
+      ]} />
+    </> : null}
+    {requestExample ? <>
+      <Typography.Text strong style={{ display: "block", marginTop: 12 }}>{translate("qiy.docs.requestBody", {}, "Request body")}</Typography.Text>
+      <pre className="qiy-docs-code">{requestExample}</pre>
+    </> : null}
+    {operation.responses.length > 0 ? <>
+      <Typography.Text strong style={{ display: "block", marginTop: 12 }}>{translate("qiy.docs.responses", {}, "Responses")}</Typography.Text>
+      <Table size="small" pagination={false} rowKey={(row: OpenApiResponse) => row.status} dataSource={operation.responses} columns={[
+        { title: translate("qiy.docs.responseStatus", {}, "Status"), dataIndex: "status", key: "status" },
+        { title: translate("qiy.docs.responseDescription", {}, "Description"), dataIndex: "description", key: "description", render: (value?: string) => value ?? "\\u2014" },
+        { title: translate("qiy.docs.fieldType", {}, "Type"), dataIndex: "schema", key: "schema", render: (schema: unknown) => schema ? schemaSummary(schema) : "\\u2014" },
+      ]} />
+    </> : null}
+    <Typography.Text strong style={{ display: "block", marginTop: 12 }}>{translate("qiy.docs.security", {}, "Security")}</Typography.Text>
+    <Space wrap>{securityLabels.length > 0 ? securityLabels.map((label) => <Tag key={label}>{label}</Tag>) : <Typography.Text type="secondary">\\u2014</Typography.Text>}</Space>
+    <Typography.Text strong style={{ display: "block", marginTop: 12 }}>{translate("qiy.docs.curl", {}, "curl example")}</Typography.Text>
+    <Typography.Paragraph copyable={{ text: curl }}><pre className="qiy-docs-code">{curl}</pre></Typography.Paragraph>
+  </Card>;
+}
+
+function ApiExplorer({ spec, baseUrl }: { spec: unknown; baseUrl: string }) {
   const { translate } = useTranslation();
-  if (!openApi) return <Empty description={translate("qiy.docs.noData", {}, "Nothing to show")} />;
+  const groups = useMemo(() => groupOpenApiOperations(spec), [spec]);
+  const [tag, setTag] = useState<string | undefined>(groups[0]?.name);
+  const selected = groups.find((group) => group.name === tag) ?? groups[0];
+  const document = spec !== null && typeof spec === "object" && !Array.isArray(spec) ? spec as Record<string, unknown> : undefined;
+  const principal = document && document["x-qiy-principal"] !== null && typeof document["x-qiy-principal"] === "object" ? document["x-qiy-principal"] as { role?: string; permissions?: unknown[] } : undefined;
+  const info = document && document.info !== null && typeof document.info === "object" ? document.info as { title?: string; version?: string } : undefined;
+  if (!document) return <Empty description={translate("qiy.docs.emptySpec", {}, "No OpenAPI document")} />;
+  if (groups.length === 0) return <Alert type="info" showIcon message={translate("qiy.docs.emptySpec", {}, "No OpenAPI document")} description={translate("qiy.docs.emptySpecHint", {}, "This account has no documented operations.")} />;
   return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
     <Alert type="info" showIcon message={translate("qiy.docs.apiFiltered", {}, "This document is filtered by the current account permissions")} />
-    <div className="qiy-docs-scalar">
-      <Suspense fallback={<div className="qiy-docs-scalar-placeholder" data-scalar="pending">{translate("qiy.docs.scalarLoading", {}, "Loading API reference")}</div>}>
-        <ScalarApiReference configuration={{ spec: { content: openApi as Record<string, unknown> } }} />
-      </Suspense>
-    </div>
+    <Space wrap>
+      {info?.title ? <Typography.Text strong>{info.title}</Typography.Text> : null}
+      {info?.version ? <Tag>{info.version}</Tag> : null}
+      {principal?.role ? <Tag color="blue">{translate("qiy.docs.principal", {}, "Principal") + ": " + principal.role}</Tag> : null}
+      {Array.isArray(principal?.permissions) && principal.permissions.length > 0 ? <Tag color="geekblue">{translate("qiy.docs.permissions", {}, "Permissions") + ": " + principal.permissions.map(String).join(", ")}</Tag> : null}
+    </Space>
+    <Row gutter={16}>
+      <Col xs={24} md={6}>
+        <Menu mode="inline" selectedKeys={selected ? [selected.name] : []} onClick={({ key }: { key: string }) => setTag(String(key))} items={groups.map((group) => ({ key: group.name, label: <Space>{group.name}<Tag>{group.operations.length}</Tag></Space> }))} style={{ borderInlineEnd: "none" }} />
+      </Col>
+      <Col xs={24} md={18}>
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Typography.Title level={5} style={{ margin: 0 }}>{selected ? selected.name : ""}{selected?.description ? <Typography.Text type="secondary"> {selected.description}</Typography.Text> : null}</Typography.Title>
+          {selected ? selected.operations.map((operation) => <OperationCard key={operation.method + " " + operation.path} operation={operation} baseUrl={baseUrl} />) : null}
+        </Space>
+      </Col>
+    </Row>
   </Space>;
+}
+
+function ApiPanel({ openApi, serverBaseUrl }: { openApi?: unknown; serverBaseUrl: string }) {
+  const { translate } = useTranslation();
+  if (!openApi) return <Empty description={translate("qiy.docs.noData", {}, "Nothing to show")} />;
+  return <DocsErrorBoundary fallback={<Alert type="warning" showIcon message={translate("qiy.docs.panelError", {}, "This section could not be rendered")} />}>
+    <ApiExplorer spec={openApi} baseUrl={openApiServerBaseUrl(openApi, serverBaseUrl)} />
+  </DocsErrorBoundary>;
 }
 
 function ApiKeysPanel() {
@@ -4424,10 +4730,10 @@ function ApiKeysPanel() {
   </Space>;
 }
 
-function tabChildren(tab: DocsTabKey, props: DocsPageProps): ReactNode {
+function tabChildren(tab: DocsTabKey, props: DocsPageProps, serverBaseUrl: string): ReactNode {
   if (tab === "entities") return props.model ? <EntityPanel model={props.model} /> : null;
   if (tab === "dataflows") return props.model ? <DataflowPanel model={props.model} /> : null;
-  if (tab === "api") return <ApiPanel openApi={props.openApi} />;
+  if (tab === "api") return <ApiPanel openApi={props.openApi} serverBaseUrl={serverBaseUrl} />;
   if (tab === "permissions") return props.model ? <PermissionsPanel model={props.model} /> : null;
   return <ApiKeysPanel />;
 }
@@ -4440,17 +4746,20 @@ export function DocsOverviewPage(props: DocsPageProps) {
   const [active, setActive] = useState<DocsTabKey | undefined>(props.initialTab && tabs.includes(props.initialTab) ? props.initialTab : fallbackTab);
   if (tabs.length === 0) return <Empty description={translate("qiy.docs.noData", {}, "Nothing to show")} />;
   const current = active && tabs.includes(active) ? active : fallbackTab;
-  const body = props.loading
+  const serverBaseUrl = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
+  const content = props.loading
     ? <Spin size="large" />
     : props.error
       ? <Alert type="error" showIcon message={translate("qiy.docs.loadError", {}, "Failed to load the overview")} description={props.error} />
-      : tabChildren(current!, props);
+      : <DocsErrorBoundary fallback={<Alert type="warning" showIcon message={translate("qiy.docs.panelError", {}, "This section could not be rendered")} />}>{tabChildren(current!, props, serverBaseUrl)}</DocsErrorBoundary>;
   return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
     <Typography.Title level={3} style={{ margin: 0 }}>{translate("qiy.docs.title", {}, "Feature overview")}</Typography.Title>
     <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{props.model?.app.description ?? translate("qiy.docs.subtitle", {}, "Generated entities, dataflows, API reference and access keys for this application")}</Typography.Paragraph>
     {props.model?.principal ? <Alert type="info" showIcon message={translate("qiy.docs.accessNote", {}, "The API reference only lists operations allowed for your role and permissions")} /> : null}
     <Card size="small">
-      <Tabs activeKey={current} onChange={(key: string) => setActive(key as DocsTabKey)} items={tabs.map((tab) => ({ key: tab, label: translate(docsTabLabelKey(tab), {}, tab), children: tabChildren(tab, props) }))} />
+      {/* Only the active tab is mounted: the API explorer and the Mermaid
+          diagrams are heavy, and keeping inactive panes alive froze the page. */}
+      <Tabs activeKey={current} onChange={(key: string) => setActive(key as DocsTabKey)} destroyOnHidden items={tabs.map((tab) => ({ key: tab, label: translate(docsTabLabelKey(tab), {}, tab), children: tab === current ? content : null }))} />
     </Card>
   </Space>;
 }
@@ -4510,6 +4819,7 @@ export default function DocsRoute() {
 function renderWebDocsTest(): string {
   return `import { expect, test } from "bun:test";
 import {
+  buildCurlExample,
   buildDataflowDiagram,
   buildDataflowDiagrams,
   buildEntityDiagram,
@@ -4517,7 +4827,12 @@ import {
   docsTabLabelKey,
   docsTabs,
   escapeMermaidLabel,
+  groupOpenApiOperations,
   mermaidId,
+  openApiOperationCount,
+  openApiServerBaseUrl,
+  schemaExample,
+  schemaSummary,
   type DocsModel,
 } from "../app/docs";
 import {
@@ -4573,6 +4888,79 @@ test("builds a flowchart per dataflow with inputs, steps and result", () => {
   expect(describeDataflow(flow).allowRoles).toEqual(["admin", "operator"]);
 });
 
+const spec = {
+  openapi: "3.1.0",
+  info: { title: "Demo API", version: "1.0.0" },
+  servers: [{ url: "/", description: "Same origin" }],
+  tags: [{ name: "orders", description: "Orders" }, { name: "auth", description: "Auth" }],
+  paths: {
+    "/api/v1/orders": {
+      get: {
+        tags: ["orders"],
+        summary: "List orders",
+        security: [{ bearerSession: [] }, { apiKey: [] }],
+        "x-qiy-roles": ["admin", "operator"],
+        "x-qiy-permissions": [],
+        parameters: [
+          { name: "page", in: "query", required: false, schema: { type: "integer", minimum: 1 } },
+          { name: "search", in: "query", required: false, schema: { type: "string" } },
+        ],
+        responses: { "200": { description: "Paginated records", content: { "application/json": { schema: { type: "object", properties: { data: { type: "array", items: { type: "object" } }, total: { type: "integer" } } } } } }, "401": { description: "Authentication required" } },
+      },
+      post: {
+        tags: ["orders"],
+        summary: "Create order",
+        security: [{ bearerSession: [] }],
+        "x-qiy-roles": ["admin"],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { number: { type: "string" }, total: { type: "integer" } }, required: ["number"] } } } },
+        responses: { "201": { description: "Created" } },
+      },
+    },
+    "/api/v1/auth/me": { get: { tags: ["auth"], summary: "Current principal", security: [{ bearerSession: [] }], responses: { "200": { description: "Principal" } } } },
+  },
+  "x-qiy-principal": { role: "operator", permissions: ["inventory:receive"] },
+};
+
+test("groups OpenAPI operations into stable tag panels", () => {
+  const groups = groupOpenApiOperations(spec);
+  expect(groups.map((group) => group.name)).toEqual(["orders", "auth"]);
+  expect(groups[0]!.operations.map((operation) => operation.method)).toEqual(["get", "post"]);
+  expect(groups[0]!.operations[0]!.summary).toBe("List orders");
+  expect(groups[0]!.operations[0]!.parameters.map((parameter) => parameter.name)).toEqual(["page", "search"]);
+  expect(groups[0]!.operations[0]!.security).toEqual(["bearerSession", "apiKey"]);
+  expect(groups[0]!.operations[1]!.requestSchema).toBeDefined();
+  expect(groups[0]!.operations[0]!.roles).toEqual(["admin", "operator"]);
+  expect(openApiOperationCount(spec)).toBe(3);
+  expect(groupOpenApiOperations(undefined)).toEqual([]);
+  expect(openApiOperationCount({ paths: {} })).toBe(0);
+});
+
+test("summarizes schemas and builds read-only curl examples", () => {
+  expect(schemaSummary({ type: "string" })).toBe("string");
+  expect(schemaSummary({ type: "string", format: "date-time" })).toBe("string (date-time)");
+  expect(schemaSummary({ type: "string", enum: ["a", "b"] })).toBe("string (a | b)");
+  expect(schemaSummary({ type: "integer", nullable: true })).toBe("integer?");
+  expect(schemaSummary({ type: "array", items: { type: "string" } })).toBe("array<string>");
+  expect(schemaSummary({ type: "object", properties: { id: { type: "string" }, total: { type: "integer" } } })).toContain("id: string");
+  expect(schemaSummary(undefined)).not.toBe("");
+  expect(schemaExample({ type: "object", properties: { number: { type: "string" }, total: { type: "integer" }, active: { type: "boolean" } } })).toEqual({ number: "", total: 0, active: false });
+  expect(schemaExample({ type: "array", items: { type: "integer" } })).toEqual([0]);
+  const getCurl = buildCurlExample({ method: "get", path: "/api/v1/orders", baseUrl: "http://localhost:3000", security: ["bearerSession"], locale: "en-US" });
+  expect(getCurl).toContain("curl -X GET 'http://localhost:3000/api/v1/orders'");
+  expect(getCurl).toContain("Authorization: Bearer <session-token>");
+  expect(getCurl).not.toContain("Content-Type");
+  const postCurl = buildCurlExample({ method: "post", path: "/api/v1/orders", baseUrl: "http://localhost:3000", security: ["apiKey"], requestBody: { number: "A-1" }, locale: "en-US" });
+  expect(postCurl).toContain("X-API-Key: <your-api-key>");
+  expect(postCurl).toContain("Content-Type: application/json");
+  expect(postCurl).toContain('"number":"A-1"');
+  expect(postCurl).toContain(" -");
+  expect(postCurl).toContain("\\n");
+  const zhCurl = buildCurlExample({ method: "get", path: "/api/v1/orders", security: ["bearerSession"], locale: "zh-CN" });
+  expect(zhCurl).toContain("<\u4f1a\u8bdd\u4ee4\u724c>");
+  expect(openApiServerBaseUrl(spec, "http://localhost:3000")).toBe("http://localhost:3000");
+  expect(openApiServerBaseUrl({ servers: [{ url: "https://api.example.com" }] }, "http://localhost:3000")).toBe("https://api.example.com");
+});
+
 test("gates the overview tabs and adds the sidebar page link", () => {
   expect(docsEnabled).toBe(true);
   expect(docsTabs({ apiDocs: true, apiKeys: true })).toEqual(["entities", "dataflows", "api", "permissions", "apiKeys"]);
@@ -4615,6 +5003,8 @@ function renderWebDocsRenderTest(apiDocs: boolean, apiKeys: boolean): string {
   expect(html).toContain('data-diagram="classDiagram');
   expect(html).toContain("e_users");
   expect(html).toContain("Relations");
+  // Only one diagram is mounted for the entity tab.
+  expect((html.match(/data-diagram=/g) ?? []).length).toBe(1);
 });
 
 test("renders the dataflow tab with a flowchart source", () => {
@@ -4622,12 +5012,35 @@ test("renders the dataflow tab with a flowchart source", () => {
   expect(html).toContain('data-diagram="flowchart LR');
   expect(html).toContain("d_receiveStock_step_0");
   expect(html).toContain("Receive stock");
+  // Only the selected dataflow's diagram is mounted, not every flow.
+  expect((html.match(/data-diagram=/g) ?? []).length).toBe(1);
 });
 
-test("renders the Scalar API-reference placeholder with the permission note", () => {
+test("renders the built-in OpenAPI explorer with tags, operations, parameters and curl", () => {
   const html = renderToStaticMarkup(createElement(DocsOverviewPage, { model, openApi: spec, initialTab: "api" }));
-  expect(html).toContain("qiy-docs-scalar-placeholder");
   expect(html).toContain("filtered by the current account permissions");
+  expect(html).toContain("Demo API");
+  expect(html).toContain("orders");
+  expect(html).toContain("GET");
+  expect(html).toContain("/api/v1/orders");
+  expect(html).toContain("List orders");
+  expect(html).toContain("page");
+  expect(html).toContain("Parameters");
+  expect(html).toContain("Request body");
+  expect(html).toContain("Responses");
+  expect(html).toContain("Security");
+  expect(html).toContain("curl -X GET");
+  expect(html).toContain("Authorization: Bearer");
+  expect(html).toContain("Principal: admin");
+  expect(html).not.toContain("data-scalar");
+  expect(html).not.toContain("qiy-docs-scalar");
+});
+
+test("mounts only the active tab content", () => {
+  const entities = renderToStaticMarkup(createElement(DocsOverviewPage, { model, openApi: spec, initialTab: "entities" }));
+  expect(entities).toContain('data-diagram="classDiagram');
+  expect(entities).not.toContain("/api/v1/orders");
+  expect(entities).not.toContain("curl -X GET");
 });`);
   }
   if (apiKeys) {
@@ -4656,7 +5069,33 @@ const model: DocsModel = {
   dataflows: [{ name: "receiveStock", label: "Receive stock", labelKey: "qiy.dataflows.receiveStock.label", allowRoles: ["admin"], allowPermissions: [], verification: null, inputs: [{ name: "quantity", type: "Integer", required: true, label: "quantity", labelKey: "" }], contexts: [{ name: "inventory", entity: "inventory" }], steps: [{ name: "load", actions: [{ kind: "update", summary: "update inventory" }] }], result: "inventory" }],
   permissions: { fields: [], groups: [], verifications: [] },
 };
-const spec = { openapi: "3.1.0", info: { title: "Test API", version: "1.0.0" }, paths: {} };
+const spec = {
+  openapi: "3.1.0",
+  info: { title: "Demo API", version: "1.0.0" },
+  servers: [{ url: "/", description: "Same origin" }],
+  tags: [{ name: "orders", description: "Orders" }, { name: "auth", description: "Auth" }],
+  paths: {
+    "/api/v1/orders": {
+      get: {
+        tags: ["orders"],
+        summary: "List orders",
+        security: [{ bearerSession: [] }, { apiKey: [] }],
+        "x-qiy-roles": ["admin", "operator"],
+        parameters: [{ name: "page", in: "query", required: false, schema: { type: "integer" } }],
+        responses: { "200": { description: "Paginated records" } },
+      },
+      post: {
+        tags: ["orders"],
+        summary: "Create order",
+        security: [{ bearerSession: [] }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { number: { type: "string" } } } } } },
+        responses: { "201": { description: "Created" } },
+      },
+    },
+    "/api/v1/auth/me": { get: { tags: ["auth"], summary: "Current principal", security: [{ bearerSession: [] }], responses: { "200": { description: "Principal" } } } },
+  },
+  "x-qiy-principal": { role: "admin", permissions: [] },
+};
 
 const refine = await import("@refinedev/core");
 mock.module("@refinedev/core", () => ({

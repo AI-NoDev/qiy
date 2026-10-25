@@ -258,7 +258,8 @@ describe("modular demo model", () => {
     expect(files["apps/web/app/features.ts"]).toContain('path: "/system/overview"');
     expect(files["apps/web/app/routes.ts"]).toContain('route("system/overview", "./routes/docs.tsx")');
     expect(files["apps/web/app/components/menu.tsx"]).toContain("qiyMenuLinks");
-    expect(files["apps/web/app/components/docs-page.tsx"]).toContain("@scalar/api-reference-react");
+    expect(files["apps/web/app/components/docs-page.tsx"]).toContain("groupOpenApiOperations");
+    expect(files["apps/web/app/components/docs-page.tsx"]).not.toContain("@scalar");
     expect(files["apps/web/app/components/mermaid.tsx"]).toContain('import("mermaid")');
     expect(JSON.parse(files["apps/web/package.json"]!).dependencies.mermaid).toBe("12.2.0");
     // Grouped sidebar metadata: resource -> group parent, and the group keeps its menu order.
