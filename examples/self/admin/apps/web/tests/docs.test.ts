@@ -46,9 +46,9 @@ const model: DocsModel = {
 test("builds an escaped UML entity diagram", () => {
   const diagram = buildEntityDiagram(model);
   expect(diagram.startsWith("classDiagram")).toBe(true);
-  expect(diagram).toContain("class e_users[Users]");
-  expect(diagram).toContain("class e_orders[Orders]");
-  expect(diagram).toContain("+id UUID [PK,NN]");
+  expect(diagram).toContain('class e_users["Users"]');
+  expect(diagram).toContain('class e_orders["Orders"]');
+  expect(diagram).toContain("+id UUID");
   expect(diagram).toContain("e_orders --> e_users : userId");
   expect(buildEntityDiagram(model)).toBe(diagram);
   expect(escapeMermaidLabel('a "b" {c};\nd')).toBe("a 'b' (c), d");

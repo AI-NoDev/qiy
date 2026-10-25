@@ -1,4 +1,3 @@
-import { useIsAuthenticated, useTranslation } from "@refinedev/core";
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router";
 import { docsEnabled, qiyFeatureFlags } from "../features";
@@ -13,31 +12,22 @@ export interface DocsPageState {
 }
 
 export default function DocsRoute() {
-  const { translate } = useTranslation();
-  const auth = useIsAuthenticated();
-  const isAuthenticated = auth.data?.authenticated === true;
-  const authLoading = auth.isLoading;
   const [state, setState] = useState<DocsPageState>({ loading: qiyFeatureFlags.apiDocs });
   useEffect(() => {
     if (!qiyFeatureFlags.apiDocs) {
       setState({ loading: false });
       return;
     }
-    // Wait for the auth check before deciding; fetching while it is still pending
-    // used to flap between "unauthenticated" and "authenticated" states.
-    if (authLoading) return;
-    if (!isAuthenticated) {
-      setState({ loading: false });
-      return;
-    }
+    // This route lives inside the authenticated layout, so it does not need its
+    // own auth query. An auth query in this route triggered a render loop
+    // (hundreds of renders per second, blank page); rely on the guard layout and
+    // fetch the docs envelope once.
     let cancelled = false;
     void fetchDocsEnvelope()
       .then((envelope) => { if (!cancelled) setState({ model: envelope.model, openApi: envelope.openApi, loading: false }); })
       .catch((cause: unknown) => { if (!cancelled) setState({ loading: false, error: cause instanceof Error ? cause.message : String(cause) }); });
     return () => { cancelled = true; };
-  }, [authLoading, isAuthenticated]);
+  }, []);
   if (!docsEnabled) return <Navigate to="/" replace />;
-  if (!authLoading && !isAuthenticated) return <Navigate to="/auth/login" replace />;
-  if (authLoading) return <div>{translate("qiy.loading", {}, "Loading")}</div>;
   return <DocsOverviewPage {...state} />;
 }

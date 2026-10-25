@@ -96,11 +96,12 @@ export function buildEntityDiagram(model: DocsModel): string {
   const tableId = new Map(model.entities.map((entity) => [entity.tableName, mermaidId("e_" + entity.tableName)]));
   for (const entity of model.entities) {
     const id = tableId.get(entity.tableName)!;
-    lines.push("  class " + id + "[" + escapeMermaidLabel(entity.label) + "] {");
+    lines.push("  class " + id + '["' + escapeMermaidLabel(entity.label) + '"] {');
     for (const field of entity.fields) {
-      const marks = [field.primaryKey ? "PK" : "", field.unique ? "UK" : "", field.nullable ? "" : "NN"].filter(Boolean).join(",");
+      // Mermaid class members accept +Type field; PK/unique/nullable annotations
+      // are not valid in the class body, so they stay in the field table below.
       const type = field.enumName ? field.enumName : field.type;
-      lines.push("    +" + mermaidId(field.name) + " " + escapeMermaidLabel(type) + (marks ? " [" + marks + "]" : ""));
+      lines.push("    +" + mermaidId(field.name) + " " + escapeMermaidLabel(type));
     }
     lines.push("  }");
   }
@@ -136,7 +137,7 @@ export function buildDataflowDiagram(flow: DocsDataflow): string {
   flow.steps.forEach((step, stepIndex) => {
     step.actions.forEach((action, actionIndex) => {
       const id = mermaidId("d_" + flow.name + "_act_" + stepIndex + "_" + actionIndex);
-      lines.push("  " + id + ">[" + escapeMermaidLabel(action.kind + ": " + action.summary) + "]]");
+      lines.push("  " + id + '["' + escapeMermaidLabel(action.kind + ": " + action.summary) + '"]');
       actionIds.push(id);
     });
   });

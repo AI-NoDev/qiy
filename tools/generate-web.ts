@@ -3960,11 +3960,12 @@ export function buildEntityDiagram(model: DocsModel): string {
   const tableId = new Map(model.entities.map((entity) => [entity.tableName, mermaidId("e_" + entity.tableName)]));
   for (const entity of model.entities) {
     const id = tableId.get(entity.tableName)!;
-    lines.push("  class " + id + "[" + escapeMermaidLabel(entity.label) + "] {");
+    lines.push("  class " + id + '["' + escapeMermaidLabel(entity.label) + '"] {');
     for (const field of entity.fields) {
-      const marks = [field.primaryKey ? "PK" : "", field.unique ? "UK" : "", field.nullable ? "" : "NN"].filter(Boolean).join(",");
+      // Mermaid class members accept +Type field; PK/unique/nullable annotations
+      // are not valid in the class body, so they stay in the field table below.
       const type = field.enumName ? field.enumName : field.type;
-      lines.push("    +" + mermaidId(field.name) + " " + escapeMermaidLabel(type) + (marks ? " [" + marks + "]" : ""));
+      lines.push("    +" + mermaidId(field.name) + " " + escapeMermaidLabel(type));
     }
     lines.push("  }");
   }
@@ -4000,7 +4001,7 @@ export function buildDataflowDiagram(flow: DocsDataflow): string {
   flow.steps.forEach((step, stepIndex) => {
     step.actions.forEach((action, actionIndex) => {
       const id = mermaidId("d_" + flow.name + "_act_" + stepIndex + "_" + actionIndex);
-      lines.push("  " + id + ">[" + escapeMermaidLabel(action.kind + ": " + action.summary) + "]]");
+      lines.push("  " + id + '["' + escapeMermaidLabel(action.kind + ": " + action.summary) + '"]');
       actionIds.push(id);
     });
   });
@@ -4768,8 +4769,7 @@ export function DocsOverviewPage(props: DocsPageProps) {
 
 /** Generated route wrapper: feature gate + authenticated model fetch. */
 function renderWebDocsRoute(): string {
-  return `import { useIsAuthenticated, useTranslation } from "@refinedev/core";
-import { useEffect, useState } from "react";
+  return `import { useEffect, useState } from "react";
 import { Navigate } from "react-router";
 import { docsEnabled, qiyFeatureFlags } from "../features";
 import { fetchDocsEnvelope, type DocsModel } from "../docs";
@@ -4783,32 +4783,23 @@ export interface DocsPageState {
 }
 
 export default function DocsRoute() {
-  const { translate } = useTranslation();
-  const auth = useIsAuthenticated();
-  const isAuthenticated = auth.data?.authenticated === true;
-  const authLoading = auth.isLoading;
   const [state, setState] = useState<DocsPageState>({ loading: qiyFeatureFlags.apiDocs });
   useEffect(() => {
     if (!qiyFeatureFlags.apiDocs) {
       setState({ loading: false });
       return;
     }
-    // Wait for the auth check before deciding; fetching while it is still pending
-    // used to flap between "unauthenticated" and "authenticated" states.
-    if (authLoading) return;
-    if (!isAuthenticated) {
-      setState({ loading: false });
-      return;
-    }
+    // This route lives inside the authenticated layout, so it does not need its
+    // own auth query. An auth query in this route triggered a render loop
+    // (hundreds of renders per second, blank page); rely on the guard layout and
+    // fetch the docs envelope once.
     let cancelled = false;
     void fetchDocsEnvelope()
       .then((envelope) => { if (!cancelled) setState({ model: envelope.model, openApi: envelope.openApi, loading: false }); })
       .catch((cause: unknown) => { if (!cancelled) setState({ loading: false, error: cause instanceof Error ? cause.message : String(cause) }); });
     return () => { cancelled = true; };
-  }, [authLoading, isAuthenticated]);
+  }, []);
   if (!docsEnabled) return <Navigate to="/" replace />;
-  if (!authLoading && !isAuthenticated) return <Navigate to="/auth/login" replace />;
-  if (authLoading) return <div>{translate("qiy.loading", {}, "Loading")}</div>;
   return <DocsOverviewPage {...state} />;
 }
 `;
@@ -4865,9 +4856,9 @@ const model: DocsModel = {
 test("builds an escaped UML entity diagram", () => {
   const diagram = buildEntityDiagram(model);
   expect(diagram.startsWith("classDiagram")).toBe(true);
-  expect(diagram).toContain("class e_users[Users]");
-  expect(diagram).toContain("class e_orders[Orders]");
-  expect(diagram).toContain("+id UUID [PK,NN]");
+  expect(diagram).toContain('class e_users["Users"]');
+  expect(diagram).toContain('class e_orders["Orders"]');
+  expect(diagram).toContain("+id UUID");
   expect(diagram).toContain("e_orders --> e_users : userId");
   expect(buildEntityDiagram(model)).toBe(diagram);
   expect(escapeMermaidLabel('a "b" {c};\\nd')).toBe("a 'b' (c), d");

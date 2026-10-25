@@ -106,6 +106,11 @@ describe("application feature flags", () => {
     // issue another /docs/model + /openapi.json request.
     expect(enabled["apps/web/app/docs.ts"]).toContain("docsEnvelopePromise");
     expect(enabled["apps/web/app/routes/docs.tsx"]).toContain("fetchDocsEnvelope()");
+    // The route is inside the guarded layout; an auth query in the route itself
+    // caused a render loop/blank page, so it must not call useIsAuthenticated.
+    expect(enabled["apps/web/app/routes/docs.tsx"]).not.toContain("useIsAuthenticated");
+    // Mermaid class labels must be quoted: class X[label] is a parse error.
+    expect(enabled["apps/web/app/docs.ts"]).toContain("'[\"' + escapeMermaidLabel(entity.label) + '\"] {'");
     expect(enabled["apps/web/app/features.ts"]).toContain("qiyMenuLinks");
     expect(enabled["apps/web/app/components/menu.tsx"]).toContain("qiyMenuLinks");
     expect(JSON.parse(enabled["apps/web/package.json"]!).dependencies.mermaid).toBe("12.2.0");
