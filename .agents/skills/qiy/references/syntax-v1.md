@@ -30,6 +30,7 @@ module Catalog {
 - Fields: `name: type`, optional `primary`, `nullable`, `unique`; type aliases map to v0 (`uuid`→UUID, `text`→Text, `integer`→Integer, `decimal`/`money`, `date`/`time`/`datetime`, `file`/`files`, `vector(n)`).
 - Missing `id` is injected as `field id UUID @id;`.
 - `customer: Customer` injects `customerId UUID` plus a one relation to `customers`.
+- `lines: OrderLine[]` injects a child-side `orderId UUID @nullable` plus a one relation from `order_lines` to `orders`; the child entity must be declared in the same v1 source.
 - `#` comments are preserved.
 
 Commands need no flag: `qiy explain model.qiy`, `qiy generate model.qiy out/`, `qiy fmt model.qiy` all detect v1.
@@ -37,7 +38,7 @@ Commands need no flag: `qiy explain model.qiy`, `qiy generate model.qiy out/`, `
 ## Rejected with clear errors
 
 - `include` (use `module`/v0 includes outside v1),
-- many relations such as `lines: OrderLine[]` (declare an explicit join entity in v0),
+- many-to-many relations (one-to-many needs the child entity in the same file; use an explicit join entity for many-to-many),
 - auth/permissions/menu/chart/dataflow and other non-entity blocks,
 - custom relation names/onDelete/annotations,
 - `qiy add` against a v1 entry (the add commands write v0).

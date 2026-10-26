@@ -14,9 +14,10 @@
  *   }
  *
  * Scope of this preview: project/database/module/entity, `name: type` fields,
- * common modifiers (primary/nullable/unique), one-to-one inline relations
- * (`customer: Customer`), and comments. Includes, many relations and non-entity
- * blocks are intentionally rejected with a clear message.
+ * common modifiers (primary/nullable/unique), inline one relations
+ * (`customer: Customer`), one-to-many relations (`lines: OrderLine[]`, backed by
+ * a generated FK on the child) and comments. Includes and non-entity blocks are
+ * intentionally rejected with a clear message.
  */
 
 export function isQiyV1Source(source: string): boolean {
@@ -48,7 +49,6 @@ interface V1Entity {
   fields: string[];
   fieldNames: Set<string>;
   hasId: boolean;
-  relations: Array<{ name: string; fromField: string; to: string }>;
 }
 
 function snakeCase(value: string): string {
@@ -89,6 +89,7 @@ export function translateQiyV1(source: string): string {
   const topComments: string[] = [];
   const entities: V1Entity[] = [];
   const relations: string[] = [];
+  const pendingMany: Array<{ parent: V1Entity; targetType: string; lineNumber: number }> = [];
   let currentEntity: V1Entity | undefined;
   let mode: "top" | "module" | "entity" = "top";
 
@@ -108,7 +109,6 @@ export function translateQiyV1(source: string): string {
       fields: [],
       fieldNames: new Set(),
       hasId: false,
-      relations: [],
     };
     mode = "entity";
   };
@@ -178,7 +178,8 @@ export function translateQiyV1(source: string): string {
       if (!["primary", "nullable", "unique"].includes(word)) throw new Error(`v1 line ${lineNumber}: unsupported field modifier "${word}".`);
     }
     if (rawType!.endsWith("[]")) {
-      throw new Error(`v1 line ${lineNumber}: many relations (${rawType}) are not supported in the v1 preview; declare an explicit relation or join entity in v0.`);
+      pendingMany.push({ parent: currentEntity, targetType: rawType!.slice(0, -2), lineNumber });
+      continue;
     }
     const isPrimitive = PRIMITIVES[rawType!.toLowerCase()] !== undefined;
     if (/^[A-Z]/.test(rawType!) && !isPrimitive) {
@@ -204,6 +205,20 @@ export function translateQiyV1(source: string): string {
   if ((mode as string) === "entity") throw new Error("v1: unterminated entity block.");
   if (mode === "module") throw new Error("v1: unterminated module block.");
   if (!projectName) throw new Error("v1: missing `project <name>` declaration.");
+
+  for (const pending of pendingMany) {
+    const targetTable = v1TableName(pending.targetType);
+    const target = entities.find((entity) => entity.table === targetTable || entity.friendly === pending.targetType);
+    if (!target) throw new Error(`v1 line ${pending.lineNumber}: many relation target ${pending.targetType} is not declared.`);
+    if (target === pending.parent) throw new Error(`v1 line ${pending.lineNumber}: self many relations are not supported in the v1 preview.`);
+    const fk = `${lowerFirst(pending.parent.friendly)}Id`;
+    if (target.fieldNames.has(fk)) {
+      throw new Error(`v1 line ${pending.lineNumber}: ${target.table}.${fk} already exists; remove the duplicate relation or use an explicit v0 relation.`);
+    }
+    target.fieldNames.add(fk);
+    target.fields.push(`  field ${fk} UUID @nullable;`);
+    relations.push(`  relation ${target.table}${pending.parent.friendly} ${target.table} ${fk} ${pending.parent.table} id one;`);
+  }
 
   const body: string[] = [`  database ${database} {}`];
   for (const entity of entities) {

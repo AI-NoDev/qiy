@@ -70,8 +70,30 @@ test("generates a project from a v1 source", async () => {
   expect(manifest.files.length).toBeGreaterThan(100);
 });
 
+test("supports one-to-many fields via a generated child foreign key", () => {
+  const source = `project shop
+database sqlite
+module Sales {
+  entity Order {
+    reference: text unique
+    lines: OrderLine[]
+  }
+  entity OrderLine {
+    sku: text
+    quantity: integer
+  }
+}
+`;
+  const translated = translateQiyV1(source);
+  expect(translated).toContain("entity order_lines {");
+  expect(translated).toContain("field orderId UUID @nullable;");
+  expect(translated).toContain("relation order_linesOrder order_lines orderId orders id one;");
+  const explanation = explainQiySource(source);
+  expect(explanation.relations[0]).toMatchObject({ from: "order_lines", fromField: "orderId", to: "orders", cardinality: "one" });
+});
+
 test("v1 preview rejects unsupported constructs with actionable errors", () => {
-  expect(() => translateQiyV1("project x\nmodule M {\n entity A {\n lines: Line[]\n }\n}\n")).toThrow(/many relations/);
+  expect(() => translateQiyV1("project x\nmodule M {\n entity A {\n lines: Missing[]\n }\n}\n")).toThrow(/not declared/);
   expect(() => translateQiyV1("project x\ninclude \"a.qiy\";\n")).toThrow(/include is not supported/);
   expect(() => translateQiyV1("database sqlite\n")).toThrow(/missing `project/);
   expect(() => translateQiyV1("project x\nentity A {\n name: text bogus\n}\n")).toThrow(/unsupported field modifier/);

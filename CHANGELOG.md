@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.4.1] - 2026-10-26
+
+### Added
+
+- v1 preview now supports one-to-many fields (`lines: OrderLine[]`): the
+  preprocessor adds a nullable child FK and a one relation from the child table
+  to the parent. Unknown/self/duplicate targets fail with actionable errors;
+  many-to-many still requires an explicit join entity.
+
 ## [0.4.0] - 2026-10-26
 
 ### Added
@@ -211,6 +220,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.4.1]: https://github.com/AI-NoDev/qiy/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/AI-NoDev/qiy/compare/v0.3.4...v0.4.0
 [0.3.4]: https://github.com/AI-NoDev/qiy/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/AI-NoDev/qiy/compare/v0.3.2...v0.3.3
