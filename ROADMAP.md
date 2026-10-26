@@ -90,6 +90,7 @@
 - [x] v0.2.0 发布后暴露的生成器 typecheck/return 接受度缺陷（无 `@code` 序列 fallback、docs 路由 Elysia 泛型、fixture 专属测试、集成模式 `bun test` 退出码、只读列表图标）。
 - [x] `v0.2.2`：`qiy skill list/update/uninstall`（含 `--json`、本地修改保护、保留手写文件）；通过 dry-run → tag → Release 流程发布。
 - [x] `v0.2.3`：`qiy explain` / `qiy schema`，机器可读模型摘要 + 已发布 JSON Schema。
+- [x] `v0.2.4`：稳定错误码目录 `QIY1001–QIY1016`、`qiy explain --errors`、文档 `/dsl/errors`、`explain --json` 自动附带 code/fix。
 - [x] `v0.2.1`：补全官方 Agent Skill（router + 12 个 references），release + release-smoke 通过。
 
 ## 验证命令
