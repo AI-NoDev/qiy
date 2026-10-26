@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { addEntity, addField } from "./commands/add";
 import { generateApp } from "./commands/generate-app";
 import { initApp } from "./commands/init";
 import { checkProject, createProject, devProject, generateProject, runProjectScript } from "./commands/project";
@@ -23,6 +24,10 @@ Commands:
   generate                        Generate/sync the current project
     <source> <output-dir>         Legacy explicit generation; --sync updates it
   check                           Validate the current project model without writing
+  add entity <name> [--module <name>] [--field name:Type ...] [--label ...] [--icon ...]
+                                  Append an entity to a model module and validate
+  add field <entity> <name:Type> [--nullable] [--unique] [--code <template>]
+                                  Insert a field into an existing entity and validate
   dev [--watch]                   Generate, install on first run, start API + admin
                                   (--watch regenerates on model/ changes)
   build                           Generate/install then run the production build
@@ -73,6 +78,28 @@ function option(args: string[], ...names: string[]): string | undefined {
     return value;
   }
   return undefined;
+}
+
+function optionValues(args: string[], ...names: string[]): string[] {
+  const values: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (!names.includes(args[index]!)) continue;
+    const value = args[index + 1];
+    if (!value || value.startsWith("-")) throw new Error(`${args[index]} requires a value.`);
+    values.push(value);
+    index += 1;
+  }
+  return values;
+}
+
+function positionalArguments(args: string[], valueFlags: string[]): string[] {
+  const values: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]!;
+    if (valueFlags.includes(argument)) { index += 1; continue; }
+    if (!argument.startsWith("-")) values.push(argument);
+  }
+  return values;
 }
 
 async function main(argv: string[]): Promise<void> {
@@ -172,6 +199,43 @@ async function main(argv: string[]): Promise<void> {
     }
     case "check": {
       await checkProject(process.cwd());
+      return;
+    }
+    case "add": {
+      const kind = rest[0];
+      const addArguments = rest.slice(1);
+      if (kind !== "entity" && kind !== "field") throw new Error("Usage: qiy add entity <name> ... | qiy add field <entity> <name:Type> ...\n\n" + USAGE);
+      const valueFlags = ["--module", "--field", "--label", "--icon", "--code"];
+      const positionals = positionalArguments(addArguments, valueFlags);
+      const allowed = new Set(["--module", "--field", "--label", "--icon", "--code", "--nullable", "--unique"]);
+      for (let index = 0; index < addArguments.length; index += 1) {
+        const argument = addArguments[index]!;
+        if (valueFlags.includes(argument)) { index += 1; continue; }
+        if (!argument.startsWith("-")) continue;
+        if (!allowed.has(argument)) throw new Error(`Unknown qiy add option: ${argument}\n\n${USAGE}`);
+      }
+      const module = option(addArguments, "--module");
+      const nullable = flag(addArguments, "--nullable");
+      const unique = flag(addArguments, "--unique");
+      const code = option(addArguments, "--code");
+      if (kind === "entity") {
+        const name = positionals[0];
+        if (!name) throw new Error("qiy add entity requires a name.\n\n" + USAGE);
+        await addEntity(name, {
+          ...(module && { module }),
+          ...(optionValues(addArguments, "--field").length ? { fields: optionValues(addArguments, "--field") } : {}),
+          ...(option(addArguments, "--label") ? { label: option(addArguments, "--label")! } : {}),
+          ...(option(addArguments, "--icon") ? { icon: option(addArguments, "--icon")! } : {}),
+          ...(nullable && { nullable }),
+          ...(unique && { unique }),
+          ...(code && { code }),
+        });
+      } else {
+        const entityName = positionals[0];
+        const spec = positionals[1];
+        if (!entityName || !spec) throw new Error("qiy add field requires <entity> and <name:Type>.\n\n" + USAGE);
+        await addField(entityName, spec, { ...(nullable && { nullable }), ...(unique && { unique }), ...(code && { code }) });
+      }
       return;
     }
     case "dev": {

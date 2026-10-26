@@ -8,6 +8,16 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.3.2] - 2026-10-26
+
+### Added
+
+- `qiy add entity <name> --field name:Type ...` and `qiy add field <entity>
+  <name:Type>` for structured incremental modeling. Both keep the module's
+  declaration order/indentation, run a full project parse after the edit and
+  roll the file back on validation errors, so agents can add models without
+  hand-editing blocks.
+
 ## [0.3.1] - 2026-10-26
 
 ### Added
@@ -165,6 +175,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.3.2]: https://github.com/AI-NoDev/qiy/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/AI-NoDev/qiy/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/AI-NoDev/qiy/compare/v0.2.5...v0.3.0
 [0.2.5]: https://github.com/AI-NoDev/qiy/compare/v0.2.4...v0.2.5

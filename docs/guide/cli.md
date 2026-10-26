@@ -5,6 +5,8 @@
 ```text
 qiy create project <name> [--template minimal|standard] [--dir <path>]
 qiy check
+qiy add entity <name> [--module <name>] [--field name:Type ...]
+qiy add field <entity> <name:Type> [--nullable] [--unique] [--code <template>]
 qiy generate
 qiy dev
 qiy dev --watch
@@ -38,6 +40,8 @@ qiy init -f <source> [-n <name>] [--sync]            # 挂载到现有 Bun 项�
 | `--template minimal` | 只保留最小 catalog 模块；默认 `standard` 含实体/关系/菜单/图表示例 |
 | `--dir <path>` | 改写目标目录 |
 | `qiy check` | 解析并校验模型，打印统计；不写文件 |
+| `qiy add entity <name>` | 向实体模块追加实体（默认自动加 `id UUID @id`），支持 `--field name:Type`、`--label`、`--icon`、`--module`；写入后立即校验，失败自动回滚 |
+| `qiy add field <entity> <name:Type>` | 在实体闭合括号前插入字段，支持 `--nullable`、`--unique`、`--code`；写入后立即校验并回滚 |
 | `qiy generate` | 生成或同步 `admin/`；已有生成物时自动 `--sync` |
 | `qiy dev [--watch]` | 生成 → 首次安装依赖 → 生成并执行数据库迁移 → 启动 API + Admin；`--watch` 监听 `model/` 并在保存后自动重生成/迁移 |
 | `qiy test` | 确保生成/安装后运行生成项目测试 |
@@ -45,6 +49,16 @@ qiy init -f <source> [-n <name>] [--sync]            # 挂载到现有 Bun 项�
 | `qiy preview` | 本地内存预览（不可部署） |
 
 `qiy dev` 首次运行会安装依赖并处理默认 SQLite 数据库。推荐用 `qiy dev --watch`：监听 `model/` 下的 `.qiy` 变更，防抖后自动重新生成、迁移，dev server 会重新加载；也可手动 `qiy generate`。
+
+## 用命令增量建模
+
+```bash
+qiy add entity suppliers --field name:Text --field email:Text --label "Suppliers" --icon ShopOutlined
+qiy add field products phone:Text --nullable
+qiy add field products sku:Text --unique --code "SKU-{seq:4}"
+```
+
+`add entity` 默认写入 `model/modules/10-catalog.qiy`，可用 `--module 10-catalog` 指定现有模块；实体默认带 `id UUID @id`。`add field` 插入到实体闭合括号前，保持现有缩进。两个命令都会在写入后解析整个项目，语法/校验失败时恢复原文件。适合人快速补字段，也适合 AI Agent 做结构化增量建模。
 
 ## 仓库维护者
 

@@ -90,6 +90,14 @@ qiy dev --watch
 
 `--watch` 会监听 `model/` 下的 `.qiy` 变更，防抖后自动重新生成、迁移并让 dev server 重新加载。保存模型即可看到字段变化。
 
+也可以用命令增量修改，让 Agent 或你都不用手写块结构：
+
+```bash
+qiy add entity suppliers --field name:Text --field email:Text --label "Suppliers"
+qiy add field products phone:Text --nullable
+qiy add field products sku:Text --unique --code "SKU-{seq:4}"
+```
+
 ## 5. 常用命令
 
 所有命令都在项目根目录运行，都会自动找到 `qiy.project.json`：

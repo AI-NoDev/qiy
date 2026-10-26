@@ -78,7 +78,7 @@
 
 ## 产品体验 Phase 2（CLI-first 之后）
 
-- [ ] `qiy add module/entity/feature`：结构化生成规范模型文本，方便人/AI 增量建模
+- [x] `qiy add module/entity/feature` 的结构化增量建模（Phase 2 首版：`add entity` / `add field`，写入后校验并回滚；module/feature 后续）
 - [ ] 友好语法 v1 RFC：`name: text`、`customer: Customer`、`lines: OrderLine[]`、可选分号；保留 v0 兼容
 - [ ] `qiy fmt` 规范格式化与 `qiy explain` 展开视图
 - [ ] 文档按任务重构：每页目标 → 命令 → 语法；仓库内部工具退出用户文档
