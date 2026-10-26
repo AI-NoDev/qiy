@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.3.1] - 2026-10-26
+
+### Added
+
+- `qiy dev --watch` watches `model/**/*.qiy`, debounces editor saves, regenerates
+  `admin/`, prepares migrations, and lets the generated dev servers reload. A
+  failed regeneration keeps the dev server running and prints the error plus the
+  fix hint.
+
 ## [0.3.0] - 2026-10-26
 
 ### Added
@@ -156,6 +165,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.3.1]: https://github.com/AI-NoDev/qiy/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/AI-NoDev/qiy/compare/v0.2.5...v0.3.0
 [0.2.5]: https://github.com/AI-NoDev/qiy/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/AI-NoDev/qiy/compare/v0.2.3...v0.2.4

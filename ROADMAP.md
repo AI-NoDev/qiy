@@ -82,7 +82,7 @@
 - [ ] 友好语法 v1 RFC：`name: text`、`customer: Customer`、`lines: OrderLine[]`、可选分号；保留 v0 兼容
 - [ ] `qiy fmt` 规范格式化与 `qiy explain` 展开视图
 - [ ] 文档按任务重构：每页目标 → 命令 → 语法；仓库内部工具退出用户文档
-- [ ] `qiy dev --watch`：模型变更自动重新生成并刷新页面
+- [x] `qiy dev --watch`：模型变更防抖后自动重新生成、迁移，dev server 重新加载
 
 ## P2：长期
 - [ ] Playwright E2E（登录、FK 批量、功能总览、API Key、Mermaid）+ 视觉回归

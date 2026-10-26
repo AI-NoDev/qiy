@@ -82,7 +82,13 @@ qiy generate    # 重新生成 admin/，保留扩展文件和本地环境变量
 qiy check       # 只校验模型，不写文件
 ```
 
-重新生成后重启 `qiy dev`，或保持 `qiy dev` 运行、在另一个终端执行 `qiy generate`（页面刷新即可看到字段变化）。
+重新生成后重启 `qiy dev`；开发时更推荐：
+
+```bash
+qiy dev --watch
+```
+
+`--watch` 会监听 `model/` 下的 `.qiy` 变更，防抖后自动重新生成、迁移并让 dev server 重新加载。保存模型即可看到字段变化。
 
 ## 5. 常用命令
 

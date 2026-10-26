@@ -7,6 +7,7 @@ qiy create project <name> [--template minimal|standard] [--dir <path>]
 qiy check
 qiy generate
 qiy dev
+qiy dev --watch
 qiy test
 qiy build
 qiy preview
@@ -38,12 +39,12 @@ qiy init -f <source> [-n <name>] [--sync]            # 挂载到现有 Bun 项�
 | `--dir <path>` | 改写目标目录 |
 | `qiy check` | 解析并校验模型，打印统计；不写文件 |
 | `qiy generate` | 生成或同步 `admin/`；已有生成物时自动 `--sync` |
-| `qiy dev` | 生成 → 首次安装依赖 → 生成并执行数据库迁移 → 启动 API + Admin |
+| `qiy dev [--watch]` | 生成 → 首次安装依赖 → 生成并执行数据库迁移 → 启动 API + Admin；`--watch` 监听 `model/` 并在保存后自动重生成/迁移 |
 | `qiy test` | 确保生成/安装后运行生成项目测试 |
 | `qiy build` | 确保生成/安装后生产构建 |
 | `qiy preview` | 本地内存预览（不可部署） |
 
-`qiy dev` 首次运行会安装依赖并处理默认 SQLite 数据库。修改模型后重新执行 `qiy generate`（或重启 `qiy dev`）；`qiy dev` 启动前会再次生成迁移。
+`qiy dev` 首次运行会安装依赖并处理默认 SQLite 数据库。推荐用 `qiy dev --watch`：监听 `model/` 下的 `.qiy` 变更，防抖后自动重新生成、迁移，dev server 会重新加载；也可手动 `qiy generate`。
 
 ## 仓库维护者
 

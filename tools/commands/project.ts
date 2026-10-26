@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, watch, type FSWatcher } from "node:fs";
+import { dirname, join } from "node:path";
 import { generateApp } from "./generate-app";
 import { explainQiyFile } from "./explain";
 import { createQiyProject, requireQiyProject, type QiyProjectLocation } from "../project";
@@ -57,19 +57,104 @@ async function ensureWorkspace(project: QiyProjectLocation): Promise<void> {
   }
 }
 
-/** `qiy dev`: regenerate, install on first run, then run the generated dev scripts. */
-export async function devProject(cwd = process.cwd()): Promise<void> {
-  const project = requireQiyProject(cwd);
-  await generateProject(cwd);
-  await ensureWorkspace(project);
-  // Keep the development database schema in step with the model. Generating
-  // migrations is a no-op when nothing changed; applying them is safe on SQLite.
+async function prepareDatabase(project: QiyProjectLocation): Promise<void> {
   console.log("Preparing the development database...");
   const generate = await run([process.execPath, "run", "db:generate"], project.outputPath);
   if (generate !== 0) throw new Error("bun run db:generate failed. Check the generated server .env.development and drizzle config.");
   const migrate = await run([process.execPath, "run", "db:migrate"], project.outputPath);
   if (migrate !== 0) throw new Error("bun run db:migrate failed. Check apps/server/.env.development (DATABASE_URL) and the database connection.");
-  const code = await run([process.execPath, "run", "dev"], project.outputPath);
+}
+
+export interface ProjectWatchOptions {
+  /** Coalesce bursts of editor writes (default 250ms). */
+  debounceMs?: number;
+}
+
+export interface ProjectWatcher {
+  close: () => void;
+}
+
+/**
+ * Watches the project's model directory and calls `onChange` after a debounced
+ * `.qiy` edit. Changes during an in-flight regeneration are queued and run once
+ * more, so a save never leaves `admin/` generated from a stale model.
+ */
+export function watchProjectModel(
+  project: QiyProjectLocation,
+  onChange: () => Promise<void> | void,
+  options: ProjectWatchOptions = {},
+): ProjectWatcher {
+  const debounceMs = options.debounceMs ?? 250;
+  const modelDirectory = dirname(project.modelPath);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let running = false;
+  let pending = false;
+  let closed = false;
+
+  const runChange = async (): Promise<void> => {
+    if (running) {
+      pending = true;
+      return;
+    }
+    running = true;
+    do {
+      pending = false;
+      try {
+        await onChange();
+      } catch (error) {
+        console.error(`Qiy watch regeneration failed: ${error instanceof Error ? error.message : String(error)}`);
+        console.error("The dev server keeps running; fix the model and save again.");
+      }
+    } while (pending && !closed);
+    running = false;
+  };
+
+  const schedule = (): void => {
+    if (closed) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      void runChange();
+    }, debounceMs);
+  };
+
+  const watcher: FSWatcher = watch(modelDirectory, { recursive: true }, (_event, filename) => {
+    const name = filename ? String(filename).replaceAll("\\", "/") : "";
+    // Recursive watchers can report the containing directory instead of the
+    // changed file; only ignore events that are clearly non-.qiy files.
+    if (name && /\.[^/]+$/.test(name) && !name.endsWith(".qiy")) return;
+    schedule();
+  });
+
+  return {
+    close: () => {
+      closed = true;
+      if (timer) clearTimeout(timer);
+      watcher.close();
+    },
+  };
+}
+
+/** `qiy dev`: regenerate, install on first run, then run the generated dev scripts. */
+export async function devProject(cwd = process.cwd(), options: { watch?: boolean } = {}): Promise<void> {
+  const project = requireQiyProject(cwd);
+  await generateProject(cwd);
+  await ensureWorkspace(project);
+  // Keep the development database schema in step with the model. Generating
+  // migrations is a no-op when nothing changed; applying them is safe on SQLite.
+  await prepareDatabase(project);
+  const watcher = options.watch
+    ? watchProjectModel(project, async () => {
+        console.log("Model changed, regenerating admin/ ...");
+        await generateProject(cwd);
+        await prepareDatabase(project);
+        console.log("Regenerated; the dev servers will reload changed files.");
+      })
+    : undefined;
+  if (watcher) console.log("Watching model/ for .qiy changes (Ctrl+C to stop).");
+  const child = Bun.spawn([process.execPath, "run", "dev"], { cwd: project.outputPath, stdout: "inherit", stderr: "inherit", stdin: "inherit" });
+  const code = await child.exited;
+  watcher?.close();
   if (code !== 0) process.exitCode = code;
 }
 

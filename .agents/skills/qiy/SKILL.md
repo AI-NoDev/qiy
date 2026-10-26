@@ -4,7 +4,7 @@ description: "Build and maintain applications with the Qiy CLI and .qiy models: 
 license: MIT
 metadata:
   short-description: "Build apps from .qiy models with the Qiy CLI"
-  version: "0.3.0"
+  version: "0.3.1"
   homepage: "https://ai-nodev.github.io/qiy/"
   skill-docs: "https://ai-nodev.github.io/qiy/guide/agent-skill"
   llms-txt: "https://ai-nodev.github.io/qiy/llms.txt"
@@ -59,7 +59,7 @@ Repeats are idempotent; local edits to official files are refused unless `--forc
 
 1. `qiy --version` and `qiy doctor`; if missing, install the release binary for the OS/CPU from GitHub Releases.
 2. `qiy create project <name>` and `cd <name>`; edit `model/app.qiy` and `model/modules/*.qiy`.
-3. `qiy check`, then `qiy dev` (generates, installs on first run, migrates the dev database, starts API + admin).
+3. `qiy check`, then `qiy dev --watch` (generates, installs on first run, migrates the dev database, starts API + admin, and regenerates on model saves).
 4. Before finishing: `qiy test` and `qiy build`; `qiy preview` is a loopback-only in-memory demo, never a deployment target.
 5. For a real database, change `database postgresql|mysql {}` in the model, fill `admin/apps/<server-alias>/.env.development`, then `qiy dev` (it generates/applies migrations). Production values go in `.env.production`.
 

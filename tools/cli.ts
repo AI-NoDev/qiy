@@ -23,7 +23,8 @@ Commands:
   generate                        Generate/sync the current project
     <source> <output-dir>         Legacy explicit generation; --sync updates it
   check                           Validate the current project model without writing
-  dev                             Generate, install on first run, start API + admin
+  dev [--watch]                   Generate, install on first run, start API + admin
+                                  (--watch regenerates on model/ changes)
   build                           Generate/install then run the production build
   test                            Generate/install then run generated tests
   preview                         Generate/install then run the local preview
@@ -174,7 +175,10 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case "dev": {
-      await devProject(process.cwd());
+      for (const argument of rest) {
+        if (argument !== "--watch" && argument !== "-w") throw new Error("Usage: qiy dev [--watch]\n\n" + USAGE);
+      }
+      await devProject(process.cwd(), { watch: flag(rest, "--watch", "-w") });
       return;
     }
     case "build":

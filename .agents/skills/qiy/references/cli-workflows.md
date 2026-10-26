@@ -52,6 +52,7 @@ qiy create project <name> [--template minimal|standard] [--dir <path>]
 qiy check
 qiy generate
 qiy dev
+qiy dev --watch
 qiy build
 qiy test
 qiy preview
@@ -76,7 +77,7 @@ qiy --version | -v
 | `create project <name>` | name | Creates `qiy.project.json`, `model/app.qiy`, `model/modules/*`; no generation/install. `--template minimal` only includes the catalog module; `--dir` changes the target |
 | `check` | - | Parses/validates the current project model and prints counts; writes nothing |
 | `generate` (project) | - | Generates/syncs `admin/` from the current project manifest |
-| `dev` | - | Generates, installs on first run, runs `db:generate` + `db:migrate`, starts the generated API + admin |
+| `dev` | - | Generates, installs on first run, runs `db:generate` + `db:migrate`, starts the generated API + admin; `--watch` regenerates/migrates on debounced `model/**/*.qiy` saves |
 | `build` / `test` / `preview` | - | Ensures generation/install, then runs that generated workspace script |
 | `create` (legacy) | `-f`, `-n`, `-o` | Generates a standalone Turborepo + Bun workspace from an existing model file |
 | `generate` (legacy) | `<source>`, `<output-dir>` | Same generation as legacy `create` with positional arguments |
@@ -101,6 +102,7 @@ cd shop
 # edit model/app.qiy and model/modules/*.qiy
 qiy check
 qiy dev
+qiy dev --watch
 ```
 
 - Writes only `qiy.project.json`, `model/` and project docs; it does not generate `admin/` or install dependencies.
@@ -225,6 +227,7 @@ qiy create project my-admin
 cd my-admin
 qiy check
 qiy dev
+qiy dev --watch
 # edit model/app.qiy or model/modules/*.qiy, then:
 qiy generate
 qiy test
