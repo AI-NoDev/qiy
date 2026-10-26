@@ -100,6 +100,7 @@
 - [x] `v0.2.2`：`qiy skill list/update/uninstall`（含 `--json`、本地修改保护、保留手写文件）；通过 dry-run → tag → Release 流程发布。
 - [x] `v0.2.3`：`qiy explain` / `qiy schema`，机器可读模型摘要 + 已发布 JSON Schema。
 - [x] `v0.2.4`：稳定错误码目录 `QIY1001–QIY1016`、`qiy explain --errors`、文档 `/dsl/errors`、`explain --json` 自动附带 code/fix。
+- [x] `v0.3.1`：`qiy dev --watch` 模型变更防抖自动重生成/迁移，dev server 重载。
 - [x] `v0.3.0`：CLI-first 项目工作流：`qiy create project` + `qiy check/generate/dev/test/build/preview`、模块化标准模板、CLI-first 快速开始与设计理念页；发布后二进制实测 `create project` 可用。
 - [x] `v0.2.5`：API 文档页下载当前账号过滤后的 OpenAPI JSON（`<title>.openapi.json`）。
 - [x] `v0.2.1`：补全官方 Agent Skill（router + 12 个 references），release + release-smoke 通过。
