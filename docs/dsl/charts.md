@@ -293,9 +293,8 @@ apps/web/tests/charts-render.test.tsx   # SSR 渲染五种视图与两种选择�
 
 ### 图标
 
-- `icon` 必须是生成到 `app/icons.tsx` 的 Ant Design `*Outlined` 名字。生成器把实体、字段、枚举值、菜单分组、旧 dashboard metric 的图标与一组默认图标收集进 `qiyIcons`，**但不收集 chart 的 `icon`**。
-- 后果：如果某个图标没有被模型的其它位置使用，即使它是合法的 AntD 图标，chart 卡片也不会显示图标（`qiyIcons[name]` 为 `undefined`，静默跳过）。这是当前实现的已知缺口，见文末[已知问题](#已知问题与歧义)。
-- chart 的 `icon` 不做格式校验，写错不会生成失败，只是渲染时没有图标。
+- `icon` 必须是 Ant Design 的 `*Outlined` 图标名。生成器会把 chart 级与每个视图的 `icon` 同样收集进 `qiyIcons`（与实体、字段、枚举值、菜单分组、旧 dashboard metric 的图标合并去重），因此 chart 专用的图标也会被导入和渲染。
+- 生成期只校验名字格式：不是 `[A-Z][a-zA-Z0-9]*Outlined` 会直接报 `Invalid Ant Design icon <name>`。如果名字格式正确但 Ant Design 并没有导出它，生成仍会成功，随后在生成项目的 typecheck/build 阶段以未导出成员错误暴露。
 
 ## 数据端点与取值
 
@@ -519,7 +518,8 @@ chart panels Wide {
 | `Chart name panels is reserved for chart panels blocks` | chart 叫 `panels` | 改名 |
 | `Chart MainPanel: name already used by a chart panel` | chart 与 panel 同名 | 改名 |
 | `Chart X pie view: duplicate labels mapping active` | `labels` 映射重复值 | 去重 |
-| 卡片没有图标 | chart 的 `icon` 不在 `qiyIcons` | 换一个模型其它位置已使用的 `*Outlined` 图标，或等到生成器收集 chart 图标 |
+| 卡片没有图标 | `icon` 不是 Ant Design 实际导出的 `*Outlined` 名字 | 换成 Ant Design 存在的 `*Outlined` 图标并重新生成 |
+| `Invalid Ant Design icon X` | `icon` 不符合 `*Outlined` 命名格式 | 改用正确的 `*Outlined` 名字 |
 
 ## 已知问题与歧义
 
@@ -532,7 +532,7 @@ chart panels Wide {
 5. **无 panel 时 `CanAccess` 层级不同**：panels 模式给整个卡片包 `CanAccess`，无 panel 模式只包卡片内容，可能留下空卡片头。
 6. **chips/表视图标题不显示**：`table` 视图的 `views.table.label` 不会出现在界面上；只有卡片头标题可见。
 
-> chart / chart view 的 `icon` 会随生成物收集进 `qiyIcons`（本项目已修复早期“图标缺失”问题）；若自定义图标名不在 Ant Design icons 中，生成期会报 `Invalid Ant Design icon`。
+> chart / chart view 的 `icon` 会随生成物收集进 `qiyIcons`（早期“图标缺失”问题已修复）；不符合 `*Outlined` 格式的名字在生成期报 `Invalid Ant Design icon`，格式正确但 Ant Design 未导出的名字在生成项目的 typecheck/build 阶段报未导出成员。
 
 ## 相关
 

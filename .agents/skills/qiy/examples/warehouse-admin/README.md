@@ -4,6 +4,28 @@ This is a complete modular Qiy project. Copy the entire `warehouse-admin` folder
 
 The model generates warehouses, products, and stock movements; explicit warehouse/product relations; movement type labels/colors/icons; grouped navigation; and a movement count dashboard.
 
+## What this example demonstrates
+
+| Concept | Where |
+| --- | --- |
+| Root `app.qiy` plus relative include fragments and a nested fragment include | `app.qiy`, `modules/catalog.qiy` |
+| Shared enums with labels, colors and icons | `modules/shared/enums.qiy` |
+| Entities with `UUID @id`, unique `Text` codes, enum and `DateTime` fields | `modules/catalog.qiy`, `modules/inventory.qiy` |
+| Explicit foreign keys and `@onDelete` behavior | `modules/inventory.qiy` |
+| Grouped menu plus a legacy dashboard metric | `modules/navigation.qiy` |
+| `api`/`storage` config blocks and workspace aliases for `qiy init` | `modules/application-config.qiy`, `app.qiy` |
+
+It deliberately stays small: it does not demonstrate auth, permissions, `@code`, dataflows, actions, charts, realtime or `features`. For those, read the focused references below and the full-feature model in the Qiy repository (`examples/self`). Every `.qiy` snippet can be added to this example after regenerating.
+
+## Where to read next
+
+- [Language reference](../../references/language-reference.md) - complete DSL map, all blocks and annotations
+- [Modeling and generation](../../references/modeling-and-generation.md) - fields, relations, indexes, generated codes, limits
+- [Auth and permissions](../../references/auth-permissions.md) - login modes, roles, restrict/scope/pages
+- [Dataflows and actions](../../references/dataflows-actions.md) - transactional commands and buttons
+- [CLI workflows](../../references/cli-workflows.md) - create/init/generate/--sync/skill install
+- [Skill entrypoint](../../SKILL.md) - routing table for all references
+
 ## Generate and run
 
 From the project root after copying this folder to models/warehouse:
@@ -43,6 +65,7 @@ For later model changes, run `qiy init -f models/warehouse/app.qiy --sync` and r
 - Name/path collision during `init`: change `workspace.aliases` in `app.qiy`, then retry; do not remove host files to force generation.
 - Preview port is occupied: stop the other process or set a free `PORT` for the preview process.
 - A generated build passes but a real service fails: configure and test the database, identity provider, storage, and external API separately; compilation is not a production integration test.
+- Any other error: look up the exact message in [Troubleshooting](../../references/troubleshooting.md).
 
 ## Files
 

@@ -71,12 +71,20 @@ tar -xzf qiy-skill.tar.gz -C .agents/skills
 
 ```text
 qiy/
-├── SKILL.md                         # 必需：frontmatter + 使用路由 + 关键约定
+├── SKILL.md                         # 必需：frontmatter + 使用路由 + 安全规则
 ├── references/
-│   ├── modeling-and-generation.md   # 建模、include、permissions、dataflow、charts、auth…
-│   ├── cli-workflows.md             # create/init/generate/--sync/scripts/preview
-│   ├── workspace-integration.md     # 现有 Bun workspace 集成、alias、宿主适配
-│   └── production-boundaries.md     # 部署、安全边界、真实外部服务验收
+│   ├── language-reference.md        # DSL 全量地图：词法、声明顺序、全部块/设置、注解矩阵
+│   ├── modeling-and-generation.md   # 数据建模：include、字段、关系、索引、@code、显示模板、限制
+│   ├── auth-permissions.md          # 认证模式、Provider、permission/verification/restrict/scope/pages
+│   ├── refine-providers.md          # 生成后的 Refine Provider：DataProvider/AuthProvider/can()/Live/Audit
+│   ├── dataflows-actions.md         # dataflow、action、批量、workflow、app.test.qiy
+│   ├── ui-charts-i18n.md            # ui/主题、menu、dashboard、chart/chart panels、messages/i18n
+│   ├── system-features.md           # features、系统页、OpenAPI 过滤、API Key 生命周期
+│   ├── storage-realtime.md          # 文件存储/上传/清理、realtime/outbox 运维
+│   ├── testing-deployment.md        # typecheck/test/build、迁移、部署、真实服务验收
+│   ├── cli-workflows.md             # create/init/generate/--sync/doctor/skill install
+│   ├── workspace-integration.md     # 现有 Bun 工程集成、alias、宿主适配、integration 契约
+│   └── troubleshooting.md           # 跨模块错误对照表
 └── examples/warehouse-admin/        # 完整可运行的多文件仓储 Admin
 ```
 
@@ -91,20 +99,24 @@ qiy/
 
 **渐进式加载**是这套 skill 的核心：Agent 先读 `SKILL.md`（很小，含“任务 → 读哪个 reference”表），只在需要时加载对应 reference；`examples/` 只在需要完整可运行模型时读取。这样检索成本低、上下文占用少，也不会把全部细节一次性塞进 prompt。
 
+每个 reference 都是自包含的离线资料：包含可复制的语法片段、参数/默认值表、校验错误与安全边界，并在末尾给出对应文档站的权威链接；相对链接（包括指向 `SKILL.md` 与 `examples/` 的链接）由 `tests/ai-development.test.ts` 校验。
+
 ## 给 AI Agent 的使用约定
 
 1. 先确认 `qiy --version` 与 `qiy --help`；skill 不安装 CLI。
-2. 建模/改模型时先读 `references/modeling-and-generation.md`，不要凭记忆发明 DSL 语法；权威语法见文档站 [DSL 参考](/dsl/overview)。
+2. 任何 `.qiy` 语法问题先读 `references/language-reference.md`（词法、声明顺序、全部块与注解）；建模细节读 `references/modeling-and-generation.md`。不要凭记忆发明 DSL 语法；权威语法见文档站 [DSL 参考](/dsl/overview)。
 3. 生成后必须运行 typecheck、测试、build，再声称完成；`preview` 只用于本地验证。
 4. `.qiy` 中不写任何密码/密钥；认证、存储、数据库凭据只通过环境变量与部署 secret 注入。
 5. 修改已有生成项目时优先 `--sync`，尊重 `.qiy-generated.json` 的所有权边界；自定义逻辑放到不受管理目录（如 `extensions/`）。
 6. 需要发现更多 Qiy 文档时，优先请求文档站的 [llms.txt](/llms.txt)（精选索引）或 [llms-full.txt](/llms-full.txt)（全文），而不是逐页爬取。
+7. 不确定的错误先查 `references/troubleshooting.md`；它按校验/认证/命令/存储/CLI/部署分组给出精确错误串与修复方式。
 
 ## 更新与版本
 
 - Skill 内容随 Qiy 发行版打包；升级 CLI 后运行 `qiy skill install --force` 即可同步。
+- 本版本重构了参考文件：早期单一的 `references/production-boundaries.md` 扩展并更名为 `references/testing-deployment.md`，并新增 `language-reference.md`、`auth-permissions.md`、`refine-providers.md`、`dataflows-actions.md`、`ui-charts-i18n.md`、`system-features.md`、`storage-realtime.md`、`troubleshooting.md`；`modeling-and-generation.md`、`cli-workflows.md`、`workspace-integration.md` 同步补全 0.2 能力。安装只覆盖官方文件、不删除本地遗留文件，因此从旧版本升级后可手动删除旧的 `production-boundaries.md`。
 - 文档站的静态 skill 与 `llms.txt` 在每次 `bun run docs:build` 时重新生成，不需要额外发布流水线或第三方 skill 市场。
-- 发布版本以 Git tag（如 `v0.2.0`）与 GitHub Release 为准。
+- 发布版本以 Git tag（如 `vX.Y.Z`）与 GitHub Release 为准。
 
 ## 相关
 

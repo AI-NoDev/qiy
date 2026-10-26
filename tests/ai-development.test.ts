@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { generateApp } from "../tools/commands/generate-app";
 import { initApp } from "../tools/commands/init";
 import { installSkill, resolveSkillDestination } from "../tools/commands/skill";
@@ -15,9 +15,18 @@ const model = `qiy v0; application inventory {
 function checkLinks(root: string, path: string): void {
   const text = readFileSync(join(root, path), "utf8");
   for (const match of text.matchAll(/\]\(([^)]+)\)/g)) {
-    if (/^https?:\/\//.test(match[1]!)) continue;
-    expect(existsSync(resolve(root, path, "..", match[1]!))).toBe(true);
+    const target = match[1]!;
+    if (/^https?:\/\//.test(target) || target.startsWith("#")) continue;
+    expect(existsSync(resolve(root, path, "..", target))).toBe(true);
   }
+}
+
+function markdownFiles(root: string): string[] {
+  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) return markdownFiles(path);
+    return entry.isFile() && entry.name.endsWith(".md") ? [path] : [];
+  });
 }
 
 test("create documents actual generated files and preserves custom agent instructions on sync", async () => {
@@ -66,6 +75,9 @@ test("official skill installs complete resources offline and preflights local ch
     expect(readFileSync(resolve(import.meta.dir, "../.agents/skills/qiy", path), "utf8")).toBe(content);
   }
   checkLinks(installed, "SKILL.md");
+  const installedMarkdown = markdownFiles(installed).map((file) => relative(installed, file).replaceAll("\\", "/"));
+  expect(installedMarkdown.length).toBe(Object.keys(QIY_SKILL_FILES).filter((path) => path.endsWith(".md")).length);
+  for (const path of installedMarkdown) checkLinks(installed, path);
   installSkill(root);
   writeFileSync(join(installed, "SKILL.md"), "Local edits");
   writeFileSync(join(installed, "custom.md"), "Keep this");
@@ -96,4 +108,47 @@ test("official skill installs into global and agent-specific directories", () =>
   mkdirSync(join(legacyRoot, ".agent/skills/qiy"), { recursive: true });
   const legacy = installSkill(legacyRoot);
   expect(legacy).toBe(join(legacyRoot, ".agent/skills/qiy"));
+});
+
+test("official skill is a compact router with complete, keyword-covered references", () => {
+  const skillRoot = resolve(import.meta.dir, "../.agents/skills/qiy");
+  const files = markdownFiles(skillRoot)
+    .map((file) => relative(skillRoot, file).replaceAll("\\", "/"))
+    .sort();
+  expect(files).toContain("SKILL.md");
+  expect(files).toContain("examples/warehouse-admin/README.md");
+  for (const file of files) checkLinks(skillRoot, file);
+
+  const skillText = readFileSync(join(skillRoot, "SKILL.md"), "utf8");
+  expect(skillText.split("\n").length).toBeLessThanOrEqual(150);
+  expect(skillText).toContain("## Progressive disclosure");
+  for (const keyword of ["qiy create", "qiy init", "qiy generate", "--sync", "skill install --global", "--dir"]) {
+    expect(skillText).toContain(keyword);
+  }
+  // Keep the skill metadata version aligned with the CLI package version so the
+  // bundled skill always advertises the release it shipped in.
+  const packageVersion = JSON.parse(readFileSync(resolve(import.meta.dir, "../package.json"), "utf8")).version as string;
+  expect(skillText).toContain(`version: "${packageVersion}"`);
+
+  // Each reference must exist and mention the DSL areas it owns, so an agent can
+  // retrieve a self-contained answer without falling back to the website.
+  const coverage: Record<string, string[]> = {
+    "references/language-reference.md": ["annotations", "@code", "restrict", "scope", "messages", "features", "chart panels"],
+    "references/modeling-and-generation.md": ["@code", "relation", "index", "display template", "include"],
+    "references/auth-permissions.md": ["permissions", "verify", "restrict", "scope", "API key", "onboarding"],
+    "references/refine-providers.md": ["DataProvider", "AuthProvider", "can()", "LiveProvider", "AuditLogProvider"],
+    "references/dataflows-actions.md": ["dataflow", "app.test.qiy", "idempotency", "orderInventory"],
+    "references/ui-charts-i18n.md": ["charts", "chart panels", "messages", "menu", "colorMode"],
+    "references/system-features.md": ["features", "apiKeys", "OpenAPI", "qiy_api_keys"],
+    "references/storage-realtime.md": ["storage", "realtime", "attachments", "outbox"],
+    "references/testing-deployment.md": ["typecheck", "deploy", "migration", "db:check"],
+    "references/cli-workflows.md": ["create", "init", "--sync", "doctor", "skill install --dir"],
+    "references/workspace-integration.md": ["mode integration", "aliases", "CSRF", "tenant"],
+    "references/troubleshooting.md": ["401", "403", "drift"],
+  };
+  for (const [file, keywords] of Object.entries(coverage)) {
+    expect(files).toContain(file);
+    const text = readFileSync(join(skillRoot, file), "utf8").toLowerCase();
+    for (const keyword of keywords) expect(text).toContain(keyword.toLowerCase());
+  }
 });

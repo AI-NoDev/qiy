@@ -1,35 +1,77 @@
-# CLI Workflows
+# CLI workflows
 
-## Install the Qiy CLI
+Use this file when you need the exact Qiy CLI commands, flags, output layout, environment requirements, upgrade/sync behavior, or the skill-install command. Every command here is implemented; anything else is not.
 
-The Qiy Agent Skill and the Qiy executable are separate: installing this Skill does not install qiy.
+Canonical reference: https://ai-nodev.github.io/qiy/guide/cli
 
-Download the matching standalone executable from the [Qiy GitHub Releases](https://github.com/AI-NoDev/qiy/releases/latest):
+## Contents
 
-| Platform | Release asset pattern |
+- [Install and verify the CLI](#install-and-verify-the-cli)
+- [Command reference](#command-reference)
+- [create: new standalone project](#create-new-standalone-project)
+- [generate: compatibility command](#generate-compatibility-command)
+- [init: mount into an existing Bun project](#init-mount-into-an-existing-bun-project)
+- [Install this skill from the CLI](#install-this-skill-from-the-cli)
+- [doctor](#doctor)
+- [First run](#first-run)
+- [Output layout](#output-layout)
+- [Environment requirements](#environment-requirements)
+- [Upgrade and --sync](#upgrade-and-sync)
+- [Common problems](#common-problems)
+
+## Install and verify the CLI
+
+The skill and the executable are separate: installing this skill does not install `qiy`.
+
+Download the asset matching the OS/CPU from [Qiy GitHub Releases](https://github.com/AI-NoDev/qiy/releases/latest):
+
+| Platform | Asset pattern |
 | --- | --- |
-| Windows x64 | qiy-<version>-windows-x64.exe |
-| Linux x64 | qiy-<version>-linux-x64 |
-| Linux ARM64 | qiy-<version>-linux-arm64 |
-| macOS x64 | qiy-<version>-darwin-x64 |
-| macOS ARM64 | qiy-<version>-darwin-arm64 |
+| Windows x64 | `qiy-<version>-windows-x64.exe` |
+| Linux x64 | `qiy-<version>-linux-x64` |
+| Linux ARM64 | `qiy-<version>-linux-arm64` |
+| macOS x64 | `qiy-<version>-darwin-x64` |
+| macOS ARM64 | `qiy-<version>-darwin-arm64` |
 
-Place the executable in a directory on PATH. On Linux/macOS, mark it executable with chmod +x qiy-<version>-<platform>-<arch>. Verify the download:
+Put the executable on `PATH` (or call it by path), `chmod +x` on Linux/macOS, then:
 
-~~~sh
+```bash
 qiy --version
 qiy --help
-~~~
+```
 
-On Windows, either add the download folder to PATH and use `qiy`, or run it from the current folder as `./qiy-<version>-windows-x64.exe --help` in PowerShell. Replace the filename with the asset matching the user's OS and CPU architecture.
+From a Qiy source checkout use `bun run qiy -- --help` instead. Do not assume `bunx qiy` exists; it only works if a published npm package is installed and resolves to the expected version.
 
-When working from a Qiy source checkout, run bun run qiy -- --help instead. Do not assume bunx qiy is available unless the user has installed a published npm package and verified it resolves to the expected version.
+The executable embeds the Admin template, so it can generate a complete application outside the repository. The public input format is `.qiy` only; MPS models and Database IR are maintainer tools, not CLI inputs.
 
-## Generate a standalone project
+## Command reference
 
-create makes a complete Turborepo + Bun workspace. The output directory must be empty or not exist.
+```text
+qiy create -f <source.qiy> -n <name> -o <output-dir> [--sync]
+qiy generate <source.qiy> <output-dir> [--sync]
+qiy init -f <source.qiy> [-n <name>] [-o <project-root>] [--sync]
+qiy doctor [--json]
+qiy skill install [--force] [--global] [--dir <path>]
+qiy help            # same as --help
+qiy --help | -h
+qiy --version | -v
+```
 
-~~~sh
+| Command | Required flags | Behavior |
+| --- | --- | --- |
+| `create` | `-f`, `-n`, `-o` | Generates a standalone Turborepo + Bun workspace. `-o` must be empty or absent; `-n` names the workspace/packages |
+| `generate` | `<source>`, `<output-dir>` | Same generation as `create` with positional arguments, kept for compatibility |
+| `init` | `-f` | Mounts server/web packages into the current Bun workspace. `-o` selects another project root; `-n` overrides the integration name once |
+| `doctor` | - | Checks Bun runtime, the embedded Admin template and the current workspace's Bun declaration; `--json` prints machine-readable output |
+| `skill install` | - | Installs the bundled official skill (see below) |
+| `help` / `--help` / `-h` | - | Prints usage |
+| `--version` / `-v` | - | Prints the CLI version |
+
+Unknown commands exit 1 with `Unknown command: <name>` plus usage. There is no `qiy dev`, `qiy build`, `qiy deploy`, `qiy test` or `qiy release` subcommand - run generated package scripts with Bun instead.
+
+## create: new standalone project
+
+```bash
 qiy create -f ./models/warehouse/app.qiy -n warehouse-admin -o ./warehouse-admin
 cd ./warehouse-admin
 bun install
@@ -37,53 +79,180 @@ bun run typecheck
 bun run test
 bun run build
 bun run preview
-~~~
+```
 
-Open the URL printed by preview (normally http://127.0.0.1:3000). It is a local demo with in-memory data, not a production server. Stop it with Ctrl+C.
+- The source must be a `.qiy` file and may use relative `include` fragments; absolute includes, `..`, cycles and symlink escapes are rejected.
+- The output directory must be empty or not exist (`Output directory must be empty`). Use `--sync` only on a directory previously generated by Qiy.
+- `create` ignores most `workspace.aliases` and always produces `apps/server` and `apps/web`.
+- `preview` binds loopback only and serves an in-memory repository; it is a local demo, not a production server. Stop it with Ctrl+C.
+- On success the project contains `openwiki/{quickstart,architecture,development}.md`, `AGENTS.md` and the compatibility `AGENT.MD`, documenting the files and scripts that were actually generated.
 
-To update a project already generated by Qiy, use qiy generate <model.qiy> <existing-directory> --sync or qiy create ... --sync. Sync is for Qiy-generated workspaces, not arbitrary repositories. Review the ownership manifest and diff before accepting updates.
+## generate: compatibility command
 
-## Mount into an existing Bun project
+```bash
+qiy generate ./models/app.qiy ./out/admin
+qiy generate ./models/app.qiy ./out/admin --sync
+```
 
-Use init only when the current project root has a package.json with "packageManager": "bun@...". It does not add Turborepo or overwrite host root scripts. Set aliases in the .qiy model's optional workspace block.
+Identical to `create` except arguments are positional and no `-n` override exists (the application name is used). Prefer `create` for a first generation; use `generate ... --sync` to maintain a workspace that Qiy generated.
 
-~~~sh
+## init: mount into an existing Bun project
+
+```bash
 cd /path/to/existing-bun-project
-qiy init -f ./models/warehouse/app.qiy
+qiy init -f ./models/admin.qiy
 bun install
-bun run qiy:warehouse-admin:typecheck
-bun run qiy:warehouse-admin:test
-~~~
+bun run qiy:admin:typecheck
+bun run qiy:admin:test
+```
 
-The command mounts server/web packages under apps/, writes aliased deployment files, adds apps/* to the Bun workspace if missing, and adds namespaced qiy:<name>:* scripts. It rejects file and script conflicts instead of replacing host files. See [Bun workspace integration](workspace-integration.md) for the full layout and safe extension points.
+Requirements and behavior:
 
-Each mounted admin gets its own environment files under the aliased app directories. Qiy never writes to the host root `.env*` files. Edit `apps/<server-alias>/.env.development` for local server development and `apps/<server-alias>/.env.production` for Compose/production. The web app receives Vite development/production files. `--sync` preserves existing values and user-added entries in development/production files while adding new declared variables.
+- The target root's `package.json` must declare `"packageManager": "bun@<version>"`; `qiy init` refuses to write otherwise.
+- Packages are mounted as `apps/<server-alias>` and `apps/<web-alias>`; deployment files are named from the deploy alias. Declare aliases in the model's `workspace` block ([workspace-integration.md](workspace-integration.md)).
+- Qiy preserves existing workspace patterns, adds `apps/*` when missing, and adds direct `qiy:<name>:*` scripts (`typecheck`, `test`, `preview`, ...). It does not add Turborepo, a `turbo` dependency, or replace host root scripts.
+- Conflicting host files or scripts make the command fail instead of overwriting. Resolve by choosing non-conflicting aliases.
+- Each mounted admin gets its own env files under the aliased app directories. Qiy never writes the host root `.env*`.
+- `--sync` updates only manifest-registered files and removes registered files the model no longer generates; unowned host files are never touched.
+- `mode integration` models mount only the web package (no server, Drizzle, migrations, Docker/Compose) and generate host adapters under `apps/<web>/app/host/`.
 
-Use qiy init -f <model.qiy> --sync to refresh this integration. The .qiy-<name>.generated.json manifest defines which files Qiy owns. Do not hand-edit owned generated files; put custom hooks, plugins, API adapters, auth integration, and domain modules outside the manifest. Review sync output because Qiy removes stale files it owns.
+## Install this skill from the CLI
 
-## CLI reference
+The CLI bundles this skill offline; no network is required.
 
-~~~text
-qiy --help
+```bash
+# Current project: <project>/.agents/skills/qiy
+qiy skill install
+
+# User level: ~/.agents/skills/qiy
+qiy skill install --global
+
+# Any agent-specific skills directory
+qiy skill install --dir .claude/skills/qiy
+qiy skill install --dir .cursor/skills/qiy
+qiy skill install --dir ~/.codex/skills/qiy
+
+# After a CLI upgrade: replace locally modified official files
+qiy skill install --force
+```
+
+| Flag | Effect |
+| --- | --- |
+| none | Writes `.agents/skills/qiy` under the current project |
+| `--global` | Writes `~/.agents/skills/qiy` |
+| `--dir <path>` | Writes the given directory; relative to the project, absolute, or `~/...` |
+| `--force` | Replaces official files that were modified locally; unrelated files are always preserved |
+
+Behavior: repeating an install is idempotent; if an official file differs from the bundled version the command refuses with `Qiy skill has local changes...` and suggests `--force`; a legacy `.agent/skills/qiy` directory is updated in place when it is the only one present; only the skill's `SKILL.md`, `references/` and `examples/` are written. The installed bundle always matches the current CLI version - it never downloads a newer one.
+
+No network? Extract the published archive instead:
+
+```bash
+tar -xzf qiy-skill.tar.gz -C .agents/skills
+# produces .agents/skills/qiy/{SKILL.md,references/,examples/}
+```
+
+Static copies: `https://ai-nodev.github.io/qiy/skills/qiy/SKILL.md` and `.../skills/qiy-skill.tar.gz`. Prefer the CLI so versions stay aligned with the binary.
+
+## doctor
+
+```bash
+qiy doctor
+qiy doctor --json
+```
+
+Checks the Bun runtime, the embedded Admin template and the current directory's Bun package-manager declaration. Outside a Bun workspace it prints a warning; `qiy init` still refuses to write. `--json` emits the report for CI. The command exits 1 when the report is not OK, so it can gate a pipeline.
+
+## First run
+
+```bash
 qiy --version
+qiy doctor
+qiy create -f models/app.qiy -n my-admin -o out/my-admin
+cd out/my-admin
+bun install
+bun run typecheck
+bun run test
+bun run build
+bun run preview
+```
 
-qiy create -f <model.qiy> -n <name> -o <empty-directory> [--sync]
-qiy init -f <model.qiy> [-n <name>] [-o <bun-project-root>] [--sync]
-qiy generate <model.qiy> <directory> [--sync]
-~~~
+For a real database: edit `apps/server/.env.development`, set `DATABASE_URL`, run `bun run db:generate` and `bun run db:migrate`, then `bun run dev:server` and `bun run dev:web`. Production configuration lives in `apps/server/.env.production`. A server without auth refuses to start unless `QIY_DEV_MODE=1`.
 
-create is the recommended command for a new standalone project. init accepts `.qiy` and mounts into the current directory by default; `-o` can select a Bun project root explicitly. `-n` on init temporarily overrides the integration name from the model; normally set `workspace.name` once in `.qiy` instead. Use `.qiy` as the project input format.
+## Output layout
+
+```text
+my-admin/
+├── apps/
+│   ├── server/                 # Bun + Elysia API
+│   │   ├── src/                # db, contracts, repositories, services, routes, auth, storage, http.ts
+│   │   ├── drizzle/            # generated migrations + down/
+│   │   ├── tests/
+│   │   └── .env.{development,production,example}
+│   └── web/                    # Refine + React Router SPA
+│       ├── app/                # routes, components, hooks, providers, ui, extensions, i18n.ts
+│       ├── tests/
+│       └── .env.{development,production,example}
+├── deploy/                     # nginx.conf, vercel.json, kubernetes/, observability/
+├── Dockerfile, docker-compose.yml, turbo.json, package.json
+├── openwiki/, AGENTS.md, AGENT.MD
+└── .qiy-generated.json         # manifest of Qiy-owned files
+```
+
+`init` uses aliases instead (`apps/<server-alias>`, `apps/<web-alias>`, `deploy/<deploy-alias>`, `<deploy-alias>.Dockerfile`, `docker-compose.<deploy-alias>.yml`, `.qiy-<name>.generated.json`) and puts agent entrypoints in the web package plus `openwiki/qiy-<name>/`.
+
+## Environment requirements
+
+| Requirement | Applies to | Notes |
+| --- | --- | --- |
+| Bun 1.3+ | CLI and generated projects | `bun --version` |
+| `.qiy` source | All generation commands | `.qiy` is the only public input format |
+| Empty output directory | `create`/`generate` without `--sync` | Otherwise `Output directory must be empty` |
+| `packageManager: bun@...` | `init` | Hard requirement in the target root |
+| `DATABASE_URL` | Real server runtime and migrations | Preview does not need it |
+| `QIY_DEV_MODE=1` | Local server without auth | Never in production |
+| `QIY_AUTH_SECRET` (>= 32 chars) | Local/hybrid/OTP/API-key auth | Production startup check |
+| `QIY_STORAGE_METADATA=database` | Production storage | Startup check |
+| `HTTPS_PROXY` / `HTTP_PROXY` | Restricted networks | Bun `fetch` for IdP token endpoints |
+| Docker (optional) | Multi-platform executables, acceptance scripts | `bun run build:exe -- --all` |
+
+`.env` files are generated per mode; `--sync` merges new variables while preserving existing values and user-added entries. Never commit real secrets; the `example` files are placeholders.
+
+## Upgrade and sync
+
+- The CLI version and the skill bundle are released together. After upgrading the binary, run `qiy skill install --force` to refresh official skill files.
+- `.qiy-generated.json` records `schemaVersion: 1` and the generating `qiyVersion`. A manifest schema change makes an old `--sync` fail explicitly instead of guessing.
+- The DSL has no forward compatibility: unknown constructs/annotations fail. After an upgrade, regenerate with `qiy generate ... --sync` or `qiy init --sync` and review every generated migration before applying it.
+- `--sync` rewrites only manifest-registered files and deletes registered files the model no longer generates. Files outside the manifest (including `apps/web/app/extensions/` and `apps/server/src/extensions/`) are preserved.
+- Do not hand-edit manifest-owned files and expect merges. Put long-lived custom behavior in unowned extensions, hooks, plugins or host adapters.
+- Sync can fail on local edits to official skill files only for `qiy skill install`; project sync is unaffected by that check.
 
 ## Common problems
 
-| Message or symptom | What to check |
-| --- | --- |
-| qiy is not recognized / command not found | Put the downloaded executable directory on PATH, reopen the terminal, then run qiy --version. |
-| Output directory must be empty | Choose a new directory. Use --sync only for a workspace previously generated by Qiy. |
-| qiy init requires packageManager to declare Bun | Add the exact Bun version to the existing root package.json, for example packageManager bun@1.3.13, then run bun install. |
-| Refusing to overwrite existing host file | Change workspace.aliases in .qiy to non-conflicting names; do not delete the host file just to make generation pass. |
-| Include does not exist or cycle detected | Check the path relative to the including .qiy file and remove the cycle. |
-| Port is already in use | Stop the other local server or set PORT to an available port. |
-| Build passes but API/auth is not connected | Build only verifies compilation. Configure the real database and identity provider and implement adapters for existing API contracts. |
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `qiy is not recognized` / command not found | Executable not on `PATH` | Add its directory, reopen the terminal, run `qiy --version` |
+| `Output directory must be empty` | Target has files and no `--sync` | Use a new directory, or `--sync` on a Qiy-generated workspace |
+| `qiy init requires packageManager to declare Bun` | Host root has no Bun declaration | Add `"packageManager": "bun@<version>"`, run `bun install` |
+| `Refusing to overwrite existing host file` | Alias collides with a host path/script | Change `workspace.aliases`; do not delete host files to force generation |
+| `Unknown command: dev` | Generated projects use Bun scripts | `bun run dev` / `bun run preview` inside the workspace |
+| Include error or cycle | Wrong relative path or a cycle | Fix the path relative to the including file; remove the cycle |
+| Port already in use | Another local server | Stop it or set `PORT` |
+| Build passes but API/auth is not connected | Build only compiles | Configure the real database/IdP and implement adapters |
+| `Qiy skill has local changes` | Official skill files were edited | Re-run with `--force` (unrelated files are preserved) |
+| Doctor exits 1 | Runtime/template/package-manager problem | Read the report (or `--json`), fix Bun or the workspace |
 
-Before any --sync, inspect the model and host workspace. Preserve unowned files and back up important host changes as part of the normal project workflow.
+## Related references
+
+- [Workspace integration](workspace-integration.md) - aliases, integration mode, host adapters
+- [Modeling and generation](modeling-and-generation.md) - model syntax and includes
+- [Testing and deployment](testing-deployment.md) - scripts, migrations, acceptance
+- [Language reference](language-reference.md) - every block and setting
+- [Troubleshooting](troubleshooting.md) - cross-area errors
+
+## Canonical docs
+
+- [CLI and release](https://ai-nodev.github.io/qiy/guide/cli)
+- [Getting started](https://ai-nodev.github.io/qiy/guide/getting-started)
+- [Existing Bun project](https://ai-nodev.github.io/qiy/guide/existing-bun-project)
+- [Project structure](https://ai-nodev.github.io/qiy/guide/project-structure)
