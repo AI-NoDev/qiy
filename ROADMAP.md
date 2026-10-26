@@ -102,6 +102,7 @@
 - [x] `v0.2.2`：`qiy skill list/update/uninstall`（含 `--json`、本地修改保护、保留手写文件）；通过 dry-run → tag → Release 流程发布。
 - [x] `v0.2.3`：`qiy explain` / `qiy schema`，机器可读模型摘要 + 已发布 JSON Schema。
 - [x] `v0.2.4`：稳定错误码目录 `QIY1001–QIY1016`、`qiy explain --errors`、文档 `/dsl/errors`、`explain --json` 自动附带 code/fix。
+- [x] `v0.4.0`：v1 友好语法预览（v1→v0 预处理器，project/module、name:type、自动主键、内联 one 关系；explain/generate/fmt 自动识别）。
 - [x] `v0.3.4`：`qiy add module`（按 kind 插入 include）与 `qiy add feature`（overview/apiDocs/apiKeys，校验失败回滚）。
 - [x] `v0.3.3`：`qiy fmt [--check]` 保留语义的空白规范化；设计理念页发布 v1 友好语法 RFC（解析器待实现）。
 - [x] `v0.3.2`：`qiy add entity` / `qiy add field` 结构化增量建模（写入后全项目校验、失败回滚）。
