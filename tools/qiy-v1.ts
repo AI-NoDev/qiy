@@ -91,13 +91,14 @@ export function translateQiyV1(source: string): string {
   const relations: string[] = [];
   const pendingMany: Array<{ parent: V1Entity; targetType: string; lineNumber: number }> = [];
   let currentEntity: V1Entity | undefined;
+  let entityParent: "top" | "module" = "module";
   let mode: "top" | "module" | "entity" = "top";
 
   const finishEntity = (): void => {
     if (!currentEntity) return;
     entities.push(currentEntity);
     currentEntity = undefined;
-    mode = "module";
+    mode = entityParent;
   };
 
   const startEntity = (friendly: string): void => {
@@ -110,6 +111,7 @@ export function translateQiyV1(source: string): string {
       fieldNames: new Set(),
       hasId: false,
     };
+    entityParent = mode as "top" | "module";
     mode = "entity";
   };
 

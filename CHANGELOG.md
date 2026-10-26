@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.4.2] - 2026-10-26
+
+### Added
+
+- `qiy add entity` and `qiy add field` now detect v1 entry files and write v1
+  declarations (`entity Name { name: text }` / `phone: text nullable`), then
+  validate through the v1→v0 preprocessor and roll back on failure. `qiy add
+  module/feature` remain v0-only and say so explicitly.
+
 ## [0.4.1] - 2026-10-26
 
 ### Added
@@ -220,6 +229,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.4.2]: https://github.com/AI-NoDev/qiy/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/AI-NoDev/qiy/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/AI-NoDev/qiy/compare/v0.3.4...v0.4.0
 [0.3.4]: https://github.com/AI-NoDev/qiy/compare/v0.3.3...v0.3.4

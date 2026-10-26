@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { addEntity, addField, addModule } from "../tools/commands/add";
 import { generateApp } from "../tools/commands/generate-app";
-import { explainQiySource } from "../tools/commands/explain";
+import { explainQiyFile, explainQiySource } from "../tools/commands/explain";
 import { parseQiyProject } from "../tools/qiy-project";
 import { isQiyV1Source, translateQiyV1, v1TableName } from "../tools/qiy-v1";
 
@@ -98,4 +99,19 @@ test("v1 preview rejects unsupported constructs with actionable errors", () => {
   expect(() => translateQiyV1("database sqlite\n")).toThrow(/missing `project/);
   expect(() => translateQiyV1("project x\nentity A {\n name: text bogus\n}\n")).toThrow(/unsupported field modifier/);
   expect(() => translateQiyV1("project x\nentity A {\n name: text\n}\nentity A {\n x: text\n}\n")).toThrow(/Duplicate entity/);
+});
+
+test("qiy add entity/field supports v1 projects", async () => {
+  const root = mkdtempSync(join(tmpdir(), "qiy-v1-add-"));
+  writeFileSync(join(root, "qiy.project.json"), JSON.stringify({ formatVersion: 1, name: "v1-shop", template: "minimal", model: "app.qiy", output: "admin" }));
+  writeFileSync(join(root, "app.qiy"), "project v1-shop\ndatabase sqlite\n\nentity products {\n  name: text\n}\n");
+  await addEntity("suppliers", { cwd: root, fields: ["name:Text"] });
+  await addField("suppliers", "phone:Text", { cwd: root, nullable: true });
+  const source = readFileSync(join(root, "app.qiy"), "utf8");
+  expect(source).toContain("entity suppliers {");
+  expect(source).toContain("name: text");
+  expect(source).toContain("phone: text nullable");
+  const explanation = await explainQiyFile(join(root, "app.qiy"));
+  expect(explanation.entities.map((entity) => entity.name)).toContain("suppliers");
+  await expect(addModule("sales", { cwd: root })).rejects.toThrow(/v0 feature/);
 });

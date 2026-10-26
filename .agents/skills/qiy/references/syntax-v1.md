@@ -41,7 +41,7 @@ Commands need no flag: `qiy explain model.qiy`, `qiy generate model.qiy out/`, `
 - many-to-many relations (one-to-many needs the child entity in the same file; use an explicit join entity for many-to-many),
 - auth/permissions/menu/chart/dataflow and other non-entity blocks,
 - custom relation names/onDelete/annotations,
-- `qiy add` against a v1 entry (the add commands write v0).
+- `qiy add module` / `qiy add feature` (v0-only); `qiy add entity` and `qiy add field` do support v1 entry files.
 
 Canonical docs: https://ai-nodev.github.io/qiy/guide/syntax-v1
 V0 remains the production/default syntax; migrate when you only need the supported subset.

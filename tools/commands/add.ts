@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "no
 import { dirname, join, relative } from "node:path";
 import { explainQiyFile } from "./explain";
 import { requireQiyProject, type QiyProjectLocation } from "../project";
+import { isQiyV1Source, v1TableName } from "../qiy-v1";
 
 export interface AddEntityOptions {
   cwd?: string;
@@ -144,9 +145,71 @@ async function commitChange(project: QiyProjectLocation, file: string, before: s
 }
 
 /** `qiy add entity`: append an entity to a module and validate the project. */
+function v1FieldType(type: string): string {
+  const match = /^([A-Za-z][A-Za-z0-9]*)(\(.*\))?$/.exec(type);
+  if (!match) throw new Error(`Invalid field type "${type}".`);
+  const primitives: Record<string, string> = {
+    UUID: "uuid", Text: "text", Integer: "integer", Decimal: "decimal", Money: "money",
+    Date: "date", Time: "time", DateTime: "datetime", File: "file", Files: "files", Vector: "vector",
+  };
+  return `${primitives[match[1]!] ?? match[1]!.charAt(0).toLowerCase() + match[1]!.slice(1)}${match[2] ?? ""}`;
+}
+
+function v1FieldLine(name: string, type: string, options: AddFieldOptions | AddEntityOptions, indent: string): string {
+  if (!FIELD_NAME.test(name)) throw new Error(`Invalid field name "${name}": use a lowercase first letter, letters, digits and underscores.`);
+  const words = [options.unique ? "unique" : "", options.nullable ? "nullable" : ""].filter(Boolean);
+  return `${indent}${name}: ${v1FieldType(type)}${words.length ? " " + words.join(" ") : ""}`;
+}
+
+function findV1Entity(source: string, name: string): EntityBlock | undefined {
+  const lines = source.split(/\r?\n/);
+  for (let start = 0; start < lines.length; start += 1) {
+    const match = /^\s*entity\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{/.exec(lines[start]!);
+    if (!match || (match[1] !== name && v1TableName(match[1]!) !== name)) continue;
+    const indent = lines[start]!.match(/^\s*/)?.[0] ?? "";
+    let depth = 0;
+    let opened = false;
+    for (let end = start; end < lines.length; end += 1) {
+      const delta = braceDelta(lines[end]!);
+      if (delta !== 0) opened = true;
+      depth += delta;
+      if (opened && depth === 0) return { file: "", name: match[1]!, startLine: start, endLine: end, indent, singleLine: end === start };
+    }
+    throw new Error(`v1 entity ${name}: unterminated block.`);
+  }
+  return undefined;
+}
+
+async function addV1Entity(project: QiyProjectLocation, source: string, name: string, options: AddEntityOptions): Promise<void> {
+  if (options.module) throw new Error("qiy add entity --module is a v0 feature; the v1 preview keeps entities in its single entry file.");
+  if (options.label || options.icon || options.code) throw new Error("qiy add entity label/icon/code is not supported in the v1 preview; edit the v1 file or use v0.");
+  const fields = options.fields ?? ["name:Text"];
+  const rendered = fields.map((spec) => {
+    const parsed = parseFieldSpec(spec);
+    return v1FieldLine(parsed.name, parsed.type, options, "  ");
+  });
+  const block = `entity ${name} {\n${rendered.join("\n")}\n}`;
+  const before = source;
+  const next = `${source.replace(/\s*$/, "")}\n\n${block}\n`;
+  writeFileSync(project.modelPath, next);
+  try {
+    await validateProject(project);
+  } catch (error) {
+    writeFileSync(project.modelPath, before);
+    throw error;
+  }
+  console.log(`Added v1 entity ${name} to ${project.manifest.model}`);
+  console.log("Next: qiy dev --watch   # or qiy check && qiy generate");
+}
+
 export async function addEntity(name: string, options: AddEntityOptions = {}): Promise<void> {
   if (!ENTITY_NAME.test(name)) throw new Error(`Invalid entity name "${name}": use lowercase letters, digits and underscores (for example: suppliers).`);
   const project = requireQiyProject(options.cwd ?? process.cwd());
+  const source = readFileSync(project.modelPath, "utf8");
+  if (isQiyV1Source(source)) {
+    await addV1Entity(project, source, name, options);
+    return;
+  }
   if (entityNames(project).has(name)) throw new Error(`Entity ${name} already exists.`);
   const file = targetModule(project, options.module);
   const before = readFileSync(file, "utf8");
@@ -205,8 +268,31 @@ function findEntityInFile(file: string, name: string): EntityBlock | undefined {
 }
 
 /** `qiy add field`: insert a field into an existing entity and validate the project. */
+async function addV1Field(project: QiyProjectLocation, source: string, entityName: string, parsed: { name: string; type: string }, options: AddFieldOptions): Promise<void> {
+  const block = findV1Entity(source, entityName);
+  if (!block) throw new Error(`Entity ${entityName} not found.`);
+  if (block.singleLine) throw new Error(`Entity ${entityName} is written on one line. Split its fields onto separate lines before qiy add field.`);
+  const lines = source.split(/\r?\n/);
+  lines.splice(block.endLine, 0, v1FieldLine(parsed.name, parsed.type, options, `${block.indent}  `));
+  const before = source;
+  writeFileSync(project.modelPath, `${lines.join("\n")}\n`);
+  try {
+    await validateProject(project);
+  } catch (error) {
+    writeFileSync(project.modelPath, before);
+    throw error;
+  }
+  console.log(`Added v1 field ${parsed.name}:${v1FieldType(parsed.type)} to entity ${entityName}`);
+  console.log("Next: qiy dev --watch   # or qiy check && qiy generate");
+}
+
 export async function addField(entityName: string, spec: string, options: AddFieldOptions = {}): Promise<void> {
   const project = requireQiyProject(options.cwd ?? process.cwd());
+  const source = readFileSync(project.modelPath, "utf8");
+  if (isQiyV1Source(source)) {
+    await addV1Field(project, source, entityName, parseFieldSpec(spec), options);
+    return;
+  }
   const parsed = parseFieldSpec(spec);
   const block = findEntity(project, entityName);
   if (!block) throw new Error(`Entity ${entityName} not found.`);
@@ -283,6 +369,9 @@ export async function addModule(name: string, options: AddModuleOptions = {}): P
   if (!ENTITY_NAME.test(name)) throw new Error(`Invalid module name "${name}": use lowercase letters, digits and underscores.`);
   const kind = options.kind ?? "entities";
   const project = requireQiyProject(options.cwd ?? process.cwd());
+  if (isQiyV1Source(readFileSync(project.modelPath, "utf8"))) {
+    throw new Error("qiy add module is a v0 feature; v1 preview keeps entities in its single entry file.");
+  }
   const modulesDirectory = join(project.root, "model/modules");
   const prefix = nextModulePrefix(modulesDirectory);
   const file = `${prefix}-${name}.qiy`;
@@ -338,6 +427,7 @@ function insertFeature(source: string, feature: "overview" | "apiDocs" | "apiKey
 export async function addFeature(feature: "overview" | "apiDocs" | "apiKeys", options: AddFeatureOptions = {}): Promise<void> {
   const project = requireQiyProject(options.cwd ?? process.cwd());
   const before = readFileSync(project.modelPath, "utf8");
+  if (isQiyV1Source(before)) throw new Error("qiy add feature is a v0 feature; v1 preview does not support config blocks yet.");
   writeFileSync(project.modelPath, insertFeature(before, feature));
   try {
     await validateProject(project);

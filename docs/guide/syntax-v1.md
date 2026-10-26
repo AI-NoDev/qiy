@@ -58,7 +58,7 @@ qiy fmt app.qiy              # 空白规范化
 - 多对多关系（一对多需子实体在本文件声明；多对多请显式建 join 实体）；
 - `auth`、`permissions`、`menu`、`chart`、`dataflow` 等非实体块；
 - 自定义 `relation` 名称、`onDelete`、显示模板、注解；
-- v1 项目里的 `qiy add` 命令（`add` 目前面向 v0 模块）。
+- `qiy add module` / `qiy add feature`（这两个命令写 v0；`qiy add entity` / `qiy add field` 支持 v1）。
 
 需要这些能力时继续使用 v0。不同项目/入口文件可以选择 v0 或 v1，Qiy 按入口首行自动识别，不需要额外参数。
 
