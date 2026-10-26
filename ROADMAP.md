@@ -60,7 +60,8 @@
 
 ## P1：0.3.0 之前
 
-- [ ] `qiy schema`（.qiy JSON Schema）、`qiy explain`、错误码目录
+- [x] `qiy explain`（文本/`--json` 规范化模型摘要）+ `qiy schema`（draft 2020-12 JSON Schema，发布到 `/schema/qiy-explanation-1.json`）
+- [ ] 错误码目录（把常见校验/生成/CLI 错误映射为稳定代码与修复建议）
 - [x] `qiy skill list/update/uninstall`（含 `--json`、本地修改保护、保留手写文件）
 - [ ] 官方 bun/drizzle/elysia/refine-dev skill 纳入分发
 - [ ] API docs：OpenAPI 下载、try-it、解释 verification 隐藏原因
@@ -88,6 +89,7 @@
 - [x] JetBrains 插件发布：Gradle 固定 8.10.2；v0.2.1 `Publish editor plugins` 成功。
 - [x] v0.2.0 发布后暴露的生成器 typecheck/return 接受度缺陷（无 `@code` 序列 fallback、docs 路由 Elysia 泛型、fixture 专属测试、集成模式 `bun test` 退出码、只读列表图标）。
 - [x] `v0.2.2`：`qiy skill list/update/uninstall`（含 `--json`、本地修改保护、保留手写文件）；通过 dry-run → tag → Release 流程发布。
+- [x] `v0.2.3`：`qiy explain` / `qiy schema`，机器可读模型摘要 + 已发布 JSON Schema。
 - [x] `v0.2.1`：补全官方 Agent Skill（router + 12 个 references），release + release-smoke 通过。
 
 ## 验证命令
