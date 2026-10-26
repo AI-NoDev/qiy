@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { addEntity, addField } from "../tools/commands/add";
+import { addEntity, addFeature, addField, addModule } from "../tools/commands/add";
 import { explainQiyFile } from "../tools/commands/explain";
 import { createQiyProject, readQiyProject } from "../tools/project";
 
@@ -57,6 +57,33 @@ test("addField inserts a field before the entity closing brace", async () => {
 test("addField rejects unknown entities", async () => {
   const { cwd } = projectFixture("qiy-add-missing-");
   await expect(addField("missing", "name:Text", { cwd })).rejects.toThrow(/not found/);
+});
+
+test("addModule creates a fragment and wires its include in order", async () => {
+  const { cwd, root } = projectFixture("qiy-add-module-");
+  await addModule("sales", { cwd });
+  const project = readQiyProject(root);
+  const app = readFileSync(project.modelPath, "utf8");
+  expect(app).toContain('include "modules/70-sales.qiy";');
+  expect(app.indexOf('include "modules/70-sales.qiy";')).toBeLessThan(app.indexOf('include "modules/20-relations.qiy";'));
+  expect(readFileSync(join(root, "model/modules/70-sales.qiy"), "utf8")).toContain("sales module");
+  await expect(explainQiyFile(project.modelPath)).resolves.toBeDefined();
+
+  await addModule("messages", { cwd, kind: "messages" });
+  expect(readFileSync(project.modelPath, "utf8").indexOf('include "modules/80-messages.qiy";')).toBeLessThan(
+    readFileSync(project.modelPath, "utf8").indexOf('include "modules/70-sales.qiy";'),
+  );
+});
+
+test("addFeature enables overview and rolls back apiKeys without auth", async () => {
+  const { cwd, root } = projectFixture("qiy-add-feature-");
+  await addFeature("overview", { cwd });
+  const app = readFileSync(join(root, "model", "app".concat(".qiy")), "utf8");
+  expect(app).toContain("features {");
+  expect(app).toContain("overview true;");
+  const before = app;
+  await expect(addFeature("apiKeys", { cwd })).rejects.toThrow(/auth/i);
+  expect(readFileSync(join(root, "model/app.qiy"), "utf8")).toBe(before);
 });
 
 test("CLI add entity and add field work inside a project", () => {

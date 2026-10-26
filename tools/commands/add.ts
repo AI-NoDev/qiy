@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { explainQiyFile } from "./explain";
 import { requireQiyProject, type QiyProjectLocation } from "../project";
@@ -219,5 +219,132 @@ export async function addField(entityName: string, spec: string, options: AddFie
   nextLines.splice(block.endLine, 0, line);
   await commitChange(project, block.file, before, `${nextLines.join("\n")}\n`);
   console.log(`Added field ${parsed.name}:${parsed.type} to entity ${entityName}`);
+  console.log("Next: qiy dev --watch   # or qiy check && qiy generate");
+}
+
+export type AddModuleKind = "entities" | "ui" | "permissions" | "dataflows" | "messages";
+
+export interface AddModuleOptions {
+  cwd?: string;
+  kind?: AddModuleKind;
+}
+
+export interface AddFeatureOptions {
+  cwd?: string;
+}
+
+const MODULE_INCLUDE_AFTER: Record<AddModuleKind, RegExp> = {
+  permissions: /include\s+"[^"]*(messages|permissions)[^"]*"/,
+  messages: /include\s+"[^"]*(messages|permissions)[^"]*"/,
+  entities: /include\s+"[^"]*(relations|pages|menu|ui|charts?|dataflows?|actions?)[^"]*"/,
+  ui: /include\s+"[^"]*(charts?|dataflows?|actions?)[^"]*"/,
+  dataflows: /include\s+"[^"]*actions?[^"]*"/,
+};
+
+function nextModulePrefix(directory: string): string {
+  let maximum = 0;
+  if (existsSync(directory)) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".qiy")) continue;
+      const match = /^(\d+)-/.exec(entry.name);
+      if (match) maximum = Math.max(maximum, Number(match[1]));
+    }
+  }
+  return String(Math.max(10, maximum + 10)).padStart(2, "0");
+}
+
+function includeLine(file: string): string {
+  return `  include "modules/${file}";`;
+}
+
+function insertInclude(source: string, kind: AddModuleKind, file: string): string {
+  const lines = source.split(/\r?\n/);
+  const include = includeLine(file);
+  const includeIndexes = lines.map((line, index) => (/^\s*include\s+"/.test(line) ? index : -1)).filter((index) => index >= 0);
+  const closing = lines.findIndex((line, index) => index > 0 && /^}\s*$/.test(line) && lines.slice(0, index).some((candidate) => /application\s+/.test(candidate)));
+  const fallback = closing >= 0 ? closing : lines.length;
+  let insertAt: number;
+  if (kind === "messages") {
+    insertAt = includeIndexes[0] ?? fallback;
+  } else if (kind === "permissions") {
+    const messages = includeIndexes.find((index) => /include\s+"[^"]*messages[^"]*"/.test(lines[index]!));
+    const firstEntity = includeIndexes.find((index) => !/include\s+"[^"]*(messages|permissions)[^"]*"/.test(lines[index]!));
+    insertAt = messages !== undefined ? messages + 1 : firstEntity ?? fallback;
+  } else {
+    const anchor = includeIndexes.find((index) => MODULE_INCLUDE_AFTER[kind].test(lines[index]!));
+    insertAt = anchor ?? fallback;
+  }
+  lines.splice(insertAt, 0, include);
+  return `${lines.join("\n").replace(/\n{3,}/g, "\n\n")}\n`;
+}
+
+/** `qiy add module`: create a model fragment and wire its include into app.qiy. */
+export async function addModule(name: string, options: AddModuleOptions = {}): Promise<void> {
+  if (!ENTITY_NAME.test(name)) throw new Error(`Invalid module name "${name}": use lowercase letters, digits and underscores.`);
+  const kind = options.kind ?? "entities";
+  const project = requireQiyProject(options.cwd ?? process.cwd());
+  const modulesDirectory = join(project.root, "model/modules");
+  const prefix = nextModulePrefix(modulesDirectory);
+  const file = `${prefix}-${name}.qiy`;
+  const target = join(modulesDirectory, file);
+  if (existsSync(target)) throw new Error(`Module already exists: ${relative(project.root, target)}`);
+  const modelFile = project.modelPath;
+  const beforeModel = readFileSync(modelFile, "utf8");
+  const beforeTarget = existsSync(target) ? readFileSync(target, "utf8") : undefined;
+  writeFileSync(target, `# ${name} module. Included from model/app.qiy; keep the Qiy declaration order.\n`);
+  writeFileSync(modelFile, insertInclude(beforeModel, kind, file));
+  try {
+    await validateProject(project);
+  } catch (error) {
+    writeFileSync(modelFile, beforeModel);
+    if (beforeTarget === undefined) rmSync(target, { force: true });
+    else writeFileSync(target, beforeTarget);
+    throw error;
+  }
+  console.log(`Created module ${relative(project.root, target)} (${kind})`);
+  console.log(kind === "entities" ? `Next: add entities with qiy add entity --module ${file.replace(/\.qiy$/, "")}` : `Next: edit ${relative(project.root, target)} and run qiy check`);
+}
+
+function insertFeature(source: string, feature: "overview" | "apiDocs" | "apiKeys"): string {
+  const lines = source.split(/\r?\n/);
+  const blockStart = lines.findIndex((line) => /^\s*features\s*\{/.test(line));
+  if (blockStart >= 0) {
+    let end = blockStart + 1;
+    let depth = 1;
+    for (; end < lines.length; end += 1) {
+      depth += braceDelta(lines[end]!);
+      if (depth === 0) break;
+    }
+    const indent = `${lines[blockStart]!.match(/^\s*/)?.[0] ?? ""}  `;
+    const keyPattern = new RegExp(`^(\\s*)${feature}\\s+\\w+;`);
+    for (let index = blockStart + 1; index < end; index += 1) {
+      const match = keyPattern.exec(lines[index]!);
+      if (match) {
+        lines[index] = `${match[1]}${feature} true;`;
+        return `${lines.join("\n")}\n`;
+      }
+    }
+    lines.splice(end, 0, `${indent}${feature} true;`);
+    return `${lines.join("\n")}\n`;
+  }
+  const afterConfig = lines.findIndex((line) => /^\s*(include|realtime|elysia|storage|auth|env|messages|permission|workflow|enum|entity|relation|scope|restrict|pages|menu|dashboard|chart|dataflow|action)\b/.test(line));
+  const closing = lines.findIndex((line, index) => index > 0 && /^}\s*$/.test(line) && lines.slice(0, index).some((candidate) => /application\s+/.test(candidate)));
+  const insertAt = afterConfig >= 0 ? afterConfig : closing >= 0 ? closing : lines.length;
+  lines.splice(insertAt, 0, "  features {", `    ${feature} true;`, "  }", "");
+  return `${lines.join("\n").replace(/\n{3,}/g, "\n\n")}\n`;
+}
+
+/** `qiy add feature`: enable a system developer page/feature in app.qiy. */
+export async function addFeature(feature: "overview" | "apiDocs" | "apiKeys", options: AddFeatureOptions = {}): Promise<void> {
+  const project = requireQiyProject(options.cwd ?? process.cwd());
+  const before = readFileSync(project.modelPath, "utf8");
+  writeFileSync(project.modelPath, insertFeature(before, feature));
+  try {
+    await validateProject(project);
+  } catch (error) {
+    writeFileSync(project.modelPath, before);
+    throw error;
+  }
+  console.log(`Enabled feature ${feature} in ${project.manifest.model}`);
   console.log("Next: qiy dev --watch   # or qiy check && qiy generate");
 }

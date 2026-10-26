@@ -78,7 +78,7 @@
 
 ## 产品体验 Phase 2（CLI-first 之后）
 
-- [x] `qiy add module/entity/feature` 的结构化增量建模（Phase 2 首版：`add entity` / `add field`，写入后校验并回滚；module/feature 后续）
+- [x] `qiy add module/entity/feature` 的结构化增量建模（`add entity`、`add field`、`add module`、`add feature`，写入后校验并回滚）
 - [x] `qiy fmt [--check]`：保留语义的空白规范化（缩进/空行/行尾/末尾换行）
 - [x] 友好语法 v1 RFC：设计理念页记录提案（project/module、name:type、内联关系、可选分号、v0 兼容）
 - [ ] v1 语法解析器 + `qiy fmt` 的 v1 规范化输出（当前 fmt 仅格式化 v0）

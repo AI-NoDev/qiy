@@ -52,6 +52,8 @@ qiy create project <name> [--template minimal|standard] [--dir <path>]
 qiy check
 qiy add entity <name> [--module <name>] [--field name:Type ...] [--label ...] [--icon ...]
 qiy add field <entity> <name:Type> [--nullable] [--unique] [--code <template>]
+qiy add module <name> [--kind entities|ui|permissions|dataflows|messages]
+qiy add feature <overview|apiDocs|apiKeys>
 qiy fmt [--check] [files...]
 qiy generate
 qiy dev
@@ -81,6 +83,8 @@ qiy --version | -v
 | `check` | - | Parses/validates the current project model and prints counts; writes nothing |
 | `add entity` | name | Appends an entity (default `id UUID @id`) to a module with `--field name:Type`, optional `--label`/`--icon`/`--module`; validates and rolls back on failure |
 | `add field` | `<entity> <name:Type>` | Inserts a field before the entity's closing brace with `--nullable`/`--unique`/`--code`; validates and rolls back on failure |
+| `add module` | name | Creates `<nn>-<name>.qiy` and inserts its include at the kind-correct position (`entities`/`ui`/`permissions`/`dataflows`/`messages`) |
+| `add feature` | feature | Enables `overview`/`apiDocs`/`apiKeys` in the `features` block; validates and rolls back (apiKeys needs auth) |
 | `fmt` | `[files...]` | Syntax-preserving whitespace normalization for project model files or explicit `.qiy` paths; `--check` reports and exits 1 |
 | `generate` (project) | - | Generates/syncs `admin/` from the current project manifest |
 | `dev` | - | Generates, installs on first run, runs `db:generate` + `db:migrate`, starts the generated API + admin; `--watch` regenerates/migrates on debounced `model/**/*.qiy` saves |

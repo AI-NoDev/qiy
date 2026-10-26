@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { addEntity, addField } from "./commands/add";
+import { addEntity, addFeature, addField, addModule, type AddModuleKind } from "./commands/add";
 import { formatQiyFiles } from "./format";
 import { generateApp } from "./commands/generate-app";
 import { initApp } from "./commands/init";
@@ -29,6 +29,10 @@ Commands:
                                   Append an entity to a model module and validate
   add field <entity> <name:Type> [--nullable] [--unique] [--code <template>]
                                   Insert a field into an existing entity and validate
+  add module <name> [--kind entities|ui|permissions|dataflows|messages]
+                                  Create a model fragment and wire its include
+  add feature <overview|apiDocs|apiKeys>
+                                  Enable a system developer page feature
   fmt [--check] [files...]        Canonicalize .qiy indentation/whitespace
   dev [--watch]                   Generate, install on first run, start API + admin
                                   (--watch regenerates on model/ changes)
@@ -224,15 +228,40 @@ async function main(argv: string[]): Promise<void> {
     case "add": {
       const kind = rest[0];
       const addArguments = rest.slice(1);
-      if (kind !== "entity" && kind !== "field") throw new Error("Usage: qiy add entity <name> ... | qiy add field <entity> <name:Type> ...\n\n" + USAGE);
-      const valueFlags = ["--module", "--field", "--label", "--icon", "--code"];
+      if (!["entity", "field", "module", "feature"].includes(kind ?? "")) {
+        throw new Error("Usage: qiy add <entity|field|module|feature> ...\n\n" + USAGE);
+      }
+      const valueFlags = ["--module", "--field", "--label", "--icon", "--code", "--kind"];
       const positionals = positionalArguments(addArguments, valueFlags);
-      const allowed = new Set(["--module", "--field", "--label", "--icon", "--code", "--nullable", "--unique"]);
+      const commonFlags = new Set(["--nullable", "--unique"]);
+      const allowed = kind === "module"
+        ? new Set(["--kind"])
+        : kind === "feature"
+          ? new Set<string>()
+          : new Set(["--module", "--field", "--label", "--icon", "--code", ...commonFlags]);
       for (let index = 0; index < addArguments.length; index += 1) {
         const argument = addArguments[index]!;
         if (valueFlags.includes(argument)) { index += 1; continue; }
         if (!argument.startsWith("-")) continue;
         if (!allowed.has(argument)) throw new Error(`Unknown qiy add option: ${argument}\n\n${USAGE}`);
+      }
+      if (kind === "module") {
+        const name = positionals[0];
+        if (!name) throw new Error("qiy add module requires a name.\n\n" + USAGE);
+        const moduleKind = (option(addArguments, "--kind") ?? "entities") as AddModuleKind;
+        if (!["entities", "ui", "permissions", "dataflows", "messages"].includes(moduleKind)) {
+          throw new Error("qiy add module --kind must be entities, ui, permissions, dataflows or messages.");
+        }
+        await addModule(name, { kind: moduleKind });
+        return;
+      }
+      if (kind === "feature") {
+        const feature = positionals[0];
+        if (feature !== "overview" && feature !== "apiDocs" && feature !== "apiKeys") {
+          throw new Error("qiy add feature requires overview, apiDocs or apiKeys.\n\n" + USAGE);
+        }
+        await addFeature(feature);
+        return;
       }
       const module = option(addArguments, "--module");
       const nullable = flag(addArguments, "--nullable");

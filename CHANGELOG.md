@@ -8,6 +8,16 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.3.4] - 2026-10-26
+
+### Added
+
+- `qiy add module <name> --kind entities|ui|permissions|dataflows|messages`
+  creates a model fragment and inserts its `include` at the kind-correct
+  declaration position; `qiy add feature overview|apiDocs|apiKeys` enables a
+  developer page and rolls back when validation fails (for example apiKeys
+  without auth).
+
 ## [0.3.3] - 2026-10-26
 
 ### Added
@@ -188,6 +198,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.3.4]: https://github.com/AI-NoDev/qiy/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/AI-NoDev/qiy/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/AI-NoDev/qiy/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/AI-NoDev/qiy/compare/v0.3.0...v0.3.1
