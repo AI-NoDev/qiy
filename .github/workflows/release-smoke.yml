@@ -21,15 +21,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release-cli-smoke:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+  gate:
     runs-on: ubuntu-latest
+    outputs:
+      exists: ${{ steps.check.outputs.exists }}
+      tag: ${{ steps.check.outputs.tag }}
+      version: ${{ steps.check.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-      - name: Select release asset
-        id: release
+      - name: Check a published release exists
+        id: check
         env:
+          GH_TOKEN: ${{ github.token }}
           INPUT_TAG: ${{ inputs.release_tag }}
           EVENT_TAG: ${{ github.event.release.tag_name }}
         run: |
@@ -39,8 +43,29 @@ jobs:
             tag="v${version}"
           fi
           test -n "$tag"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$tag"
+            echo "version=${tag#v}"
+          } >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No published release for $tag (likely a dry-run); skipping released-binary smoke."
+          fi
+
+  release-cli-smoke:
+    needs: gate
+    if: needs.gate.outputs.exists == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Select release asset
+        id: release
+        run: |
+          echo "tag=${{ needs.gate.outputs.tag }}" >> "$GITHUB_OUTPUT"
+          echo "version=${{ needs.gate.outputs.version }}" >> "$GITHUB_OUTPUT"
       - name: Download published Linux x64 CLI
         env:
           GH_TOKEN: ${{ github.token }}

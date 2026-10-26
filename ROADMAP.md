@@ -34,7 +34,7 @@
   2. 验收通过后才允许打 annotated tag；tag 一旦推送不再移动；
   3. 新增 `RELEASING.md` 写清顺序：验收 → tag → Release workflow → release-smoke。
 - 验收：用该流程发布一个 patch 版本，tag 全程未移动。
-- 完成：`release.yml` 支持 `workflow_dispatch` 的 `dry_run` 输入并可由 tag 触发；`RELEASING.md` 固化流程。2026-10-26 dry-run 全矩阵通过（prepare/build + 5 平台 standalone/integration，publish skipped，未创建 Release/tag）。
+- 完成：`release.yml` 支持 `workflow_dispatch` 的 `dry_run` 输入并可由 tag 触发；`RELEASING.md` 固化流程。2026-10-26 通过该流程发布 **v0.2.2**：dry-run 全矩阵通过（publish skipped），随后 tag → Release（11m，5 平台）成功，tag 未移动；release-smoke 新增“无已发布 Release 则跳过”的 gate。
 
 ### P0-3 CHANGELOG 与 Release Notes `[x]`
 
@@ -87,6 +87,7 @@
 - [x] `database-smoke` fixture：`tenantId` 改为加在 auth userEntity；v0.2.1 CI 已绿。
 - [x] JetBrains 插件发布：Gradle 固定 8.10.2；v0.2.1 `Publish editor plugins` 成功。
 - [x] v0.2.0 发布后暴露的生成器 typecheck/return 接受度缺陷（无 `@code` 序列 fallback、docs 路由 Elysia 泛型、fixture 专属测试、集成模式 `bun test` 退出码、只读列表图标）。
+- [x] `v0.2.2`：`qiy skill list/update/uninstall`（含 `--json`、本地修改保护、保留手写文件）；通过 dry-run → tag → Release 流程发布。
 - [x] `v0.2.1`：补全官方 Agent Skill（router + 12 个 references），release + release-smoke 通过。
 
 ## 验证命令
