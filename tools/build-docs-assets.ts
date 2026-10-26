@@ -1,5 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import { pageDescriptions } from "../docs/.vitepress/seo";
 
 /**
  * Generates the static, agent-facing assets served by the documentation site:
@@ -11,6 +12,7 @@ import { join, relative, resolve } from "node:path";
  * - `docs/public/robots.txt` — crawler hints pointing at the sitemap
  *
  * Run automatically by `bun run docs:dev` and `bun run docs:build`; safe to re-run.
+ * Exported so `tests/docs-seo.test.ts` can validate the generated files.
  */
 
 const root = resolve(import.meta.dir, "..");
@@ -66,10 +68,13 @@ function readPage(file: string): DocPage {
   // markdown parsing so titles/links are not misdetected.
   const raw = readFileSync(file, "utf8").replace(/^\uFEFF/, "");
   const withoutFrontmatter = raw.replace(/^---\n[\s\S]*?\n---\n/, "");
-  const isHome = relative(docs, file).replace(/\\/g, "/") === "index.md";
-  const title = isHome ? "Qiy 文档" : (firstHeading(withoutFrontmatter) ?? relative(docs, file).replace(/\.md$/, ""));
+  const relativePath = relative(docs, file).replace(/\\/g, "/");
+  const isHome = relativePath === "index.md";
+  const title = isHome ? "Qiy 文档" : (firstHeading(withoutFrontmatter) ?? relativePath.replace(/\.md$/, ""));
   const frontmatterDescription = /^---\n[\s\S]*?\ndescription:\s*"?([^"\n]+)"?\n[\s\S]*?\n---\n/.exec(raw)?.[1]?.trim();
-  let description = isHome ? "Qiy 文档首页：快速开始、DSL 参考、指南与用法手册。" : (frontmatterDescription ?? "");
+  // The per-page SEO map is the single source of truth for llms.txt too, so the
+  // index exposed to search engines and agents cannot drift apart.
+  let description = isHome ? "Qiy 文档首页：快速开始、DSL 参考、指南与用法手册。" : (pageDescriptions[relativePath] ?? frontmatterDescription ?? "");
   if (!description) {
     let fenced = false;
     for (const rawLine of withoutFrontmatter.split(/\n+/)) {
@@ -81,7 +86,7 @@ function readPage(file: string): DocPage {
     }
   }
   if (!description) description = title;
-  const slug = "/" + relative(docs, file).replace(/\\/g, "/").replace(/\.md$/, "").replace(/(^|\/)index$/, "$1");
+  const slug = "/" + relativePath.replace(/\.md$/, "").replace(/(^|\/)index$/, "$1");
   return { file, slug: slug === "/index" ? "/" : slug, title, description: description.slice(0, 200), body: withoutFrontmatter.trim() };
 }
 
@@ -94,75 +99,79 @@ function ordered(pages: DocPage[], order: string[]): DocPage[] {
   return [...result, ...pages.filter((page) => !order.includes(page.slug.split("/").pop()!))];
 }
 
-const dslPages = ordered(markdownFiles(join(docs, "dsl")).map(readPage), dslOrder);
-const guidePages = ordered(markdownFiles(join(docs, "guide")).map(readPage), guideOrder);
-
 function section(title: string, pages: DocPage[]): string {
   const lines = pages.map((page) => `- [${page.title}](${siteUrl}${page.slug})${page.description ? `: ${page.description}` : ""}`);
   return [`## ${title}`, "", ...lines, ""].join("\n");
 }
 
-const llmsTxt = [
-  "# Qiy",
-  "",
-  "> Qiy is a model-driven full-stack application generator. A `.qiy` model produces a Refine + React Router admin, a Bun + Elysia REST/GraphQL API, a Drizzle database layer, tests, documentation and deployment examples.",
-  "",
-  "Docs are written for Qiy users, application developers and AI agents. Start with the quickstart or the DSL overview; each page contains grammar, defaults, validation, generated output, examples and common errors.",
-  "",
-  section("Start here", [
-    readPage(join(docs, "index.md")),
-    readPage(join(docs, "guide", "what-is-qiy.md")),
-    readPage(join(docs, "guide", "getting-started.md")),
-    readPage(join(docs, "guide", "cli.md")),
-  ]),
-  section("DSL reference", dslPages),
-  section("Guides", guidePages),
-  [
-    "## Agent Skill",
+export function buildDocsAssets(): void {
+  const dslPages = ordered(markdownFiles(join(docs, "dsl")).map(readPage), dslOrder);
+  const guidePages = ordered(markdownFiles(join(docs, "guide")).map(readPage), guideOrder);
+
+  const llmsTxt = [
+    "# Qiy",
     "",
-    `- [Skill guide](${siteUrl}/guide/agent-skill): install and use the official Qiy skill.`,
-    `- [SKILL.md](${siteUrl}/skills/qiy/SKILL.md): the skill entrypoint, routing to modular references.`,
-    `- [Skill bundle download](${siteUrl}/skills/qiy-skill.tar.gz): complete skill with references and example.`,
-    "- CLI install: `qiy skill install` (project), `qiy skill install --global` (user), `qiy skill install --dir <path>` (custom agent directory).",
+    "> Qiy is a model-driven full-stack application generator. A `.qiy` model produces a Refine + React Router admin, a Bun + Elysia REST/GraphQL API, a Drizzle database layer, tests, documentation and deployment examples.",
     "",
-  ].join("\n"),
-  [
-    "## Optional",
+    "Docs are written for Qiy users, application developers and AI agents. Start with the quickstart or the DSL overview; each page contains grammar, defaults, validation, generated output, examples and common errors.",
     "",
-    "- [Repository](https://github.com/AI-NoDev/qiy)",
-    "- [Releases](https://github.com/AI-NoDev/qiy/releases/latest)",
+    section("Start here", [
+      readPage(join(docs, "index.md")),
+      readPage(join(docs, "guide", "what-is-qiy.md")),
+      readPage(join(docs, "guide", "getting-started.md")),
+      readPage(join(docs, "guide", "cli.md")),
+    ]),
+    section("DSL reference", dslPages),
+    section("Guides", guidePages),
+    [
+      "## Agent Skill",
+      "",
+      `- [Skill guide](${siteUrl}/guide/agent-skill): install and use the official Qiy skill.`,
+      `- [SKILL.md](${siteUrl}/skills/qiy/SKILL.md): the skill entrypoint, routing to modular references.`,
+      `- [Skill bundle download](${siteUrl}/skills/qiy-skill.tar.gz): complete skill with references and example.`,
+      "- CLI install: `qiy skill install` (project), `qiy skill install --global` (user), `qiy skill install --dir <path>` (custom agent directory).",
+      "",
+    ].join("\n"),
+    [
+      "## Optional",
+      "",
+      "- [Repository](https://github.com/AI-NoDev/qiy)",
+      "- [Releases](https://github.com/AI-NoDev/qiy/releases/latest)",
+      "",
+    ].join("\n"),
+  ].join("\n");
+
+  const llmsFull = [
+    "# Qiy full documentation",
     "",
-  ].join("\n"),
-].join("\n");
+    `> Complete text of the Qiy DSL reference and guides. Canonical index: ${siteUrl}/llms.txt`,
+    "",
+    ...dslPages.flatMap((page) => [`# ${page.title}`, "", `Source: ${siteUrl}${page.slug}`, "", page.body, ""]),
+    ...guidePages.flatMap((page) => [`# ${page.title}`, "", `Source: ${siteUrl}${page.slug}`, "", page.body, ""]),
+  ].join("\n");
 
-const llmsFull = [
-  "# Qiy full documentation",
-  "",
-  `> Complete text of the Qiy DSL reference and guides. Canonical index: ${siteUrl}/llms.txt`,
-  "",
-  ...dslPages.flatMap((page) => [`# ${page.title}`, "", `Source: ${siteUrl}${page.slug}`, "", page.body, ""]),
-  ...guidePages.flatMap((page) => [`# ${page.title}`, "", `Source: ${siteUrl}${page.slug}`, "", page.body, ""]),
-].join("\n");
+  mkdirSync(publicDir, { recursive: true });
+  writeFileSync(join(publicDir, "llms.txt"), llmsTxt);
+  writeFileSync(join(publicDir, "llms-full.txt"), llmsFull);
+  writeFileSync(
+    join(publicDir, "robots.txt"),
+    ["User-agent: *", "Allow: /", `Sitemap: ${siteUrl}/sitemap.xml`, ""].join("\n"),
+  );
 
-mkdirSync(publicDir, { recursive: true });
-writeFileSync(join(publicDir, "llms.txt"), llmsTxt);
-writeFileSync(join(publicDir, "llms-full.txt"), llmsFull);
-writeFileSync(
-  join(publicDir, "robots.txt"),
-  ["User-agent: *", "Allow: /", `Sitemap: ${siteUrl}/sitemap.xml`, ""].join("\n"),
-);
+  const skillDestination = join(publicDir, "skills", "qiy");
+  rmSync(skillDestination, { recursive: true, force: true });
+  mkdirSync(skillDestination, { recursive: true });
+  cpSync(skillSource, skillDestination, { recursive: true });
 
-const skillDestination = join(publicDir, "skills", "qiy");
-rmSync(skillDestination, { recursive: true, force: true });
-mkdirSync(skillDestination, { recursive: true });
-cpSync(skillSource, skillDestination, { recursive: true });
+  const archive = join(publicDir, "skills", "qiy-skill.tar.gz");
+  rmSync(archive, { force: true });
+  const tar = Bun.spawnSync(["tar", "-czf", archive, "-C", join(root, ".agents", "skills"), "qiy"], { stdout: "pipe", stderr: "pipe" });
+  if (tar.exitCode !== 0) throw new Error(`Failed to create skill archive: ${tar.stderr.toString()}`);
 
-const archive = join(publicDir, "skills", "qiy-skill.tar.gz");
-rmSync(archive, { force: true });
-const tar = Bun.spawnSync(["tar", "-czf", archive, "-C", join(root, ".agents", "skills"), "qiy"], { stdout: "pipe", stderr: "pipe" });
-if (tar.exitCode !== 0) throw new Error(`Failed to create skill archive: ${tar.stderr.toString()}`);
+  const skillBytes = statSync(archive).size;
+  console.log(
+    `Docs assets: llms.txt (${llmsTxt.length} bytes), llms-full.txt (${llmsFull.length} bytes), skill files (${relative(docs, skillDestination)}), qiy-skill.tar.gz (${skillBytes} bytes)`,
+  );
+}
 
-const skillBytes = statSync(archive).size;
-console.log(
-  `Docs assets: llms.txt (${llmsTxt.length} bytes), llms-full.txt (${llmsFull.length} bytes), skill files (${relative(docs, skillDestination)}), qiy-skill.tar.gz (${skillBytes} bytes)`,
-);
+if (import.meta.main) buildDocsAssets();

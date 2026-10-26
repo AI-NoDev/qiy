@@ -3,11 +3,19 @@ name: Release Qiy CLI
 on:
   push:
     branches: [main]
-    paths:
-      - "package.json"
-      - "bun.lock"
-      - ".github/workflows/release.yml"
+    tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run the full acceptance matrix without creating a release (pre-release gate)"
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      dry_run:
+        description: "Run the full acceptance matrix without creating a release"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -24,6 +32,7 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
       should_release: ${{ steps.version.outputs.should_release }}
       source_ref: ${{ steps.version.outputs.source_ref }}
+      dry_run: ${{ steps.version.outputs.dry_run }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,12 +42,20 @@ jobs:
         id: version
         env:
           GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
         shell: bash
         run: |
           version="$(bun -e 'console.log((await Bun.file("package.json").json()).version)')"
           tag="v${version}"
           source_ref="$GITHUB_SHA"
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          if [ "$DRY_RUN" = "true" ]; then
+            # Pre-release gate: build and verify exactly what a real release would
+            # publish, but never create a release/tag. Tags must be immutable, so
+            # this run is the last chance to find a blocker before tagging.
+            should_release=true
+            source_ref="$GITHUB_SHA"
+            echo "Dry run for $tag: full acceptance matrix, no release will be created."
+          elif gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             should_release=false
             echo "Release $tag already exists; skipping this run."
           elif git rev-parse --verify "refs/tags/$tag" >/dev/null 2>&1; then
@@ -54,6 +71,7 @@ jobs:
             echo "tag=$tag"
             echo "should_release=$should_release"
             echo "source_ref=$source_ref"
+            echo "dry_run=$DRY_RUN"
           } >> "$GITHUB_OUTPUT"
 
   build:
@@ -134,12 +152,14 @@ jobs:
 
   publish:
     needs: [prepare, build, verify]
+    if: needs.prepare.outputs.dry_run != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ needs.prepare.outputs.source_ref }}
+      - uses: oven-sh/setup-bun@v2
       - uses: actions/download-artifact@v4
         with:
           name: qiy-candidates
@@ -152,6 +172,13 @@ jobs:
           SOURCE_REF: ${{ needs.prepare.outputs.source_ref }}
         shell: bash
         run: |
+          # Prefer the curated CHANGELOG section; fall back to generated notes.
+          if bun tools/release-notes.ts "$VERSION" > release-notes.md && [ -s release-notes.md ]; then
+            notes_args=(--notes-file release-notes.md)
+          else
+            rm -f release-notes.md
+            notes_args=(--generate-notes)
+          fi
           if git rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" \
               "dist/qiy-$VERSION-windows-x64.exe" \
@@ -161,7 +188,7 @@ jobs:
               "dist/qiy-$VERSION-darwin-arm64" \
               --repo "$GITHUB_REPOSITORY" \
               --title "Qiy $VERSION" \
-              --generate-notes
+              "${notes_args[@]}"
           else
             gh release create "$TAG" \
               "dist/qiy-$VERSION-windows-x64.exe" \
@@ -172,5 +199,5 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --target "$SOURCE_REF" \
               --title "Qiy $VERSION" \
-              --generate-notes
+              "${notes_args[@]}"
           fi

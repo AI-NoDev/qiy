@@ -1,5 +1,6 @@
 import { defineConfig } from "vitepress";
 import { readFileSync } from "node:fs";
+import { descriptionFor } from "./seo";
 
 const base = (process.env.VITEPRESS_BASE ?? "/").replace(/\/?$/, "/");
 const siteUrl = (process.env.QIY_DOCS_SITE_URL ?? "https://ai-nodev.github.io/qiy").replace(/\/$/, "");
@@ -50,19 +51,37 @@ export default defineConfig({
   sitemap: { hostname: `${siteUrl}/` },
   transformHead: ({ pageData, siteConfig }) => {
     const title = pageData.title ? `${pageData.title} | Qiy` : "Qiy";
-    const description = pageData.description || siteConfig.description || siteDescription;
+    const description = pageData.description || descriptionFor(pageData.relativePath, siteConfig.description || siteDescription);
     const url = canonicalUrl(pageData.relativePath);
+    const isHome = /(^|\/)index\.md$/.test(pageData.relativePath);
+    const language = pageData.relativePath.split("/")[0];
+    const articleLanguage = ["de", "en", "es", "fr", "ja", "ko", "pt", "ru"].includes(language) ? language : "zh-CN";
+    const jsonLd = {
+      "@context": "https://schema.org",
+      "@type": isHome ? "WebSite" : "TechArticle",
+      headline: pageData.title || "Qiy",
+      name: pageData.title || "Qiy",
+      description,
+      url,
+      inLanguage: articleLanguage,
+      isPartOf: { "@type": "WebSite", name: "Qiy", url: `${siteUrl}/` },
+      publisher: { "@type": "Organization", name: "Qiy Contributors", url: "https://github.com/AI-NoDev/qiy" },
+    };
     return [
       ["meta", { name: "description", content: description }],
       ["meta", { name: "robots", content: "index,follow" }],
-      ["meta", { property: "og:type", content: "website" }],
+      ["meta", { property: "og:type", content: isHome ? "website" : "article" }],
       ["meta", { property: "og:site_name", content: "Qiy" }],
       ["meta", { property: "og:title", content: title }],
       ["meta", { property: "og:description", content: description }],
       ["meta", { property: "og:url", content: url }],
       ["meta", { property: "og:image", content: `${siteUrl}/qiy-logo-light.svg` }],
+      ["meta", { property: "og:image:alt", content: "Qiy logo" }],
       ["meta", { name: "twitter:card", content: "summary" }],
+      ["meta", { name: "twitter:title", content: title }],
+      ["meta", { name: "twitter:description", content: description }],
       ["link", { rel: "canonical", href: url }],
+      ["script", { type: "application/ld+json" }, JSON.stringify(jsonLd)],
     ];
   },
   head: [

@@ -1,0 +1,22 @@
+name: Pre-release acceptance
+
+# Full release acceptance (check/test/docs, five platform builds and standalone +
+# integration verification) without creating a release. Run this first, then tag
+# the accepted commit once it is green; the tag triggers "Release Qiy CLI".
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qiy-release
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    uses: ./.github/workflows/release.yml
+    with:
+      dry_run: true
+    permissions:
+      contents: write
