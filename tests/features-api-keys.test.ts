@@ -122,6 +122,8 @@ describe("application feature flags", () => {
       "apps/web/tests/api-keys-render.test.tsx",
       "apps/web/tests/features.test.ts",
     ]) expect(enabled[path], path).toBeTruthy();
+    expect(enabled["apps/web/app/components/api-docs-page.tsx"]).toContain("downloadOpenApiDocument");
+    expect(enabled["apps/web/app/components/api-docs-page.tsx"]).toContain("Download OpenAPI");
     expect(enabled["apps/server/src/schema.ts"]).toContain('qiyApiKeys = sqliteTable("qiy_api_keys"');
     expect(enabled["apps/server/src/app.ts"]).toContain("withApiKeyAuthentication");
     expect(enabled["apps/server/src/app.ts"]).toContain('import("./auth/api-keys")');

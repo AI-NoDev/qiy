@@ -64,8 +64,9 @@
 - [x] 错误码目录：`QIY1001–QIY1016`，`qiy explain --errors [--json]`，文档 `/dsl/errors`，`explain --json` 自动附带 code/fix
 - [x] `qiy skill list/update/uninstall`（含 `--json`、本地修改保护、保留手写文件）
 - [ ] 官方 bun/drizzle/elysia/refine-dev skill 纳入分发
-- [ ] API docs：OpenAPI 下载、try-it、解释 verification 隐藏原因
-- [ ] API Key：scopes、轮换、调用审计
+- [x] API docs：OpenAPI 下载（当前账号过滤后的 spec）
+- [ ] API docs：try-it 请求与 verification 隐藏操作原因说明
+- [ ] API Key scopes/轮换/审计
 - [ ] 本地密码限流/锁定、会话吊销
 - [ ] `sum/avg ... group by` 聚合 + chart 扩展（area/stacked/scatter、颜色/图例、下钻）
 - [ ] 字段类型扩展（Boolean/Email/URL/JSON/数组）与迁移策略

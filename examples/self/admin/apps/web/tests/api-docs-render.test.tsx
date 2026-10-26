@@ -47,6 +47,7 @@ const { ApiDocsPage } = await import("../app/components/api-docs-page");
 test("renders the API reference page with tags, operations, parameters and curl", () => {
   const html = renderToStaticMarkup(createElement(ApiDocsPage, { spec }));
   expect(html).toContain("API reference");
+  expect(html).toContain("Download OpenAPI");
   expect(html).toContain("Demo API");
   expect(html).toContain("orders");
   expect(html).toContain("auth");

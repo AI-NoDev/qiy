@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "qiyVersion": "0.2.0",
+  "qiyVersion": "0.2.4",
   "projectName": "qiy-supply-chain-erp-wms",
   "mode": "standalone",
   "files": [

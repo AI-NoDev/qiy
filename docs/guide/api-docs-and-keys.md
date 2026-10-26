@@ -5,7 +5,7 @@
 | 页面 | 路由 | 开关 | 内容 |
 | --- | --- | --- | --- |
 | 功能总览 | `/system/overview` | `overview`（默认 true）且 `apiDocs`/`apiKeys` 至少一个打开 | **实体系**：Mermaid `classDiagram` + 字段/注解表 + 关系表；**Dataflow**：每个 flow 的 Mermaid `flowchart`、allow 规则、输入与步骤；**权限模型**：权限字段/组/校验 + 当前用户有效权限 |
-| API 文档 | `/system/api-docs` | `apiDocs` | 全页 AntD OpenAPI 3.1 浏览器：tag 列表（带操作数）、操作卡（方法/路径/摘要/参数/请求体/响应/安全方案/角色与权限标签 + 可复制 curl）、搜索、无结果状态；只读，不发真实请求 |
+| API 文档 | `/system/api-docs` | `apiDocs` | 全页 AntD OpenAPI 3.1 浏览器：tag 列表（带操作数）、操作卡（方法/路径/摘要/参数/请求体/响应/安全方案/角色与权限标签 + 可复制 curl）、搜索、无结果状态；只读，不发真实请求；可下载当前账号过滤后的 OpenAPI JSON（`<title>.openapi.json`） |
 | 访问密钥 | `/system/api-keys` | `apiKeys` | 全页 API Key 管理：说明与 curl 示例、按名称/前缀/状态搜索与筛选、有效数/上限提示、权限标签、创建弹窗（名称 + 可选过期）、一次性密钥展示、撤销 |
 
 三页都在 `<Authenticated>` 布局内（未登录跳 `/auth/login`），内容按当前账号的角色/权限过滤。完整开关语义、生成矩阵与限制见 [DSL：features](/dsl/features)。

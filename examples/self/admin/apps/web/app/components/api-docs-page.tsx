@@ -1,4 +1,5 @@
-import { Alert, Card, Col, Empty, Input, Menu, Row, Space, Spin, Table, Tag, Tooltip, Typography } from "antd";
+import { DownloadOutlined } from "@ant-design/icons";
+import { Alert, Button, Card, Col, Empty, Input, Menu, Row, Space, Spin, Table, Tag, Tooltip, Typography } from "antd";
 import { useTranslation } from "@refinedev/core";
 import { useMemo, useState } from "react";
 import {
@@ -13,6 +14,19 @@ import {
   type OpenApiResponse,
   type OpenApiTagGroup,
 } from "../docs";
+
+/** Downloads the permission-filtered OpenAPI document currently shown on screen. */
+function downloadOpenApiDocument(spec: unknown, title: string | undefined): void {
+  if (spec === null || typeof spec !== "object") return;
+  const stem = (title ?? "qiy").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "qiy";
+  const blob = new Blob([JSON.stringify(spec, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = stem + ".openapi.json";
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
 
 export interface ApiDocsPageProps {
   spec?: unknown;
@@ -100,6 +114,7 @@ export function ApiDocsPage(props: ApiDocsPageProps) {
     <Space wrap>
       {info?.title ? <Typography.Text strong>{info.title}</Typography.Text> : null}
       {info?.version ? <Tag>{info.version}</Tag> : null}
+      {document ? <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadOpenApiDocument(document, info?.title)}>{translate("qiy.apiDocs.download", {}, "Download OpenAPI")}</Button> : null}
       {principal?.role ? <Tooltip title={roleTooltip}><Tag color="blue">{translate("qiy.apiDocs.currentRole", {}, "Role") + ": " + principal.role}</Tag></Tooltip> : null}
       {Array.isArray(principal?.permissions) && principal.permissions.length > 0 ? <Tooltip title={permissionTooltip}><Tag color="geekblue">{translate("qiy.apiDocs.currentPermissions", {}, "Permissions") + ": " + principal.permissions.map(String).join(", ")}</Tag></Tooltip> : null}
     </Space>

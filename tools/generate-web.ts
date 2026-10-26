@@ -1738,7 +1738,7 @@ export const localeMessages = {
     "apiKey.revokeConfirm": "确定撤销该密钥？撤销后立即失效。", "apiKey.secretTitle": "请立即保存密钥",
     "apiKey.secretHint": "完整密钥只显示一次，关闭后无法找回。", "apiKey.copy": "复制", "apiKey.copied": "已复制", "apiKey.created": "已创建",
     "apiKey.loadError": "访问密钥加载失败", "apiKey.limit": "每用户最多 {{count}} 个有效密钥",
-    "apiDocs.title": "API 文档", "apiDocs.pageTitle": "API 文档", "apiDocs.pageSubtitle": "当前账号可调用的 OpenAPI 3.1 操作；只读查看，使用 curl 示例配合会话令牌或访问密钥调用。",
+    "apiDocs.title": "API 文档", "apiDocs.pageTitle": "API 文档", "apiDocs.pageSubtitle": "当前账号可调用的 OpenAPI 3.1 操作；只读查看，使用 curl 示例配合会话令牌或访问密钥调用。", "apiDocs.download": "下载 OpenAPI",
     "apiDocs.roleTooltip": "你的账号角色用于过滤本文档；无权调用的操作不会列出。", "apiDocs.permissionTooltip": "由角色、数据库列与已验证 claim 合成的权限；文档只包含你有权调用的操作。",
     "apiDocs.rolesTooltip": "你的角色需属于以下之一；本文档已按当前账号过滤。", "apiDocs.permissionsTooltip": "该操作还需要列出的全部权限；本文档已按当前账号过滤。",
     "apiDocs.securityTooltip": "该操作支持的认证方式。", "apiDocs.currentRole": "角色", "apiDocs.currentPermissions": "权限",
@@ -1813,7 +1813,7 @@ export const localeMessages = {
     "apiKey.revokeConfirm": "Revoke this key? It stops working immediately.", "apiKey.secretTitle": "Save this secret now",
     "apiKey.secretHint": "The full key is shown only once and cannot be recovered.", "apiKey.copy": "Copy", "apiKey.copied": "Copied", "apiKey.created": "Created",
     "apiKey.loadError": "Failed to load API keys", "apiKey.limit": "Up to {{count}} active keys per user",
-    "apiDocs.title": "API reference", "apiDocs.pageTitle": "API reference", "apiDocs.pageSubtitle": "OpenAPI 3.1 operations allowed for the current account. Read-only: use the curl examples with a session token or an API key.",
+    "apiDocs.title": "API reference", "apiDocs.pageTitle": "API reference", "apiDocs.pageSubtitle": "OpenAPI 3.1 operations allowed for the current account. Read-only: use the curl examples with a session token or an API key.", "apiDocs.download": "Download OpenAPI",
     "apiDocs.roleTooltip": "Your account role is used to filter this document; operations you cannot call are not listed.", "apiDocs.permissionTooltip": "Permission values from your role, database column and verified claims. The document only contains operations you may call.",
     "apiDocs.rolesTooltip": "Your role must be one of these roles; this document is already filtered for your account.", "apiDocs.permissionsTooltip": "The operation additionally requires every listed permission; this document is already filtered for your account.",
     "apiDocs.securityTooltip": "Supported authentication schemes for this operation.", "apiDocs.currentRole": "Role", "apiDocs.currentPermissions": "Permissions",
@@ -4690,7 +4690,8 @@ export default function DocsRoute() {
 
 /** API-docs page: full-page, searchable, read-only OpenAPI explorer. */
 function renderWebApiDocsPageComponent(): string {
-  return `import { Alert, Card, Col, Empty, Input, Menu, Row, Space, Spin, Table, Tag, Tooltip, Typography } from "antd";
+  return `import { DownloadOutlined } from "@ant-design/icons";
+import { Alert, Button, Card, Col, Empty, Input, Menu, Row, Space, Spin, Table, Tag, Tooltip, Typography } from "antd";
 import { useTranslation } from "@refinedev/core";
 import { useMemo, useState } from "react";
 import {
@@ -4705,6 +4706,19 @@ import {
   type OpenApiResponse,
   type OpenApiTagGroup,
 } from "../docs";
+
+/** Downloads the permission-filtered OpenAPI document currently shown on screen. */
+function downloadOpenApiDocument(spec: unknown, title: string | undefined): void {
+  if (spec === null || typeof spec !== "object") return;
+  const stem = (title ?? "qiy").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "qiy";
+  const blob = new Blob([JSON.stringify(spec, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = stem + ".openapi.json";
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
 
 export interface ApiDocsPageProps {
   spec?: unknown;
@@ -4792,6 +4806,7 @@ export function ApiDocsPage(props: ApiDocsPageProps) {
     <Space wrap>
       {info?.title ? <Typography.Text strong>{info.title}</Typography.Text> : null}
       {info?.version ? <Tag>{info.version}</Tag> : null}
+      {document ? <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadOpenApiDocument(document, info?.title)}>{translate("qiy.apiDocs.download", {}, "Download OpenAPI")}</Button> : null}
       {principal?.role ? <Tooltip title={roleTooltip}><Tag color="blue">{translate("qiy.apiDocs.currentRole", {}, "Role") + ": " + principal.role}</Tag></Tooltip> : null}
       {Array.isArray(principal?.permissions) && principal.permissions.length > 0 ? <Tooltip title={permissionTooltip}><Tag color="geekblue">{translate("qiy.apiDocs.currentPermissions", {}, "Permissions") + ": " + principal.permissions.map(String).join(", ")}</Tag></Tooltip> : null}
     </Space>
@@ -5416,6 +5431,7 @@ const { ApiDocsPage } = await import("../app/components/api-docs-page");
 test("renders the API reference page with tags, operations, parameters and curl", () => {
   const html = renderToStaticMarkup(createElement(ApiDocsPage, { spec }));
   expect(html).toContain("API reference");
+  expect(html).toContain("Download OpenAPI");
   expect(html).toContain("Demo API");
   expect(html).toContain("orders");
   expect(html).toContain("auth");
