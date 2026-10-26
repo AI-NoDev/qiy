@@ -18,5 +18,3 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       dry_run: true
-    permissions:
-      contents: write
