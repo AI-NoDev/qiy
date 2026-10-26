@@ -8,6 +8,20 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.2.3] - 2026-10-26
+
+### Added
+
+- `qiy explain <file.qiy> [--json]` prints a normalized model summary (entities,
+  fields, generated values, relations, enums, permissions, dataflows, actions,
+  charts and counts) without generating a project. Invalid models can be
+  inspected as `{"valid":false,"error":"…"}`.
+- `qiy schema` prints the draft-2020-12 JSON Schema for `qiy explain --json`;
+  the same schema is published at `/schema/qiy-explanation-1.json` and linked
+  from `llms.txt`.
+- `qiy skill list/update/uninstall` lifecycle commands (from 0.2.2) are
+  documented in the CLI and Agent Skill references.
+
 ## [0.2.2] - 2026-10-26
 
 ### Added
@@ -102,6 +116,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.2.3]: https://github.com/AI-NoDev/qiy/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/AI-NoDev/qiy/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/AI-NoDev/qiy/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/AI-NoDev/qiy/compare/v0.1.5...v0.2.0

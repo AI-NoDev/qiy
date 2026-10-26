@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 import { generateApp } from "./commands/generate-app";
 import { initApp } from "./commands/init";
+import { explainQiyFile, formatQiyExplanation } from "./commands/explain";
+import { qiyExplanationSchema } from "./qiy-schema";
 import { formatSkillStatuses, installSkill, listSkillInstallations, uninstallSkill, updateSkill } from "./commands/skill";
 import { formatDoctorReport, runDoctor } from "./commands/doctor";
 import packageMetadata from "../package.json" with { type: "json" };
@@ -24,6 +26,8 @@ Commands:
                                   Mount a Qiy admin into the current Bun workspace
 
   doctor [--json]                 Check Bun, CLI template, and current workspace readiness
+  explain <file.qiy> [--json]     Print a normalized model summary without generating
+  schema                          Print the JSON Schema for explain --json output
   skill install [--force] [--global] [--dir <path>]
                                   Install the official agent skill (default <project>/.agents/skills/qiy,
                                   --global writes ~/.agents/skills/qiy, --dir writes a custom directory)
@@ -100,6 +104,25 @@ async function main(argv: string[]): Promise<void> {
         if (flag(skillArguments, "--json")) console.log(JSON.stringify(statuses, null, 2));
         else console.log(formatSkillStatuses(statuses));
       }
+      return;
+    }
+    case "explain": {
+      const source = option(rest, "-f", "--file") ?? rest.find((argument) => !argument.startsWith("-"));
+      if (!source) throw new Error("qiy explain requires a .qiy file.\n\n" + USAGE);
+      const json = flag(rest, "--json");
+      try {
+        const explanation = explainQiyFile(source);
+        process.stdout.write(json ? `${JSON.stringify(explanation, null, 2)}\n` : formatQiyExplanation(explanation));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!json) throw error;
+        process.stdout.write(`${JSON.stringify({ formatVersion: 1, sourceFile: source, valid: false, error: message }, null, 2)}\n`);
+        process.exitCode = 1;
+      }
+      return;
+    }
+    case "schema": {
+      process.stdout.write(`${JSON.stringify(qiyExplanationSchema, null, 2)}\n`);
       return;
     }
     case "generate": {

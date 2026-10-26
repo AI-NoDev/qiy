@@ -7,6 +7,8 @@ qiy create -f <source> -n <name> -o <output-dir> [--sync]
 qiy init -f <source> [-n <name>] [--sync]
 qiy generate <source> <output-dir> [--sync] # 兼容旧命令
 qiy doctor [--json]
+qiy explain <source.qiy> [--json]
+qiy schema
 qiy skill install [--force] [--global] [--dir <path>]
 ```
 
@@ -71,6 +73,16 @@ qiy skill uninstall               # 只删除官方文件，保留手写文件
 ```
 
 命令离线安装可执行文件内置的官方 Agent Skill（标准 `SKILL.md` + `references/` + `examples/`），不会安装其他 skill，也不需要额外用户配置文件。重复安装相同版本可直接执行；本地修改过官方文件时默认拒绝覆盖，确认需要替换后加 `--force`，无关文件仍保留。旧目录 `.agent/skills/qiy` 会被原地更新。不同 AI 工具使用不同的 skill 搜索路径时，用 `--dir` 指向该工具的 skills 目录，详见 [Qiy Agent Skill](./agent-skill)（文档站也提供 `/skills/qiy/SKILL.md` 与 `/skills/qiy-skill.tar.gz` 静态下载）。该命令安装的是当前 CLI 随附版本，不会联网获取最新版本。
+
+## 解释模型与机器可读 schema
+
+```powershell
+qiy explain examples/catalog/app.qiy
+qiy explain examples/catalog/app.qiy --json
+qiy schema
+```
+
+`explain` 解析 `.qiy` 后输出规范化摘要：application 模式/数据库、实体与字段（含 `@code`/`@generated` 信息）、关系、枚举、权限、dataflow、action、chart 与计数。`--json` 输出机器可读结构，解析失败时输出 `{ "valid": false, "error": "..." }` 并以退出码 1 结束。`schema` 输出该 JSON 的 JSON Schema（draft 2020-12），也发布在 `/schema/qiy-explanation-1.json`；schema 里的 `formatVersion` 发生破坏性变化时会递增。
 
 ## 环境检查
 

@@ -1,6 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { pageDescriptions } from "../docs/.vitepress/seo";
+import { qiyExplanationSchema } from "./qiy-schema";
 
 /**
  * Generates the static, agent-facing assets served by the documentation site:
@@ -133,6 +134,13 @@ export function buildDocsAssets(): void {
       "",
     ].join("\n"),
     [
+      "## Machine-readable schema",
+      "",
+      `- [qiy explain JSON Schema](${siteUrl}/schema/qiy-explanation-1.json): validate \`qiy explain --json\` output.`,
+      "- Generate it with `qiy schema`; inspect a model with `qiy explain <file.qiy> [--json]`.",
+      "",
+    ].join("\n"),
+    [
       "## Optional",
       "",
       "- [Repository](https://github.com/AI-NoDev/qiy)",
@@ -157,6 +165,9 @@ export function buildDocsAssets(): void {
     join(publicDir, "robots.txt"),
     ["User-agent: *", "Allow: /", `Sitemap: ${siteUrl}/sitemap.xml`, ""].join("\n"),
   );
+  const schemaDir = join(publicDir, "schema");
+  mkdirSync(schemaDir, { recursive: true });
+  writeFileSync(join(schemaDir, "qiy-explanation-1.json"), `${JSON.stringify(qiyExplanationSchema, null, 2)}\n`);
 
   const skillDestination = join(publicDir, "skills", "qiy");
   rmSync(skillDestination, { recursive: true, force: true });

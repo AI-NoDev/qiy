@@ -37,7 +37,7 @@ test("generated llms.txt indexes every DSL and guide page", () => {
   buildDocsAssets();
   const llms = readFileSync(join(docs, "public", "llms.txt"), "utf8");
   expect(llms.startsWith("# Qiy\n")).toBe(true);
-  for (const section of ["## Start here", "## DSL reference", "## Guides", "## Agent Skill"]) {
+  for (const section of ["## Start here", "## DSL reference", "## Guides", "## Agent Skill", "## Machine-readable schema"]) {
     expect(llms).toContain(section);
   }
   const urls = [
@@ -68,4 +68,9 @@ test("generated robots, full text and skill assets are consistent", () => {
   const packageVersion = (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version: string }).version;
   expect(readFileSync(skill, "utf8")).toContain(`version: "${packageVersion}"`);
   expect(existsSync(join(docs, "public", "skills", "qiy-skill.tar.gz"))).toBe(true);
+  const schemaFile = join(docs, "public", "schema", "qiy-explanation-1.json");
+  expect(existsSync(schemaFile)).toBe(true);
+  const schema = JSON.parse(readFileSync(schemaFile, "utf8")) as { $id: string; required: string[] };
+  expect(schema.$id).toBe("https://ai-nodev.github.io/qiy/schema/qiy-explanation-1.json");
+  expect(schema.required).toContain("formatVersion");
 });

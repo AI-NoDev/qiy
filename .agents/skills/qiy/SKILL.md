@@ -4,7 +4,7 @@ description: "Build and maintain applications with the Qiy CLI and .qiy models: 
 license: MIT
 metadata:
   short-description: "Build apps from .qiy models with the Qiy CLI"
-  version: "0.2.2"
+  version: "0.2.3"
   homepage: "https://ai-nodev.github.io/qiy/"
   skill-docs: "https://ai-nodev.github.io/qiy/guide/agent-skill"
   llms-txt: "https://ai-nodev.github.io/qiy/llms.txt"
@@ -18,7 +18,7 @@ Qiy compiles a declarative `.qiy` model into editable TypeScript: a Refine + Rea
 
 - The user wants to create, extend, review or maintain a Qiy application.
 - The task involves `.qiy` blocks: entities, fields, relations, indexes, enums, generated codes, permissions, dataflows, actions, charts, menus, messages, auth, storage, realtime, scope/restrict, pages, features, modules.
-- The user mentions `qiy create`, `qiy init`, `qiy generate --sync`, `qiy skill install`, or an existing generated workspace.
+- The user mentions `qiy create`, `qiy init`, `qiy generate --sync`, `qiy explain`, `qiy schema`, `qiy skill install`, or an existing generated workspace.
 - The user wants an admin/CRUD app generated from a model instead of hand-written boilerplate.
 
 ## Do not use this skill when
