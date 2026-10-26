@@ -22,24 +22,22 @@ is found afterwards, ship a patch release instead of moving the tag.
 
 ## 2. Run the acceptance gate
 
-From the commit that should be released, run the **Pre-release acceptance**
-workflow (Actions → Pre-release acceptance → Run workflow) on `main`.
-It executes the same matrix as a real release:
+From the commit that should be released, dispatch the release workflow with
+`dry_run: true`. It executes the same matrix as a real release:
 
 - `bun run check`, `bun test`, `bun run docs:build`
 - template refresh and all five platform executables
 - standalone and integration acceptance on linux-x64, linux-arm64,
   darwin-x64, darwin-arm64 and windows-x64
-- no GitHub release or tag is created (`dry_run: true`)
-
-Equivalent CLI:
+- no GitHub release or tag is created
 
 ```bash
-gh workflow run "Pre-release acceptance" --ref main
-gh run watch --workflow "Pre-release acceptance"
+gh workflow run "Release Qiy CLI" --ref main -f dry_run=true
+gh run watch --workflow "Release Qiy CLI"
 ```
 
-Only continue when it is green.
+Only continue when it is green. The `dry_run` run is the pre-release gate; do
+not create the tag before it passes.
 
 ## 3. Tag the accepted commit
 
@@ -76,8 +74,7 @@ platform. A green release smoke is required before announcing.
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
 | `CI` | every PR and `main` push | check, test, docs assets + docs build |
-| `Pre-release acceptance` | manual | full release matrix, no publish |
-| `Release Qiy CLI` | `v*` tag (and version bump on main) | build, verify, publish |
+| `Release Qiy CLI` | `v*` tag, manual `dry_run=true` | build, verify, publish; dry run is the pre-release gate |
 | `Verify released Qiy CLI` | release published | run published binaries |
 | `Deploy documentation` | docs/package changes on main | GitHub Pages |
 | `Verify generated database Dataflow` | generator/dataflow changes | PostgreSQL + MySQL smoke |

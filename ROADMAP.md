@@ -29,12 +29,12 @@
 
 - 现状：`v0.2.0` 曾因发布后才发现生成器缺陷而多次 force-move tag。
 - 目标：
-  1. 新增 `.github/workflows/pre-release.yml`（workflow_dispatch）：在一个 commit 上跑完整验收
+  1. 发布前用 `Release Qiy CLI` 的 `dry_run=true` 跑完整验收
      （check / test / docs build / template build / 全平台可执行文件构建 / standalone 与 integration acceptance）；
   2. 验收通过后才允许打 annotated tag；tag 一旦推送不再移动；
   3. 新增 `RELEASING.md` 写清顺序：验收 → tag → Release workflow → release-smoke。
 - 验收：用该流程发布一个 patch 版本，tag 全程未移动。
-- 完成：`pre-release.yml` 复用 `release.yml` 的 `dry_run` 全矩阵（不创建 Release/tag）；`release.yml` 支持 tag 触发；`RELEASING.md` 固化流程。下一次 patch 发布时按该流程实际走一遍。
+- 完成：`release.yml` 支持 `workflow_dispatch` 的 `dry_run` 输入并可由 tag 触发；`RELEASING.md` 固化流程。2026-10-26 dry-run 全矩阵通过（prepare/build + 5 平台 standalone/integration，publish skipped，未创建 Release/tag）。
 
 ### P0-3 CHANGELOG 与 Release Notes `[x]`
 
