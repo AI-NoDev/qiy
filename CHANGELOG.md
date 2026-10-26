@@ -8,6 +8,17 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.2.2] - 2026-10-26
+
+### Added
+
+- `qiy skill list [--json]` reports project, legacy, global and `--dir`
+  installations with up-to-date/modified/missing/unrelated file details.
+- `qiy skill update [--force]` refreshes an existing installation and refuses
+  locally modified official files unless `--force` is passed.
+- `qiy skill uninstall` removes only bundled official files and empty
+  directories, preserving handwritten files under the skill directory.
+
 ## [0.2.1] - 2026-10-26
 
 ### Added
@@ -91,5 +102,6 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.2.2]: https://github.com/AI-NoDev/qiy/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/AI-NoDev/qiy/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/AI-NoDev/qiy/compare/v0.1.5...v0.2.0

@@ -4,7 +4,7 @@ description: "Build and maintain applications with the Qiy CLI and .qiy models: 
 license: MIT
 metadata:
   short-description: "Build apps from .qiy models with the Qiy CLI"
-  version: "0.2.1"
+  version: "0.2.2"
   homepage: "https://ai-nodev.github.io/qiy/"
   skill-docs: "https://ai-nodev.github.io/qiy/guide/agent-skill"
   llms-txt: "https://ai-nodev.github.io/qiy/llms.txt"
@@ -47,6 +47,9 @@ qiy skill install --global         # ~/.agents/skills/qiy
 qiy skill install --dir .claude/skills/qiy
 qiy skill install --dir ~/.codex/skills/qiy
 qiy skill install --force          # after a CLI upgrade, replace modified official files
+qiy skill list [--json]            # installed locations, freshness, modified/missing files
+qiy skill update [--force]         # refresh an existing installation only
+qiy skill uninstall                # remove official files; keep handwritten files
 ```
 
 Repeats are idempotent; local edits to official files are refused unless `--force`; unrelated files are preserved; a legacy `.agent/skills/qiy` is updated in place. Static copies: `https://ai-nodev.github.io/qiy/skills/qiy/SKILL.md` and `.../skills/qiy-skill.tar.gz`. Installing this skill does not install the CLI.

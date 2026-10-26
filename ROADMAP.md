@@ -61,7 +61,8 @@
 ## P1：0.3.0 之前
 
 - [ ] `qiy schema`（.qiy JSON Schema）、`qiy explain`、错误码目录
-- [ ] `qiy skill list/update/uninstall`；官方 bun/drizzle/elysia/refine-dev skill 纳入分发
+- [x] `qiy skill list/update/uninstall`（含 `--json`、本地修改保护、保留手写文件）
+- [ ] 官方 bun/drizzle/elysia/refine-dev skill 纳入分发
 - [ ] API docs：OpenAPI 下载、try-it、解释 verification 隐藏原因
 - [ ] API Key：scopes、轮换、调用审计
 - [ ] 本地密码限流/锁定、会话吊销

@@ -20,14 +20,25 @@ qiy skill install --dir ~/.codex/skills/qiy
 
 # Qiy 升级后更新官方文件
 qiy skill install --force
+
+# 查看当前安装、修改状态与版本
+qiy skill list
+qiy skill list --json
+
+# 只更新已存在的安装（--force 覆盖本地修改）
+qiy skill update
+
+# 卸载官方文件（手写文件会保留）
+qiy skill uninstall
 ```
 
 | 参数 | 作用 |
 | --- | --- |
 | 无参数 | 安装到当前项目的 `.agents/skills/qiy` |
-| `--global` | 安装到 `~/.agents/skills/qiy` |
+| `--global` | 安装/查看/更新 `~/.agents/skills/qiy` |
 | `--dir <path>` | 指定目标目录（相对项目、绝对路径或 `~/...`） |
 | `--force` | 强制覆盖被本地修改过的官方文件；无关文件始终保留 |
+| `list --json` | 输出机器可读的安装位置、`upToDate`、modified/missing/unrelated 列表 |
 
 行为说明：
 

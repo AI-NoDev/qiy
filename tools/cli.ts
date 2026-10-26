@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { generateApp } from "./commands/generate-app";
 import { initApp } from "./commands/init";
-import { installSkill } from "./commands/skill";
+import { formatSkillStatuses, installSkill, listSkillInstallations, uninstallSkill, updateSkill } from "./commands/skill";
 import { formatDoctorReport, runDoctor } from "./commands/doctor";
 import packageMetadata from "../package.json" with { type: "json" };
 
@@ -27,6 +27,12 @@ Commands:
   skill install [--force] [--global] [--dir <path>]
                                   Install the official agent skill (default <project>/.agents/skills/qiy,
                                   --global writes ~/.agents/skills/qiy, --dir writes a custom directory)
+  skill list [--json] [--global] [--dir <path>]
+                                  Show installed skill locations and whether they are up to date
+  skill update [--force] [--global] [--dir <path>]
+                                  Refresh official files in an existing installation
+  skill uninstall [--global] [--dir <path>]
+                                  Remove official skill files (unrelated files are preserved)
 
 Options:
   -h, --help                     Show this help
@@ -67,15 +73,33 @@ async function main(argv: string[]): Promise<void> {
   const positional = rest.filter((arg) => !arg.startsWith("-"));
   switch (command) {
     case "skill": {
-      if (rest[0] !== "install") throw new Error("Usage: qiy skill install [--force] [--global] [--dir <path>]");
-      const installArguments = rest.slice(1);
-      const dir = option(installArguments, "--dir");
-      for (let index = 0; index < installArguments.length; index += 1) {
-        const argument = installArguments[index]!;
+      const subcommand = rest[0] ?? "";
+      const usage = "Usage: qiy skill <install|list|update|uninstall> [--force] [--global] [--dir <path>] [--json]";
+      if (!["install", "list", "update", "uninstall"].includes(subcommand)) throw new Error(usage);
+      const skillArguments = rest.slice(1);
+      const dir = option(skillArguments, "--dir");
+      const allowed = subcommand === "list"
+        ? ["--json", "--global", "--dir"]
+        : subcommand === "install" || subcommand === "update"
+          ? ["--force", "--global", "--dir"]
+          : ["--global", "--dir"];
+      for (let index = 0; index < skillArguments.length; index += 1) {
+        const argument = skillArguments[index]!;
         if (argument === "--dir") { index += 1; continue; }
-        if (argument !== "--force" && argument !== "--global") throw new Error("Usage: qiy skill install [--force] [--global] [--dir <path>]");
+        if (!allowed.includes(argument)) throw new Error(usage);
       }
-      installSkill(process.cwd(), flag(installArguments, "--force"), { global: flag(installArguments, "--global"), ...(dir && { dir }) });
+      const options = { global: flag(skillArguments, "--global"), ...(dir && { dir }) };
+      if (subcommand === "install") installSkill(process.cwd(), flag(skillArguments, "--force"), options);
+      else if (subcommand === "update") updateSkill(process.cwd(), flag(skillArguments, "--force"), options);
+      else if (subcommand === "uninstall") {
+        const result = uninstallSkill(process.cwd(), options);
+        console.log(`Removed ${result.removed.length} official Qiy skill files from ${result.destination}`);
+        if (result.preserved.length) console.log(`Preserved ${result.preserved.length} unrelated files: ${result.preserved.join(", ")}`);
+      } else {
+        const statuses = listSkillInstallations(process.cwd(), options);
+        if (flag(skillArguments, "--json")) console.log(JSON.stringify(statuses, null, 2));
+        else console.log(formatSkillStatuses(statuses));
+      }
       return;
     }
     case "generate": {

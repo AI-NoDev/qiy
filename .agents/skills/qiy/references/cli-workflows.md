@@ -52,6 +52,9 @@ qiy generate <source.qiy> <output-dir> [--sync]
 qiy init -f <source.qiy> [-n <name>] [-o <project-root>] [--sync]
 qiy doctor [--json]
 qiy skill install [--force] [--global] [--dir <path>]
+qiy skill list [--json] [--global] [--dir <path>]
+qiy skill update [--force] [--global] [--dir <path>]
+qiy skill uninstall [--global] [--dir <path>]
 qiy help            # same as --help
 qiy --help | -h
 qiy --version | -v
@@ -64,6 +67,9 @@ qiy --version | -v
 | `init` | `-f` | Mounts server/web packages into the current Bun workspace. `-o` selects another project root; `-n` overrides the integration name once |
 | `doctor` | - | Checks Bun runtime, the embedded Admin template and the current workspace's Bun declaration; `--json` prints machine-readable output |
 | `skill install` | - | Installs the bundled official skill (see below) |
+| `skill list` | - | Shows installed locations, freshness, and modified/missing/unrelated files; `--json` is machine-readable |
+| `skill update` | - | Refreshes an existing installation; refuses local edits unless `--force` |
+| `skill uninstall` | - | Removes only official files and prunes empty directories; handwritten files stay |
 | `help` / `--help` / `-h` | - | Prints usage |
 | `--version` / `-v` | - | Prints the CLI version |
 
@@ -134,6 +140,12 @@ qiy skill install --dir ~/.codex/skills/qiy
 
 # After a CLI upgrade: replace locally modified official files
 qiy skill install --force
+
+# Inspect, update or remove an installation
+qiy skill list
+qiy skill list --json
+qiy skill update          # refuses local edits unless --force
+qiy skill uninstall       # keeps handwritten files
 ```
 
 | Flag | Effect |
@@ -142,6 +154,9 @@ qiy skill install --force
 | `--global` | Writes `~/.agents/skills/qiy` |
 | `--dir <path>` | Writes the given directory; relative to the project, absolute, or `~/...` |
 | `--force` | Replaces official files that were modified locally; unrelated files are always preserved |
+| `list` | Reports installed locations, freshness, and modified/missing/unrelated files; add `--json` for scripts |
+| `update` | Updates only an existing installation; same local-edit refusal as `install` |
+| `uninstall` | Deletes only bundled official files and empty directories; handwritten files remain |
 
 Behavior: repeating an install is idempotent; if an official file differs from the bundled version the command refuses with `Qiy skill has local changes...` and suggests `--force`; a legacy `.agent/skills/qiy` directory is updated in place when it is the only one present; only the skill's `SKILL.md`, `references/` and `examples/` are written. The installed bundle always matches the current CLI version - it never downloads a newer one.
 

@@ -65,6 +65,9 @@ qiy skill install                  # 当前项目 .agents/skills/qiy
 qiy skill install --global        # 用户级 ~/.agents/skills/qiy
 qiy skill install --dir .claude/skills/qiy
 qiy skill install --force         # 升级后覆盖被本地修改的官方文件
+qiy skill list [--json]           # 查看已安装位置、是否最新、被修改/缺失的文件
+qiy skill update [--force]        # 只更新已存在的安装
+qiy skill uninstall               # 只删除官方文件，保留手写文件
 ```
 
 命令离线安装可执行文件内置的官方 Agent Skill（标准 `SKILL.md` + `references/` + `examples/`），不会安装其他 skill，也不需要额外用户配置文件。重复安装相同版本可直接执行；本地修改过官方文件时默认拒绝覆盖，确认需要替换后加 `--force`，无关文件仍保留。旧目录 `.agent/skills/qiy` 会被原地更新。不同 AI 工具使用不同的 skill 搜索路径时，用 `--dir` 指向该工具的 skills 目录，详见 [Qiy Agent Skill](./agent-skill)（文档站也提供 `/skills/qiy/SKILL.md` 与 `/skills/qiy-skill.tar.gz` 静态下载）。该命令安装的是当前 CLI 随附版本，不会联网获取最新版本。
@@ -95,4 +98,4 @@ bun run build:exe -- --all
 
 独立项目黑盒验收还会启动已构建的本机预览服务，验证首页、静态资源、SPA 深链接、资源 API、OpenAPI 和未知 API 的 404，并确认未配置认证时生产入口拒绝启动。预览身份与数据为测试用途，不代表真实登录或数据库生产验收。
 
-维护者更新 `package.json.version` 后推送 `main`，`.github/workflows/release.yml` 会检查同版本 Release 是否已存在：已存在则跳过；不存在则先执行源码类型检查、测试和文档构建，再构建 Windows x64、Linux x64/arm64、macOS x64/arm64 五个平台产物。每个产物在对应原生平台验证版本、实际生成独立项目与 integration 项目、干净安装、typecheck/test/build、同步保护和离线 Skill，全部通过后才创建 tag 与 GitHub Release。已有 tag 但无 Release 时从该 tag 的提交构建，并核对包版本，避免资产与源码标签不一致。Release 发布后，`.github/workflows/release-smoke.yml` 还会下载 Linux x64 资产进行远端黑盒检查。不要手工重复创建同一版本 tag。
+维护者先更新 `package.json.version` 与 `CHANGELOG.md`，用 `gh workflow run "Release Qiy CLI" -f dry_run=true` 跑完整验收矩阵（检查、测试、文档构建、五平台产物与 native 验收，不创建 Release/tag）；通过后推送 `vX.Y.Z` annotated tag，tag 触发 `.github/workflows/release.yml` 构建五个平台产物并创建 GitHub Release（Release body 来自 `CHANGELOG.md` 对应版本段落）。每个产物在对应原生平台验证版本、实际生成独立项目与 integration 项目、干净安装、typecheck/test/build、同步保护和离线 Skill。tag 一旦推送不再移动；发现问题发布下一个 patch。Release 发布后，`.github/workflows/release-smoke.yml` 还会下载已发布资产进行远端黑盒检查。完整流程见仓库根目录 `RELEASING.md`。
