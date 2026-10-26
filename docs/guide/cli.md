@@ -7,6 +7,7 @@ qiy create project <name> [--template minimal|standard] [--dir <path>]
 qiy check
 qiy add entity <name> [--module <name>] [--field name:Type ...]
 qiy add field <entity> <name:Type> [--nullable] [--unique] [--code <template>]
+qiy fmt [--check] [files...]
 qiy generate
 qiy dev
 qiy dev --watch
@@ -42,6 +43,7 @@ qiy init -f <source> [-n <name>] [--sync]            # 挂载到现有 Bun 项�
 | `qiy check` | 解析并校验模型，打印统计；不写文件 |
 | `qiy add entity <name>` | 向实体模块追加实体（默认自动加 `id UUID @id`），支持 `--field name:Type`、`--label`、`--icon`、`--module`；写入后立即校验，失败自动回滚 |
 | `qiy add field <entity> <name:Type>` | 在实体闭合括号前插入字段，支持 `--nullable`、`--unique`、`--code`；写入后立即校验并回滚 |
+| `qiy fmt [--check] [files...]` | 规范化 `.qiy` 缩进/空行/行尾空白与文件末尾换行；不改变声明顺序、注释、include 或语义；`--check` 只检查并以退出码 1 报告 |
 | `qiy generate` | 生成或同步 `admin/`；已有生成物时自动 `--sync` |
 | `qiy dev [--watch]` | 生成 → 首次安装依赖 → 生成并执行数据库迁移 → 启动 API + Admin；`--watch` 监听 `model/` 并在保存后自动重生成/迁移 |
 | `qiy test` | 确保生成/安装后运行生成项目测试 |
@@ -56,7 +58,11 @@ qiy init -f <source> [-n <name>] [--sync]            # 挂载到现有 Bun 项�
 qiy add entity suppliers --field name:Text --field email:Text --label "Suppliers" --icon ShopOutlined
 qiy add field products phone:Text --nullable
 qiy add field products sku:Text --unique --code "SKU-{seq:4}"
+qiy fmt --check
+qiy fmt
 ```
+
+`qiy fmt` 只做语法保持的规范化：修正缩进、连续空行、行尾空白和文件末尾换行，不改写声明、注释、include 或顺序。CI 可用 `qiy fmt --check` 阻断未格式化模型。
 
 `add entity` 默认写入 `model/modules/10-catalog.qiy`，可用 `--module 10-catalog` 指定现有模块；实体默认带 `id UUID @id`。`add field` 插入到实体闭合括号前，保持现有缩进。两个命令都会在写入后解析整个项目，语法/校验失败时恢复原文件。适合人快速补字段，也适合 AI Agent 做结构化增量建模。
 

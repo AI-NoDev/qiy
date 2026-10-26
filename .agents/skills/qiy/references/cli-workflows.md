@@ -52,6 +52,7 @@ qiy create project <name> [--template minimal|standard] [--dir <path>]
 qiy check
 qiy add entity <name> [--module <name>] [--field name:Type ...] [--label ...] [--icon ...]
 qiy add field <entity> <name:Type> [--nullable] [--unique] [--code <template>]
+qiy fmt [--check] [files...]
 qiy generate
 qiy dev
 qiy dev --watch
@@ -80,6 +81,7 @@ qiy --version | -v
 | `check` | - | Parses/validates the current project model and prints counts; writes nothing |
 | `add entity` | name | Appends an entity (default `id UUID @id`) to a module with `--field name:Type`, optional `--label`/`--icon`/`--module`; validates and rolls back on failure |
 | `add field` | `<entity> <name:Type>` | Inserts a field before the entity's closing brace with `--nullable`/`--unique`/`--code`; validates and rolls back on failure |
+| `fmt` | `[files...]` | Syntax-preserving whitespace normalization for project model files or explicit `.qiy` paths; `--check` reports and exits 1 |
 | `generate` (project) | - | Generates/syncs `admin/` from the current project manifest |
 | `dev` | - | Generates, installs on first run, runs `db:generate` + `db:migrate`, starts the generated API + admin; `--watch` regenerates/migrates on debounced `model/**/*.qiy` saves |
 | `build` / `test` / `preview` | - | Ensures generation/install, then runs that generated workspace script |
@@ -130,6 +132,7 @@ qiy preview
 - `qiy generate` reads `model` and `output` from the manifest; when `admin/` already exists it syncs (never reinitializes over it).
 - `qiy dev` installs dependencies on first run, runs `db:generate` + `db:migrate`, then `bun run dev` in the generated workspace; add `--watch` to regenerate/migrate on debounced model saves.
 - `qiy add entity <name> --field name:Text` and `qiy add field <entity> <name:Type>` edit the modular model in place, then re-parse and roll back on any validation error. Use them for AI-driven incremental modeling; use an editor for large restructuring.
+- `qiy fmt` normalizes indentation, blank lines, trailing whitespace and the final newline without changing declarations/comments/includes/order; `qiy fmt --check` is CI-friendly.
 - Generated scripts remain available inside `admin/` for CI or advanced use, but project commands are the supported entrypoint.
 
 ## Legacy explicit generation

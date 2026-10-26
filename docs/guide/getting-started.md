@@ -106,6 +106,7 @@ qiy add field products sku:Text --unique --code "SKU-{seq:4}"
 | --- | --- |
 | `qiy check` | 校验模型并打印实体/字段/关系统计，不写文件 |
 | `qiy generate` | 生成或同步 `admin/` |
+| `qiy fmt` | 规范化 `.qiy` 缩进/空行/行尾空白 |
 | `qiy dev` | 生成 + 首次安装/迁移 + 启动开发环境 |
 | `qiy test` | 运行生成项目的测试 |
 | `qiy build` | 生产构建 |

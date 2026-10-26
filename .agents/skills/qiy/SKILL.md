@@ -4,7 +4,7 @@ description: "Build and maintain applications with the Qiy CLI and .qiy models: 
 license: MIT
 metadata:
   short-description: "Build apps from .qiy models with the Qiy CLI"
-  version: "0.3.2"
+  version: "0.3.3"
   homepage: "https://ai-nodev.github.io/qiy/"
   skill-docs: "https://ai-nodev.github.io/qiy/guide/agent-skill"
   llms-txt: "https://ai-nodev.github.io/qiy/llms.txt"
@@ -31,7 +31,7 @@ Qiy compiles a declarative `.qiy` model into editable TypeScript: a Refine + Rea
 | Situation | Command |
 | --- | --- |
 | New project (recommended) | `qiy create project <name>` then `cd <name> && qiy dev` |
-| Change/validate the model | `qiy add entity <name> --field name:Text`, `qiy add field <entity> <name:Type>`, then `qiy check` / `qiy generate` |
+| Change/validate the model | `qiy add entity <name> --field name:Text`, `qiy add field <entity> <name:Type>`, `qiy fmt`, then `qiy check` / `qiy generate` |
 | Existing Bun repo, Qiy should own API + DB + admin | `qiy init -f <model.qiy>` from the repo root |
 | Existing Bun repo with its own API/users | `qiy init` with `mode integration` in the model |
 | Legacy explicit generation | `qiy generate <model.qiy> <dir> --sync` |

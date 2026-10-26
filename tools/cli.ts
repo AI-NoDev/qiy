@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { addEntity, addField } from "./commands/add";
+import { formatQiyFiles } from "./format";
 import { generateApp } from "./commands/generate-app";
 import { initApp } from "./commands/init";
 import { checkProject, createProject, devProject, generateProject, runProjectScript } from "./commands/project";
@@ -28,6 +29,7 @@ Commands:
                                   Append an entity to a model module and validate
   add field <entity> <name:Type> [--nullable] [--unique] [--code <template>]
                                   Insert a field into an existing entity and validate
+  fmt [--check] [files...]        Canonicalize .qiy indentation/whitespace
   dev [--watch]                   Generate, install on first run, start API + admin
                                   (--watch regenerates on model/ changes)
   build                           Generate/install then run the production build
@@ -199,6 +201,24 @@ async function main(argv: string[]): Promise<void> {
     }
     case "check": {
       await checkProject(process.cwd());
+      return;
+    }
+    case "fmt":
+    case "format": {
+      const files = rest.filter((argument) => !argument.startsWith("-"));
+      const unknown = rest.filter((argument) => argument.startsWith("-") && argument !== "--check");
+      if (unknown.length) throw new Error(`Unknown qiy fmt option: ${unknown[0]}\n\n${USAGE}`);
+      const result = formatQiyFiles({ check: flag(rest, "--check"), files });
+      if (flag(rest, "--check")) {
+        if (result.changed.length) {
+          console.error(`${result.changed.length} file(s) need formatting:`);
+          for (const file of result.changed) console.error(`  ${file}`);
+          process.exitCode = 1;
+        } else console.log(`qiy fmt check: ${result.files.length} file(s) already formatted.`);
+      } else {
+        console.log(`qiy fmt: formatted ${result.changed.length} of ${result.files.length} file(s).`);
+        for (const file of result.changed) console.log(`  ${file}`);
+      }
       return;
     }
     case "add": {

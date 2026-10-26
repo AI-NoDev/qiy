@@ -8,6 +8,19 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.3.3] - 2026-10-26
+
+### Added
+
+- `qiy fmt [--check] [files...]`: syntax-preserving canonical whitespace
+  formatting for project model files or explicit `.qiy` paths. It normalizes
+  indentation, blank-line runs, trailing whitespace and the final newline
+  without changing declarations, comments, includes or order. `--check` is
+  CI-friendly and exits 1 when files need formatting.
+- The design-philosophy page now contains the v1 friendly-syntax RFC
+  (`project`/`module`, `name: type`, inline `customer: Customer` and
+  `lines: OrderLine[]`, optional semicolons, v0 compatibility via `qiy fmt`).
+
 ## [0.3.2] - 2026-10-26
 
 ### Added
@@ -175,6 +188,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.3.3]: https://github.com/AI-NoDev/qiy/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/AI-NoDev/qiy/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/AI-NoDev/qiy/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/AI-NoDev/qiy/compare/v0.2.5...v0.3.0
