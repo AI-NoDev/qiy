@@ -13,6 +13,7 @@
 每项完成后必须在此更新状态、验证方式和对应提交/PR。
 
 > P0 已完成（2026-10-26）：PR CI、发布前验收/不可变 tag 流程、CHANGELOG/Release Notes、逐页 SEO 与 llms 校验。
+> 产品方向（2026-10-26）：CLI-first、项目优先、模块默认；Phase 1 已完成 `qiy create project` + 项目内命令 + 新快速开始。
 > 下一步从 P1 开始，按清单顺序推进。
 
 ## P0：下一次发布前必须完成
@@ -75,8 +76,15 @@
 - [ ] `qiy diff` / dry-run 预览、增量生成
 - [ ] 每页 OG 图、llms 分段（llms-full 已 ~484KB）
 
-## P2：长期
+## 产品体验 Phase 2（CLI-first 之后）
 
+- [ ] `qiy add module/entity/feature`：结构化生成规范模型文本，方便人/AI 增量建模
+- [ ] 友好语法 v1 RFC：`name: text`、`customer: Customer`、`lines: OrderLine[]`、可选分号；保留 v0 兼容
+- [ ] `qiy fmt` 规范格式化与 `qiy explain` 展开视图
+- [ ] 文档按任务重构：每页目标 → 命令 → 语法；仓库内部工具退出用户文档
+- [ ] `qiy dev --watch`：模型变更自动重新生成并刷新页面
+
+## P2：长期
 - [ ] Playwright E2E（登录、FK 批量、功能总览、API Key、Mermaid）+ 视觉回归
 - [ ] a11y、bundle size 预算、负载测试
 - [ ] lint/format、coverage 阈值、依赖扫描 / SBOM / CodeQL

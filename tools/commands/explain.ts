@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { generatedFieldsOf } from "../database-ir";
+import { loadQiyProjectSource } from "../qiy-include";
 import { parseQiyProject, type QiyProject } from "../qiy-project";
 
 /**
@@ -217,9 +217,9 @@ export function explainQiySource(source: string, sourceFile = "<model>"): QiyExp
   return explainQiyProject(parseQiyProject(source), sourceFile);
 }
 
-export function explainQiyFile(sourcePath: string): QiyExplanation {
+export async function explainQiyFile(sourcePath: string): Promise<QiyExplanation> {
   const file = resolve(sourcePath);
-  return explainQiySource(readFileSync(file, "utf8"), sourcePath);
+  return explainQiyProject(parseQiyProject(await loadQiyProjectSource(file)), sourcePath);
 }
 
 export function formatQiyExplanation(explanation: QiyExplanation): string {

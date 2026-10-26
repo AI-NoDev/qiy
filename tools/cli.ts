@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { generateApp } from "./commands/generate-app";
 import { initApp } from "./commands/init";
+import { checkProject, createProject, devProject, generateProject, runProjectScript } from "./commands/project";
 import { explainQiyFile, formatQiyExplanation } from "./commands/explain";
 import { findQiyError, formatQiyError, qiyErrorCatalog } from "./error-catalog";
 import { qiyExplanationSchema } from "./qiy-schema";
@@ -17,11 +18,17 @@ const USAGE = `qiy ${VERSION} - model-driven full-stack application generator
 Usage: qiy <command> [options]
 
 Commands:
+  create project <name> [--template minimal|standard] [--dir <path>]
+                                  Create a modular Qiy project (model/ + qiy.project.json)
+  generate                        Generate/sync the current project
+    <source> <output-dir>         Legacy explicit generation; --sync updates it
+  check                           Validate the current project model without writing
+  dev                             Generate, install on first run, start API + admin
+  build                           Generate/install then run the production build
+  test                            Generate/install then run generated tests
+  preview                         Generate/install then run the local preview
   create -f <source> -n <name> -o <output-dir>
-                                  Create a standalone Bun Turborepo workspace
-  generate <source> <output-dir>   Generate a Bun workspace from a Qiy model
-    <source>                      .qiy project with optional relative include fragments
-    --sync                        Update an existing generated workspace
+                                  Legacy: create a standalone workspace from a model file
 
   init -f <source> [-n <name>] [--sync]
                                   Mount a Qiy admin into the current Bun workspace
@@ -45,10 +52,12 @@ Options:
   -v, --version                  Show the Qiy version
 
 Examples:
-  qiy generate examples/catalog/app.qiy out/catalog-admin
+  qiy create project shop
+  cd shop && qiy dev
+  qiy check
+  qiy generate
   qiy create -f examples/catalog/app.qiy -n catalog-admin -o out/catalog-admin
   qiy init -f admin.qiy -n admin
-  qiy generate examples/erpadmin/app.qiy out/erpadmin --sync
 `;
 
 function flag(args: string[], ...names: string[]): boolean {
@@ -126,7 +135,7 @@ async function main(argv: string[]): Promise<void> {
       const source = option(rest, "-f", "--file") ?? rest.find((argument) => !argument.startsWith("-"));
       if (!source) throw new Error("qiy explain requires a .qiy file (or --errors).\n\n" + USAGE);
       try {
-        const explanation = explainQiyFile(source);
+        const explanation = await explainQiyFile(source);
         process.stdout.write(json ? `${JSON.stringify(explanation, null, 2)}\n` : formatQiyExplanation(explanation));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -152,15 +161,49 @@ async function main(argv: string[]): Promise<void> {
     }
     case "generate": {
       const [source, destination] = positional;
-      if (!source || !destination) throw new Error("qiy generate requires <source> and <output-dir>.\n\n" + USAGE);
+      if (!source && !destination) {
+        await generateProject(process.cwd());
+        return;
+      }
+      if (!source || !destination) throw new Error("qiy generate requires <source> and <output-dir> (or run it inside a qiy project).\n\n" + USAGE);
       await generateApp(source, destination, { sync: flag(rest, "--sync") });
       return;
     }
+    case "check": {
+      await checkProject(process.cwd());
+      return;
+    }
+    case "dev": {
+      await devProject(process.cwd());
+      return;
+    }
+    case "build":
+    case "test":
+    case "preview": {
+      await runProjectScript(command, process.cwd());
+      return;
+    }
     case "create": {
+      if (rest[0] === "project") {
+        const args = rest.slice(1);
+        const valueFlags = new Set(["--template", "--dir", "-n", "--name"]);
+        let projectName = option(args, "-n", "--name");
+        for (let index = 0; index < args.length && projectName === undefined; index += 1) {
+          const argument = args[index]!;
+          if (valueFlags.has(argument)) { index += 1; continue; }
+          if (!argument.startsWith("-")) projectName = argument;
+        }
+        if (!projectName) throw new Error("qiy create project requires a name.\n\n" + USAGE);
+        const template = option(args, "--template") ?? "standard";
+        if (template !== "minimal" && template !== "standard") throw new Error("qiy create project --template must be minimal or standard.");
+        const directory = option(args, "--dir");
+        createProject(projectName, { template, ...(directory && { directory }) });
+        return;
+      }
       const source = option(rest, "-f", "--file");
       const name = option(rest, "-n", "--name");
       const destination = option(rest, "-o", "--output");
-      if (!source || !name || !destination) throw new Error("qiy create requires -f <source>, -n <name>, and -o <output-dir>.\n\n" + USAGE);
+      if (!source || !name || !destination) throw new Error("qiy create requires -f <source>, -n <name>, and -o <output-dir>, or use qiy create project <name>.\n\n" + USAGE);
       await generateApp(source, destination, { sync: flag(rest, "--sync"), name });
       return;
     }

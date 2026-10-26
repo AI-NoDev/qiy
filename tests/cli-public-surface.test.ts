@@ -18,7 +18,8 @@ test("keeps MPS maintenance commands out of the public CLI", () => {
   const result = Bun.spawnSync([process.execPath, "run", "tools/cli.ts", "--help"], { cwd: process.cwd() });
   expect(result.exitCode).toBe(0);
   const help = result.stdout.toString();
-  expect(help).toContain(".qiy project with optional relative include fragments");
+  expect(help).toContain("create project <name>");
+  expect(help).toContain("Validate the current project model");
   expect(help).not.toContain(".mps model");
   expect(help).not.toContain("Database IR .json");
   expect(help).not.toContain("export-qiy");

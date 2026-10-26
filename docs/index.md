@@ -21,6 +21,14 @@ hero:
       link: /dsl/overview
 
 features:
+  - title: 三条命令开始
+    details: qiy create project shop 创建模块化项目，cd 后 qiy dev 自动生成、安装、迁移并启动 API 与 Admin。
+    link: /guide/getting-started
+    linkText: 快速开始
+  - title: 项目优先、模块默认
+    details: model/ 是人/AI 维护的模型，admin/ 是 Qiy 管理的生成物；模型按业务域拆成 modules/*.qiy，不再从单文件巨石开始。
+    link: /guide/design-philosophy
+    linkText: 阅读设计理念
   - title: 以数据为中心
     details: 用 entity、field、relation 描述业务数据，一次定义同时驱动数据库 schema、API、表单、列表与权限，消灭多端重复定义。
   - title: Bun-native 全栈

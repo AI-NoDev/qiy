@@ -8,8 +8,9 @@ Canonical reference: https://ai-nodev.github.io/qiy/guide/cli
 
 - [Install and verify the CLI](#install-and-verify-the-cli)
 - [Command reference](#command-reference)
-- [create: new standalone project](#create-new-standalone-project)
-- [generate: compatibility command](#generate-compatibility-command)
+- [create project: modular project](#create-project-modular-project)
+- [Project commands: check/generate/dev/build/test/preview](#project-commands-checkgeneratedevbuildtestpreview)
+- [Legacy explicit generation](#legacy-explicit-generation)
 - [init: mount into an existing Bun project](#init-mount-into-an-existing-bun-project)
 - [Install this skill from the CLI](#install-this-skill-from-the-cli)
 - [doctor](#doctor)
@@ -47,12 +48,20 @@ The executable embeds the Admin template, so it can generate a complete applicat
 ## Command reference
 
 ```text
-qiy create -f <source.qiy> -n <name> -o <output-dir> [--sync]
-qiy generate <source.qiy> <output-dir> [--sync]
+qiy create project <name> [--template minimal|standard] [--dir <path>]
+qiy check
+qiy generate
+qiy dev
+qiy build
+qiy test
+qiy preview
+qiy generate <source.qiy> <output-dir> [--sync]     # legacy explicit
+qiy create -f <source.qiy> -n <name> -o <output-dir> # legacy explicit
 qiy init -f <source.qiy> [-n <name>] [-o <project-root>] [--sync]
 qiy doctor [--json]
 qiy explain <file.qiy> [--json]
 qiy schema
+qiy explain --errors [--json]
 qiy skill install [--force] [--global] [--dir <path>]
 qiy skill list [--json] [--global] [--dir <path>]
 qiy skill update [--force] [--global] [--dir <path>]
@@ -64,8 +73,13 @@ qiy --version | -v
 
 | Command | Required flags | Behavior |
 | --- | --- | --- |
-| `create` | `-f`, `-n`, `-o` | Generates a standalone Turborepo + Bun workspace. `-o` must be empty or absent; `-n` names the workspace/packages |
-| `generate` | `<source>`, `<output-dir>` | Same generation as `create` with positional arguments, kept for compatibility |
+| `create project <name>` | name | Creates `qiy.project.json`, `model/app.qiy`, `model/modules/*`; no generation/install. `--template minimal` only includes the catalog module; `--dir` changes the target |
+| `check` | - | Parses/validates the current project model and prints counts; writes nothing |
+| `generate` (project) | - | Generates/syncs `admin/` from the current project manifest |
+| `dev` | - | Generates, installs on first run, runs `db:generate` + `db:migrate`, starts the generated API + admin |
+| `build` / `test` / `preview` | - | Ensures generation/install, then runs that generated workspace script |
+| `create` (legacy) | `-f`, `-n`, `-o` | Generates a standalone Turborepo + Bun workspace from an existing model file |
+| `generate` (legacy) | `<source>`, `<output-dir>` | Same generation as legacy `create` with positional arguments |
 | `init` | `-f` | Mounts server/web packages into the current Bun workspace. `-o` selects another project root; `-n` overrides the integration name once |
 | `doctor` | - | Checks Bun runtime, the embedded Admin template and the current workspace's Bun declaration; `--json` prints machine-readable output |
 | `explain` | `<file.qiy>` | Parses and summarizes the model (entities/fields/relations/permissions/dataflows/actions/charts) without generating; `--json` prints the machine-readable shape, invalid models print `{valid:false,error,code?,fix?}` and exit 1; `--errors [--json]` lists the stable QIY10xx catalog |
@@ -77,34 +91,54 @@ qiy --version | -v
 | `help` / `--help` / `-h` | - | Prints usage |
 | `--version` / `-v` | - | Prints the CLI version |
 
-Unknown commands exit 1 with `Unknown command: <name>` plus usage. There is no `qiy dev`, `qiy build`, `qiy deploy`, `qiy test` or `qiy release` subcommand - run generated package scripts with Bun instead.
+Unknown commands exit 1 with `Unknown command: <name>` plus usage.
 
-## create: new standalone project
+## create project: modular project
+
+```bash
+qiy create project shop
+cd shop
+# edit model/app.qiy and model/modules/*.qiy
+qiy check
+qiy dev
+```
+
+- Writes only `qiy.project.json`, `model/` and project docs; it does not generate `admin/` or install dependencies.
+- Target directory must be absent or empty.
+- Names are lowercase kebab-case (`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`).
+- Default `standard` template includes working products/orders entities, a relation, menu and chart, plus commented permissions/dataflow/messages examples.
+- `--template minimal` keeps only `10-catalog.qiy` and no relations/UI.
+- All project commands find `qiy.project.json` by walking up from the current directory.
+
+## Project commands: check/generate/dev/build/test/preview
+
+```bash
+qiy check      # validate only
+qiy generate   # generate or sync admin/
+qiy dev        # generate + install first time + migrate + start API/admin
+qiy test
+qiy build
+qiy preview
+```
+
+- `qiy generate` reads `model` and `output` from the manifest; when `admin/` already exists it syncs (never reinitializes over it).
+- `qiy dev` installs dependencies on first run, runs `db:generate` + `db:migrate`, then `bun run dev` in the generated workspace.
+- Generated scripts remain available inside `admin/` for CI or advanced use, but project commands are the supported entrypoint.
+
+## Legacy explicit generation
 
 ```bash
 qiy create -f ./models/warehouse/app.qiy -n warehouse-admin -o ./warehouse-admin
-cd ./warehouse-admin
-bun install
-bun run typecheck
-bun run test
-bun run build
-bun run preview
+qiy generate ./models/app.qiy ./out/admin
+qiy generate ./models/app.qiy ./out/admin --sync
 ```
 
 - The source must be a `.qiy` file and may use relative `include` fragments; absolute includes, `..`, cycles and symlink escapes are rejected.
 - The output directory must be empty or not exist (`Output directory must be empty`). Use `--sync` only on a directory previously generated by Qiy.
 - `create` ignores most `workspace.aliases` and always produces `apps/server` and `apps/web`.
 - `preview` binds loopback only and serves an in-memory repository; it is a local demo, not a production server. Stop it with Ctrl+C.
-- On success the project contains `openwiki/{quickstart,architecture,development}.md`, `AGENTS.md` and the compatibility `AGENT.MD`, documenting the files and scripts that were actually generated.
-
-## generate: compatibility command
-
-```bash
-qiy generate ./models/app.qiy ./out/admin
-qiy generate ./models/app.qiy ./out/admin --sync
-```
-
-Identical to `create` except arguments are positional and no `-n` override exists (the application name is used). Prefer `create` for a first generation; use `generate ... --sync` to maintain a workspace that Qiy generated.
+- On success the workspace contains `openwiki/{quickstart,architecture,development}.md`, `AGENTS.md` and the compatibility `AGENT.MD`.
+- Prefer `qiy create project` + `qiy generate` for new work; these explicit commands remain for existing pipelines.
 
 ## init: mount into an existing Bun project
 
@@ -187,35 +221,44 @@ Checks the Bun runtime, the embedded Admin template and the current directory's 
 ```bash
 qiy --version
 qiy doctor
-qiy create -f models/app.qiy -n my-admin -o out/my-admin
-cd out/my-admin
-bun install
-bun run typecheck
-bun run test
-bun run build
-bun run preview
+qiy create project my-admin
+cd my-admin
+qiy check
+qiy dev
+# edit model/app.qiy or model/modules/*.qiy, then:
+qiy generate
+qiy test
+qiy build
+qiy preview
 ```
+
+`qiy dev` installs dependencies on the first run, prepares the default SQLite database and starts the API + admin. The generated workspace still exposes the underlying Bun scripts for CI.
 
 For a real database: edit `apps/server/.env.development`, set `DATABASE_URL`, run `bun run db:generate` and `bun run db:migrate`, then `bun run dev:server` and `bun run dev:web`. Production configuration lives in `apps/server/.env.production`. A server without auth refuses to start unless `QIY_DEV_MODE=1`.
 
 ## Output layout
 
 ```text
-my-admin/
-├── apps/
-│   ├── server/                 # Bun + Elysia API
-│   │   ├── src/                # db, contracts, repositories, services, routes, auth, storage, http.ts
-│   │   ├── drizzle/            # generated migrations + down/
-│   │   ├── tests/
-│   │   └── .env.{development,production,example}
-│   └── web/                    # Refine + React Router SPA
-│       ├── app/                # routes, components, hooks, providers, ui, extensions, i18n.ts
-│       ├── tests/
-│       └── .env.{development,production,example}
-├── deploy/                     # nginx.conf, vercel.json, kubernetes/, observability/
-├── Dockerfile, docker-compose.yml, turbo.json, package.json
-├── openwiki/, AGENTS.md, AGENT.MD
-└── .qiy-generated.json         # manifest of Qiy-owned files
+my-admin/                       # qiy create project my-admin
+├── qiy.project.json            # name, model, output, template
+├── model/
+│   ├── app.qiy                 # database + include statements
+│   └── modules/*.qiy           # catalog, relations, ui, optional permissions/dataflows/messages
+└── admin/                      # generated by qiy generate
+    ├── apps/
+    │   ├── server/             # Bun + Elysia API
+    │   │   ├── src/            # db, contracts, repositories, services, routes, auth, storage, http.ts
+    │   │   ├── drizzle/        # generated migrations + down/
+    │   │   ├── tests/
+    │   │   └── .env.{development,production,example}
+    │   └── web/                # Refine + React Router SPA
+    │       ├── app/            # routes, components, hooks, providers, ui, extensions, i18n.ts
+    │       ├── tests/
+    │       └── .env.{development,production,example}
+    ├── deploy/                # nginx.conf, vercel.json, kubernetes/, observability/
+    ├── Dockerfile, docker-compose.yml, turbo.json, package.json
+    ├── openwiki/, AGENTS.md, AGENT.MD
+    └── .qiy-generated.json    # manifest of Qiy-owned files
 ```
 
 `init` uses aliases instead (`apps/<server-alias>`, `apps/<web-alias>`, `deploy/<deploy-alias>`, `<deploy-alias>.Dockerfile`, `docker-compose.<deploy-alias>.yml`, `.qiy-<name>.generated.json`) and puts agent entrypoints in the web package plus `openwiki/qiy-<name>/`.

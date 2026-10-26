@@ -1,9 +1,36 @@
-# 生成的项目结构
+# 项目结构
 
-Qiy 生成的是一个可二次开发的 **Turborepo + Bun workspace**，不是压缩包式的黑盒产物。
+Qiy 项目由**模型**和**生成物**两部分组成。模型由你和 AI Agent 维护，生成物由 Qiy 管理。
+
+## 项目根（`qiy create project`）
 
 ```text
-my-admin/
+shop/
+├── qiy.project.json       # 项目名、模型入口、生成目录
+├── model/
+│   ├── app.qiy            # 入口：database + include
+│   └── modules/           # 按业务域拆分的模型片段
+│       ├── 10-catalog.qiy
+│       ├── 20-relations.qiy
+│       ├── 30-ui.qiy
+│       ├── 40-permissions.qiy   # 示例，默认注释
+│       ├── 50-dataflows.qiy     # 示例，默认注释
+│       └── 60-messages.qiy      # 示例，默认注释
+├── admin/                 # 生成工作区（由 qiy generate 管理）
+├── README.md
+└── .gitignore
+```
+
+- 所有 `qiy` 项目命令从 `qiy.project.json` 读取模型与输出路径；
+- 可以在子目录运行，CLI 会向上查找项目根；
+- `admin/` 是生成物，手写扩展放在 `admin/apps/*/src/extensions/` 与 `admin/apps/web/app/extensions/`，`qiy generate --sync` 不会覆盖它们。
+
+## 生成的工作区（`admin/`）
+
+`admin/` 是一个可二次开发的 **Turborepo + Bun workspace**，不是压缩包式的黑盒产物。
+
+```text
+admin/
 ├── apps/
 │   ├── server/                 # Bun + Elysia API
 │   │   ├── src/

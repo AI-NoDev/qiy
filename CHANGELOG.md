@@ -8,6 +8,28 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.3.0] - 2026-10-26
+
+### Added
+
+- `qiy create project <name>` creates a standard modular Qiy project:
+  `qiy.project.json`, `model/app.qiy`, `model/modules/*.qiy`, docs and
+  commented examples for permissions, dataflows and messages. `--template
+  minimal` keeps only the catalog module.
+- Project-aware `qiy check`, `qiy generate`, `qiy dev`, `qiy test`, `qiy build`
+  and `qiy preview`. `qiy dev` generates, installs on first run, prepares the
+  development database and starts API + admin.
+- New design-philosophy page and a CLI-first quickstart; documented Qiy as a
+  project (`model/` + generated `admin/`) rather than a generator checkout.
+- `qiy explain` now expands relative `include` modules, so modular models are
+  validated and summarized correctly.
+
+### Changed
+
+- The canonical new-project path is `qiy create project <name>`; legacy
+  `qiy create -f ...` / `qiy generate <file> <dir>` remain as advanced
+  compatibility commands.
+
 ## [0.2.5] - 2026-10-26
 
 ### Added
@@ -134,6 +156,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.3.0]: https://github.com/AI-NoDev/qiy/compare/v0.2.5...v0.3.0
 [0.2.5]: https://github.com/AI-NoDev/qiy/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/AI-NoDev/qiy/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/AI-NoDev/qiy/compare/v0.2.2...v0.2.3

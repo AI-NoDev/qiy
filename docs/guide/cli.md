@@ -1,23 +1,55 @@
 # Qiy CLI 与发布
 
-所有生成能力都通过一个 `qiy` CLI 暴露：
+所有能力都通过一个 `qiy` CLI 暴露。日常只需要项目命令：
 
 ```text
-qiy create -f <source> -n <name> -o <output-dir> [--sync]
-qiy init -f <source> [-n <name>] [--sync]
-qiy generate <source> <output-dir> [--sync] # 兼容旧命令
+qiy create project <name> [--template minimal|standard] [--dir <path>]
+qiy check
+qiy generate
+qiy dev
+qiy test
+qiy build
+qiy preview
 qiy doctor [--json]
-qiy explain <source.qiy> [--json]
+qiy explain [<source.qiy>] [--json]
+qiy explain --errors [--json]
 qiy schema
-qiy skill install [--force] [--global] [--dir <path>]
+qiy skill install|list|update|uninstall [...]
+```
+
+高级/兼容入口（文档不再作为主路径）：
+
+```text
+qiy generate <source> <output-dir> [--sync]
+qiy create -f <source> -n <name> -o <output-dir>     # 旧 create
+qiy init -f <source> [-n <name>] [--sync]            # 挂载到现有 Bun 项目
 ```
 
 公开生成入口只接受 `.qiy`。MPS 模型和内部 Database IR 不属于已发布 CLI 的应用输入；仓库维护者可以单独运行内部 MPS/TextGen 验证工具，但最终仍应导出 `.qiy` 后进入同一条生成链路。
 
-## 在仓库中运行
+## 项目命令
+
+在包含 `qiy.project.json` 的目录（或其子目录）运行，命令会自动定位项目根：
+
+| 命令 | 行为 |
+| --- | --- |
+| `qiy create project shop` | 创建 `shop/`：manifest + `model/` + 模块化模板；不生成 `admin/`，不安装依赖 |
+| `--template minimal` | 只保留最小 catalog 模块；默认 `standard` 含实体/关系/菜单/图表示例 |
+| `--dir <path>` | 改写目标目录 |
+| `qiy check` | 解析并校验模型，打印统计；不写文件 |
+| `qiy generate` | 生成或同步 `admin/`；已有生成物时自动 `--sync` |
+| `qiy dev` | 生成 → 首次安装依赖 → 生成并执行数据库迁移 → 启动 API + Admin |
+| `qiy test` | 确保生成/安装后运行生成项目测试 |
+| `qiy build` | 确保生成/安装后生产构建 |
+| `qiy preview` | 本地内存预览（不可部署） |
+
+`qiy dev` 首次运行会安装依赖并处理默认 SQLite 数据库。修改模型后重新执行 `qiy generate`（或重启 `qiy dev`）；`qiy dev` 启动前会再次生成迁移。
+
+## 仓库维护者
 
 ```powershell
 bun run qiy -- --help
+bun run qiy -- create project /tmp/shop
 bun run qiy -- create -f examples/catalog/app.qiy -n catalog-admin -o out/catalog-admin
 bun run qiy -- init -f models/admin.qiy
 ```
@@ -39,11 +71,12 @@ bun run build:exe -- --all
 ```powershell
 # Windows
 ./dist/qiy-<version>-windows-x64.exe --help
+./dist/qiy-<version>-windows-x64.exe create project shop
 ./dist/qiy-<version>-windows-x64.exe create -f app.qiy -n admin -o out/admin
 
 # Linux / macOS
+./dist/qiy-<version>-linux-x64 create project shop
 ./dist/qiy-<version>-linux-x64 create -f app.qiy -n admin -o out/admin
-./dist/qiy-<version>-darwin-arm64 create -f app.qiy -n admin -o out/admin
 ```
 
 二进制内联了生成应用所需的 Admin 模板，因此即使在仓库外也可从 `.qiy` 文件生成完整应用。`.qiy` 输入可使用相对 [`include` 模块](./modules) 组织业务模型。

@@ -25,6 +25,7 @@ export const pageDescriptions: Record<string, string> = {
   "dsl/i18n.md": "Qiy 多语言：messages 默认语言、locale 词典、模型派生键、界面 chrome 键与回退链。",
   "dsl/enum-menu-dashboard.md": "enum、menu 与 dashboard 参考：枚举值注解、分组折叠菜单、旧版指标卡片与页面布局。",
   "guide/what-is-qiy.md": "Qiy 是什么：模型驱动生成器的工作方式、生成物架构、适用场景以及与手写全栈的分工。",
+  "guide/design-philosophy.md": "Qiy 设计理念：项目优先、命令优先、模块默认、受限自然语法、安全默认与 AI Agent 一等用户。",
   "guide/getting-started.md": "快速开始：安装 Qiy CLI、创建第一个 .qiy 模型、生成、安装依赖、迁移、运行与预览。",
   "guide/project-structure.md": "生成项目结构：server / web workspace、owned 与 unowned 文件、扩展点与生成清单。",
   "guide/cli.md": "Qiy CLI 参考：create、init、generate --sync、doctor、skill install 及各命令参数与环境要求。",

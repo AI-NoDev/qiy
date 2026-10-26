@@ -4,7 +4,7 @@ description: "Build and maintain applications with the Qiy CLI and .qiy models: 
 license: MIT
 metadata:
   short-description: "Build apps from .qiy models with the Qiy CLI"
-  version: "0.2.5"
+  version: "0.3.0"
   homepage: "https://ai-nodev.github.io/qiy/"
   skill-docs: "https://ai-nodev.github.io/qiy/guide/agent-skill"
   llms-txt: "https://ai-nodev.github.io/qiy/llms.txt"
@@ -30,12 +30,13 @@ Qiy compiles a declarative `.qiy` model into editable TypeScript: a Refine + Rea
 
 | Situation | Command |
 | --- | --- |
-| New standalone project | `qiy create -f <model.qiy> -n <name> -o <empty-dir>` |
+| New project (recommended) | `qiy create project <name>` then `cd <name> && qiy dev` |
+| Change/validate the model | `qiy check`, `qiy generate`, then `qiy test` / `qiy build` |
 | Existing Bun repo, Qiy should own API + DB + admin | `qiy init -f <model.qiy>` from the repo root |
 | Existing Bun repo with its own API/users | `qiy init` with `mode integration` in the model |
-| Previously Qiy-generated standalone workspace | `qiy generate <model.qiy> <dir> --sync` |
+| Legacy explicit generation | `qiy generate <model.qiy> <dir> --sync` |
 
-`--sync` only works on a workspace Qiy generated (it follows `.qiy-generated.json`). Never use `--sync` on an arbitrary repository. There is no `qiy dev`/`qiy build`/`qiy deploy`; use Bun scripts inside the generated workspace.
+Inside a project, `qiy` reads `qiy.project.json` and finds the root from subdirectories. `qiy dev` generates, installs on first run, migrates the dev database and starts API + admin. `--sync` on the legacy command only works on a workspace Qiy generated (it follows `.qiy-generated.json`); never point it at an arbitrary repository.
 
 ## Install this skill
 
@@ -57,9 +58,10 @@ Repeats are idempotent; local edits to official files are refused unless `--forc
 ## First run
 
 1. `qiy --version` and `qiy doctor`; if missing, install the release binary for the OS/CPU from GitHub Releases.
-2. Generate (see the workflow table), then `bun install` in the generated workspace.
-3. `bun run typecheck`, `bun run test`, `bun run build`; `bun run preview` is a loopback-only demo with in-memory data, never a deployment target.
-4. For a real database, fill `apps/<server-alias>/.env.development`, then `bun run db:generate` and `bun run db:migrate`. Production needs `apps/<server-alias>/.env.production`.
+2. `qiy create project <name>` and `cd <name>`; edit `model/app.qiy` and `model/modules/*.qiy`.
+3. `qiy check`, then `qiy dev` (generates, installs on first run, migrates the dev database, starts API + admin).
+4. Before finishing: `qiy test` and `qiy build`; `qiy preview` is a loopback-only in-memory demo, never a deployment target.
+5. For a real database, change `database postgresql|mysql {}` in the model, fill `admin/apps/<server-alias>/.env.development`, then `qiy dev` (it generates/applies migrations). Production values go in `.env.production`.
 
 A server without `auth` refuses to start unless `QIY_DEV_MODE=1`.
 
