@@ -12,6 +12,7 @@ export const pageDescriptions: Record<string, string> = {
   "dsl/relation-index.md": "relation 与 index 语法：外键关系、自关联、复合索引、唯一索引及其生成结果。",
   "dsl/generated-values.md": "@code 与 @generated 字段：业务编码模板、序列分配、UUID/时间生成与服务端注入规则。",
   "dsl/annotations.md": "Qiy 注解完整清单：@label、@icon、@display、@comment、@group、@order、@listVisible 等行为与校验。",
+  "dsl/errors.md": "Qiy 错误码目录（QIY1001–QIY1016）：常见解析、校验、权限、chart、scope、skill 与 --sync 错误的含义和修复建议。",
   "dsl/modules.md": "Qiy 模块化：include 相对路径、片段拆分、共享常量与多文件项目的解析顺序。",
   "dsl/permissions.md": "权限系统：permission field/group/from/verification、allow 命令策略、restrict 行级与字段策略、scope 与 pages。",
   "dsl/auth.md": "认证参考：local、OTP、单 OIDC、多 Provider、hybrid 模式，用户映射、会话、onboarding 与密钥绑定。",

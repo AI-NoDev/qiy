@@ -68,7 +68,7 @@ qiy --version | -v
 | `generate` | `<source>`, `<output-dir>` | Same generation as `create` with positional arguments, kept for compatibility |
 | `init` | `-f` | Mounts server/web packages into the current Bun workspace. `-o` selects another project root; `-n` overrides the integration name once |
 | `doctor` | - | Checks Bun runtime, the embedded Admin template and the current workspace's Bun declaration; `--json` prints machine-readable output |
-| `explain` | `<file.qiy>` | Parses and summarizes the model (entities/fields/relations/permissions/dataflows/actions/charts) without generating; `--json` prints the machine-readable shape, invalid models print `{valid:false,error}` and exit 1 |
+| `explain` | `<file.qiy>` | Parses and summarizes the model (entities/fields/relations/permissions/dataflows/actions/charts) without generating; `--json` prints the machine-readable shape, invalid models print `{valid:false,error,code?,fix?}` and exit 1; `--errors [--json]` lists the stable QIY10xx catalog |
 | `schema` | - | Prints the JSON Schema (draft 2020-12) for `explain --json`; also served at `/schema/qiy-explanation-1.json` |
 | `skill install` | - | Installs the bundled official skill (see below) |
 | `skill list` | - | Shows installed locations, freshness, and modified/missing/unrelated files; `--json` is machine-readable |

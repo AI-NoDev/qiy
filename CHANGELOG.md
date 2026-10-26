@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.2.4] - 2026-10-26
+
+### Added
+
+- Stable error-code catalog `QIY1001`–`QIY1016` for the most common parser,
+  validation, permission, chart, scope, skill and `--sync` failures; list it
+  with `qiy explain --errors [--json]`, browse it at `/dsl/errors`, and get
+  `code`/`fix` attached to `qiy explain <file> --json` failures when recognized.
+
 ## [0.2.3] - 2026-10-26
 
 ### Added
@@ -116,6 +125,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.2.4]: https://github.com/AI-NoDev/qiy/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/AI-NoDev/qiy/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/AI-NoDev/qiy/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/AI-NoDev/qiy/compare/v0.2.0...v0.2.1

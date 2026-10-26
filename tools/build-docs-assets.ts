@@ -91,7 +91,7 @@ function readPage(file: string): DocPage {
   return { file, slug: slug === "/index" ? "/" : slug, title, description: description.slice(0, 200), body: withoutFrontmatter.trim() };
 }
 
-const dslOrder = ["overview", "modules", "application", "entity", "relation-index", "generated-values", "enum-menu-dashboard", "charts", "i18n", "auth", "permissions", "dataflow", "actions", "realtime", "storage", "features", "annotations"];
+const dslOrder = ["overview", "modules", "application", "entity", "relation-index", "generated-values", "enum-menu-dashboard", "charts", "i18n", "auth", "permissions", "dataflow", "actions", "realtime", "storage", "features", "annotations", "errors"];
 const guideOrder = ["what-is-qiy", "getting-started", "cli", "existing-bun-project", "modules", "best-practice-warehouse", "editor-support", "agent-skill", "project-structure", "data-modeling", "api", "auth", "refine-providers", "ui-theming", "menu-dashboard", "api-docs-and-keys", "workflow", "storage", "dsl-cookbook", "deployment", "real-services"];
 
 function ordered(pages: DocPage[], order: string[]): DocPage[] {
@@ -170,7 +170,7 @@ export function buildDocsAssets(): void {
   writeFileSync(join(schemaDir, "qiy-explanation-1.json"), `${JSON.stringify(qiyExplanationSchema, null, 2)}\n`);
 
   const skillDestination = join(publicDir, "skills", "qiy");
-  rmSync(skillDestination, { recursive: true, force: true });
+  rmSync(skillDestination, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   mkdirSync(skillDestination, { recursive: true });
   cpSync(skillSource, skillDestination, { recursive: true });
 

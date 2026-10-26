@@ -71,7 +71,9 @@ test("CLI explain --json reports parse errors without a stack trace", () => {
   const cli = resolve(import.meta.dir, "../tools/cli.ts");
   const result = Bun.spawnSync([process.execPath, "run", cli, "explain", file, "--json"], { cwd: root, stdout: "pipe", stderr: "pipe" });
   expect(result.exitCode).toBe(1);
-  const output = JSON.parse(result.stdout.toString()) as { valid: boolean; error: string };
+  const output = JSON.parse(result.stdout.toString()) as { valid: boolean; error: string; code?: string; fix?: string };
   expect(output.valid).toBe(false);
   expect(output.error.length).toBeGreaterThan(10);
+  expect(output.code).toMatch(/^QIY10\d\d$/);
+  expect(output.fix).toBeDefined();
 });

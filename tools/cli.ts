@@ -2,6 +2,7 @@
 import { generateApp } from "./commands/generate-app";
 import { initApp } from "./commands/init";
 import { explainQiyFile, formatQiyExplanation } from "./commands/explain";
+import { findQiyError, formatQiyError, qiyErrorCatalog } from "./error-catalog";
 import { qiyExplanationSchema } from "./qiy-schema";
 import { formatSkillStatuses, installSkill, listSkillInstallations, uninstallSkill, updateSkill } from "./commands/skill";
 import { formatDoctorReport, runDoctor } from "./commands/doctor";
@@ -27,6 +28,7 @@ Commands:
 
   doctor [--json]                 Check Bun, CLI template, and current workspace readiness
   explain <file.qiy> [--json]     Print a normalized model summary without generating
+    --errors [--json]             List the stable error-code catalog
   schema                          Print the JSON Schema for explain --json output
   skill install [--force] [--global] [--dir <path>]
                                   Install the official agent skill (default <project>/.agents/skills/qiy,
@@ -107,16 +109,39 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case "explain": {
-      const source = option(rest, "-f", "--file") ?? rest.find((argument) => !argument.startsWith("-"));
-      if (!source) throw new Error("qiy explain requires a .qiy file.\n\n" + USAGE);
       const json = flag(rest, "--json");
+      if (rest[0] === "errors" || flag(rest, "--errors")) {
+        const rows = qiyErrorCatalog.map(({ code, title, description, fix, docs }) => ({ code, title, description, fix, docs }));
+        if (json) process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
+        else {
+          process.stdout.write([
+            "Qiy error codes (also at https://ai-nodev.github.io/qiy/dsl/errors)",
+            "",
+            ...qiyErrorCatalog.map((entry) => `${entry.code}  ${entry.title}\n  ${entry.description}\n  Fix: ${entry.fix}\n  ${entry.docs}`),
+            "",
+          ].join("\n"));
+        }
+        return;
+      }
+      const source = option(rest, "-f", "--file") ?? rest.find((argument) => !argument.startsWith("-"));
+      if (!source) throw new Error("qiy explain requires a .qiy file (or --errors).\n\n" + USAGE);
       try {
         const explanation = explainQiyFile(source);
         process.stdout.write(json ? `${JSON.stringify(explanation, null, 2)}\n` : formatQiyExplanation(explanation));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (!json) throw error;
-        process.stdout.write(`${JSON.stringify({ formatVersion: 1, sourceFile: source, valid: false, error: message }, null, 2)}\n`);
+        const known = findQiyError(message);
+        if (json) {
+          process.stdout.write(`${JSON.stringify({
+            formatVersion: 1,
+            sourceFile: source,
+            valid: false,
+            error: message,
+            ...(known ? { code: known.code, title: known.title, fix: known.fix, docs: known.docs } : {}),
+          }, null, 2)}\n`);
+        } else {
+          console.error(formatQiyError(message));
+        }
         process.exitCode = 1;
       }
       return;

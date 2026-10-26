@@ -61,7 +61,7 @@
 ## P1：0.3.0 之前
 
 - [x] `qiy explain`（文本/`--json` 规范化模型摘要）+ `qiy schema`（draft 2020-12 JSON Schema，发布到 `/schema/qiy-explanation-1.json`）
-- [ ] 错误码目录（把常见校验/生成/CLI 错误映射为稳定代码与修复建议）
+- [x] 错误码目录：`QIY1001–QIY1016`，`qiy explain --errors [--json]`，文档 `/dsl/errors`，`explain --json` 自动附带 code/fix
 - [x] `qiy skill list/update/uninstall`（含 `--json`、本地修改保护、保留手写文件）
 - [ ] 官方 bun/drizzle/elysia/refine-dev skill 纳入分发
 - [ ] API docs：OpenAPI 下载、try-it、解释 verification 隐藏原因

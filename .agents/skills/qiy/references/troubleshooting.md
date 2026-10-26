@@ -2,6 +2,8 @@
 
 Use this file when something fails and you need the likely cause and exact fix. Find the symptom or error string, apply the fix, then re-run generation/typecheck/tests. Deeper explanations live in the area references linked per section.
 
+Stable error codes: run `qiy explain --errors` (or `--errors --json`) and see https://ai-nodev.github.io/qiy/dsl/errors. `qiy explain <file> --json` attaches `code`/`fix` to parse failures when the error is in the catalog.
+
 Canonical reference: https://ai-nodev.github.io/qiy/dsl/overview
 
 ## Contents

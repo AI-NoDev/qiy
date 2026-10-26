@@ -19,6 +19,10 @@ const pages = markdownFiles(docs)
   .map((file) => relative(docs, file).replaceAll("\\", "/"))
   .sort();
 
+// Build once for the whole file: repeated rebuilds race with editor watchers on
+// Windows and are unnecessary for these assertions.
+buildDocsAssets();
+
 test("every documentation page has a unique, page-specific description", () => {
   expect(pages.length).toBeGreaterThan(40);
   for (const page of pages) {
@@ -34,7 +38,6 @@ test("every documentation page has a unique, page-specific description", () => {
 });
 
 test("generated llms.txt indexes every DSL and guide page", () => {
-  buildDocsAssets();
   const llms = readFileSync(join(docs, "public", "llms.txt"), "utf8");
   expect(llms.startsWith("# Qiy\n")).toBe(true);
   for (const section of ["## Start here", "## DSL reference", "## Guides", "## Agent Skill", "## Machine-readable schema"]) {
@@ -53,7 +56,6 @@ test("generated llms.txt indexes every DSL and guide page", () => {
 });
 
 test("generated robots, full text and skill assets are consistent", () => {
-  buildDocsAssets();
   const robots = readFileSync(join(docs, "public", "robots.txt"), "utf8");
   expect(robots).toContain("Sitemap: https://ai-nodev.github.io/qiy/sitemap.xml");
 
