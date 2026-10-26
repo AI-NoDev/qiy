@@ -16,6 +16,7 @@ docs/public/llms.txt
 docs/public/llms-full.txt
 docs/public/robots.txt
 docs/public/skills/
+docs/public/schema/
 
 # code coverage
 coverage
