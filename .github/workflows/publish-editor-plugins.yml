@@ -39,6 +39,11 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+      # The JetBrains Gradle plugin (1.x) is not compatible with Gradle 9's
+      # removed internal APIs; pin the Gradle major used for the build.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
       - name: Build JetBrains plugin
         run: gradle buildPlugin
         working-directory: editors/jetbrains-qiy

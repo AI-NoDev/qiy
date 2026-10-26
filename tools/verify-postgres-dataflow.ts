@@ -42,6 +42,7 @@ try {
       { name: "displayName", type: "Text", nullable: true },
       { name: "password", type: "Text", nullable: true },
       { name: "role", type: "Text", enumName: "userRole", nullable: false },
+      { name: "tenantId", type: "Text", nullable: true },
     ],
   });
   project.auth = { provider: "local", userEntity: "users", usernameField: "email", passwordField: "password", roleField: "role", subjectField: "id" };
