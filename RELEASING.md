@@ -48,9 +48,9 @@ git push origin vX.Y.Z
 
 The tag push triggers **Release Qiy CLI**, which rebuilds and verifies the five
 executables, then creates the GitHub Release with the `CHANGELOG.md` section.
-Do **not** push a version bump to `main` as the release trigger anymore; tagging
-is the release action. (A `package.json` push can still start a release for
-backward compatibility, but tag-driven is preferred.)
+Releases are tag-driven only: pushing a version bump to `main` runs CI but does
+not publish. (A manual `workflow_dispatch` without `dry_run` can still publish
+the current version when a tag already exists.)
 
 ## 4. Verify the release
 
