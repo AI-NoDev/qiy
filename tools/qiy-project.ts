@@ -1,5 +1,6 @@
 import { validateDatabaseIR, validateEntityDisplayTemplates, type DatabaseIR, type EntityIR, type FieldIR, type FilterMode, type IndexIR, type IndexColumnIR, type RelationIR } from "./database-ir";
 import { validateCodeTemplate } from "./code-template";
+import { isQiyV1Source, translateQiyV1 } from "./qiy-v1";
 import {
   formatPermissionExpression,
   validatePermissionModel,
@@ -424,6 +425,7 @@ export interface QiyWorkspaceConfig {
 }
 
 export function parseQiyProject(input: string): QiyProject {
+  const source = isQiyV1Source(input) ? translateQiyV1(input) : input;
   let messages: QiyProject["messages"];
   // `&&`, `||`, `!`, `&` are only used by permission declarations and
   // verification expressions; they stay separate tokens so the rest of the
@@ -431,12 +433,12 @@ export function parseQiyProject(input: string): QiyProject {
   const pattern = /\s+|\/\/[^\r\n]*|#[^\r\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|&&|\|\||==|!=|>=|<=|[a-zA-Z_][a-zA-Z_0-9-]*|-?\d+|[{}();,@.=<>!&|]/g;
   const tokens: string[] = []; 
   let end = 0;
-  for (const match of input.matchAll(pattern)) {
+  for (const match of source.matchAll(pattern)) {
     if (match.index !== end) throw new Error(`Unexpected Qiy syntax at offset ${end}`);
     if (!/^\s|^\/\/|^#/.test(match[0])) tokens.push(match[0]);
     end += match[0].length;
   }
-  if (end !== input.length) throw new Error(`Unexpected Qiy syntax at offset ${end}`);
+  if (end !== source.length) throw new Error(`Unexpected Qiy syntax at offset ${end}`);
   tokens.push("<end>");
   let position = 0;
   const peek = () => tokens[position]!;

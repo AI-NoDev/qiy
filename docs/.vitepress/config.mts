@@ -178,6 +178,7 @@ export default defineConfig({
           items: [
             { text: "Qiy 是什么", link: "/guide/what-is-qiy" },
             { text: "设计理念", link: "/guide/design-philosophy" },
+            { text: "v1 友好语法（预览）", link: "/guide/syntax-v1" },
             { text: "快速开始", link: "/guide/getting-started" },
             { text: "CLI 与发布", link: "/guide/cli" },
             { text: "集成现有 Bun 项目", link: "/guide/existing-bun-project" },

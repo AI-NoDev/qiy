@@ -92,7 +92,7 @@ function readPage(file: string): DocPage {
 }
 
 const dslOrder = ["overview", "modules", "application", "entity", "relation-index", "generated-values", "enum-menu-dashboard", "charts", "i18n", "auth", "permissions", "dataflow", "actions", "realtime", "storage", "features", "annotations", "errors"];
-const guideOrder = ["what-is-qiy", "design-philosophy", "getting-started", "cli", "existing-bun-project", "modules", "best-practice-warehouse", "editor-support", "agent-skill", "project-structure", "data-modeling", "api", "auth", "refine-providers", "ui-theming", "menu-dashboard", "api-docs-and-keys", "workflow", "storage", "dsl-cookbook", "deployment", "real-services"];
+const guideOrder = ["what-is-qiy", "design-philosophy", "getting-started", "syntax-v1", "cli", "existing-bun-project", "modules", "best-practice-warehouse", "editor-support", "agent-skill", "project-structure", "data-modeling", "api", "auth", "refine-providers", "ui-theming", "menu-dashboard", "api-docs-and-keys", "workflow", "storage", "dsl-cookbook", "deployment", "real-services"];
 
 function ordered(pages: DocPage[], order: string[]): DocPage[] {
   const byName = new Map(pages.map((page) => [page.slug.split("/").pop()!, page]));

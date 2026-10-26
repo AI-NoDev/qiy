@@ -54,11 +54,11 @@ Qiy 的语法不是配置文件，也不是自由自然语言，而是**受限�
 - 同一语义只有一种规范写法；格式化器保证 AI 和人写出的风格一致；
 - 不用自然语言解析器处理"给订单加个金额"这类模糊输入——这会让结果不可复现。Agent 应该生成**结构化、可校验**的文本。
 
-当前 V0 语法已经稳定；更简洁的字段/关系写法（如 `customer: Customer`、`lines: OrderLine[]`）会以 v1 语法提案的方式演进，并保留 v0 兼容与 `qiy fmt` 迁移，不会静默改变现有模型。
+当前 V0 语法已经稳定。更简洁的 v1 语法已以**预览**形式落地：入口文件自动识别 `project`/`module`、`name: type`、自动主键与内联一对一关系，先转换为 v0 再走同一套 parser。v1 的完整范围、限制和示例见 [v1 友好语法（预览）](./syntax-v1)。
 
-### 语法演进：v1 RFC（提案，尚未实现）
+### 语法演进：v1 友好语法（预览）
 
-目标：让模型更接近需求描述，同时保持解析结果的确定性。当前提案：
+目标：让模型更接近需求描述，同时保持解析结果的确定性。当前已落地最小子集（完整范围见 [v1 友好语法](./syntax-v1)）：
 
 ```qiy
 project shop
@@ -66,24 +66,22 @@ database sqlite
 
 module Catalog {
   entity Product {
-    id: uuid primary
     name: text
     price: decimal(12, 2)
   }
 
   entity Order {
-    id: uuid primary
-    customer: Customer        # 自动生成外键 + 关系
-    lines: OrderLine[]        # 一对多
+    reference: text unique
+    customer: Customer        # 自动生成 customerId 外键 + 一对一关系
   }
 }
 ```
 
 规则草案：
 
-- `project` 替代 `qiy v0;` + `application` 外壳；项目名来自 manifest，模型文件不再重复；
+- `project` 替代 `qiy v0;` + `application` 外壳；
 - 字段写成 `name: type`，`primary`/`nullable`/`unique` 作为自然词后缀，分号可选；
-- 常用关系内联：`customer: Customer`（one）、`lines: OrderLine[]`（many）；需要 `onDelete`/自定义名称/复合关系时仍写显式 `relation`；
+- 常用关系内联：`customer: Customer`（one）；`lines: OrderLine[]`（many）尚未支持，需要显式 join 实体；需要 `onDelete`/自定义名称/复合关系时仍写显式 `relation`；
 - `module` 对应 include 片段，模块内部按“实体 → 关系 → UI/命令”自然分组，跨模块顺序由项目组装器管理；
 - 解析器同时接受 v0/v1，`qiy fmt` 输出规范 v1，`qiy explain` 展示展开后的语义；
 - 不做自由自然语言解析；所有输入仍然可校验、可格式化、可复现。

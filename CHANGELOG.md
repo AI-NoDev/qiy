@@ -8,6 +8,19 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.4.0] - 2026-10-26
+
+### Added
+
+- v1 friendly syntax preview: entry files starting with `project <name>` or
+  `qiy v1;` are translated to canonical v0 (`project`, `module`, `entity`,
+  `name: type`, `primary`/`nullable`/`unique`, automatic `id`, inline one
+  relations). `qiy explain/generate/fmt` detect it automatically; unsupported
+  include/many/non-entity constructs fail with actionable errors. Default
+  templates and `qiy add` remain v0.
+- New `/guide/syntax-v1` page, Agent Skill `references/syntax-v1.md`, and
+  parser/CLI tests covering v1 translation, generation and error paths.
+
 ## [0.3.4] - 2026-10-26
 
 ### Added
@@ -198,6 +211,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.4.0]: https://github.com/AI-NoDev/qiy/compare/v0.3.4...v0.4.0
 [0.3.4]: https://github.com/AI-NoDev/qiy/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/AI-NoDev/qiy/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/AI-NoDev/qiy/compare/v0.3.1...v0.3.2

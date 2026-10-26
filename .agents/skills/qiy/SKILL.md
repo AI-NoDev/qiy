@@ -4,7 +4,7 @@ description: "Build and maintain applications with the Qiy CLI and .qiy models: 
 license: MIT
 metadata:
   short-description: "Build apps from .qiy models with the Qiy CLI"
-  version: "0.3.4"
+  version: "0.4.0"
   homepage: "https://ai-nodev.github.io/qiy/"
   skill-docs: "https://ai-nodev.github.io/qiy/guide/agent-skill"
   llms-txt: "https://ai-nodev.github.io/qiy/llms.txt"
@@ -73,6 +73,7 @@ Open only the reference that matches the task. Every reference is self-contained
 | --- | --- |
 | Any DSL syntax: lexical rules, declaration order, every block/setting, annotations, field types | [language-reference.md](references/language-reference.md) |
 | Model data: includes/modules, fields, relations, indexes, `@code`/`@generated`, display templates, limits | [modeling-and-generation.md](references/modeling-and-generation.md) |
+| Simpler v1 preview syntax (`project`/`module`, `name: type`, inline one relation) and its limits | [syntax-v1.md](references/syntax-v1.md) |
 | Login, OIDC/OTP/hybrid providers, roles, permissions, verification, restrict/scope/pages, 401/403 | [auth-permissions.md](references/auth-permissions.md) |
 | Generated Refine providers: DataProvider mapping, AuthProvider, `can()`, live/audit/notification/i18n/router wiring | [refine-providers.md](references/refine-providers.md) |
 | Business commands, dataflows, actions, batch, `workflow orderInventory`, `app.test.qiy` | [dataflows-actions.md](references/dataflows-actions.md) |
