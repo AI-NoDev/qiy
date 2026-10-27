@@ -208,19 +208,55 @@ export function translateQiyV1(source: string): string {
   if (mode === "module") throw new Error("v1: unterminated module block.");
   if (!projectName) throw new Error("v1: missing `project <name>` declaration.");
 
-  for (const pending of pendingMany) {
+  const resolved = pendingMany.map((pending, index) => {
     const targetTable = v1TableName(pending.targetType);
     const target = entities.find((entity) => entity.table === targetTable || entity.friendly === pending.targetType);
     if (!target) throw new Error(`v1 line ${pending.lineNumber}: many relation target ${pending.targetType} is not declared.`);
     if (target === pending.parent) throw new Error(`v1 line ${pending.lineNumber}: self many relations are not supported in the v1 preview.`);
-    const fk = `${lowerFirst(pending.parent.friendly)}Id`;
-    if (target.fieldNames.has(fk)) {
-      throw new Error(`v1 line ${pending.lineNumber}: ${target.table}.${fk} already exists; remove the duplicate relation or use an explicit v0 relation.`);
+    return { pending, target, index };
+  });
+  const consumed = new Set<number>();
+  const joinEntities: V1Entity[] = [];
+  const joinTable = (base: string): string => {
+    let table = base;
+    let suffix = 2;
+    while (entities.some((entity) => entity.table === table) || joinEntities.some((entity) => entity.table === table)) {
+      table = `${base}_${suffix}`;
+      suffix += 1;
     }
-    target.fieldNames.add(fk);
-    target.fields.push(`  field ${fk} UUID @nullable;`);
-    relations.push(`  relation ${target.table}${pending.parent.friendly} ${target.table} ${fk} ${pending.parent.table} id one;`);
+    return table;
+  };
+  for (const item of resolved) {
+    if (consumed.has(item.index)) continue;
+    // Reciprocal `tags: Tag[]` + `products: Product[]` is a many-to-many; generate
+    // an explicit join entity because the Qiy generator requires one.
+    const reciprocal = resolved.find((candidate) => candidate.index !== item.index && candidate.pending.parent === item.target && candidate.target === item.pending.parent && !consumed.has(candidate.index));
+    if (reciprocal) {
+      consumed.add(item.index);
+      consumed.add(reciprocal.index);
+      const table = joinTable([item.pending.parent.table, item.target.table].sort().join("_"));
+      const parentFk = `${lowerFirst(item.pending.parent.friendly)}Id`;
+      const targetFk = `${lowerFirst(item.target.friendly)}Id`;
+      joinEntities.push({
+        friendly: table,
+        table,
+        fields: [`  field ${parentFk} UUID;`, `  field ${targetFk} UUID;`],
+        fieldNames: new Set([parentFk, targetFk]),
+        hasId: false,
+      });
+      relations.push(`  relation ${table}${item.pending.parent.friendly} ${table} ${parentFk} ${item.pending.parent.table} id one;`);
+      relations.push(`  relation ${table}${item.target.friendly} ${table} ${targetFk} ${item.target.table} id one;`);
+      continue;
+    }
+    const fk = `${lowerFirst(item.pending.parent.friendly)}Id`;
+    if (item.target.fieldNames.has(fk)) {
+      throw new Error(`v1 line ${item.pending.lineNumber}: ${item.target.table}.${fk} already exists; remove the duplicate relation or use an explicit v0 relation.`);
+    }
+    item.target.fieldNames.add(fk);
+    item.target.fields.push(`  field ${fk} UUID @nullable;`);
+    relations.push(`  relation ${item.target.table}${item.pending.parent.friendly} ${item.target.table} ${fk} ${item.pending.parent.table} id one;`);
   }
+  entities.push(...joinEntities);
 
   const body: string[] = [`  database ${database} {}`];
   for (const entity of entities) {

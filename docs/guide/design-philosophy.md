@@ -81,7 +81,7 @@ module Catalog {
 
 - `project` 替代 `qiy v0;` + `application` 外壳；
 - 字段写成 `name: type`，`primary`/`nullable`/`unique` 作为自然词后缀，分号可选；
-- 常用关系内联：`customer: Customer`（one）、`lines: OrderLine[]`（one-to-many，自动在子实体生成外键）；多对多仍需显式 join 实体；需要 `onDelete`/自定义名称/复合关系时仍写显式 `relation`；
+- 常用关系内联：`customer: Customer`（one）、`lines: OrderLine[]`（one-to-many，自动在子实体生成外键）、双向数组（many-to-many，自动生成 join 实体）；需要 `onDelete`/自定义名称/复合关系时仍写显式 `relation`；
 - `module` 对应 include 片段，模块内部按“实体 → 关系 → UI/命令”自然分组，跨模块顺序由项目组装器管理；
 - 解析器同时接受 v0/v1，`qiy fmt` 输出规范 v1，`qiy explain` 展示展开后的语义；
 - 不做自由自然语言解析；所有输入仍然可校验、可格式化、可复现。

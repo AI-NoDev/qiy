@@ -48,6 +48,7 @@ qiy fmt app.qiy              # 空白规范化
 | 自动主键 | 省略 `id` 时自动生成 `field id UUID @id;` |
 | 一对一关系 | `customer: Customer` → `customerId` 外键 + `relation` |
 | 一对多关系 | `lines: OrderLine[]` → 在子实体生成 `orderId` 外键 + `relation`（子实体需在本文件声明） |
+| 多对多关系 | 双向数组（`tags: Tag[]` + `products: Product[]`）→ 自动生成 `products_tags` join 实体与两条 one 关系 |
 | 注释 | `#` 行内/独立注释 |
 
 类型别名：`uuid` → `UUID`、`text` → `Text`、`integer/int` → `Integer`、`decimal` → `Decimal`、`money` → `Money`、`date/time/datetime`、`file/files`、`vector(n)`。
@@ -55,7 +56,7 @@ qiy fmt app.qiy              # 空白规范化
 ## 尚未支持（明确报错）
 
 - `include`（v1 用 `module` 组织，不走 v0 include）；
-- 多对多关系（一对多需子实体在本文件声明；多对多请显式建 join 实体）；
+- 单向多对多（只在一侧写 `tags: Tag[]` 会被当作一对多；多对多需要双向数组，或显式建 join 实体）；
 - `auth`、`permissions`、`menu`、`chart`、`dataflow` 等非实体块；
 - 自定义 `relation` 名称、`onDelete`、显示模板、注解；
 - `qiy add module` / `qiy add feature`（这两个命令写 v0；`qiy add entity` / `qiy add field` 支持 v1）。

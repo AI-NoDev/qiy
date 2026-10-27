@@ -93,6 +93,31 @@ module Sales {
   expect(explanation.relations[0]).toMatchObject({ from: "order_lines", fromField: "orderId", to: "orders", cardinality: "one" });
 });
 
+test("reciprocal many fields generate an explicit many-to-many join entity", () => {
+  const source = `project shop
+database sqlite
+module Tags {
+  entity Product {
+    name: text
+    tags: Tag[]
+  }
+  entity Tag {
+    name: text unique
+    products: Product[]
+  }
+}
+`;
+  const translated = translateQiyV1(source);
+  expect(translated).toContain("entity products_tags {");
+  expect(translated).toContain("field productId UUID;");
+  expect(translated).toContain("field tagId UUID;");
+  expect(translated).toContain("relation products_tagsProduct products_tags productId products id one;");
+  expect(translated).toContain("relation products_tagsTag products_tags tagId tags id one;");
+  const explanation = explainQiySource(source);
+  expect(explanation.relations).toHaveLength(2);
+  expect(explanation.entities.some((entity) => entity.name === "products_tags")).toBe(true);
+});
+
 test("v1 preview rejects unsupported constructs with actionable errors", () => {
   expect(() => translateQiyV1("project x\nmodule M {\n entity A {\n lines: Missing[]\n }\n}\n")).toThrow(/not declared/);
   expect(() => translateQiyV1("project x\ninclude \"a.qiy\";\n")).toThrow(/include is not supported/);

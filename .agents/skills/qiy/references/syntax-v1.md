@@ -31,6 +31,7 @@ module Catalog {
 - Missing `id` is injected as `field id UUID @id;`.
 - `customer: Customer` injects `customerId UUID` plus a one relation to `customers`.
 - `lines: OrderLine[]` injects a child-side `orderId UUID @nullable` plus a one relation from `order_lines` to `orders`; the child entity must be declared in the same v1 source.
+- Reciprocal arrays (`tags: Tag[]` + `products: Product[]`) generate an explicit `<parent>_<target>` join entity with two one relations.
 - `#` comments are preserved.
 
 Commands need no flag: `qiy explain model.qiy`, `qiy generate model.qiy out/`, `qiy fmt model.qiy` all detect v1.
@@ -38,7 +39,7 @@ Commands need no flag: `qiy explain model.qiy`, `qiy generate model.qiy out/`, `
 ## Rejected with clear errors
 
 - `include` (use `module`/v0 includes outside v1),
-- many-to-many relations (one-to-many needs the child entity in the same file; use an explicit join entity for many-to-many),
+- one-way many declarations are treated as one-to-many; true many-to-many needs reciprocal arrays or an explicit join entity,
 - auth/permissions/menu/chart/dataflow and other non-entity blocks,
 - custom relation names/onDelete/annotations,
 - `qiy add module` / `qiy add feature` (v0-only); `qiy add entity` and `qiy add field` do support v1 entry files.

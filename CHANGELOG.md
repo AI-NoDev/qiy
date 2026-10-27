@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.4.3] - 2026-10-26
+
+### Added
+
+- v1 reciprocal many fields (`tags: Tag[]` on Product + `products: Product[]`
+  on Tag) now generate an explicit `<parent>_<target>` join entity with two
+  one relations, matching the v0 generator's requirement for an explicit join
+  table. One-way arrays remain one-to-many.
+
 ## [0.4.2] - 2026-10-26
 
 ### Added
@@ -229,6 +238,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.4.3]: https://github.com/AI-NoDev/qiy/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/AI-NoDev/qiy/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/AI-NoDev/qiy/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/AI-NoDev/qiy/compare/v0.3.4...v0.4.0

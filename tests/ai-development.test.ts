@@ -135,7 +135,7 @@ test("official skill is a compact router with complete, keyword-covered referenc
   const coverage: Record<string, string[]> = {
     "references/language-reference.md": ["annotations", "@code", "restrict", "scope", "messages", "features", "chart panels"],
     "references/modeling-and-generation.md": ["@code", "relation", "index", "display template", "include"],
-    "references/syntax-v1.md": ["project", "module", "name: type", "many relations", "v0"],
+    "references/syntax-v1.md": ["project", "module", "name: type", "join entity", "v0"],
     "references/auth-permissions.md": ["permissions", "verify", "restrict", "scope", "API key", "onboarding"],
     "references/refine-providers.md": ["DataProvider", "AuthProvider", "can()", "LiveProvider", "AuditLogProvider"],
     "references/dataflows-actions.md": ["dataflow", "app.test.qiy", "idempotency", "orderInventory"],
