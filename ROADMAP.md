@@ -66,7 +66,8 @@
 - [x] `qiy skill list/update/uninstall`（含 `--json`、本地修改保护、保留手写文件）
 - [ ] 官方 bun/drizzle/elysia/refine-dev skill 纳入分发
 - [x] API docs：OpenAPI 下载（当前账号过滤后的 spec）
-- [ ] API docs：try-it 请求与 verification 隐藏操作原因说明
+- [x] API docs：try-it 请求（会话 token / 手动 API Key、原始响应、20k 截断）
+- [ ] API docs：verification 隐藏操作原因说明
 - [ ] API Key scopes/轮换/审计
 - [ ] 本地密码限流/锁定、会话吊销
 - [ ] `sum/avg ... group by` 聚合 + chart 扩展（area/stacked/scatter、颜色/图例、下钻）

@@ -8,6 +8,16 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.4.7] - 2026-10-26
+
+### Added
+
+- API docs page now has a session-scoped **Try it** panel per operation: path
+  and query inputs, JSON body editor, optional in-form `X-API-Key`, automatic
+  `qiy.access_token` bearer header, raw response with status (20k truncation),
+  and clear auth/error states. Docs, skill reference and generated-page tests
+  were updated.
+
 ## [0.4.6] - 2026-10-26
 
 ### Added
@@ -266,6 +276,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.4.7]: https://github.com/AI-NoDev/qiy/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/AI-NoDev/qiy/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/AI-NoDev/qiy/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/AI-NoDev/qiy/compare/v0.4.3...v0.4.4

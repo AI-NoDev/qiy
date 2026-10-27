@@ -139,6 +139,10 @@ describe("application feature flags", () => {
     expect(enabled["apps/web/app/components/docs-page.tsx"]).not.toContain("groupOpenApiOperations");
     expect(enabled["apps/web/app/components/docs-page.tsx"]).not.toContain("Access keys");
     expect(enabled["apps/web/app/components/api-docs-page.tsx"]).toContain("filterOpenApiOperations");
+    expect(enabled["apps/web/app/components/api-docs-page.tsx"]).toContain("Try it");
+    expect(enabled["apps/web/app/components/api-docs-page.tsx"]).toContain("X-API-Key");
+    expect(enabled["apps/web/app/components/api-docs-page.tsx"]).toContain("Send request");
+    expect(enabled["apps/web/app/components/api-docs-page.tsx"]).toContain("credentials: \"include\"");
     expect(enabled["apps/web/app/components/api-docs-page.tsx"]).toContain("Tooltip");
     expect(enabled["apps/web/app/components/api-keys-page.tsx"]).toContain("filterApiKeys");
     expect(enabled["apps/web/app/components/api-keys-page.tsx"]).toContain("apiKeyCurlExamples");

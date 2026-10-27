@@ -5,7 +5,7 @@
 | 页面 | 路由 | 开关 | 内容 |
 | --- | --- | --- | --- |
 | 功能总览 | `/system/overview` | `overview`（默认 true）且 `apiDocs`/`apiKeys` 至少一个打开 | **实体系**：Mermaid `classDiagram` + 字段/注解表 + 关系表；**Dataflow**：每个 flow 的 Mermaid `flowchart`、allow 规则、输入与步骤；**权限模型**：权限字段/组/校验 + 当前用户有效权限 |
-| API 文档 | `/system/api-docs` | `apiDocs` | 全页 AntD OpenAPI 3.1 浏览器：tag 列表（带操作数）、操作卡（方法/路径/摘要/参数/请求体/响应/安全方案/角色与权限标签 + 可复制 curl）、搜索、无结果状态；只读，不发真实请求；可下载当前账号过滤后的 OpenAPI JSON（`<title>.openapi.json`） |
+| API 文档 | `/system/api-docs` | `apiDocs` | 全页 AntD OpenAPI 3.1 浏览器：tag 列表（带操作数）、操作卡（方法/路径/摘要/参数/请求体/响应/安全方案/角色与权限标签 + 可复制 curl）、搜索、无结果状态；每张操作卡可展开 **Try it**，用当前浏览器会话 token（或手动输入 `X-API-Key`）发真实请求并显示原始响应（截断 20k 字符）；可下载当前账号过滤后的 OpenAPI JSON（`<title>.openapi.json`） |
 | 访问密钥 | `/system/api-keys` | `apiKeys` | 全页 API Key 管理：说明与 curl 示例、按名称/前缀/状态搜索与筛选、有效数/上限提示、权限标签、创建弹窗（名称 + 可选过期）、一次性密钥展示、撤销 |
 
 三页都在 `<Authenticated>` 布局内（未登录跳 `/auth/login`），内容按当前账号的角色/权限过滤。完整开关语义、生成矩阵与限制见 [DSL：features](/dsl/features)。
@@ -108,7 +108,7 @@ curl -X DELETE -H "Authorization: Bearer $QIY_TOKEN" http://localhost:3000/api/v
 
 限制：
 
-- API 文档浏览器只读，不发送 try-it 请求；curl 示例使用占位 token（当前语言），由使用者替换为真实会话令牌或 API Key。
+- API 文档浏览器支持 Try it：请求从当前浏览器发出，自动带 `qiy.access_token` 会话令牌；API Key 只在当次表单输入，不写入 localStorage。响应原样展示并截断到 20k 字符；服务端鉴权、权限过滤和字段校验仍是最终权威。curl 示例使用占位 token（当前语言），由使用者替换为真实会话令牌或 API Key。
 - 带 `allow verification` 的命令在文档中只对 admin 可见；数据 scope 只影响真实请求，不影响文档结构。
 - Mermaid 渲染超过 10 秒或抛错时回退显示原始 Mermaid 源码。
 - 页面本身对任意已登录用户开放（flag 只控制生成），内容按权限过滤。
@@ -116,7 +116,7 @@ curl -X DELETE -H "Authorization: Bearer $QIY_TOKEN" http://localhost:3000/api/v
 Demo：`examples/self/app.qiy` 三个开关全开；启动后访问：
 
 - `http://localhost:8000/system/overview`（实体/Dataflow/权限模型）
-- `http://localhost:8000/system/api-docs`（搜索、tag 列表、操作详情与 curl）
+- `http://localhost:8000/system/api-docs`（搜索、tag 列表、操作详情、curl 与 Try it）
 - `http://localhost:8000/system/api-keys`（搜索/筛选、创建/撤销、一次性密钥）
 
 用 seeded 的 `admin@example.com / admin-password`（或 operator/viewer）登录查看差异化内容。

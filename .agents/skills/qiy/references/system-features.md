@@ -154,7 +154,7 @@ bun run db:migrate
 
 1. **Flags gate generation, not access.** Generated pages are visible to any signed-in user; their content is filtered by role/permission. This is deliberate so every role can inspect what it may call.
 2. **The API document is a permission-filtered view**, not a complete attack surface: `allow verification` and data scope are not represented; verification-gated commands are admin-only in the document.
-3. **The document is read-only**: no try-it requests. curl examples use a placeholder token and must be replaced with a real session token or API key.
+3. **Try it is session-scoped**: requests run from the current browser with `qiy.access_token`; an optional API key stays in the form and is never stored. Responses are truncated to 20k characters. Server auth, permission filtering and validation remain authoritative. curl examples use a placeholder token that must be replaced with a real session token or API key.
 4. **API keys are session-equivalent**: a leak grants the user's full permissions. Never echo the `key` field in CI logs; store it in a secret manager.
 5. **Revocation is irreversible**: `revokedAt` is kept for audit; re-issuing yields a new key.
 6. **Keys snapshot claims from the user row**, so role/scope column changes take effect on the next request without rotating keys; IdP claim changes (e.g. `roles`) never reach an API key.
