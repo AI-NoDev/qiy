@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.4.5] - 2026-10-26
+
+### Added
+
+- v1 entry files can use top-level `include "modules/*.qiy";` v1 fragments.
+  Includes are expanded before v1 translation (fragments must be relative,
+  project-root-contained and must not declare `project`), so large v1 models can
+  be split into modules while `explain/generate` keep working.
+
 ## [0.4.4] - 2026-10-26
 
 ### Added
@@ -248,6 +257,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.4.5]: https://github.com/AI-NoDev/qiy/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/AI-NoDev/qiy/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/AI-NoDev/qiy/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/AI-NoDev/qiy/compare/v0.4.1...v0.4.2

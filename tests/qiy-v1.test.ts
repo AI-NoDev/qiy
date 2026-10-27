@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addEntity, addField, addModule } from "../tools/commands/add";
@@ -171,6 +171,24 @@ test("v1 preview rejects unsupported constructs with actionable errors", () => {
   expect(() => translateQiyV1("database sqlite\n")).toThrow(/missing `project/);
   expect(() => translateQiyV1("project x\nentity A {\n name: text bogus\n}\n")).toThrow(/unsupported field modifier/);
   expect(() => translateQiyV1("project x\nentity A {\n name: text\n}\nentity A {\n x: text\n}\n")).toThrow(/Duplicate entity/);
+});
+
+test("v1 entry files support includes of v1 fragments", async () => {
+  const root = mkdtempSync(join(tmpdir(), "qiy-v1-include-"));
+  writeFileSync(join(root, "app.qiy"), `project shop
+database sqlite
+include "modules/catalog.qiy";
+`);
+  mkdirSync(join(root, "modules"), { recursive: true });
+  writeFileSync(join(root, "modules/catalog.qiy"), `module Catalog {
+  entity Product {
+    name: text
+    price: decimal(12, 2) nullable
+  }
+}
+`);
+  const explanation = await explainQiyFile(join(root, "app.qiy"));
+  expect(explanation.entities.map((entity) => entity.name)).toEqual(["products"]);
 });
 
 test("qiy add entity/field supports v1 projects", async () => {

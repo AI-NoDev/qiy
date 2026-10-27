@@ -49,6 +49,7 @@ qiy fmt app.qiy              # 空白规范化
 | 一对一关系 | `customer: Customer` → `customerId` 外键 + `relation` |
 | 一对多关系 | `lines: OrderLine[]` → 在子实体生成 `orderId` 外键 + `relation`（子实体需在本文件声明） |
 | 多对多关系 | 双向数组（`tags: Tag[]` + `products: Product[]`）→ 自动生成 `products_tags` join 实体与两条 one 关系 |
+| 模块文件 | `include "modules/catalog.qiy";` → 展开 v1 片段（片段不带 `project`，可含 `module`/`entity`/配置块） |
 | 注释 | `#` 行内/独立注释 |
 
 类型别名：`uuid` → `UUID`、`text` → `Text`、`integer/int` → `Integer`、`decimal` → `Decimal`、`money` → `Money`、`date/time/datetime`、`file/files`、`vector(n)`。
@@ -89,7 +90,7 @@ menu {
 
 ## 尚未支持（明确报错）
 
-- `include`（v1 用 `module` 组织，不走 v0 include）；
+- `include` 路径必须是相对路径且位于项目内；片段不能带 `project`，可包含 `module`、`entity` 或配置块，展开后仍按 v1 规则校验；
 - 单向多对多（只在一侧写 `tags: Tag[]` 会被当作一对多；多对多需要双向数组，或显式建 join 实体）；
 - 自定义 `relation` 名称、`onDelete`、显示模板、注解；
 - `qiy add module` / `qiy add feature`（这两个命令写 v0；`qiy add entity` / `qiy add field` 支持 v1）。
