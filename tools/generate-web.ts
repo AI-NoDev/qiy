@@ -4317,8 +4317,10 @@ export interface ApiKeyRecord {
   lastUsedAt: string | null;
   expiresAt: string | null;
   revokedAt: string | null;
+  rotatedFromId?: string | null;
 }
 export interface CreatedApiKey { key: string; record: ApiKeyRecord }
+export interface ApiKeyEvent { id: string; keyId: string; action: "created" | "rotated" | "revoked" | string; at: string }
 export interface QiyIdentityLike { id?: string; role?: string; permissions?: unknown; groups?: unknown }
 export type ApiKeyStatusFilter = "all" | "active" | "revoked" | "expired";
 export interface ApiKeyPermissionTag { key: string; kind: "role" | "permission" | "group"; value: string }
@@ -4346,6 +4348,15 @@ export async function createApiKey(input: { name: string; expiresAt?: string | n
 
 export async function revokeApiKey(id: string): Promise<void> {
   await apiKeyRequest("/api/v1/auth/api-keys/" + encodeURIComponent(id), { method: "DELETE" });
+}
+
+export async function rotateApiKey(id: string): Promise<CreatedApiKey> {
+  return await apiKeyRequest("/api/v1/auth/api-keys/" + encodeURIComponent(id) + "/rotate", { method: "POST" }) as CreatedApiKey;
+}
+
+export async function listApiKeyEvents(): Promise<ApiKeyEvent[]> {
+  const body = await apiKeyRequest("/api/v1/auth/api-keys/events") as { items: ApiKeyEvent[] };
+  return body.items;
 }
 
 export function maskedApiKey(prefix: string): string {
@@ -4947,9 +4958,12 @@ import {
   defaultApiKeyName,
   filterApiKeys,
   formatApiKeyDate,
+  listApiKeyEvents,
   permissionTags,
   relativeTime,
   revokeApiKey,
+  rotateApiKey,
+  type ApiKeyEvent,
   type ApiKeyRecord,
   type ApiKeyStatusFilter,
   type QiyIdentityLike,
@@ -4959,6 +4973,7 @@ import { qiyFeatureFlags } from "../features";
 export interface ApiKeysPageProps {
   identity?: QiyIdentityLike | null;
   initialRecords?: ApiKeyRecord[];
+  initialEvents?: ApiKeyEvent[];
   loading?: boolean;
   error?: string;
   initialSearch?: string;
@@ -5001,6 +5016,7 @@ export function ApiKeysPage(props: ApiKeysPageProps) {
   const { translate, getLocale } = useTranslation();
   const locale = getLocale();
   const [records, setRecords] = useState<ApiKeyRecord[]>(props.initialRecords ?? []);
+  const [events, setEvents] = useState<ApiKeyEvent[]>(props.initialEvents ?? []);
   const [search, setSearch] = useState(props.initialSearch ?? "");
   const [status, setStatus] = useState<ApiKeyStatusFilter>(props.initialStatus ?? "all");
   const [createOpen, setCreateOpen] = useState(Boolean(props.initialCreateOpen));
@@ -5014,6 +5030,9 @@ export function ApiKeysPage(props: ApiKeysPageProps) {
   const roleTooltip = translate("qiy.apiKey.roleTooltip", {}, "Your account role. API keys inherit the role and permissions of the user who created them.");
   const permissionTooltip = translate("qiy.apiKey.permissionTooltip", {}, "Effective permission values for your account; a key created here can call exactly the APIs that you can call.");
   const groupTooltip = translate("qiy.apiKey.groupTooltip", {}, "Permission groups (roles) granted to your account.");
+  const refreshAudit = () => {
+    void listApiKeyEvents().then(setEvents).catch(() => undefined);
+  };
   const copy = async (value: string) => {
     try {
       await navigator.clipboard.writeText(value);
@@ -5031,6 +5050,7 @@ export function ApiKeysPage(props: ApiKeysPageProps) {
       setSecret(created.key);
       setCreateOpen(false);
       form.resetFields();
+      refreshAudit();
       void message.success(translate("qiy.apiKey.created", {}, "Created"));
     } catch (cause) {
       void message.error(cause instanceof Error ? cause.message : String(cause));
@@ -5042,9 +5062,24 @@ export function ApiKeysPage(props: ApiKeysPageProps) {
     try {
       await revokeApiKey(record.id);
       setRecords((current) => current.map((entry) => entry.id === record.id ? { ...entry, revokedAt: new Date().toISOString() } : entry));
+      refreshAudit();
       void message.success(translate("qiy.apiKey.revokedMessage", {}, "Revoked"));
     } catch (cause) {
       void message.error(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+  const rotate = async (record: ApiKeyRecord) => {
+    setSaving(true);
+    try {
+      const rotated = await rotateApiKey(record.id);
+      setRecords((current) => [rotated.record, ...current.map((entry) => entry.id === record.id ? { ...entry, revokedAt: new Date().toISOString() } : entry)]);
+      setSecret(rotated.key);
+      refreshAudit();
+      void message.success(translate("qiy.apiKey.rotatedMessage", {}, "Rotated; the old key is revoked"));
+    } catch (cause) {
+      void message.error(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
     }
   };
   return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -5074,8 +5109,15 @@ export function ApiKeysPage(props: ApiKeysPageProps) {
       { title: translate("qiy.apiKey.createdAt", {}, "Created"), dataIndex: "createdAt", key: "createdAt", render: (value: string) => formatApiKeyDate(value, locale) },
       { title: translate("qiy.apiKey.lastUsed", {}, "Last used"), dataIndex: "lastUsedAt", key: "lastUsedAt", render: (value: string | null) => value ? <Tooltip title={formatApiKeyDate(value, locale)}>{relativeTime(value, new Date(), locale)}</Tooltip> : translate("qiy.apiKey.never", {}, "Never") },
       { title: translate("qiy.apiKey.expires", {}, "Expires"), dataIndex: "expiresAt", key: "expiresAt", render: (value: string | null) => value ? <Tooltip title={formatApiKeyDate(value, locale)}>{formatApiKeyDate(value, locale)}</Tooltip> : translate("qiy.apiKey.never", {}, "Never") },
-      { title: translate("qiy.apiKey.actions", {}, "Actions"), key: "actions", render: (_, record) => record.revokedAt ? null : <Popconfirm title={translate("qiy.apiKey.revokeConfirm", {}, "Revoke this key? It stops working immediately.")} onConfirm={() => void revoke(record)} okText={translate("qiy.apiKey.revoke", {}, "Revoke")} cancelText={translate("qiy.cancel", {}, "Cancel")}><Button danger size="small">{translate("qiy.apiKey.revoke", {}, "Revoke")}</Button></Popconfirm> },
+      { title: translate("qiy.apiKey.actions", {}, "Actions"), key: "actions", render: (_, record) => record.revokedAt ? null : <Space wrap><Popconfirm title={translate("qiy.apiKey.rotateConfirm", {}, "Rotate this key? The old key stops working immediately and the new secret is shown once.")} onConfirm={() => void rotate(record)} okText={translate("qiy.apiKey.rotate", {}, "Rotate")} cancelText={translate("qiy.cancel", {}, "Cancel")}><Button size="small" loading={saving}>{translate("qiy.apiKey.rotate", {}, "Rotate")}</Button></Popconfirm><Popconfirm title={translate("qiy.apiKey.revokeConfirm", {}, "Revoke this key? It stops working immediately.")} onConfirm={() => void revoke(record)} okText={translate("qiy.apiKey.revoke", {}, "Revoke")} cancelText={translate("qiy.cancel", {}, "Cancel")}><Button danger size="small">{translate("qiy.apiKey.revoke", {}, "Revoke")}</Button></Popconfirm></Space> },
     ]} />
+    <Card size="small" title={translate("qiy.apiKey.auditTitle", {}, "Audit trail")}>
+      <Table<ApiKeyEvent> size="small" rowKey="id" pagination={false} dataSource={events} locale={{ emptyText: translate("qiy.apiKey.auditEmpty", {}, "No key events yet") }} columns={[
+        { title: translate("qiy.apiKey.auditTime", {}, "Time"), dataIndex: "at", key: "at", render: (value: string) => formatApiKeyDate(value, locale) },
+        { title: translate("qiy.apiKey.auditAction", {}, "Action"), dataIndex: "action", key: "action", render: (value: string) => <Tag color={value === "revoked" ? "red" : value === "rotated" ? "orange" : "green"}>{value}</Tag> },
+        { title: translate("qiy.apiKey.auditKey", {}, "Key"), dataIndex: "keyId", key: "keyId", render: (value: string) => <Typography.Text code>{value.slice(0, 8) + "…"}</Typography.Text> },
+      ]} />
+    </Card>
     <Modal open={createOpen} forceRender getContainer={false} title={translate("qiy.apiKey.create", {}, "Create key")} okText={translate("qiy.apiKey.create", {}, "Create key")} confirmLoading={saving} onOk={() => void create()} onCancel={() => setCreateOpen(false)}>
       <CreateKeyForm translate={translate} form={form} records={records} />
     </Modal>
@@ -5094,20 +5136,20 @@ function renderWebApiKeysRoute(): string {
   return `import { useEffect, useState } from "react";
 import { Navigate } from "react-router";
 import { qiyFeatureFlags } from "../features";
-import { listApiKeys, type ApiKeyRecord, type QiyIdentityLike } from "../api-keys";
+import { listApiKeyEvents, listApiKeys, type ApiKeyEvent, type ApiKeyRecord, type QiyIdentityLike } from "../api-keys";
 import { fetchCurrentIdentity } from "../auth";
 import { ApiKeysPage } from "../components/api-keys-page";
 
 export default function ApiKeysRoute() {
-  const [state, setState] = useState<{ records?: ApiKeyRecord[]; identity?: QiyIdentityLike; loading: boolean; error?: string }>({ loading: true });
+  const [state, setState] = useState<{ records?: ApiKeyRecord[]; events?: ApiKeyEvent[]; identity?: QiyIdentityLike; loading: boolean; error?: string }>({ loading: true });
   useEffect(() => {
     // No auth hooks in route modules (render-loop hazard); the guarded layout
-    // owns redirects, this effect fetches the key list + cached identity once.
+    // owns redirects, this effect fetches the key list, audit events + cached identity once.
     let cancelled = false;
     void (async () => {
       try {
-        const [records, identity] = await Promise.all([listApiKeys(), fetchCurrentIdentity()]);
-        if (!cancelled) setState({ records, identity: identity ?? undefined, loading: false });
+        const [records, events, identity] = await Promise.all([listApiKeys(), listApiKeyEvents(), fetchCurrentIdentity()]);
+        if (!cancelled) setState({ records, events, identity: identity ?? undefined, loading: false });
       } catch (cause) {
         if (!cancelled) setState({ loading: false, error: cause instanceof Error ? cause.message : String(cause) });
       }
@@ -5115,7 +5157,7 @@ export default function ApiKeysRoute() {
     return () => { cancelled = true; };
   }, []);
   if (!qiyFeatureFlags.apiKeys) return <Navigate to="/" replace />;
-  return <ApiKeysPage {...state} />;
+  return <ApiKeysPage initialRecords={state.records} initialEvents={state.events} identity={state.identity} loading={state.loading} error={state.error} />;
 }
 `;
 }

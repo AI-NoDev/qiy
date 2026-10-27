@@ -8068,7 +8068,7 @@ function renderApiKeySchema(dialect: DatabaseIR["dialect"]): string {
   const table = dialect === "postgresql" ? "pgTable" : dialect === "sqlite" ? "sqliteTable" : "mysqlTable";
   const string = (name: string, length?: number) => dialect === "mysql" ? `varchar(${JSON.stringify(name)}, { length: ${length ?? 255} })` : `text(${JSON.stringify(name)})`;
   const timestamp = (name: string) => dialect === "postgresql" ? `timestamp(${JSON.stringify(name)}, { withTimezone: true })` : dialect === "sqlite" ? `integer(${JSON.stringify(name)}, { mode: "timestamp_ms" })` : `datetime(${JSON.stringify(name)}, { mode: "date", fsp: 3 })`;
-  return `\n\nexport const qiyApiKeys = ${table}("qiy_api_keys", {\n  id: ${string("id", 36)}.primaryKey(),\n  userId: ${string("userId", 36)}.notNull(),\n  name: ${string("name", 80)}.notNull(),\n  prefix: ${string("prefix", 16)}.notNull().unique(),\n  hash: ${string("hash", 64)}.notNull().unique(),\n  createdAt: ${timestamp("createdAt")}.notNull(),\n  lastUsedAt: ${timestamp("lastUsedAt")},\n  expiresAt: ${timestamp("expiresAt")},\n  revokedAt: ${timestamp("revokedAt")},\n}, (table) => [index("qiy_api_keys_user_idx").on(table.userId)]);\n`;
+  return `\n\nexport const qiyApiKeys = ${table}("qiy_api_keys", {\n  id: ${string("id", 36)}.primaryKey(),\n  userId: ${string("userId", 36)}.notNull(),\n  name: ${string("name", 80)}.notNull(),\n  prefix: ${string("prefix", 16)}.notNull().unique(),\n  hash: ${string("hash", 64)}.notNull().unique(),\n  rotatedFromId: ${string("rotatedFromId", 36)},\n  createdAt: ${timestamp("createdAt")}.notNull(),\n  lastUsedAt: ${timestamp("lastUsedAt")},\n  expiresAt: ${timestamp("expiresAt")},\n  revokedAt: ${timestamp("revokedAt")},\n}, (table) => [index("qiy_api_keys_user_idx").on(table.userId)]);\n\nexport const qiyApiKeyEvents = ${table}("qiy_api_key_events", {\n  id: ${string("id", 36)}.primaryKey(),\n  keyId: ${string("keyId", 36)}.notNull(),\n  userId: ${string("userId", 36)}.notNull(),\n  action: ${string("action", 16)}.notNull(),\n  at: ${timestamp("at")}.notNull(),\n}, (table) => [index("qiy_api_key_events_user_idx").on(table.userId), index("qiy_api_key_events_key_idx").on(table.keyId)]);\n`;
 }
 
 /** Pure API-key helpers (format, hashing, validation). No database/HTTP imports. */
@@ -8179,9 +8179,10 @@ export interface ApiKeyRecord {
   lastUsedAt: string | null;
   expiresAt: string | null;
   revokedAt: string | null;
+  rotatedFromId: string | null;
 }
 
-export function toApiKeyRecord(row: { id: string; name: string; prefix: string; createdAt: Date | number | string; lastUsedAt: Date | number | string | null; expiresAt: Date | number | string | null; revokedAt: Date | number | string | null }): ApiKeyRecord {
+export function toApiKeyRecord(row: { id: string; name: string; prefix: string; rotatedFromId?: string | null; createdAt: Date | number | string; lastUsedAt: Date | number | string | null; expiresAt: Date | number | string | null; revokedAt: Date | number | string | null }): ApiKeyRecord {
   const iso = (value: Date | number | string | null) => value === null || value === undefined ? null : new Date(value instanceof Date ? value.getTime() : typeof value === "number" ? value : String(value)).toISOString();
   return {
     id: row.id,
@@ -8192,6 +8193,7 @@ export function toApiKeyRecord(row: { id: string; name: string; prefix: string; 
     lastUsedAt: iso(row.lastUsedAt),
     expiresAt: iso(row.expiresAt),
     revokedAt: iso(row.revokedAt),
+    rotatedFromId: row.rotatedFromId ?? null,
   };
 }
 `;
@@ -8203,7 +8205,7 @@ function renderApiKeyRoutesModule(auth: NonNullable<QiyProject["auth"]>, databas
   return `import { Elysia, t } from "elysia";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "../db";
-import { ${auth.userEntity}, qiyApiKeys } from "../schema";
+import { ${auth.userEntity}, qiyApiKeyEvents, qiyApiKeys } from "../schema";
 import type { Authenticator, Principal } from "./guard";
 import {
   API_KEY_MAX_ACTIVE,
@@ -8221,6 +8223,15 @@ import {
 const ROLES = ["admin", "operator", "viewer"] as const;
 type Role = (typeof ROLES)[number];
 function asRole(value: unknown): Role | null { return typeof value === "string" && (ROLES as readonly string[]).includes(value) ? value as Role : null; }
+
+type ApiKeyEventAction = "created" | "rotated" | "revoked";
+async function recordApiKeyEvent(keyId: string, userId: string, action: ApiKeyEventAction): Promise<void> {
+  try {
+    await db.insert(qiyApiKeyEvents).values({ id: crypto.randomUUID(), keyId, userId, action, at: new Date() });
+  } catch {
+    // Audit history must never turn a successful key operation into a 500.
+  }
+}
 
 /** Resolves the user row behind a presented API key; updates lastUsedAt at most once a minute. */
 async function resolveApiKeyPrincipal(presented: string): Promise<Principal | null> {
@@ -8284,6 +8295,7 @@ export function createApiKeyRoutes(authenticate: Authenticator) {
       const id = crypto.randomUUID();
       const createdAt = new Date();
       await db.insert(qiyApiKeys).values({ id, userId: principal.id, name, prefix: generated.prefix, hash: generated.hash, createdAt, lastUsedAt: null, expiresAt, revokedAt: null });
+      await recordApiKeyEvent(id, principal.id, "created");
       const row = { id, name, prefix: generated.prefix, createdAt, lastUsedAt: null, expiresAt, revokedAt: null };
       set.status = 201;
       return { key: generated.key, record: toApiKeyRecord(row) };
@@ -8294,9 +8306,34 @@ export function createApiKeyRoutes(authenticate: Authenticator) {
       const rows = await db.select().from(qiyApiKeys).where(and(eq(qiyApiKeys.id, params.id), eq(qiyApiKeys.userId, principal.id))).limit(1);
       const row = rows[0];
       if (!row) { set.status = 404; return { error: "API key not found" }; }
-      if (!row.revokedAt) await db.update(qiyApiKeys).set({ revokedAt: new Date() }).where(eq(qiyApiKeys.id, row.id));
+      if (!row.revokedAt) {
+        await db.update(qiyApiKeys).set({ revokedAt: new Date() }).where(eq(qiyApiKeys.id, row.id));
+        await recordApiKeyEvent(row.id, principal.id, "revoked");
+      }
       const revokedAt = row.revokedAt ?? new Date();
       return { record: toApiKeyRecord({ ...row, revokedAt } as never) };
+    })
+    .post("/:id/rotate", async ({ params, request, set }) => {
+      const principal = await authenticate(request);
+      if (!principal) { set.status = 401; return { error: "Authentication required" }; }
+      const rows = await db.select().from(qiyApiKeys).where(and(eq(qiyApiKeys.id, params.id), eq(qiyApiKeys.userId, principal.id))).limit(1);
+      const row = rows[0];
+      if (!row || row.revokedAt) { set.status = 404; return { error: "API key not found" }; }
+      if (isApiKeyExpired(row.expiresAt)) { set.status = 409; return { error: "Expired API keys cannot be rotated; create a new key instead" }; }
+      const generated = generateApiKey();
+      const id = crypto.randomUUID();
+      const createdAt = new Date();
+      await db.insert(qiyApiKeys).values({ id, userId: principal.id, name: row.name, prefix: generated.prefix, hash: generated.hash, rotatedFromId: row.id, createdAt, lastUsedAt: null, expiresAt: row.expiresAt, revokedAt: null });
+      await db.update(qiyApiKeys).set({ revokedAt: createdAt }).where(eq(qiyApiKeys.id, row.id));
+      await recordApiKeyEvent(id, principal.id, "rotated");
+      set.status = 201;
+      return { key: generated.key, record: toApiKeyRecord({ id, name: row.name, prefix: generated.prefix, rotatedFromId: row.id, createdAt, lastUsedAt: null, expiresAt: row.expiresAt, revokedAt: null } as never) };
+    })
+    .get("/events", async ({ request, set }) => {
+      const principal = await authenticate(request);
+      if (!principal) { set.status = 401; return { error: "Authentication required" }; }
+      const rows = await db.select().from(qiyApiKeyEvents).where(eq(qiyApiKeyEvents.userId, principal.id)).orderBy(desc(qiyApiKeyEvents.at)).limit(100);
+      return { items: rows.map((row) => ({ id: row.id, keyId: row.keyId, action: row.action, at: new Date(row.at as Date | number | string).toISOString() })) };
     });
 }
 `;
@@ -8897,7 +8934,12 @@ function usersDdl(): string {
 
 function keysDdl(): string {
   const timestamp = DIALECT === "sqlite" ? "INTEGER" : DIALECT === "postgresql" ? "TIMESTAMPTZ" : "DATETIME(3)";
-  return "CREATE TABLE " + identifier("qiy_api_keys") + " (" + ["id", "userId", "name", "prefix", "hash", "createdAt"].map((column) => identifier(column) + (column === "createdAt" ? " " + timestamp : " TEXT") + (column === "id" ? " PRIMARY KEY" : " NOT NULL")).join(", ") + ", " + ["lastUsedAt", "expiresAt", "revokedAt"].map((column) => identifier(column) + " " + timestamp).join(", ") + ")";
+  return "CREATE TABLE " + identifier("qiy_api_keys") + " (" + ["id", "userId", "name", "prefix", "hash", "createdAt"].map((column) => identifier(column) + (column === "createdAt" ? " " + timestamp : " TEXT") + (column === "id" ? " PRIMARY KEY" : " NOT NULL")).join(", ") + ", " + ["rotatedFromId"].map((column) => identifier(column) + " TEXT").join(", ") + ", " + ["lastUsedAt", "expiresAt", "revokedAt"].map((column) => identifier(column) + " " + timestamp).join(", ") + ")";
+}
+
+function eventsDdl(): string {
+  const timestamp = DIALECT === "sqlite" ? "INTEGER" : DIALECT === "postgresql" ? "TIMESTAMPTZ" : "DATETIME(3)";
+  return "CREATE TABLE " + identifier("qiy_api_key_events") + " (" + ["id", "keyId", "userId", "action"].map((column) => identifier(column) + " TEXT" + (column === "id" ? " PRIMARY KEY" : " NOT NULL")).join(", ") + ", " + identifier("at") + " " + timestamp + " NOT NULL)";
 }
 
 function literal(value: unknown): string {
@@ -8918,9 +8960,11 @@ ${execSource}
 
 async function reset(): Promise<void> {
   await exec("DROP TABLE IF EXISTS " + identifier("qiy_api_keys"));
+  await exec("DROP TABLE IF EXISTS " + identifier("qiy_api_key_events"));
   await exec("DROP TABLE IF EXISTS " + identifier(USER_TABLE));
   await exec(usersDdl());
   await exec(keysDdl());
+  await exec(eventsDdl());
 }
 
 async function seedUser(id: string, role: string, displayName: string): Promise<void> {
@@ -8928,11 +8972,11 @@ async function seedUser(id: string, role: string, displayName: string): Promise<
   await exec("INSERT INTO " + identifier(USER_TABLE) + " (" + [identifier("id"), ...SEED_COLUMNS.map((column) => identifier(column))].join(", ") + ") VALUES (" + [literal(id), ...values].join(", ") + ")");
 }
 
-async function insertKey(input: { id: string; userId: string; name: string; prefix: string; hash: string; createdAt: Date; expiresAt: Date | null; revokedAt: Date | null }): Promise<void> {
-  await exec("INSERT INTO " + identifier("qiy_api_keys") + " (" + ["id", "userId", "name", "prefix", "hash", "createdAt", "lastUsedAt", "expiresAt", "revokedAt"].map((column) => identifier(column)).join(", ") + ") VALUES (" + [literal(input.id), literal(input.userId), literal(input.name), literal(input.prefix), literal(input.hash), timestampLiteral(input.createdAt), "NULL", timestampLiteral(input.expiresAt), timestampLiteral(input.revokedAt)].join(", ") + ")");
+async function insertKey(input: { id: string; userId: string; name: string; prefix: string; hash: string; rotatedFromId?: string | null; createdAt: Date; expiresAt: Date | null; revokedAt: Date | null }): Promise<void> {
+  await exec("INSERT INTO " + identifier("qiy_api_keys") + " (" + ["id", "userId", "name", "prefix", "hash", "rotatedFromId", "createdAt", "lastUsedAt", "expiresAt", "revokedAt"].map((column) => identifier(column)).join(", ") + ") VALUES (" + [literal(input.id), literal(input.userId), literal(input.name), literal(input.prefix), literal(input.hash), literal(input.rotatedFromId ?? null), timestampLiteral(input.createdAt), "NULL", timestampLiteral(input.expiresAt), timestampLiteral(input.revokedAt)].join(", ") + ")");
 }
 
-async function keyRows(): Promise<Array<Record<string, unknown>>> { return rows("SELECT id, userId, name, prefix, hash, lastUsedAt, expiresAt, revokedAt FROM qiy_api_keys"); }
+async function keyRows(): Promise<Array<Record<string, unknown>>> { return rows("SELECT id, userId, name, prefix, hash, rotatedFromId, lastUsedAt, expiresAt, revokedAt FROM qiy_api_keys"); }
 
 const session = async (request: Request) => {
   const header = request.headers.get("authorization");
@@ -9009,6 +9053,30 @@ test("creates, lists, authenticates and revokes an API key", async () => {
   expect(await wrapped(new Request("http://localhost/probe", { headers: { "x-api-key": payload.key } }))).toBeNull();
   expect((await call("/api/v1/auth/api-keys/" + payload.record.id, { method: "DELETE", headers: adminHeaders })).status).toBe(200);
   expect((await call("/api/v1/auth/api-keys/missing", { method: "DELETE", headers: adminHeaders })).status).toBe(404);
+});
+
+test("rotates a key, revokes the old one and records audit events", async () => {
+  await reset();
+  await seedUser("admin-user", "admin", "Admin User");
+  const created = await call("/api/v1/auth/api-keys", { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "Rotate me" }) });
+  const original = await created.json() as { key: string; record: { id: string; name: string } };
+  const rotatedResponse = await call("/api/v1/auth/api-keys/" + original.record.id + "/rotate", { method: "POST", headers: adminHeaders });
+  expect(rotatedResponse.status).toBe(201);
+  const rotated = await rotatedResponse.json() as { key: string; record: { id: string; rotatedFromId: string; name: string } };
+  expect(rotated.key).not.toBe(original.key);
+  expect(rotated.record.name).toBe("Rotate me");
+  expect(rotated.record.rotatedFromId).toBe(original.record.id);
+
+  const wrapped = withApiKeyAuthentication(session);
+  expect(await wrapped(new Request("http://localhost/probe", { headers: { "x-api-key": original.key } }))).toBeNull();
+  expect(await wrapped(new Request("http://localhost/probe", { headers: { "x-api-key": rotated.key } }))).toMatchObject({ id: "admin-user", role: "admin" });
+  expect((await call("/api/v1/auth/api-keys/" + original.record.id + "/rotate", { method: "POST", headers: adminHeaders })).status).toBe(404);
+
+  const events = await call("/api/v1/auth/api-keys/events", { headers: adminHeaders });
+  expect(events.status).toBe(200);
+  const body = await events.json() as { items: Array<{ action: string; keyId: string }> };
+  expect(body.items.map((event) => event.action)).toEqual(["rotated", "created"]);
+  expect(body.items[0]!.keyId).toBe(rotated.record.id);
 });
 
 test("API keys authenticate through the app guard and inherit the user's limits", async () => {

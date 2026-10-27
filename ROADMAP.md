@@ -69,7 +69,8 @@
 - [x] API docs：无 auth 时不再生成缺失的 `app/auth` 引用（apiDocs-only 项目可 typecheck）
 - [x] API docs：try-it 请求（会话 token / 手动 API Key、原始响应、20k 截断）
 - [ ] API docs：verification 隐藏操作原因说明
-- [ ] API Key scopes/轮换/审计
+- [x] API Key 轮换（`POST /auth/api-keys/:id/rotate`，旧 key 立即撤销）与审计轨迹（created/rotated/revoked）
+- [ ] API Key scopes（按 key 限制权限）
 - [ ] 本地密码限流/锁定、会话吊销
 - [ ] `sum/avg ... group by` 聚合 + chart 扩展（area/stacked/scatter、颜色/图例、下钻）
 - [ ] 字段类型扩展（Boolean/Email/URL/JSON/数组）与迁移策略

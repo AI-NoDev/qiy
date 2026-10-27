@@ -8,6 +8,17 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.4.9] - 2026-10-26
+
+### Added
+
+- API key rotation (`POST /api/v1/auth/api-keys/:id/rotate`): preserves name
+  and expiry, revokes the old key immediately, stores `rotatedFromId` and shows
+  the new secret once. The API-key page adds a Rotate action.
+- API key audit trail (`qiy_api_key_events`, `GET /api/v1/auth/api-keys/events`):
+  records created/rotated/revoked events per user (latest 100) and renders them
+  below the key table. Audit writes are best-effort and never authorize requests.
+
 ## [0.4.8] - 2026-10-26
 
 ### Fixed
@@ -285,6 +296,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.4.9]: https://github.com/AI-NoDev/qiy/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/AI-NoDev/qiy/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/AI-NoDev/qiy/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/AI-NoDev/qiy/compare/v0.4.5...v0.4.6

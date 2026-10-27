@@ -6,7 +6,7 @@
 | --- | --- | --- | --- |
 | 功能总览 | `/system/overview` | `overview`（默认 true）且 `apiDocs`/`apiKeys` 至少一个打开 | **实体系**：Mermaid `classDiagram` + 字段/注解表 + 关系表；**Dataflow**：每个 flow 的 Mermaid `flowchart`、allow 规则、输入与步骤；**权限模型**：权限字段/组/校验 + 当前用户有效权限 |
 | API 文档 | `/system/api-docs` | `apiDocs` | 全页 AntD OpenAPI 3.1 浏览器：tag 列表（带操作数）、操作卡（方法/路径/摘要/参数/请求体/响应/安全方案/角色与权限标签 + 可复制 curl）、搜索、无结果状态；每张操作卡可展开 **Try it**，用当前浏览器会话 token（或手动输入 `X-API-Key`）发真实请求并显示原始响应（截断 20k 字符）；可下载当前账号过滤后的 OpenAPI JSON（`<title>.openapi.json`） |
-| 访问密钥 | `/system/api-keys` | `apiKeys` | 全页 API Key 管理：说明与 curl 示例、按名称/前缀/状态搜索与筛选、有效数/上限提示、权限标签、创建弹窗（名称 + 可选过期）、一次性密钥展示、撤销 |
+| 访问密钥 | `/system/api-keys` | `apiKeys` | 全页 API Key 管理：说明与 curl 示例、按名称/前缀/状态搜索与筛选、有效数/上限提示、权限标签、创建弹窗（名称 + 可选过期）、一次性密钥展示、**轮换**（旧密钥立即撤销、新密钥只展示一次）、撤销、**审计轨迹**（created/rotated/revoked） |
 
 三页都在 `<Authenticated>` 布局内（未登录跳 `/auth/login`），内容按当前账号的角色/权限过滤。完整开关语义、生成矩阵与限制见 [DSL：features](/dsl/features)。
 
@@ -81,11 +81,14 @@ curl -H "X-API-Key: qiy_1a2b3c4d_..." http://localhost:3000/api/v1/inventory
 curl -H "Authorization: Bearer qiy_1a2b3c4d_..." http://localhost:3000/api/v1/inventory
 ```
 
-列出/撤销（只能操作自己的密钥）：
+列出/撤销/轮换/审计（只能操作自己的密钥）：
 
 ```bash
 curl -H "Authorization: Bearer $QIY_TOKEN" http://localhost:3000/api/v1/auth/api-keys
 curl -X DELETE -H "Authorization: Bearer $QIY_TOKEN" http://localhost:3000/api/v1/auth/api-keys/<id>
+curl -X POST -H "Authorization: Bearer $QIY_TOKEN" http://localhost:3000/api/v1/auth/api-keys/<id>/rotate
+# 201 => { "key": "qiy_...新密钥", "record": { "id": "...", "rotatedFromId": "<旧 id>", ... } }
+curl -H "Authorization: Bearer $QIY_TOKEN" http://localhost:3000/api/v1/auth/api-keys/events
 ```
 
 行为要点：
@@ -94,6 +97,8 @@ curl -X DELETE -H "Authorization: Bearer $QIY_TOKEN" http://localhost:3000/api/v
 - 服务端只保存 HMAC-SHA256（`QIY_AUTH_SECRET` 作为 pepper）+ 8 位 hex 前缀；数据库泄露也无法还原完整密钥。
 - **API Key 不携带 id_token claims**：`permission from claim` 来源对密钥请求不生效，只继承角色组、数据库列与 scope 派生的 claim 键。
 - `lastUsedAt` 最多每分钟更新一次（best-effort）；已撤销/过期立即 401；每用户最多 10 个有效密钥；名称 1–80 字符；`expiresAt` 必须是未来时间。
+- **轮换**保留名称与过期时间，生成新密钥并立即撤销旧密钥；旧密钥在新密钥创建后不可再认证，`rotatedFromId` 记录链路；已过期/已撤销的密钥返回 404/409。
+- **审计轨迹**记录 `created` / `rotated` / `revoked`（时间、keyId），按用户隔离、最多返回最近 100 条；审计写入是 best-effort，不阻塞密钥操作，但不用于安全授权判断。
 - `QIY_AUTH_SECRET` 必须 ≥32 字符（本地登录/API Key 共用），生产用 `openssl rand -hex 32` 生成并只放服务端。
 
 ## 功能开关与降级

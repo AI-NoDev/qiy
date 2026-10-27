@@ -65,8 +65,8 @@ Menu links come from `apps/web/app/features.ts` (`qiyMenuLinks`, plus `qiyFeatur
 | Page | Route | Content |
 | --- | --- | --- |
 | Overview | `/system/overview` | Tabs: **entities** (Mermaid `classDiagram`, field/annotation table, relation table), **dataflows** (Mermaid `flowchart` per flow, allow rules, inputs, steps), **permissions** (fields/groups/verifications + the current user's effective permissions). No API-doc or key tab |
-| API docs | `/system/api-docs` | Full-page Ant Design OpenAPI 3.1 browser: tag list with operation counts, operation cards (method/path/summary/parameters/request body/responses/security/role+permission tags/copyable curl), case-insensitive search, empty state. **Read-only** - no try-it requests |
-| API keys | `/system/api-keys` | Full-page key management: explanation and curl examples (`Authorization: Bearer qiy_...` / `X-API-Key`), search/filter by name/prefix/status, active count/limit hint, permission tags (role/permission group + tooltips), create dialog (name + optional expiry), one-time secret display with copy, revoke confirmation |
+| API docs | `/system/api-docs` | Full-page Ant Design OpenAPI 3.1 browser: tag list with operation counts, operation cards (method/path/summary/parameters/request body/responses/security/role+permission tags/copyable curl + session-scoped **Try it**), case-insensitive search, empty state |
+| API keys | `/system/api-keys` | Full-page key management: explanation and curl examples (`Authorization: Bearer qiy_...` / `X-API-Key`), search/filter by name/prefix/status, active count/limit hint, permission tags (role/permission group + tooltips), create dialog (name + optional expiry), one-time secret display with copy, **rotate** (old key revoked immediately, new secret shown once), revoke confirmation, **audit trail** (created/rotated/revoked) |
 
 All three live inside the `<Authenticated>` layout: unauthenticated access redirects to `/auth/login` (not 403). Their data comes from protected APIs (`/api/v1/docs/model`, `/api/v1/openapi.json`, `/api/v1/auth/api-keys`), so content is filtered by the current principal. Mermaid rendering falls back to raw source after a 10-second timeout or an error.
 
@@ -90,7 +90,8 @@ The server always exposes REST under `/api/v1` and GraphQL under `/graphql`; `ap
 | GET | `/api/v1/graphql/subscribe` | GraphQL subscription over SSE (graphql client + realtime) |
 | GET | `/api/v1/health` | Health probe (200) |
 
-CSV export uses the same query path as the list, so filters, `scope`, `restrict` rows and masks apply. `mask mode omit` drops the whole column (header included); `null`/`redact` keep masked values. Options: `ids=` (max 500), `columns=` (max 100), streaming in 250-row pages, default row cap 1000 (`QIY_EXPORT_MAX_ROWS`, 1..100000) with 400 `export.tooLarge`. Async mode (`?async=1`) returns 202 `{ jobId, total }` with `qiy_export_jobs`, admin-only job list/run endpoints, `409 export.claimed`/`export.notQueued`, and CSV built from the creator's principal snapshot. Every export writes a `<resource>.exported` audit event; out-of-scope writes return 403 `policy.outsideScope`.
+CSV export uses the same query path as the list, so filters, `scope`, `restrict` rows and masks apply. `mask mode omit` drops the whole column (header included); 
+ull`/`redact` keep masked values. Options: `ids=` (max 500), `columns=` (max 100), streaming in 250-row pages, default row cap 1000 (`QIY_EXPORT_MAX_ROWS`, 1..100000) with 400 `export.tooLarge`. Async mode (`?async=1`) returns 202 `{ jobId, total }` with `qiy_export_jobs`, admin-only job list/run endpoints, `409 export.claimed`/`export.notQueued`, and CSV built from the creator's principal snapshot. Every export writes a `<resource>.exported` audit event; out-of-scope writes return 403 `policy.outsideScope`.
 
 CSV import accepts `text/csv` with a header row and writes each row through the normal create path (masks and row predicates apply). Failures: 400 `import.unknownField`/`duplicateColumn`/`maskedField`/`rowLength`/`invalidRow`/`empty`, 403 `policy.outsideScope`; row cap 1000 (`QIY_IMPORT_MAX_ROWS`). Failures compensate by deleting rows created in that request (not one cross-row transaction); success returns 201 `{ imported }` and a `<resource>.imported` audit event. Async jobs live in `qiy_import_jobs` with progress/cancel/stale-job recovery (`QIY_IMPORT_JOB_STALE_MS`).
 
@@ -121,7 +122,8 @@ Important boundary: the Elysia plugin's own `/api/v1/openapi` endpoint is **publ
 
 ## API keys
 
-- Table `qiy_api_keys`: `id`, `userId`, `name`, `prefix`, `hash`, `createdAt`, `lastUsedAt`, `expiresAt`, `revokedAt` (indexes: user, unique hash).
+- Table `qiy_api_keys`: `id`, `userId`, 
+ame`, `prefix`, `hash`, `rotatedFromId`, `createdAt`, `lastUsedAt`, `expiresAt`, `revokedAt` (indexes: user, unique hash). Table `qiy_api_key_events`: `id`, `keyId`, `userId`, `action` (`created`/`rotated`/`revoked`), `at` (indexes: user/key).
 - Format `qiy_<8 hex prefix>_<43-char base64url secret>`. Only an HMAC-SHA256 hash (peppered with `QIY_AUTH_SECRET`) plus the prefix is stored; the full key appears once in the creation response.
 - Authentication: the normal authenticator runs first; on failure the server checks `Authorization: Bearer qiy_...` or `X-API-Key: qiy_...`. The resolved user row then goes through the same guard, scope, page and permission rules. `lastUsedAt` updates at most once per minute (best-effort).
 - Revoked/expired keys return 401. Keys carry **no id_token claims**, so `permission from claim` does not apply; they inherit the role group, the database permission column and scope-derived claim keys.
@@ -131,6 +133,8 @@ Important boundary: the Elysia plugin's own `/api/v1/openapi` endpoint is **publ
 | `GET` | `/api/v1/auth/api-keys` | Masked list (`maskedKey` like `qiy_1a2b3c4d_********`) |
 | `POST` | `/api/v1/auth/api-keys` | `{ name, expiresAt? }` -> **201** `{ key, record }`; name 1..80; `expiresAt` must be a future ISO time; over the limit -> **409** |
 | `DELETE` | `/api/v1/auth/api-keys/:id` | Revoke your own key (idempotent); missing or someone else's -> 404 |
+| `POST` | `/api/v1/auth/api-keys/:id/rotate` | Rotate an active, unexpired key; old key is revoked immediately, name/expiry preserved; **201** `{ key, record.rotatedFromId }`; revoked -> 404, expired -> 409 |
+| `GET` | `/api/v1/auth/api-keys/events` | Latest 100 audit events for your keys (`id`, `keyId`, `action`, `at`) |
 
 All key endpoints require a session and can only manage the caller's own keys. Limit: **10 active keys per user** (revoked/expired do not count); exceeding it returns 409 `At most 10 active API keys are allowed`. Revocation writes `revokedAt` and keeps the row for audit; issuing again creates a new key.
 
@@ -156,7 +160,7 @@ bun run db:migrate
 2. **The API document is a permission-filtered view**, not a complete attack surface: `allow verification` and data scope are not represented; verification-gated commands are admin-only in the document.
 3. **Try it is session-scoped**: requests run from the current browser with `qiy.access_token`; an optional API key stays in the form and is never stored. Responses are truncated to 20k characters. Server auth, permission filtering and validation remain authoritative. curl examples use a placeholder token that must be replaced with a real session token or API key.
 4. **API keys are session-equivalent**: a leak grants the user's full permissions. Never echo the `key` field in CI logs; store it in a secret manager.
-5. **Revocation is irreversible**: `revokedAt` is kept for audit; re-issuing yields a new key.
+5. **Revocation is irreversible**: `revokedAt` is kept for audit; rotation revokes the old key and links the new one via `rotatedFromId`; audit events are best-effort and never authorize requests by themselves.
 6. **Keys snapshot claims from the user row**, so role/scope column changes take effect on the next request without rotating keys; IdP claim changes (e.g. `roles`) never reach an API key.
 7. The overview page shows the caller's own effective permissions; low-privilege users seeing their own set is intended observability, not leakage.
 

@@ -164,6 +164,13 @@ describe("application feature flags", () => {
     expect(enabled["apps/web/app/docs.ts"]).toContain("export function fetchOpenApiDocument");
     expect(enabled["apps/web/app/api-keys.ts"]).toContain("export function filterApiKeys");
     expect(enabled["apps/web/app/api-keys.ts"]).toContain("export function permissionTags");
+    expect(enabled["apps/web/app/api-keys.ts"]).toContain("export async function rotateApiKey");
+    expect(enabled["apps/web/app/api-keys.ts"]).toContain("export async function listApiKeyEvents");
+    expect(enabled["apps/web/app/components/api-keys-page.tsx"]).toContain("Rotate");
+    expect(enabled["apps/web/app/components/api-keys-page.tsx"]).toContain("Audit trail");
+    expect(enabled["apps/server/src/auth/api-keys.ts"]).toContain('post("/:id/rotate"');
+    expect(enabled["apps/server/src/auth/api-keys.ts"]).toContain("qiyApiKeyEvents");
+    expect(enabled["apps/server/tests/api-keys.test.ts"]).toContain("rotates a key, revokes the old one and records audit events");
     expect(enabled["apps/web/app/routes/docs.tsx"]).toContain("fetchDocsModel()");
     expect(enabled["apps/web/app/routes/api-docs.tsx"]).toContain("fetchOpenApiDocument()");
     expect(enabled["apps/web/app/routes/api-keys.tsx"]).toContain("listApiKeys()");
