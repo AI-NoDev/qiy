@@ -93,6 +93,53 @@ module Sales {
   expect(explanation.relations[0]).toMatchObject({ from: "order_lines", fromField: "orderId", to: "orders", cardinality: "one" });
 });
 
+test("passes through v0 config blocks for auth/features/menu/chart", () => {
+  const source = `project shop
+database sqlite
+features {
+  apiDocs true;
+  apiKeys true;
+}
+enum role {
+  value admin;
+  value operator;
+  value viewer;
+}
+auth {
+  provider local;
+  user users;
+  subjectField id;
+  roleField role;
+  usernameField email;
+  passwordField passwordHash;
+}
+entity User {
+  email: text unique
+  passwordHash: text
+  role: role
+}
+menu {
+  group system {
+    resource users;
+  }
+}
+chart const UserCount {
+  title = "Users";
+  data = count users;
+}
+`;
+  const translated = translateQiyV1(source);
+  expect(translated).toContain("features {");
+  expect(translated).toContain("apiKeys true;");
+  expect(translated).toContain("auth {");
+  expect(translated).toContain("enum role {");
+  expect(translated).toContain("menu {");
+  expect(translated).toContain("chart const UserCount {");
+  const explanation = explainQiySource(source);
+  expect(explanation.entities.some((entity) => entity.name === "users")).toBe(true);
+  expect(explanation.charts[0]?.name).toBe("UserCount");
+});
+
 test("reciprocal many fields generate an explicit many-to-many join entity", () => {
   const source = `project shop
 database sqlite

@@ -8,6 +8,16 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.4.4] - 2026-10-26
+
+### Added
+
+- v1 preview passes through common v0 config blocks in canonical order:
+  workspace/ui/api/features/realtime/elysia/storage/auth/env/messages/permission/
+  workflow/enum before entities, and menu/dashboard/chart/dataflow/action after
+  relations. Entity references inside these blocks use generated table names;
+  this enables v1 apps with auth, developer pages, menus and charts.
+
 ## [0.4.3] - 2026-10-26
 
 ### Added
@@ -238,6 +248,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.4.4]: https://github.com/AI-NoDev/qiy/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/AI-NoDev/qiy/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/AI-NoDev/qiy/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/AI-NoDev/qiy/compare/v0.4.0...v0.4.1

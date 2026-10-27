@@ -82,6 +82,41 @@ function parseType(raw: string): string {
   return `${primitive}${match[2] ?? ""}`;
 }
 
+const PRE_BLOCKS: Record<string, number> = {
+  workspace: 10, ui: 20, api: 30, features: 40, realtime: 50, elysia: 60, storage: 70, auth: 80, env: 90, messages: 100, permission: 110, workflow: 120, enum: 130,
+};
+const POST_BLOCKS: Record<string, number> = { menu: 10, dashboard: 20, chart: 30, dataflow: 40, action: 50 };
+
+function braceDelta(line: string): number {
+  let depth = 0;
+  let quote = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index]!;
+    if (char === '"' && line[index - 1] !== "\\") quote = !quote;
+    if (quote) continue;
+    if (char === "#") break;
+    if (char === "{") depth += 1;
+    else if (char === "}") depth -= 1;
+  }
+  return depth;
+}
+
+function captureBlock(lines: string[], start: number): number {
+  let depth = 0;
+  let opened = false;
+  for (let index = start; index < lines.length; index += 1) {
+    const delta = braceDelta(lines[index]!);
+    if (delta !== 0) opened = true;
+    depth += delta;
+    if (opened && depth === 0) return index;
+  }
+  throw new Error(`v1: unterminated block starting at line ${start + 1}.`);
+}
+
+function indentRawBlock(text: string[]): string[] {
+  return text.map((line) => `  ${line.trim()}`);
+}
+
 export function translateQiyV1(source: string): string {
   const lines = source.replace(/^\uFEFF/, "").split(/\r?\n/);
   let projectName: string | undefined;
@@ -90,6 +125,8 @@ export function translateQiyV1(source: string): string {
   const entities: V1Entity[] = [];
   const relations: string[] = [];
   const pendingMany: Array<{ parent: V1Entity; targetType: string; lineNumber: number }> = [];
+  const preBlocks: Array<{ order: number; text: string[] }> = [];
+  const postBlocks: Array<{ order: number; text: string[] }> = [];
   let currentEntity: V1Entity | undefined;
   let entityParent: "top" | "module" = "module";
   let mode: "top" | "module" | "entity" = "top";
@@ -133,11 +170,25 @@ export function translateQiyV1(source: string): string {
         projectName = project[1]!;
         continue;
       }
-      const databaseLine = /^database\s+([A-Za-z]+)(?:\s*\{\s*\})?\s*$/.exec(line);
+      const databaseLine = /^database\s+([A-Za-z]+)(?:\s*\{\s*\})?\s*;?\s*$/.exec(line);
       if (databaseLine) {
         const dialect = databaseLine[1]!.toLowerCase();
         if (!["sqlite", "postgresql", "mysql"].includes(dialect)) throw new Error(`v1 line ${lineNumber}: unsupported database "${databaseLine[1]}".`);
         database = dialect;
+        continue;
+      }
+      const firstWord = /^([A-Za-z][A-Za-z0-9]*)\b/.exec(line)?.[1];
+      if (firstWord && (firstWord in PRE_BLOCKS || firstWord in POST_BLOCKS)) {
+        const text: string[] = [];
+        if (line.includes("{")) {
+          const end = captureBlock(lines, index);
+          for (let cursor = index; cursor <= end; cursor += 1) text.push(lines[cursor]!);
+          index = end;
+        } else {
+          text.push(line);
+        }
+        if (firstWord in PRE_BLOCKS) preBlocks.push({ order: PRE_BLOCKS[firstWord]!, text });
+        else postBlocks.push({ order: POST_BLOCKS[firstWord]!, text });
         continue;
       }
       const module = /^module\s+[A-Za-z_][A-Za-z0-9_]*\s*\{$/.exec(line);
@@ -259,10 +310,12 @@ export function translateQiyV1(source: string): string {
   entities.push(...joinEntities);
 
   const body: string[] = [`  database ${database} {}`];
+  for (const block of preBlocks.sort((left, right) => left.order - right.order)) body.push("", ...indentRawBlock(block.text));
   for (const entity of entities) {
     if (!entity.hasId) entity.fields.unshift("  field id UUID @id;");
     body.push("", `  entity ${entity.table} {`, ...entity.fields, "  }");
   }
   if (relations.length) body.push("", ...relations);
+  for (const block of postBlocks.sort((left, right) => left.order - right.order)) body.push("", ...indentRawBlock(block.text));
   return ["qiy v0;", ...topComments, `application ${projectName} {`, ...body, "}", ""].join("\n");
 }

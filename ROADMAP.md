@@ -81,8 +81,8 @@
 - [x] `qiy add module/entity/feature` 的结构化增量建模（`add entity`、`add field`、`add module`、`add feature`，写入后校验并回滚）
 - [x] `qiy fmt [--check]`：保留语义的空白规范化（缩进/空行/行尾/末尾换行）
 - [x] 友好语法 v1 RFC：设计理念页记录提案（project/module、name:type、内联关系、可选分号、v0 兼容）
-- [x] v1 语法最小版：v1 → v0 预处理器（project/module、name:type、自动主键、one、one-to-many、many-to-many join 实体），`explain/generate/fmt` 自动识别；`add entity/field` 支持 v1
-- [ ] v1 完整语法：auth/menu/chart/dataflow、include、`add module/feature` 支持
+- [x] v1 语法最小版：v1 → v0 预处理器（project/module、name:type、自动主键、one、one-to-many、many-to-many、常用配置块 v0 透传），`explain/generate/fmt` 自动识别；`add entity/field` 支持 v1
+- [ ] v1 完整语法：include、自定义注解/关系名、`add module/feature` 支持
 - [ ] 文档按任务重构：每页目标 → 命令 → 语法；仓库内部工具退出用户文档
 - [x] `qiy dev --watch`：模型变更防抖后自动重新生成、迁移，dev server 重新加载
 

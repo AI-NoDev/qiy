@@ -53,11 +53,44 @@ qiy fmt app.qiy              # 空白规范化
 
 类型别名：`uuid` → `UUID`、`text` → `Text`、`integer/int` → `Integer`、`decimal` → `Decimal`、`money` → `Money`、`date/time/datetime`、`file/files`、`vector(n)`。
 
+## 配置块（v0 语法透传）
+
+v1 允许直接写常用的 v0 配置块，内容按 v0 语法解析，按规范顺序输出：
+
+```qiy
+features {
+  apiDocs true;
+  apiKeys true;
+}
+
+enum role {
+  value admin;
+  value operator;
+  value viewer;
+}
+
+auth {
+  provider local;
+  user users;
+  subjectField id;
+  roleField role;
+  usernameField email;
+  passwordField passwordHash;
+}
+
+menu {
+  group system {
+    resource users;
+  }
+}
+```
+
+支持的透传块：`workspace`、`ui`、`api`、`features`、`realtime`、`elysia`、`storage`、`auth`、`env`、`messages`、`permission`、`workflow`、`enum`，以及实体之后的 `menu`、`dashboard`、`chart`、`dataflow`、`action`。它们内部仍使用 v0 语法（实体名使用生成后的表名，如 `users`）。
+
 ## 尚未支持（明确报错）
 
 - `include`（v1 用 `module` 组织，不走 v0 include）；
 - 单向多对多（只在一侧写 `tags: Tag[]` 会被当作一对多；多对多需要双向数组，或显式建 join 实体）；
-- `auth`、`permissions`、`menu`、`chart`、`dataflow` 等非实体块；
 - 自定义 `relation` 名称、`onDelete`、显示模板、注解；
 - `qiy add module` / `qiy add feature`（这两个命令写 v0；`qiy add entity` / `qiy add field` 支持 v1）。
 
