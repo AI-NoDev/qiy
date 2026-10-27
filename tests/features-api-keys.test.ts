@@ -94,6 +94,18 @@ describe("application feature flags", () => {
     expect(() => parseQiyProject(`qiy v0; application x { database sqlite {} features { apiKeys true; } }`)).toThrow("features apiKeys requires an auth block");
   });
 
+  test("generates API docs without auth without importing a missing auth module", () => {
+    const project = parseQiyProject(`qiy v0; application docs-no-auth {
+      database sqlite {}
+      features { apiDocs true; }
+      entity products { field id UUID @id; field name Text; }
+    }`);
+    const files = generateProject(project.database, "docs-no-auth", project);
+    expect(files["apps/web/app/docs.ts"]).not.toContain('from "./auth"');
+    expect(files["apps/web/app/routes/api-docs.tsx"]).not.toContain('from "../auth"');
+    expect(files["apps/web/app/routes/api-docs.tsx"]).toContain("Promise.resolve(undefined)");
+  });
+
   test("generates the split developer pages and gates them per flag", () => {
     const project = parseQiyProject(withFeatures());
     const enabled = generateProject(project.database, "feature-demo", project);

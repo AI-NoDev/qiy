@@ -3473,7 +3473,7 @@ export default function AuthCallback() {
   if (overviewPageEnabled || apiDocsFeature || apiKeysFeature) generated["web/tests/features.test.ts"] = renderWebFeaturesTest(overviewPageEnabled, apiDocsFeature, apiKeysFeature);
   const routeLines: string[] = [];
   const webPackage = JSON.parse(generated["web/package.json"]!) as { dependencies: Record<string, string> };
-  if (docsHelpersEnabled) generated["web/app/docs.ts"] = renderWebDocsModule();
+  if (docsHelpersEnabled) generated["web/app/docs.ts"] = renderWebDocsModule(usesAuth);
   if (apiKeysFeature) generated["web/app/api-keys.ts"] = renderWebApiKeysModule();
   if (overviewPageEnabled) {
     generated["web/app/components/mermaid.tsx"] = renderWebMermaidComponent();
@@ -3488,7 +3488,7 @@ export default function AuthCallback() {
   }
   if (apiDocsFeature) {
     generated["web/app/components/api-docs-page.tsx"] = renderWebApiDocsPageComponent();
-    generated["web/app/routes/api-docs.tsx"] = renderWebApiDocsRoute();
+    generated["web/app/routes/api-docs.tsx"] = renderWebApiDocsRoute(usesAuth);
     generated["web/tests/api-docs.test.ts"] = renderWebApiDocsTest();
     generated["web/tests/api-docs-render.test.tsx"] = renderWebApiDocsRenderTest();
     routeLines.push('  route("system/api-docs", "./routes/api-docs.tsx"),');
@@ -3912,9 +3912,9 @@ ${apiKeys ? `  { name: "qiy-api-keys", path: "/system/api-keys", label: "访问�
 `;
 }
 
-function renderWebDocsModule(): string {
+function renderWebDocsModule(usesAuth: boolean): string {
   return `/** Generated documentation helpers: Mermaid builders, tab gating and API fetchers. */
-import { qiyAuthToken } from "./auth";
+${usesAuth ? 'import { qiyAuthToken } from "./auth";' : 'const qiyAuthToken = (): string | undefined => (typeof window === "undefined" ? undefined : window.localStorage.getItem("qiy.access_token") ?? undefined);'}
 import { qiyFeatureFlags } from "./features";
 
 export type DocsRole = "admin" | "operator" | "viewer";
@@ -4900,12 +4900,12 @@ export function ApiDocsPage(props: ApiDocsPageProps) {
 }
 
 /** API-docs route: feature gate + OpenAPI/identity fetch (no auth hooks). */
-function renderWebApiDocsRoute(): string {
+function renderWebApiDocsRoute(usesAuth: boolean): string {
   return `import { useEffect, useState } from "react";
 import { Navigate } from "react-router";
 import { qiyFeatureFlags } from "../features";
 import { fetchOpenApiDocument } from "../docs";
-import { fetchCurrentIdentity } from "../auth";
+${usesAuth ? 'import { fetchCurrentIdentity } from "../auth";' : ""}
 import { ApiDocsPage, type ApiDocsPageProps } from "../components/api-docs-page";
 
 export default function ApiDocsRoute() {
@@ -4916,7 +4916,7 @@ export default function ApiDocsRoute() {
     let cancelled = false;
     void (async () => {
       try {
-        const [spec, identity] = await Promise.all([fetchOpenApiDocument(), fetchCurrentIdentity()]);
+        const [spec, identity] = await Promise.all([fetchOpenApiDocument(), ${usesAuth ? "fetchCurrentIdentity()" : "Promise.resolve(undefined)"}]);
         if (!cancelled) setState({ spec, identity: (identity ?? undefined) as ApiDocsPageProps["identity"], loading: false });
       } catch (cause) {
         if (!cancelled) setState({ loading: false, error: cause instanceof Error ? cause.message : String(cause) });

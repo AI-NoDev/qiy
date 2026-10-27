@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.4.8] - 2026-10-26
+
+### Fixed
+
+- `features { apiDocs true; }` without an `auth` block no longer generates web
+  imports of a missing `app/auth` module. The docs helper falls back to the
+  local `qiy.access_token` reader and the API-docs route skips the identity
+  fetch when auth is disabled.
+
 ## [0.4.7] - 2026-10-26
 
 ### Added
@@ -276,6 +285,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.4.8]: https://github.com/AI-NoDev/qiy/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/AI-NoDev/qiy/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/AI-NoDev/qiy/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/AI-NoDev/qiy/compare/v0.4.4...v0.4.5
