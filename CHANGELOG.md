@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.4.6] - 2026-10-26
+
+### Added
+
+- `qiy add module` and `qiy add feature` now support v1 entries: module creates
+  a v1 fragment under the entry's `modules/` directory and appends a relative
+  `include`, feature adds/updates the `features` block. Both validate through
+  the v1 preprocessor and roll back on failure.
+
 ## [0.4.5] - 2026-10-26
 
 ### Added
@@ -257,6 +266,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.4.6]: https://github.com/AI-NoDev/qiy/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/AI-NoDev/qiy/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/AI-NoDev/qiy/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/AI-NoDev/qiy/compare/v0.4.2...v0.4.3

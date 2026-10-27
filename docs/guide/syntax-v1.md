@@ -88,12 +88,13 @@ menu {
 
 支持的透传块：`workspace`、`ui`、`api`、`features`、`realtime`、`elysia`、`storage`、`auth`、`env`、`messages`、`permission`、`workflow`、`enum`，以及实体之后的 `menu`、`dashboard`、`chart`、`dataflow`、`action`。它们内部仍使用 v0 语法（实体名使用生成后的表名，如 `users`）。
 
+v1 也支持增量命令：`qiy add entity/field` 写入 v1 实体/字段；`qiy add module` 创建 v1 片段并追加 `include`；`qiy add feature` 写入/更新 `features` 块。
+
 ## 尚未支持（明确报错）
 
 - `include` 路径必须是相对路径且位于项目内；片段不能带 `project`，可包含 `module`、`entity` 或配置块，展开后仍按 v1 规则校验；
 - 单向多对多（只在一侧写 `tags: Tag[]` 会被当作一对多；多对多需要双向数组，或显式建 join 实体）；
-- 自定义 `relation` 名称、`onDelete`、显示模板、注解；
-- `qiy add module` / `qiy add feature`（这两个命令写 v0；`qiy add entity` / `qiy add field` 支持 v1）。
+- 自定义 `relation` 名称、`onDelete`、显示模板、注解。
 
 需要这些能力时继续使用 v0。不同项目/入口文件可以选择 v0 或 v1，Qiy 按入口首行自动识别，不需要额外参数。
 

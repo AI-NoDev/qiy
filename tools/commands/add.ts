@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { explainQiyFile } from "./explain";
 import { requireQiyProject, type QiyProjectLocation } from "../project";
@@ -369,8 +369,27 @@ export async function addModule(name: string, options: AddModuleOptions = {}): P
   if (!ENTITY_NAME.test(name)) throw new Error(`Invalid module name "${name}": use lowercase letters, digits and underscores.`);
   const kind = options.kind ?? "entities";
   const project = requireQiyProject(options.cwd ?? process.cwd());
-  if (isQiyV1Source(readFileSync(project.modelPath, "utf8"))) {
-    throw new Error("qiy add module is a v0 feature; v1 preview keeps entities in its single entry file.");
+  const entrySource = readFileSync(project.modelPath, "utf8");
+  if (isQiyV1Source(entrySource)) {
+    const modulesDirectory = join(dirname(project.modelPath), "modules");
+    mkdirSync(modulesDirectory, { recursive: true });
+    const prefix = nextModulePrefix(modulesDirectory);
+    const file = `${prefix}-${name}.qiy`;
+    const target = join(modulesDirectory, file);
+    if (existsSync(target)) throw new Error(`Module already exists: ${relative(project.root, target)}`);
+    const includePath = relative(dirname(project.modelPath), target).replaceAll("\\", "/");
+    writeFileSync(target, `# ${name} v1 module. Included from ${project.manifest.model}; keep the v1 declaration rules.\n`);
+    writeFileSync(project.modelPath, `${entrySource.replace(/\s*$/, "")}\n\ninclude "${includePath}";\n`);
+    try {
+      await validateProject(project);
+    } catch (error) {
+      writeFileSync(project.modelPath, entrySource);
+      rmSync(target, { force: true });
+      throw error;
+    }
+    console.log(`Created v1 module ${relative(project.root, target)}`);
+    console.log(`Next: edit ${relative(project.root, target)} and run qiy check`);
+    return;
   }
   const modulesDirectory = join(project.root, "model/modules");
   const prefix = nextModulePrefix(modulesDirectory);
@@ -427,7 +446,6 @@ function insertFeature(source: string, feature: "overview" | "apiDocs" | "apiKey
 export async function addFeature(feature: "overview" | "apiDocs" | "apiKeys", options: AddFeatureOptions = {}): Promise<void> {
   const project = requireQiyProject(options.cwd ?? process.cwd());
   const before = readFileSync(project.modelPath, "utf8");
-  if (isQiyV1Source(before)) throw new Error("qiy add feature is a v0 feature; v1 preview does not support config blocks yet.");
   writeFileSync(project.modelPath, insertFeature(before, feature));
   try {
     await validateProject(project);
