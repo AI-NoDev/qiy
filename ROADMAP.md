@@ -102,6 +102,7 @@
 - [x] `v0.2.2`：`qiy skill list/update/uninstall`（含 `--json`、本地修改保护、保留手写文件）；通过 dry-run → tag → Release 流程发布。
 - [x] `v0.2.3`：`qiy explain` / `qiy schema`，机器可读模型摘要 + 已发布 JSON Schema。
 - [x] `v0.2.4`：稳定错误码目录 `QIY1001–QIY1016`、`qiy explain --errors`、文档 `/dsl/errors`、`explain --json` 自动附带 code/fix。
+- [x] `v0.4.5`：v1 入口支持 include 相对 v1 片段（展开后仍按 v1 规则校验）。
 - [x] `v0.4.4`：v1 常用配置块 v0 透传（features/auth/enum/menu/chart/dataflow 等按规范顺序），v1 可表达认证/开发者页/菜单/图表。
 - [x] `v0.4.3`：v1 双向数组自动生成 many-to-many join 实体（两条 one 关系）。
 - [x] `v0.4.2`：`qiy add entity/field` 支持 v1 入口（写入 v1 文本，经预处理器校验，失败回滚）。
