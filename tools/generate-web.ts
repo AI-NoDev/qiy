@@ -4880,12 +4880,17 @@ export function ApiDocsPage(props: ApiDocsPageProps) {
   const document = props.spec !== null && typeof props.spec === "object" && !Array.isArray(props.spec) ? props.spec as Record<string, unknown> : undefined;
   const info = document && document.info !== null && typeof document.info === "object" ? document.info as { title?: string; version?: string } : undefined;
   const principal = props.identity ?? (document && document["x-qiy-principal"] !== null && typeof document["x-qiy-principal"] === "object" ? document["x-qiy-principal"] as { role?: string; permissions?: string[]; groups?: string[] } : undefined);
+  const hiddenOperations = useMemo(() => {
+    const hidden = document?.["x-qiy-hidden"];
+    return Array.isArray(hidden) ? hidden.filter((entry): entry is { method?: string; path?: string; reason?: string; verification?: string; label?: string } => entry !== null && typeof entry === "object") : [];
+  }, [props.spec]);
   const baseUrl = openApiServerBaseUrl(props.spec, typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
   const roleTooltip = translate("qiy.apiDocs.roleTooltip", {}, "Your account role is used to filter this document; operations you cannot call are not listed.");
   const permissionTooltip = translate("qiy.apiDocs.permissionTooltip", {}, "Permission values from your role, database column and verified claims. The document only contains operations you may call.");
   return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
     <Typography.Title level={3} style={{ margin: 0 }}>{translate("qiy.apiDocs.pageTitle", {}, "API reference")}</Typography.Title>
     <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{translate("qiy.apiDocs.pageSubtitle", {}, "OpenAPI 3.1 operations allowed for the current account. Try them with your session token or an API key, or copy the curl example.")}</Typography.Paragraph>
+    {hiddenOperations.length > 0 ? <Alert type="info" showIcon message={translate("qiy.apiDocs.hiddenTitle", { count: hiddenOperations.length }, hiddenOperations.length + " verification-gated operations are hidden")} description={<Space direction="vertical" size={2}>{hiddenOperations.map((operation) => <Typography.Text key={(operation.method ?? "post") + ":" + (operation.path ?? "")} type="secondary">{(operation.label ?? operation.path ?? "") + " — " + translate("qiy.apiDocs.hiddenVerification", { verification: operation.verification ?? "" }, "requires runtime verification: " + (operation.verification ?? ""))}</Typography.Text>)}</Space>} /> : null}
     <Space wrap>
       {info?.title ? <Typography.Text strong>{info.title}</Typography.Text> : null}
       {info?.version ? <Tag>{info.version}</Tag> : null}

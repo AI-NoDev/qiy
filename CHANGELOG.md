@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.5.1] - 2026-10-26
+
+### Added
+
+- API docs now expose `x-qiy-hidden` entries for verification-gated commands
+  hidden from non-admin principals, and the web page shows an explanatory notice
+  with the verification name instead of silently omitting the operation. Admin
+  documents have an empty hidden list.
+
 ## [0.5.0] - 2026-10-26
 
 ### Added
@@ -306,6 +315,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.5.1]: https://github.com/AI-NoDev/qiy/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/AI-NoDev/qiy/compare/v0.4.9...v0.5.0
 [0.4.9]: https://github.com/AI-NoDev/qiy/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/AI-NoDev/qiy/compare/v0.4.7...v0.4.8

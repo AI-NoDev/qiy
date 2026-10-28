@@ -162,6 +162,10 @@ describe("application feature flags", () => {
     expect(enabled["apps/web/app/docs.ts"]).toContain("export function filterOpenApiOperations");
     expect(enabled["apps/web/app/docs.ts"]).toContain("export function fetchDocsModel");
     expect(enabled["apps/web/app/docs.ts"]).toContain("export function fetchOpenApiDocument");
+    expect(enabled["apps/server/src/docs.ts"]).toContain("x-qiy-hidden");
+    expect(enabled["apps/server/tests/docs.test.ts"]).toContain("verification-gated commands as hidden");
+    expect(enabled["apps/web/app/components/api-docs-page.tsx"]).toContain("hiddenOperations");
+    expect(enabled["apps/web/app/components/api-docs-page.tsx"]).toContain("verification-gated operations are hidden");
     expect(enabled["apps/web/app/api-keys.ts"]).toContain("export function filterApiKeys");
     expect(enabled["apps/web/app/api-keys.ts"]).toContain("export function permissionTags");
     expect(enabled["apps/web/app/api-keys.ts"]).toContain("export async function rotateApiKey");

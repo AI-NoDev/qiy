@@ -62,6 +62,8 @@ curl -H "Authorization: Bearer $QIY_TOKEN" http://localhost:3000/api/v1/docs/mod
 
 文档里的 `components.securitySchemes` 同时声明 `bearerSession`（JWT Bearer）与 `apiKey`（`X-API-Key`）；每个操作带 `x-qiy-roles`、`x-qiy-permissions`、`x-qiy-verification` 元数据，其中 `x-qiy-permissions` 记录**展开后的权限值**（例如 `inventory:receive`），与服务端过滤、Web 按钮可见性一致。Elysia 插件自带的 `/api/v1/openapi` 是公开端点，**不含** Qiy 的权限过滤，不要把它当生产文档源。
 
+非 admin 的文档会隐藏 **verification 门控**的命令（运行时输入无法在文档里安全构造）。过滤后的文档带 `x-qiy-hidden`，列出 `{ method, path, reason: "verification", verification, label }`；Web 页面会显示「verification-gated operations are hidden」提示及原因，而不是让操作无声消失。admin 不受此隐藏影响。
+
 ## 创建和使用 API key
 
 登录会话下创建（完整密钥只返回一次）：

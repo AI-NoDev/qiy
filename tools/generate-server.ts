@@ -8587,6 +8587,7 @@ export interface GeneratedOpenApiDocument {
   components: { securitySchemes: Record<string, Record<string, unknown>> };
   "x-qiy-generated": true;
   "x-qiy-principal": { role: DocsRole; permissions: string[] };
+  "x-qiy-hidden": Array<{ method: string; path: string; reason: "verification"; verification: string; label?: string }>;
 }
 
 export const docsMeta: DocsMeta = ${JSON.stringify(meta, null, 2)};
@@ -8677,6 +8678,7 @@ function requestSchema(entity: DocsEntity): Record<string, unknown> {
 
 export function buildOpenApiDocument(principal: DocsPrincipal): GeneratedOpenApiDocument {
   const permissions = principal.permissions ?? [];
+  const hiddenOperations: Array<{ method: string; path: string; reason: "verification"; verification: string; label?: string }> = [];
   const security: Array<Record<string, string[]>> = [{ bearerSession: [] }, { apiKey: [] }];
   const paths: Record<string, Record<string, unknown>> = {};
   const tags: Array<{ name: string; description: string }> = [];
@@ -8726,7 +8728,14 @@ export function buildOpenApiDocument(principal: DocsPrincipal): GeneratedOpenApi
     }
   }
   for (const flow of docsMeta.dataflows) {
-    if (!flowAllowed(flow, principal)) continue;
+    if (!flowAllowed(flow, principal)) {
+      // Verification-gated commands need runtime inputs the docs cannot provide;
+      // non-admins see them listed as hidden instead of silently missing.
+      if (principal.role !== "admin" && flow.verification) {
+        hiddenOperations.push({ method: "post", path: "/api/v1/commands/" + flow.name, reason: "verification", verification: flow.verification, label: flow.label });
+      }
+      continue;
+    }
     const properties: Record<string, unknown> = {};
     const required: string[] = [];
     for (const input of flow.inputs) {
@@ -8762,6 +8771,7 @@ export function buildOpenApiDocument(principal: DocsPrincipal): GeneratedOpenApi
     tags,
     security,
     paths,
+    "x-qiy-hidden": hiddenOperations,
     components: {
       securitySchemes: {
         bearerSession: { type: "http", scheme: "bearer", bearerFormat: "JWT", description: "Session access token from /api/v1/auth/login or an OAuth provider" },
@@ -8883,6 +8893,16 @@ test("filters operations by the principal permissions and page rules", () => {
     if (flowAllowed(flow, operator)) expect(operatorDocument.paths[commandPath]?.post).toBeDefined();
     else expect(operatorDocument.paths[commandPath]).toBeUndefined();
   }
+});
+
+test("lists verification-gated commands as hidden for non-admins", () => {
+  const verificationFlows = docsMeta.dataflows.filter((flow) => flow.verification);
+  if (verificationFlows.length === 0) return;
+  const operatorDocument = buildOpenApiDocument(operator);
+  for (const flow of verificationFlows) {
+    expect(operatorDocument["x-qiy-hidden"]).toContainEqual({ method: "post", path: "/api/v1/commands/" + flow.name, reason: "verification", verification: flow.verification!, label: flow.label });
+  }
+  expect(buildOpenApiDocument(admin)["x-qiy-hidden"]).toEqual([]);
 });
 
 test("serves the docs endpoints only to authenticated principals", async () => {
