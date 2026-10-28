@@ -76,10 +76,10 @@ assert(JSON.parse(readFileSync(join(realtimeOutput, "deploy/observability/grafan
 const installArgs = process.platform === "win32" ? ["install", "--linker", "hoisted"] : ["install"];
 await run([process.execPath, ...installArgs], batchOutput);
 await run([process.execPath, "run", "typecheck"], join(batchOutput, "apps/server"));
-await run([process.execPath, "test", "--timeout", "30000"], join(batchOutput, "apps/server"));
+await run([process.execPath, "run", "test"], join(batchOutput, "apps/server"));
 await run([process.execPath, ...installArgs], realtimeOutput);
 await run([process.execPath, "run", "typecheck"], join(realtimeOutput, "apps/server"));
-await run([process.execPath, "test", "--timeout", "30000"], join(realtimeOutput, "apps/server"));
+await run([process.execPath, "run", "test"], join(realtimeOutput, "apps/server"));
 await run([process.execPath, ...installArgs], output);
 for (const command of ["typecheck", "test", "build"]) await run([process.execPath, "run", command], output);
 const webRoot = join(output, "apps/web");
