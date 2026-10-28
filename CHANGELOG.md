@@ -17,6 +17,12 @@ Releases before `0.2.0` are listed on the
   with the verification name instead of silently omitting the operation. Admin
   documents have an empty hidden list.
 
+### Fixed
+
+- Generated server tests now run with `bun test --parallel=1` so SQLite test
+  files no longer drop shared tables (`audit_events`) while another file is
+  querying them. This removes a recurring flaky release-acceptance failure.
+
 ## [0.5.0] - 2026-10-26
 
 ### Added
