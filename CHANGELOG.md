@@ -19,9 +19,9 @@ Releases before `0.2.0` are listed on the
 
 ### Fixed
 
-- Generated server tests now run with `bun test --parallel=1` so SQLite test
-  files no longer drop shared tables (`audit_events`) while another file is
-  querying them. This removes a recurring flaky release-acceptance failure.
+- The generated realtime audit test now creates its own `audit_events` table
+  before querying it, so it no longer fails with `no such table` when test files
+  run in parallel and another file drops shared tables.
 
 ## [0.5.0] - 2026-10-26
 

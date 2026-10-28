@@ -6027,6 +6027,7 @@ ${database.dialect === "sqlite" ? `test("audits bulk replay and cleanup in the s
   const eventIds = [firstId, secondId, deliveredId];
   const actions = ["realtime.outbox.bulk_replayed", "realtime.outbox.cleaned"];
   client.exec("CREATE TABLE IF NOT EXISTS qiy_realtime_outbox (id text primary key, channel text not null, type text not null, payload text not null, attempts integer not null, availableAt integer not null, deliveredAt integer, deadLetteredAt integer, lastError text, leaseOwner text, leaseUntil integer, createdAt integer not null)");
+  client.exec("CREATE TABLE IF NOT EXISTS audit_events (id text primary key, actorId text, action text not null, resource text not null, resourceId text, metadata text, createdAt integer not null)");
   db.insert(realtimeOutbox).values([
     { id: firstId, channel: "qiy:event:test", type: "test.failed", payload: "{}", attempts: 1, availableAt: new Date(0), deadLetteredAt: new Date(0), createdAt: new Date(0) },
     { id: secondId, channel: "qiy:event:test", type: "test.failed", payload: "{}", attempts: 1, availableAt: new Date(0), deadLetteredAt: new Date(0), createdAt: new Date(0) },
