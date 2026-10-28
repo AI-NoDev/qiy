@@ -166,6 +166,12 @@ describe("application feature flags", () => {
     expect(enabled["apps/web/app/api-keys.ts"]).toContain("export function permissionTags");
     expect(enabled["apps/web/app/api-keys.ts"]).toContain("export async function rotateApiKey");
     expect(enabled["apps/web/app/api-keys.ts"]).toContain("export async function listApiKeyEvents");
+    expect(enabled["apps/web/app/api-keys.ts"]).toContain("export function permissionValues");
+    expect(enabled["apps/web/app/api-keys.ts"]).toContain("scopes: input.scopes");
+    expect(enabled["apps/web/app/components/api-keys-page.tsx"]).toContain("Permission scopes");
+    expect(enabled["apps/server/src/auth/api-keys.ts"]).toContain("normalizeApiKeyScopes");
+    expect(enabled["apps/server/src/auth/api-key-hash.ts"]).toContain("apiKeyScopesAllow");
+    expect(enabled["apps/server/tests/api-keys.test.ts"]).toContain("normalizeApiKeyScopes");
     expect(enabled["apps/web/app/components/api-keys-page.tsx"]).toContain("Rotate");
     expect(enabled["apps/web/app/components/api-keys-page.tsx"]).toContain("Audit trail");
     expect(enabled["apps/server/src/auth/api-keys.ts"]).toContain('post("/:id/rotate"');

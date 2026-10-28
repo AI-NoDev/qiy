@@ -70,8 +70,8 @@ curl -H "Authorization: Bearer $QIY_TOKEN" http://localhost:3000/api/v1/docs/mod
 curl -X POST http://localhost:3000/api/v1/auth/api-keys \
   -H "Authorization: Bearer $QIY_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name":"CI deploy","expiresAt":"2027-01-01T00:00:00.000Z"}'
-# 201 => { "key": "qiy_1a2b3c4d_...", "record": { "id": "...", "maskedKey": "qiy_1a2b3c4d_********", ... } }
+  -d '{"name":"CI deploy","expiresAt":"2027-01-01T00:00:00.000Z","scopes":["inventory:receive"]}'
+# 201 => { "key": "qiy_1a2b3c4d_...", "record": { "id": "...", "maskedKey": "qiy_1a2b3c4d_********", "scopes": ["inventory:receive"], ... } }
 ```
 
 之后用密钥调用普通 API（两种头都接受）：
@@ -97,7 +97,8 @@ curl -H "Authorization: Bearer $QIY_TOKEN" http://localhost:3000/api/v1/auth/api
 - 服务端只保存 HMAC-SHA256（`QIY_AUTH_SECRET` 作为 pepper）+ 8 位 hex 前缀；数据库泄露也无法还原完整密钥。
 - **API Key 不携带 id_token claims**：`permission from claim` 来源对密钥请求不生效，只继承角色组、数据库列与 scope 派生的 claim 键。
 - `lastUsedAt` 最多每分钟更新一次（best-effort）；已撤销/过期立即 401；每用户最多 10 个有效密钥；名称 1–80 字符；`expiresAt` 必须是未来时间。
-- **轮换**保留名称与过期时间，生成新密钥并立即撤销旧密钥；旧密钥在新密钥创建后不可再认证，`rotatedFromId` 记录链路；已过期/已撤销的密钥返回 404/409。
+- **权限 scopes（可选）**：创建/轮换时可传 `scopes: string[]`，取值为当前账号的有效权限值；服务端在 `loadPermissions` 中取用户权限与 scopes 的**交集**，因此 scopes 只能收窄、不能提权。`null`/空数组表示继承全部权限；最多 50 个、每个 ≤120 字符。注意：scopes 只影响**权限值检查**（dataflow/verification/命令 allow 等）；角色页面访问仍继承用户角色。
+- **轮换**保留名称、过期时间与 scopes，生成新密钥并立即撤销旧密钥；旧密钥在新密钥创建后不可再认证，`rotatedFromId` 记录链路；已过期/已撤销的密钥返回 404/409。
 - **审计轨迹**记录 `created` / `rotated` / `revoked`（时间、keyId），按用户隔离、最多返回最近 100 条；审计写入是 best-effort，不阻塞密钥操作，但不用于安全授权判断。
 - `QIY_AUTH_SECRET` 必须 ≥32 字符（本地登录/API Key 共用），生产用 `openssl rand -hex 32` 生成并只放服务端。
 

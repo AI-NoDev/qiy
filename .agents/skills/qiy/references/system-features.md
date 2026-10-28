@@ -123,15 +123,16 @@ Important boundary: the Elysia plugin's own `/api/v1/openapi` endpoint is **publ
 ## API keys
 
 - Table `qiy_api_keys`: `id`, `userId`, 
-ame`, `prefix`, `hash`, `rotatedFromId`, `createdAt`, `lastUsedAt`, `expiresAt`, `revokedAt` (indexes: user, unique hash). Table `qiy_api_key_events`: `id`, `keyId`, `userId`, `action` (`created`/`rotated`/`revoked`), `at` (indexes: user/key).
+ame`, `prefix`, `hash`, `scopes`, `rotatedFromId`, `createdAt`, `lastUsedAt`, `expiresAt`, `revokedAt` (indexes: user, unique hash). Table `qiy_api_key_events`: `id`, `keyId`, `userId`, `action` (`created`/`rotated`/`revoked`), `at` (indexes: user/key).
 - Format `qiy_<8 hex prefix>_<43-char base64url secret>`. Only an HMAC-SHA256 hash (peppered with `QIY_AUTH_SECRET`) plus the prefix is stored; the full key appears once in the creation response.
 - Authentication: the normal authenticator runs first; on failure the server checks `Authorization: Bearer qiy_...` or `X-API-Key: qiy_...`. The resolved user row then goes through the same guard, scope, page and permission rules. `lastUsedAt` updates at most once per minute (best-effort).
 - Revoked/expired keys return 401. Keys carry **no id_token claims**, so `permission from claim` does not apply; they inherit the role group, the database permission column and scope-derived claim keys.
+- Optional `scopes: string[]` narrows the key to a subset of the user's effective **permission values** (maximum 50, each ≤120 chars). `null`/empty means all permissions. Rotation preserves scopes. Scopes affect permission checks (dataflows/verification/commands) but role-based page access still follows the user's role.
 
 | Method | Path | Behavior |
 | --- | --- | --- |
 | `GET` | `/api/v1/auth/api-keys` | Masked list (`maskedKey` like `qiy_1a2b3c4d_********`) |
-| `POST` | `/api/v1/auth/api-keys` | `{ name, expiresAt? }` -> **201** `{ key, record }`; name 1..80; `expiresAt` must be a future ISO time; over the limit -> **409** |
+| `POST` | `/api/v1/auth/api-keys` | `{ name, expiresAt?, scopes? }` -> **201** `{ key, record }`; name 1..80; `expiresAt` must be a future ISO time; over the limit -> **409** |
 | `DELETE` | `/api/v1/auth/api-keys/:id` | Revoke your own key (idempotent); missing or someone else's -> 404 |
 | `POST` | `/api/v1/auth/api-keys/:id/rotate` | Rotate an active, unexpired key; old key is revoked immediately, name/expiry preserved; **201** `{ key, record.rotatedFromId }`; revoked -> 404, expired -> 409 |
 | `GET` | `/api/v1/auth/api-keys/events` | Latest 100 audit events for your keys (`id`, `keyId`, `action`, `at`) |

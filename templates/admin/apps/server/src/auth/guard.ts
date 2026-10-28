@@ -10,6 +10,11 @@ export interface Principal {
    * array (permission claim sources accept arrays and separated strings).
    */
   claims?: Record<string, string | number | boolean | null | string[]>;
+  /**
+   * Optional API-key permission scopes. When present, effective permissions are
+   * intersected with this list; role/page access still follows the user's role.
+   */
+  scopes?: string[];
 }
 
 export type Authenticator = (request: Request) => Promise<Principal | null>;

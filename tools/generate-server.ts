@@ -4391,7 +4391,10 @@ export function resolvePermissionSnapshot(source: { role: string; claims?: Princ
 
 /** Effective permissions for the authenticated principal; never throws for missing rows. */
 export async function loadPermissions(principal: Principal): Promise<QiyPermissionSnapshot> {
-${databaseLoad}  return resolvePermissionSnapshot({ role: principal.role, ...(principal.claims ? { claims: principal.claims } : {})${databaseSource ? ", databasePermissions" : ""} });
+${databaseLoad}  const snapshot = resolvePermissionSnapshot({ role: principal.role, ...(principal.claims ? { claims: principal.claims } : {})${databaseSource ? ", databasePermissions" : ""} });
+  if (!principal.scopes || principal.scopes.length === 0) return snapshot;
+  const allowed = new Set(principal.scopes);
+  return { ...snapshot, permissions: snapshot.permissions.filter((permission) => allowed.has(permission)) };
 }
 
 export type QiyPermissionVerdict = { allowed: boolean; missing: string[] };
@@ -4585,6 +4588,16 @@ const request = (path: string, role: string | undefined, init: RequestInit = {})
 describe("generated permission provider", () => {
   test("resolves role-group permissions without any claims or database rows", () => {
 ${roles.map((role) => `    expect(resolvePermissionSnapshot({ role: ${JSON.stringify(role)} })).toEqual(${JSON.stringify(snapshots[role])});`).join("\n") || "    expect(resolvePermissionSnapshot({ role: \"admin\" })).toEqual({ permissions: [], groups: [] });"}
+  });
+
+  test("API-key permission scopes intersect the effective permission set", async () => {
+    const adminPermissions = (await loadPermissions(principal("admin"))).permissions;
+    if (adminPermissions.length > 0) {
+      const scoped = await loadPermissions({ ...principal("admin"), scopes: [adminPermissions[0]!] });
+      expect(scoped.permissions).toEqual([adminPermissions[0]!]);
+      const none = await loadPermissions({ ...principal("admin"), scopes: ["qiy-unknown-scope"] });
+      expect(none.permissions).toEqual([]);
+    }
   });
 
   test("claim values accept arrays, comma-separated text and space-separated text", () => {
@@ -8068,7 +8081,7 @@ function renderApiKeySchema(dialect: DatabaseIR["dialect"]): string {
   const table = dialect === "postgresql" ? "pgTable" : dialect === "sqlite" ? "sqliteTable" : "mysqlTable";
   const string = (name: string, length?: number) => dialect === "mysql" ? `varchar(${JSON.stringify(name)}, { length: ${length ?? 255} })` : `text(${JSON.stringify(name)})`;
   const timestamp = (name: string) => dialect === "postgresql" ? `timestamp(${JSON.stringify(name)}, { withTimezone: true })` : dialect === "sqlite" ? `integer(${JSON.stringify(name)}, { mode: "timestamp_ms" })` : `datetime(${JSON.stringify(name)}, { mode: "date", fsp: 3 })`;
-  return `\n\nexport const qiyApiKeys = ${table}("qiy_api_keys", {\n  id: ${string("id", 36)}.primaryKey(),\n  userId: ${string("userId", 36)}.notNull(),\n  name: ${string("name", 80)}.notNull(),\n  prefix: ${string("prefix", 16)}.notNull().unique(),\n  hash: ${string("hash", 64)}.notNull().unique(),\n  rotatedFromId: ${string("rotatedFromId", 36)},\n  createdAt: ${timestamp("createdAt")}.notNull(),\n  lastUsedAt: ${timestamp("lastUsedAt")},\n  expiresAt: ${timestamp("expiresAt")},\n  revokedAt: ${timestamp("revokedAt")},\n}, (table) => [index("qiy_api_keys_user_idx").on(table.userId)]);\n\nexport const qiyApiKeyEvents = ${table}("qiy_api_key_events", {\n  id: ${string("id", 36)}.primaryKey(),\n  keyId: ${string("keyId", 36)}.notNull(),\n  userId: ${string("userId", 36)}.notNull(),\n  action: ${string("action", 16)}.notNull(),\n  at: ${timestamp("at")}.notNull(),\n}, (table) => [index("qiy_api_key_events_user_idx").on(table.userId), index("qiy_api_key_events_key_idx").on(table.keyId)]);\n`;
+  return `\n\nexport const qiyApiKeys = ${table}("qiy_api_keys", {\n  id: ${string("id", 36)}.primaryKey(),\n  userId: ${string("userId", 36)}.notNull(),\n  name: ${string("name", 80)}.notNull(),\n  prefix: ${string("prefix", 16)}.notNull().unique(),\n  hash: ${string("hash", 64)}.notNull().unique(),\n  scopes: text("scopes"),\n  rotatedFromId: ${string("rotatedFromId", 36)},\n  createdAt: ${timestamp("createdAt")}.notNull(),\n  lastUsedAt: ${timestamp("lastUsedAt")},\n  expiresAt: ${timestamp("expiresAt")},\n  revokedAt: ${timestamp("revokedAt")},\n}, (table) => [index("qiy_api_keys_user_idx").on(table.userId)]);\n\nexport const qiyApiKeyEvents = ${table}("qiy_api_key_events", {\n  id: ${string("id", 36)}.primaryKey(),\n  keyId: ${string("keyId", 36)}.notNull(),\n  userId: ${string("userId", 36)}.notNull(),\n  action: ${string("action", 16)}.notNull(),\n  at: ${timestamp("at")}.notNull(),\n}, (table) => [index("qiy_api_key_events_user_idx").on(table.userId), index("qiy_api_key_events_key_idx").on(table.keyId)]);\n`;
 }
 
 /** Pure API-key helpers (format, hashing, validation). No database/HTTP imports. */
@@ -8080,6 +8093,8 @@ export const API_KEY_PREFIX = "qiy";
 export const API_KEY_PREFIX_LENGTH = 8;
 export const API_KEY_MAX_ACTIVE = 10;
 export const API_KEY_MAX_NAME = 80;
+export const API_KEY_MAX_SCOPES = 50;
+export const API_KEY_SCOPE_MAX_LENGTH = 120;
 export const API_KEY_SECRET_LENGTH = 32;
 export const API_KEY_LAST_USED_THROTTLE_MS = 60_000;
 
@@ -8169,6 +8184,34 @@ export function canCreateApiKey(activeCount: number): boolean {
   return activeCount < API_KEY_MAX_ACTIVE;
 }
 
+/** Normalizes an optional permission-scope list; null/empty means "all user permissions". */
+export function normalizeApiKeyScopes(value: unknown): string[] | null {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value)) throw new Error("API key scopes must be an array of permission strings");
+  if (value.length > API_KEY_MAX_SCOPES) throw new Error("At most " + API_KEY_MAX_SCOPES + " API key scopes are allowed");
+  const scopes: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string") throw new Error("API key scopes must be strings");
+    const scope = entry.trim();
+    if (!scope) continue;
+    if (scope.length > API_KEY_SCOPE_MAX_LENGTH) throw new Error("API key scope must be at most " + API_KEY_SCOPE_MAX_LENGTH + " characters");
+    if (!scopes.includes(scope)) scopes.push(scope);
+  }
+  return scopes.length ? scopes : null;
+}
+
+export function parseApiKeyScopes(value: unknown): string[] | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (Array.isArray(value)) return normalizeApiKeyScopes(value);
+  if (typeof value !== "string") return null;
+  try { return normalizeApiKeyScopes(JSON.parse(value)); } catch { return null; }
+}
+
+/** True when a key scope set permits a permission (null/empty scopes = inherit all). */
+export function apiKeyScopesAllow(scopes: readonly string[] | null | undefined, permission: string): boolean {
+  return !scopes || scopes.length === 0 || scopes.includes(permission);
+}
+
 /** Records returned by the list/create/revoke routes never include hash or secret. */
 export interface ApiKeyRecord {
   id: string;
@@ -8180,9 +8223,10 @@ export interface ApiKeyRecord {
   expiresAt: string | null;
   revokedAt: string | null;
   rotatedFromId: string | null;
+  scopes: string[] | null;
 }
 
-export function toApiKeyRecord(row: { id: string; name: string; prefix: string; rotatedFromId?: string | null; createdAt: Date | number | string; lastUsedAt: Date | number | string | null; expiresAt: Date | number | string | null; revokedAt: Date | number | string | null }): ApiKeyRecord {
+export function toApiKeyRecord(row: { id: string; name: string; prefix: string; scopes?: string | string[] | null; rotatedFromId?: string | null; createdAt: Date | number | string; lastUsedAt: Date | number | string | null; expiresAt: Date | number | string | null; revokedAt: Date | number | string | null }): ApiKeyRecord {
   const iso = (value: Date | number | string | null) => value === null || value === undefined ? null : new Date(value instanceof Date ? value.getTime() : typeof value === "number" ? value : String(value)).toISOString();
   return {
     id: row.id,
@@ -8194,6 +8238,7 @@ export function toApiKeyRecord(row: { id: string; name: string; prefix: string; 
     expiresAt: iso(row.expiresAt),
     revokedAt: iso(row.revokedAt),
     rotatedFromId: row.rotatedFromId ?? null,
+    scopes: parseApiKeyScopes(row.scopes),
   };
 }
 `;
@@ -8214,7 +8259,9 @@ import {
   generateApiKey,
   hashApiKey,
   isApiKeyExpired,
+  normalizeApiKeyScopes,
   parseApiKey,
+  parseApiKeyScopes,
   toApiKeyRecord,
   validateApiKeyExpiry,
   validateApiKeyName,
@@ -8251,7 +8298,8 @@ async function resolveApiKeyPrincipal(presented: string): Promise<Principal | nu
   const claims: Record<string, string | number | boolean | null> = {};
 ${scopeClaims}
   const row = user;
-  return { id: user.id, name: ${principalNameExpression(userEntity, "displayName", auth.usernameField)}, role, ...(Object.keys(claims).length ? { claims } : {}) };
+  const scopes = parseApiKeyScopes(key.scopes);
+  return { id: user.id, name: ${principalNameExpression(userEntity, "displayName", auth.usernameField)}, role, ...(Object.keys(claims).length ? { claims } : {}), ...(scopes ? { scopes } : {}) };
 }
 
 /**
@@ -8281,9 +8329,11 @@ export function createApiKeyRoutes(authenticate: Authenticator) {
       if (!principal) { set.status = 401; return { error: "Authentication required" }; }
       let name: string;
       let expiresAt: Date | null;
+      let scopes: string[] | null;
       try {
         name = validateApiKeyName(body.name);
         expiresAt = validateApiKeyExpiry(body.expiresAt);
+        scopes = normalizeApiKeyScopes(body.scopes);
       } catch (error) {
         set.status = 400;
         return { error: error instanceof Error ? error.message : "Invalid API key" };
@@ -8294,12 +8344,12 @@ export function createApiKeyRoutes(authenticate: Authenticator) {
       const generated = generateApiKey();
       const id = crypto.randomUUID();
       const createdAt = new Date();
-      await db.insert(qiyApiKeys).values({ id, userId: principal.id, name, prefix: generated.prefix, hash: generated.hash, createdAt, lastUsedAt: null, expiresAt, revokedAt: null });
+      await db.insert(qiyApiKeys).values({ id, userId: principal.id, name, prefix: generated.prefix, hash: generated.hash, scopes: scopes ? JSON.stringify(scopes) : null, createdAt, lastUsedAt: null, expiresAt, revokedAt: null });
       await recordApiKeyEvent(id, principal.id, "created");
-      const row = { id, name, prefix: generated.prefix, createdAt, lastUsedAt: null, expiresAt, revokedAt: null };
+      const row = { id, name, prefix: generated.prefix, scopes: scopes ? JSON.stringify(scopes) : null, createdAt, lastUsedAt: null, expiresAt, revokedAt: null };
       set.status = 201;
       return { key: generated.key, record: toApiKeyRecord(row) };
-    }, { body: t.Object({ name: t.String({ minLength: 1, maxLength: 80 }), expiresAt: t.Optional(t.String({ maxLength: 64 })) }) })
+    }, { body: t.Object({ name: t.String({ minLength: 1, maxLength: 80 }), expiresAt: t.Optional(t.String({ maxLength: 64 })), scopes: t.Optional(t.Array(t.String({ maxLength: 120 }))) }) })
     .delete("/:id", async ({ params, request, set }) => {
       const principal = await authenticate(request);
       if (!principal) { set.status = 401; return { error: "Authentication required" }; }
@@ -8323,11 +8373,11 @@ export function createApiKeyRoutes(authenticate: Authenticator) {
       const generated = generateApiKey();
       const id = crypto.randomUUID();
       const createdAt = new Date();
-      await db.insert(qiyApiKeys).values({ id, userId: principal.id, name: row.name, prefix: generated.prefix, hash: generated.hash, rotatedFromId: row.id, createdAt, lastUsedAt: null, expiresAt: row.expiresAt, revokedAt: null });
+      await db.insert(qiyApiKeys).values({ id, userId: principal.id, name: row.name, prefix: generated.prefix, hash: generated.hash, scopes: row.scopes, rotatedFromId: row.id, createdAt, lastUsedAt: null, expiresAt: row.expiresAt, revokedAt: null });
       await db.update(qiyApiKeys).set({ revokedAt: createdAt }).where(eq(qiyApiKeys.id, row.id));
       await recordApiKeyEvent(id, principal.id, "rotated");
       set.status = 201;
-      return { key: generated.key, record: toApiKeyRecord({ id, name: row.name, prefix: generated.prefix, rotatedFromId: row.id, createdAt, lastUsedAt: null, expiresAt: row.expiresAt, revokedAt: null } as never) };
+      return { key: generated.key, record: toApiKeyRecord({ id, name: row.name, prefix: generated.prefix, scopes: row.scopes, rotatedFromId: row.id, createdAt, lastUsedAt: null, expiresAt: row.expiresAt, revokedAt: null } as never) };
     })
     .get("/events", async ({ request, set }) => {
       const principal = await authenticate(request);
@@ -8888,6 +8938,7 @@ import {
   hashApiKey,
   isApiKeyExpired,
   maskApiKeyPrefix,
+  normalizeApiKeyScopes,
   parseApiKey,
   validateApiKeyExpiry,
   validateApiKeyName,
@@ -8934,7 +8985,7 @@ function usersDdl(): string {
 
 function keysDdl(): string {
   const timestamp = DIALECT === "sqlite" ? "INTEGER" : DIALECT === "postgresql" ? "TIMESTAMPTZ" : "DATETIME(3)";
-  return "CREATE TABLE " + identifier("qiy_api_keys") + " (" + ["id", "userId", "name", "prefix", "hash", "createdAt"].map((column) => identifier(column) + (column === "createdAt" ? " " + timestamp : " TEXT") + (column === "id" ? " PRIMARY KEY" : " NOT NULL")).join(", ") + ", " + ["rotatedFromId"].map((column) => identifier(column) + " TEXT").join(", ") + ", " + ["lastUsedAt", "expiresAt", "revokedAt"].map((column) => identifier(column) + " " + timestamp).join(", ") + ")";
+  return "CREATE TABLE " + identifier("qiy_api_keys") + " (" + ["id", "userId", "name", "prefix", "hash", "createdAt"].map((column) => identifier(column) + (column === "createdAt" ? " " + timestamp : " TEXT") + (column === "id" ? " PRIMARY KEY" : " NOT NULL")).join(", ") + ", " + ["scopes", "rotatedFromId"].map((column) => identifier(column) + " TEXT").join(", ") + ", " + ["lastUsedAt", "expiresAt", "revokedAt"].map((column) => identifier(column) + " " + timestamp).join(", ") + ")";
 }
 
 function eventsDdl(): string {
@@ -8972,11 +9023,11 @@ async function seedUser(id: string, role: string, displayName: string): Promise<
   await exec("INSERT INTO " + identifier(USER_TABLE) + " (" + [identifier("id"), ...SEED_COLUMNS.map((column) => identifier(column))].join(", ") + ") VALUES (" + [literal(id), ...values].join(", ") + ")");
 }
 
-async function insertKey(input: { id: string; userId: string; name: string; prefix: string; hash: string; rotatedFromId?: string | null; createdAt: Date; expiresAt: Date | null; revokedAt: Date | null }): Promise<void> {
-  await exec("INSERT INTO " + identifier("qiy_api_keys") + " (" + ["id", "userId", "name", "prefix", "hash", "rotatedFromId", "createdAt", "lastUsedAt", "expiresAt", "revokedAt"].map((column) => identifier(column)).join(", ") + ") VALUES (" + [literal(input.id), literal(input.userId), literal(input.name), literal(input.prefix), literal(input.hash), literal(input.rotatedFromId ?? null), timestampLiteral(input.createdAt), "NULL", timestampLiteral(input.expiresAt), timestampLiteral(input.revokedAt)].join(", ") + ")");
+async function insertKey(input: { id: string; userId: string; name: string; prefix: string; hash: string; scopes?: string | null; rotatedFromId?: string | null; createdAt: Date; expiresAt: Date | null; revokedAt: Date | null }): Promise<void> {
+  await exec("INSERT INTO " + identifier("qiy_api_keys") + " (" + ["id", "userId", "name", "prefix", "hash", "scopes", "rotatedFromId", "createdAt", "lastUsedAt", "expiresAt", "revokedAt"].map((column) => identifier(column)).join(", ") + ") VALUES (" + [literal(input.id), literal(input.userId), literal(input.name), literal(input.prefix), literal(input.hash), literal(input.scopes ?? null), literal(input.rotatedFromId ?? null), timestampLiteral(input.createdAt), "NULL", timestampLiteral(input.expiresAt), timestampLiteral(input.revokedAt)].join(", ") + ")");
 }
 
-async function keyRows(): Promise<Array<Record<string, unknown>>> { return rows("SELECT id, userId, name, prefix, hash, rotatedFromId, lastUsedAt, expiresAt, revokedAt FROM qiy_api_keys"); }
+async function keyRows(): Promise<Array<Record<string, unknown>>> { return rows("SELECT id, userId, name, prefix, hash, scopes, rotatedFromId, lastUsedAt, expiresAt, revokedAt FROM qiy_api_keys"); }
 
 const session = async (request: Request) => {
   const header = request.headers.get("authorization");
@@ -9013,6 +9064,9 @@ test("API key helpers hash secrets, validate names/expiry and never expose the s
   expect(isApiKeyExpired(null, new Date())).toBe(false);
   expect(canCreateApiKey(API_KEY_MAX_ACTIVE - 1)).toBe(true);
   expect(canCreateApiKey(API_KEY_MAX_ACTIVE)).toBe(false);
+  expect(normalizeApiKeyScopes(["orders:read", " orders:read ", "inventory:receive"])).toEqual(["orders:read", "inventory:receive"]);
+  expect(normalizeApiKeyScopes([])).toBeNull();
+  expect(() => normalizeApiKeyScopes([1])).toThrow("must be strings");
 });
 
 test("creates, lists, authenticates and revokes an API key", async () => {
@@ -9058,18 +9112,20 @@ test("creates, lists, authenticates and revokes an API key", async () => {
 test("rotates a key, revokes the old one and records audit events", async () => {
   await reset();
   await seedUser("admin-user", "admin", "Admin User");
-  const created = await call("/api/v1/auth/api-keys", { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "Rotate me" }) });
-  const original = await created.json() as { key: string; record: { id: string; name: string } };
+  const created = await call("/api/v1/auth/api-keys", { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "Rotate me", scopes: ["orders:read", "orders:read"] }) });
+  const original = await created.json() as { key: string; record: { id: string; name: string; scopes: string[] | null } };
+  expect(original.record.scopes).toEqual(["orders:read"]);
   const rotatedResponse = await call("/api/v1/auth/api-keys/" + original.record.id + "/rotate", { method: "POST", headers: adminHeaders });
   expect(rotatedResponse.status).toBe(201);
-  const rotated = await rotatedResponse.json() as { key: string; record: { id: string; rotatedFromId: string; name: string } };
+  const rotated = await rotatedResponse.json() as { key: string; record: { id: string; rotatedFromId: string; name: string; scopes: string[] | null } };
   expect(rotated.key).not.toBe(original.key);
   expect(rotated.record.name).toBe("Rotate me");
+  expect(rotated.record.scopes).toEqual(["orders:read"]);
   expect(rotated.record.rotatedFromId).toBe(original.record.id);
 
   const wrapped = withApiKeyAuthentication(session);
   expect(await wrapped(new Request("http://localhost/probe", { headers: { "x-api-key": original.key } }))).toBeNull();
-  expect(await wrapped(new Request("http://localhost/probe", { headers: { "x-api-key": rotated.key } }))).toMatchObject({ id: "admin-user", role: "admin" });
+  expect(await wrapped(new Request("http://localhost/probe", { headers: { "x-api-key": rotated.key } }))).toMatchObject({ id: "admin-user", role: "admin", scopes: ["orders:read"] });
   expect((await call("/api/v1/auth/api-keys/" + original.record.id + "/rotate", { method: "POST", headers: adminHeaders })).status).toBe(404);
 
   const events = await call("/api/v1/auth/api-keys/events", { headers: adminHeaders });

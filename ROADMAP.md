@@ -70,7 +70,7 @@
 - [x] API docs：try-it 请求（会话 token / 手动 API Key、原始响应、20k 截断）
 - [ ] API docs：verification 隐藏操作原因说明
 - [x] API Key 轮换（`POST /auth/api-keys/:id/rotate`，旧 key 立即撤销）与审计轨迹（created/rotated/revoked）
-- [ ] API Key scopes（按 key 限制权限）
+- [x] API Key 权限 scopes（创建/轮换可选，与用户权限取交集；只收窄不提权）
 - [ ] 本地密码限流/锁定、会话吊销
 - [ ] `sum/avg ... group by` 聚合 + chart 扩展（area/stacked/scatter、颜色/图例、下钻）
 - [ ] 字段类型扩展（Boolean/Email/URL/JSON/数组）与迁移策略

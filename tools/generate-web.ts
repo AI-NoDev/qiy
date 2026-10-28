@@ -4318,6 +4318,7 @@ export interface ApiKeyRecord {
   expiresAt: string | null;
   revokedAt: string | null;
   rotatedFromId?: string | null;
+  scopes?: string[] | null;
 }
 export interface CreatedApiKey { key: string; record: ApiKeyRecord }
 export interface ApiKeyEvent { id: string; keyId: string; action: "created" | "rotated" | "revoked" | string; at: string }
@@ -4342,8 +4343,8 @@ export async function listApiKeys(): Promise<ApiKeyRecord[]> {
   return body.items;
 }
 
-export async function createApiKey(input: { name: string; expiresAt?: string | null }): Promise<CreatedApiKey> {
-  return await apiKeyRequest("/api/v1/auth/api-keys", { method: "POST", body: JSON.stringify({ name: input.name, ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}) }) }) as CreatedApiKey;
+export async function createApiKey(input: { name: string; expiresAt?: string | null; scopes?: string[] }): Promise<CreatedApiKey> {
+  return await apiKeyRequest("/api/v1/auth/api-keys", { method: "POST", body: JSON.stringify({ name: input.name, ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}), ...(input.scopes && input.scopes.length ? { scopes: input.scopes } : {}) }) }) as CreatedApiKey;
 }
 
 export async function revokeApiKey(id: string): Promise<void> {
@@ -4410,6 +4411,11 @@ export function filterApiKeys(records: readonly ApiKeyRecord[], input: { search?
 }
 
 /** Flatten the current identity into role/permission/group tags with hover explanations. */
+/** Effective permission values from the cached identity, used as optional API-key scopes. */
+export function permissionValues(identity: QiyIdentityLike | null | undefined): string[] {
+  return permissionTags(identity).filter((tag) => tag.kind === "permission").map((tag) => tag.value);
+}
+
 export function permissionTags(identity: QiyIdentityLike | null | undefined): ApiKeyPermissionTag[] {
   if (!identity) return [];
   const tags: ApiKeyPermissionTag[] = [];
@@ -4960,6 +4966,7 @@ import {
   formatApiKeyDate,
   listApiKeyEvents,
   permissionTags,
+  permissionValues,
   relativeTime,
   revokeApiKey,
   rotateApiKey,
@@ -4989,7 +4996,7 @@ function statusLabel(state: string, translate: Translate): string {
   return translate("qiy.apiKey.status." + state, {}, state.charAt(0).toUpperCase() + state.slice(1));
 }
 
-function CreateKeyForm({ translate, form, records }: { translate: Translate; form?: ReturnType<typeof Form.useForm>[0]; records?: ApiKeyRecord[] }) {
+function CreateKeyForm({ translate, form, records, permissions }: { translate: Translate; form?: ReturnType<typeof Form.useForm>[0]; records?: ApiKeyRecord[]; permissions?: string[] }) {
   const [fallback] = Form.useForm();
   const usedForm = form ?? fallback;
   return <Form form={usedForm} layout="vertical" initialValues={{ name: defaultApiKeyName(records ?? []) }}>
@@ -4999,7 +5006,10 @@ function CreateKeyForm({ translate, form, records }: { translate: Translate; for
     <Form.Item name="expiresAt" label={translate("qiy.apiKey.expires", {}, "Expires (optional)")}>
       <DatePicker showTime style={{ width: "100%" }} />
     </Form.Item>
-    <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{translate("qiy.apiKey.createExplanation", {}, "The key inherits your current role and permissions. Expired or revoked keys stop working immediately.")}</Typography.Paragraph>
+    {permissions && permissions.length > 0 ? <Form.Item name="scopes" label={translate("qiy.apiKey.scopes", {}, "Permission scopes (optional)")} extra={translate("qiy.apiKey.scopesHint", {}, "Leave empty to inherit all of your permissions. Scopes only narrow permission checks.")}>
+      <Select mode="multiple" allowClear placeholder={translate("qiy.apiKey.scopesPlaceholder", {}, "All permissions")} options={permissions.map((permission) => ({ value: permission, label: permission }))} />
+    </Form.Item> : null}
+    <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{translate("qiy.apiKey.createExplanation", {}, "The key inherits your current role and permissions (or the selected subset). Expired or revoked keys stop working immediately.")}</Typography.Paragraph>
   </Form>;
 }
 
@@ -5042,10 +5052,10 @@ export function ApiKeysPage(props: ApiKeysPageProps) {
     }
   };
   const create = async () => {
-    const values = await form.validateFields() as { name: string; expiresAt?: { toISOString?: () => string } | null };
+    const values = await form.validateFields() as { name: string; expiresAt?: { toISOString?: () => string } | null; scopes?: string[] };
     setSaving(true);
     try {
-      const created = await createApiKey({ name: values.name, expiresAt: values.expiresAt?.toISOString?.() ?? null });
+      const created = await createApiKey({ name: values.name, expiresAt: values.expiresAt?.toISOString?.() ?? null, scopes: values.scopes ?? [] });
       setRecords((current) => [created.record, ...current]);
       setSecret(created.key);
       setCreateOpen(false);
@@ -5104,6 +5114,7 @@ export function ApiKeysPage(props: ApiKeysPageProps) {
     {props.error ? <Alert type="error" showIcon message={translate("qiy.apiKey.loadError", {}, "Failed to load API keys")} description={props.error} /> : null}
     <Table<ApiKeyRecord> size="small" rowKey="id" loading={props.loading} pagination={false} dataSource={filtered} locale={{ emptyText: translate("qiy.apiKey.empty", {}, "No API keys yet") }} columns={[
       { title: translate("qiy.apiKey.name", {}, "Name"), dataIndex: "name", key: "name" },
+      { title: translate("qiy.apiKey.scopes", {}, "Scopes"), key: "scopes", render: (_, record) => record.scopes && record.scopes.length ? <Space wrap>{record.scopes.map((scope) => <Tag key={scope}>{scope}</Tag>)}</Space> : <Typography.Text type="secondary">{translate("qiy.apiKey.scopesAll", {}, "All permissions")}</Typography.Text> },
       { title: translate("qiy.apiKey.prefix", {}, "Key"), key: "prefix", render: (_, record) => <Space><Typography.Text code>{record.maskedKey}</Typography.Text><Button size="small" type="link" onClick={() => void copy(record.maskedKey)}>{translate("qiy.apiKey.copy", {}, "Copy")}</Button></Space> },
       { title: translate("qiy.apiKey.status", {}, "Status"), key: "status", render: (_, record) => { const state = apiKeyStatus(record); return <Tag color={statusColor[state]}>{statusLabel(state, translate)}</Tag>; } },
       { title: translate("qiy.apiKey.createdAt", {}, "Created"), dataIndex: "createdAt", key: "createdAt", render: (value: string) => formatApiKeyDate(value, locale) },
@@ -5119,12 +5130,12 @@ export function ApiKeysPage(props: ApiKeysPageProps) {
       ]} />
     </Card>
     <Modal open={createOpen} forceRender getContainer={false} title={translate("qiy.apiKey.create", {}, "Create key")} okText={translate("qiy.apiKey.create", {}, "Create key")} confirmLoading={saving} onOk={() => void create()} onCancel={() => setCreateOpen(false)}>
-      <CreateKeyForm translate={translate} form={form} records={records} />
+      <CreateKeyForm translate={translate} form={form} records={records} permissions={permissionValues(props.identity)} />
     </Modal>
     <Modal open={Boolean(secret)} forceRender getContainer={false} title={translate("qiy.apiKey.secretTitle", {}, "Save this secret now")} onCancel={() => setSecret(undefined)} footer={<Space><Button onClick={() => secret ? void copy(secret) : undefined}>{translate("qiy.apiKey.copy", {}, "Copy")}</Button><Button type="primary" onClick={() => setSecret(undefined)}>{translate("qiy.close", {}, "Close")}</Button></Space>}>
       <SecretKeyContent secret={secret} translate={translate} copy={copy} />
     </Modal>
-    {props.initialCreateOpen ? <div hidden data-modal-preview="create"><CreateKeyForm translate={translate} records={records} /></div> : null}
+    {props.initialCreateOpen ? <div hidden data-modal-preview="create"><CreateKeyForm translate={translate} records={records} permissions={permissionValues(props.identity)} /></div> : null}
     {props.initialSecret ? <div hidden data-modal-preview="secret"><Typography.Title level={5}>{translate("qiy.apiKey.secretTitle", {}, "Save this secret now")}</Typography.Title><SecretKeyContent secret={props.initialSecret} translate={translate} copy={copy} /></div> : null}
   </Space>;
 }

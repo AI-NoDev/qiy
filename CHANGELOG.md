@@ -8,6 +8,16 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.5.0] - 2026-10-26
+
+### Added
+
+- API key permission scopes: create/rotate accept `scopes: string[]` (subset of
+  the caller's effective permission values, max 50). `loadPermissions`
+  intersects the user's permissions with the key scopes; null/empty inherits
+  all. The key page adds a multi-select when the identity exposes permissions
+  and a Scopes column.
+
 ## [0.4.9] - 2026-10-26
 
 ### Added
@@ -296,6 +306,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.5.0]: https://github.com/AI-NoDev/qiy/compare/v0.4.9...v0.5.0
 [0.4.9]: https://github.com/AI-NoDev/qiy/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/AI-NoDev/qiy/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/AI-NoDev/qiy/compare/v0.4.6...v0.4.7
