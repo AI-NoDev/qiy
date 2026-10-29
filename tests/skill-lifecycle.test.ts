@@ -5,9 +5,13 @@ import { join, resolve } from "node:path";
 import {
   formatSkillStatuses,
   inspectSkill,
+  installOfficialSkill,
   installSkill,
+  listOfficialSkillInstallations,
   listSkillInstallations,
+  resolveOfficialSkillDestination,
   resolveSkillDestination,
+  uninstallOfficialSkill,
   uninstallSkill,
   updateSkill,
 } from "../tools/commands/skill";
@@ -69,6 +73,23 @@ test("local project installs win over legacy and custom --dir is absolute or roo
   expect(resolveSkillDestination(root, { home: join(root, "home") })).toBe(join(root, ".agents/skills/qiy"));
   expect(resolveSkillDestination(root, { home: join(root, "home"), dir: "custom/skills/qiy" })).toBe(join(root, "custom/skills/qiy"));
   expect(resolveSkillDestination(root, { home: join(root, "home"), dir: "~/skills/qiy" })).toBe(join(root, "home", "skills/qiy"));
+});
+
+test("installs and manages the other official skills (drizzle/bun/elysia/refine-dev)", () => {
+  const root = temporaryRoot();
+  const destination = installOfficialSkill("drizzle", root);
+  expect(destination).toBe(join(root, ".agents/skills/drizzle"));
+  expect(existsSync(join(destination, "SKILL.md"))).toBe(true);
+  const statuses = listOfficialSkillInstallations(root, { home: join(root, "home") });
+  expect(statuses.some((status) => status.destination === destination && status.upToDate)).toBe(true);
+  expect(resolveOfficialSkillDestination(root, "bun", { home: join(root, "home") })).toBe(join(root, ".agents/skills/bun"));
+
+  writeFileSync(join(destination, "SKILL.md"), "local edit\n");
+  expect(() => installOfficialSkill("drizzle", root)).toThrow(/local changes/);
+  installOfficialSkill("drizzle", root, true);
+  const result = uninstallOfficialSkill("drizzle", root);
+  expect(result.destination).toBe(destination);
+  expect(existsSync(join(destination, "SKILL.md"))).toBe(false);
 });
 
 test("the CLI exposes skill list/update/uninstall", () => {

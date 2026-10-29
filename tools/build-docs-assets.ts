@@ -19,7 +19,6 @@ import { qiyExplanationSchema } from "./qiy-schema";
 const root = resolve(import.meta.dir, "..");
 const docs = join(root, "docs");
 const publicDir = join(docs, "public");
-const skillSource = join(root, ".agents", "skills", "qiy");
 const siteUrl = (process.env.QIY_DOCS_SITE_URL ?? "https://ai-nodev.github.io/qiy").replace(/\/$/, "");
 
 interface DocPage {
@@ -130,7 +129,8 @@ export function buildDocsAssets(): void {
       `- [Skill guide](${siteUrl}/guide/agent-skill): install and use the official Qiy skill.`,
       `- [SKILL.md](${siteUrl}/skills/qiy/SKILL.md): the skill entrypoint, routing to modular references.`,
       `- [Skill bundle download](${siteUrl}/skills/qiy-skill.tar.gz): complete skill with references and example.`,
-      "- CLI install: `qiy skill install` (project), `qiy skill install --global` (user), `qiy skill install --dir <path>` (custom agent directory).",
+      `- Official companion skills: [refine-dev](${siteUrl}/skills/refine-dev/SKILL.md), [bun](${siteUrl}/skills/bun/SKILL.md), [drizzle](${siteUrl}/skills/drizzle/SKILL.md), [elysia](${siteUrl}/skills/elysia/SKILL.md).`,
+      "- CLI install: `qiy skill install [name]` / `qiy skill install --all` (project), `--global` (user), `--dir <path>` (custom agent directory).",
       "",
     ].join("\n"),
     [
@@ -169,19 +169,23 @@ export function buildDocsAssets(): void {
   mkdirSync(schemaDir, { recursive: true });
   writeFileSync(join(schemaDir, "qiy-explanation-1.json"), `${JSON.stringify(qiyExplanationSchema, null, 2)}\n`);
 
-  const skillDestination = join(publicDir, "skills", "qiy");
-  rmSync(skillDestination, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-  mkdirSync(skillDestination, { recursive: true });
-  cpSync(skillSource, skillDestination, { recursive: true });
-
-  const archive = join(publicDir, "skills", "qiy-skill.tar.gz");
-  rmSync(archive, { force: true });
-  const tar = Bun.spawnSync(["tar", "-czf", archive, "-C", join(root, ".agents", "skills"), "qiy"], { stdout: "pipe", stderr: "pipe" });
-  if (tar.exitCode !== 0) throw new Error(`Failed to create skill archive: ${tar.stderr.toString()}`);
-
-  const skillBytes = statSync(archive).size;
+  const officialSkills = ["qiy", "refine-dev", "bun", "drizzle", "elysia"];
+  let skillFiles = 0;
+  for (const name of officialSkills) {
+    const source = join(root, ".agents", "skills", name);
+    const destination = join(publicDir, "skills", name);
+    rmSync(destination, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    mkdirSync(destination, { recursive: true });
+    cpSync(source, destination, { recursive: true });
+    skillFiles += readdirSync(destination, { recursive: true }).length;
+    const archive = join(publicDir, "skills", `${name}-skill.tar.gz`);
+    rmSync(archive, { force: true });
+    const tar = Bun.spawnSync(["tar", "-czf", archive, "-C", join(root, ".agents", "skills"), name], { stdout: "pipe", stderr: "pipe" });
+    if (tar.exitCode !== 0) throw new Error(`Failed to create ${name} skill archive: ${tar.stderr.toString()}`);
+  }
+  const skillBytes = statSync(join(publicDir, "skills", "qiy-skill.tar.gz")).size;
   console.log(
-    `Docs assets: llms.txt (${llmsTxt.length} bytes), llms-full.txt (${llmsFull.length} bytes), skill files (${relative(docs, skillDestination)}), qiy-skill.tar.gz (${skillBytes} bytes)`,
+    `Docs assets: llms.txt (${llmsTxt.length} bytes), llms-full.txt (${llmsFull.length} bytes), ${officialSkills.length} official skills (${skillFiles} files), qiy-skill.tar.gz (${skillBytes} bytes)`,
   );
 }
 

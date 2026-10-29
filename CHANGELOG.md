@@ -8,6 +8,17 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.6.0] - 2026-10-26
+
+### Added
+
+- Official skill distribution now bundles all five skills (`qiy`, `refine-dev`,
+  `bun`, `drizzle`, `elysia`) into the CLI. `qiy skill install [name]`,
+  `install --all`, `list --all`, `update [name]` and `uninstall [name]` manage
+  each skill offline; non-Qiy skills install under
+  `.agents/skills/<name>` and keep local-edit protection. The docs site also
+  publishes each skill and its tarball under `/skills/<name>/`.
+
 ## [0.5.3] - 2026-10-26
 
 ### Added
@@ -342,6 +353,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.6.0]: https://github.com/AI-NoDev/qiy/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/AI-NoDev/qiy/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/AI-NoDev/qiy/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/AI-NoDev/qiy/compare/v0.5.0...v0.5.1

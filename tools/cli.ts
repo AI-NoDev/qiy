@@ -7,7 +7,7 @@ import { checkProject, createProject, devProject, generateProject, runProjectScr
 import { explainQiyFile, formatQiyExplanation } from "./commands/explain";
 import { findQiyError, formatQiyError, qiyErrorCatalog } from "./error-catalog";
 import { qiyExplanationSchema } from "./qiy-schema";
-import { formatSkillStatuses, installSkill, listSkillInstallations, uninstallSkill, updateSkill } from "./commands/skill";
+import { OFFICIAL_SKILL_NAMES, formatSkillStatuses, installOfficialSkill, installSkill, listOfficialSkillInstallations, listSkillInstallations, uninstallOfficialSkill, uninstallSkill, updateOfficialSkill, updateSkill } from "./commands/skill";
 import { formatDoctorReport, runDoctor } from "./commands/doctor";
 import packageMetadata from "../package.json" with { type: "json" };
 
@@ -49,14 +49,14 @@ Commands:
   explain <file.qiy> [--json]     Print a normalized model summary without generating
     --errors [--json]             List the stable error-code catalog
   schema                          Print the JSON Schema for explain --json output
-  skill install [--force] [--global] [--dir <path>]
-                                  Install the official agent skill (default <project>/.agents/skills/qiy,
-                                  --global writes ~/.agents/skills/qiy, --dir writes a custom directory)
-  skill list [--json] [--global] [--dir <path>]
+  skill install [name] [--all] [--force] [--global] [--dir <path>]
+                                  Install an official agent skill (qiy default; also bun/drizzle/elysia/refine-dev;
+                                  --all installs every official skill, --global writes ~/.agents/skills/<name>)
+  skill list [--all] [--json] [--global] [--dir <path>]
                                   Show installed skill locations and whether they are up to date
-  skill update [--force] [--global] [--dir <path>]
+  skill update [name] [--force] [--global] [--dir <path>]
                                   Refresh official files in an existing installation
-  skill uninstall [--global] [--dir <path>]
+  skill uninstall [name] [--global] [--dir <path>]
                                   Remove official skill files (unrelated files are preserved)
 
 Options:
@@ -123,29 +123,58 @@ async function main(argv: string[]): Promise<void> {
   switch (command) {
     case "skill": {
       const subcommand = rest[0] ?? "";
-      const usage = "Usage: qiy skill <install|list|update|uninstall> [--force] [--global] [--dir <path>] [--json]";
+      const usage = "Usage: qiy skill <install|list|update|uninstall> [install|bun|drizzle|elysia|qiy|refine-dev] [--all] [--force] [--global] [--dir <path>] [--json]";
       if (!["install", "list", "update", "uninstall"].includes(subcommand)) throw new Error(usage);
       const skillArguments = rest.slice(1);
       const dir = option(skillArguments, "--dir");
+      const all = flag(skillArguments, "--all");
       const allowed = subcommand === "list"
-        ? ["--json", "--global", "--dir"]
-        : subcommand === "install" || subcommand === "update"
-          ? ["--force", "--global", "--dir"]
-          : ["--global", "--dir"];
+        ? ["--json", "--global", "--dir", "--all"]
+        : subcommand === "install"
+          ? ["--force", "--global", "--dir", "--all"]
+          : subcommand === "update"
+            ? ["--force", "--global", "--dir"]
+            : ["--global", "--dir"];
+      const positionals: string[] = [];
       for (let index = 0; index < skillArguments.length; index += 1) {
         const argument = skillArguments[index]!;
         if (argument === "--dir") { index += 1; continue; }
-        if (!allowed.includes(argument)) throw new Error(usage);
+        if (argument.startsWith("-")) {
+          if (!allowed.includes(argument)) throw new Error(usage);
+          continue;
+        }
+        positionals.push(argument);
       }
+      if (positionals.length > 1) throw new Error(usage);
+      const name = positionals[0];
+      if (name && !OFFICIAL_SKILL_NAMES.includes(name)) throw new Error(`Unknown official skill "${name}". Available: ${OFFICIAL_SKILL_NAMES.join(", ")}`);
+      if (all && name) throw new Error("Choose either a skill name or --all.");
+      if (all && subcommand !== "install" && subcommand !== "list") throw new Error("--all is only supported for qiy skill install/list.");
       const options = { global: flag(skillArguments, "--global"), ...(dir && { dir }) };
-      if (subcommand === "install") installSkill(process.cwd(), flag(skillArguments, "--force"), options);
-      else if (subcommand === "update") updateSkill(process.cwd(), flag(skillArguments, "--force"), options);
-      else if (subcommand === "uninstall") {
-        const result = uninstallSkill(process.cwd(), options);
-        console.log(`Removed ${result.removed.length} official Qiy skill files from ${result.destination}`);
-        if (result.preserved.length) console.log(`Preserved ${result.preserved.length} unrelated files: ${result.preserved.join(", ")}`);
+      const force = flag(skillArguments, "--force");
+      if (subcommand === "install") {
+        if (all) {
+          for (const official of OFFICIAL_SKILL_NAMES) {
+            if (official === "qiy") installSkill(process.cwd(), force, options);
+            else installOfficialSkill(official, process.cwd(), force, options);
+          }
+        } else if (name && name !== "qiy") installOfficialSkill(name, process.cwd(), force, options);
+        else installSkill(process.cwd(), force, options);
+      } else if (subcommand === "update") {
+        if (name && name !== "qiy") updateOfficialSkill(name, process.cwd(), force, options);
+        else updateSkill(process.cwd(), force, options);
+      } else if (subcommand === "uninstall") {
+        if (name && name !== "qiy") {
+          const result = uninstallOfficialSkill(name, process.cwd(), options);
+          console.log(`Removed ${result.removed.length} official ${name} skill files from ${result.destination}`);
+          if (result.preserved.length) console.log(`Preserved ${result.preserved.length} unrelated files: ${result.preserved.join(", ")}`);
+        } else {
+          const result = uninstallSkill(process.cwd(), options);
+          console.log(`Removed ${result.removed.length} official Qiy skill files from ${result.destination}`);
+          if (result.preserved.length) console.log(`Preserved ${result.preserved.length} unrelated files: ${result.preserved.join(", ")}`);
+        }
       } else {
-        const statuses = listSkillInstallations(process.cwd(), options);
+        const statuses = all ? listOfficialSkillInstallations(process.cwd(), options) : listSkillInstallations(process.cwd(), options);
         if (flag(skillArguments, "--json")) console.log(JSON.stringify(statuses, null, 2));
         else console.log(formatSkillStatuses(statuses));
       }

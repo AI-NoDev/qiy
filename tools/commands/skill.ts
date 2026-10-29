@@ -2,7 +2,10 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, rmdirSync, wr
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { generatedPath } from "../generated-paths";
-import { QIY_SKILL_FILES } from "../qiy-skill.data";
+import { QIY_OFFICIAL_SKILLS, QIY_SKILL_FILES } from "../qiy-skill.data";
+
+/** Official skills bundled with the CLI. */
+export const OFFICIAL_SKILL_NAMES = Object.keys(QIY_OFFICIAL_SKILLS).sort();
 
 /** Default project-local location supported by agent skill loaders. */
 export const SKILL_PROJECT_PATH = ".agents/skills/qiy";
@@ -72,10 +75,14 @@ export function installSkill(root = process.cwd(), force = false, options: Insta
 
 /** Inspects one destination against the bundled official skill files. */
 export function inspectSkill(destination: string): SkillStatus {
-  const officialPaths = Object.keys(QIY_SKILL_FILES);
+  return inspectSkillFiles(destination, QIY_SKILL_FILES);
+}
+
+function inspectSkillFiles(destination: string, files: Record<string, string>): SkillStatus {
+  const officialPaths = Object.keys(files);
   const modified: string[] = [];
   const missing: string[] = [];
-  for (const [path, content] of Object.entries(QIY_SKILL_FILES)) {
+  for (const [path, content] of Object.entries(files)) {
     const target = generatedPath(destination, path);
     if (!existsSync(target)) missing.push(path);
     else if (readFileSync(target, "utf8") !== content) modified.push(path);
@@ -115,6 +122,102 @@ export function listSkillInstallations(root = process.cwd(), options: InstallSki
     destinations.add(join(options.home ?? homedir(), SKILL_GLOBAL_PATH));
   }
   return [...destinations].map(inspectSkill).filter((status) => existsSync(status.destination) && (status.installed || status.unrelated.length > 0));
+}
+
+/** Resolves the destination for any official skill (qiy keeps its legacy aliases). */
+export function resolveOfficialSkillDestination(root: string, name: string, options: InstallSkillOptions = {}): string {
+  if (name === "qiy") return resolveSkillDestination(root, options);
+  const home = options.home ?? homedir();
+  if (options.dir) {
+    if (options.dir === "~") return join(home, ".agents", "skills", name);
+    if (options.dir.startsWith("~/") || options.dir.startsWith("~\\")) return join(home, options.dir.slice(2));
+    return isAbsolute(options.dir) ? options.dir : resolve(root, options.dir);
+  }
+  if (options.global) return join(home, ".agents/skills", name);
+  return resolve(root, ".agents/skills", name);
+}
+
+function officialFiles(name: string): Record<string, string> {
+  const files = QIY_OFFICIAL_SKILLS[name];
+  if (!files) throw new Error(`Unknown official skill "${name}". Available: ${OFFICIAL_SKILL_NAMES.join(", ")}`);
+  return files;
+}
+
+/** Installs one bundled official skill (bun, drizzle, elysia, qiy, refine-dev). */
+export function installOfficialSkill(name: string, root = process.cwd(), force = false, options: InstallSkillOptions = {}): string {
+  const files = officialFiles(name);
+  const destination = resolveOfficialSkillDestination(root, name, options);
+  const targets = Object.entries(files).map(([path, content]) => ({ path: generatedPath(destination, path), content }));
+  for (const target of targets) {
+    if (existsSync(target.path) && readFileSync(target.path, "utf8") !== target.content && !force) {
+      throw new Error(`Official ${name} skill has local changes. Use qiy skill install ${name} --force to replace official files; unrelated files are preserved.`);
+    }
+  }
+  for (const target of targets) {
+    mkdirSync(dirname(target.path), { recursive: true });
+    writeFileSync(target.path, target.content);
+  }
+  console.log(`Installed official ${name} skill in ${destination}`);
+  return destination;
+}
+
+export function updateOfficialSkill(name: string, root = process.cwd(), force = false, options: InstallSkillOptions = {}): string {
+  const destination = resolveOfficialSkillDestination(root, name, options);
+  if (!existsSync(join(destination, "SKILL.md"))) {
+    throw new Error(`No ${name} skill installation at ${destination}. Run qiy skill install ${name} first.`);
+  }
+  return installOfficialSkill(name, root, force, options);
+}
+
+export function uninstallOfficialSkill(name: string, root = process.cwd(), options: InstallSkillOptions = {}): UninstallSkillResult {
+  const files = officialFiles(name);
+  const destination = resolveOfficialSkillDestination(root, name, options);
+  const status = inspectSkillFiles(destination, files);
+  if (!status.installed && status.missing.length === Object.keys(files).length) {
+    throw new Error(`No ${name} skill installation at ${destination}.`);
+  }
+  const removed: string[] = [];
+  for (const path of Object.keys(files)) {
+    const target = generatedPath(destination, path);
+    if (!existsSync(target)) continue;
+    rmSync(target, { force: true });
+    removed.push(path);
+    let directory = dirname(target);
+    while (directory.startsWith(destination) && directory !== destination) {
+      if (existsSync(directory) && readdirSync(directory).length === 0) {
+        rmdirSync(directory);
+        directory = dirname(directory);
+      } else break;
+    }
+  }
+  const remaining = inspectSkillFiles(destination, files);
+  if (removed.length === 0) throw new Error(`No official ${name} skill files found at ${destination}.`);
+  return { destination, removed, preserved: remaining.unrelated };
+}
+
+/** Lists every existing installation of all bundled official skills. */
+export function listOfficialSkillInstallations(root = process.cwd(), options: InstallSkillOptions = {}): SkillStatus[] {
+  const statuses: SkillStatus[] = [];
+  for (const name of OFFICIAL_SKILL_NAMES) {
+    const files = officialFiles(name);
+    const destinations = new Set<string>();
+    if (options.dir || options.global) {
+      destinations.add(resolveOfficialSkillDestination(root, name, options));
+    } else {
+      destinations.add(resolveOfficialSkillDestination(root, name, options));
+      if (name === "qiy") {
+        const legacy = resolve(root, SKILL_LEGACY_PROJECT_PATH);
+        if (existsSync(legacy)) destinations.add(legacy);
+      }
+      destinations.add(join(options.home ?? homedir(), ".agents/skills", name));
+    }
+    for (const destination of destinations) {
+      if (!existsSync(destination)) continue;
+      const status = inspectSkillFiles(destination, files);
+      if (status.installed || status.unrelated.length > 0) statuses.push(status);
+    }
+  }
+  return statuses;
 }
 
 /** Replaces official files in an existing installation, refusing local edits unless forced. */

@@ -64,7 +64,7 @@
 - [x] `qiy explain`（文本/`--json` 规范化模型摘要）+ `qiy schema`（draft 2020-12 JSON Schema，发布到 `/schema/qiy-explanation-1.json`）
 - [x] 错误码目录：`QIY1001–QIY1016`，`qiy explain --errors [--json]`，文档 `/dsl/errors`，`explain --json` 自动附带 code/fix
 - [x] `qiy skill list/update/uninstall`（含 `--json`、本地修改保护、保留手写文件）
-- [ ] 官方 bun/drizzle/elysia/refine-dev skill 纳入分发
+- [x] 官方 bun/drizzle/elysia/refine-dev skill 纳入分发（CLI `skill install [name] --all` + 文档站静态下载）
 - [x] API docs：OpenAPI 下载（当前账号过滤后的 spec）
 - [x] API docs：无 auth 时不再生成缺失的 `app/auth` 引用（apiDocs-only 项目可 typecheck）
 - [x] API docs：try-it 请求（会话 token / 手动 API Key、原始响应、20k 截断）

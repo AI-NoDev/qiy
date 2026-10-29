@@ -4,39 +4,55 @@ Qiy 提供一个**标准 Agent Skill**，供 Claude Code、Codex、Cursor 等 AI
 
 Skill 随 Qiy 版本一起打包（`tools/qiy-skill.data.ts`），安装不依赖网络；文档站同时提供静态下载。
 
+CLI 内置 5 个官方 skill：`qiy`（默认）、`refine-dev`、`bun`、`drizzle`、`elysia`。
+
 ## 安装（推荐）
 
 ```powershell
 # 当前项目：<project>/.agents/skills/qiy
 qiy skill install
 
-# 用户级：~/.agents/skills/qiy（适合希望全局加载 skill 的 Agent）
-qiy skill install --global
+# 其他官方 skill（默认安装到 <project>/.agents/skills/<name>）
+qiy skill install refine-dev
+qiy skill install bun
+qiy skill install drizzle
+qiy skill install elysia
 
-# 任意 Agent 的 skills 目录
+# 一次安装全部官方 skill
+qiy skill install --all
+
+# 用户级：~/.agents/skills/<name>（适合希望全局加载 skill 的 Agent）
+qiy skill install --global
+qiy skill install drizzle --global
+
+# 任意 Agent 的 skills 目录（--dir 是最终 skill 目录）
 qiy skill install --dir .claude/skills/qiy
-qiy skill install --dir .cursor/skills/qiy
-qiy skill install --dir ~/.codex/skills/qiy
+qiy skill install drizzle --dir .claude/skills/drizzle
 
 # Qiy 升级后更新官方文件
 qiy skill install --force
 
-# 查看当前安装、修改状态与版本
+# 查看当前安装、修改状态与版本（--all 列出全部官方 skill）
 qiy skill list
+qiy skill list --all
 qiy skill list --json
 
 # 只更新已存在的安装（--force 覆盖本地修改）
 qiy skill update
+qiy skill update drizzle --force
 
 # 卸载官方文件（手写文件会保留）
 qiy skill uninstall
+qiy skill uninstall drizzle
 ```
 
 | 参数 | 作用 |
 | --- | --- |
-| 无参数 | 安装到当前项目的 `.agents/skills/qiy` |
-| `--global` | 安装/查看/更新 `~/.agents/skills/qiy` |
-| `--dir <path>` | 指定目标目录（相对项目、绝对路径或 `~/...`） |
+| 无参数 | 安装/更新/卸载 `qiy`，当前项目 `.agents/skills/qiy` |
+| `<name>` | `refine-dev` / `bun` / `drizzle` / `elysia` / `qiy` |
+| `--all` | `install`/`list` 覆盖全部 5 个官方 skill |
+| `--global` | 安装/查看/更新 `~/.agents/skills/<name>` |
+| `--dir <path>` | 指定**最终 skill 目录**（相对项目、绝对路径或 `~/...`） |
 | `--force` | 强制覆盖被本地修改过的官方文件；无关文件始终保留 |
 | `list --json` | 输出机器可读的安装位置、`upToDate`、modified/missing/unrelated 列表 |
 
@@ -45,7 +61,8 @@ qiy skill uninstall
 - 重复执行相同版本的安装是幂等的；
 - 官方文件被改动时默认拒绝覆盖并提示使用 `--force`（避免悄悄丢失自定义修改）；
 - 旧版本安装目录 `.agent/skills/qiy` 会在检测到时原地更新，便于平滑升级；
-- 安装的是 `SKILL.md`、`references/` 与 `examples/` 全部文件，不会安装其他 skill。
+- 安装的是所选 skill 的 `SKILL.md`、`references/`、`plugins/` 与 `examples/` 全部文件；`--all` 安装 5 个目录；
+- 非 `qiy` skill 安装到 `.agents/skills/<name>`；不同 skill 互不覆盖。
 
 安装后可用以下命令确认：
 
