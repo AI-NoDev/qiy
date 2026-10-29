@@ -93,6 +93,45 @@ module Sales {
   expect(explanation.relations[0]).toMatchObject({ from: "order_lines", fromField: "orderId", to: "orders", cardinality: "one" });
 });
 
+test("passes v1 entity/field annotations and custom relation options through", () => {
+  const source = `project shop
+database sqlite
+module Catalog {
+  entity Customer @display("{$.name}") {
+    name: text @label("Customer name")
+    code: text @code("CUS-{seq:4}")
+  }
+  entity Order @display("{$.reference}") {
+    reference: text
+    customer: Customer as orderCustomer @onDelete(cascade)
+  }
+}
+`;
+  const translated = translateQiyV1(source);
+  expect(translated).toContain('entity customers @display("{$.name}") {');
+  expect(translated).toContain('field name Text @label("Customer name");');
+  expect(translated).toContain('field code Text @code("CUS-{seq:4}");');
+  expect(translated).toContain("relation orderCustomer orders customerId customers id one @onDelete(cascade);");
+  const explanation = explainQiySource(source);
+  expect(explanation.relations[0]).toMatchObject({ name: "orderCustomer", from: "orders", fromField: "customerId", to: "customers", cardinality: "one", onDelete: "cascade" });
+});
+
+test("supports custom one-to-many relation names and onDelete", () => {
+  const source = `project shop
+database sqlite
+entity Order {
+  reference: text
+  lines: OrderLine[] as orderLines @onDelete(cascade)
+}
+entity OrderLine {
+  sku: text
+}
+`;
+  const translated = translateQiyV1(source);
+  expect(translated).toContain("relation orderLines order_lines orderId orders id one @onDelete(cascade);");
+  expect(explainQiySource(source).relations[0]).toMatchObject({ name: "orderLines", onDelete: "cascade" });
+});
+
 test("passes through v0 config blocks for auth/features/menu/chart", () => {
   const source = `project shop
 database sqlite

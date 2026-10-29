@@ -46,8 +46,9 @@ qiy fmt app.qiy              # 空白规范化
 | 字段 | `name: text`、`price: decimal(12, 2)`、`active: text` |
 | 修饰符 | `primary`、`nullable`、`unique`（可组合） |
 | 自动主键 | 省略 `id` 时自动生成 `field id UUID @id;` |
-| 一对一关系 | `customer: Customer` → `customerId` 外键 + `relation` |
-| 一对多关系 | `lines: OrderLine[]` → 在子实体生成 `orderId` 外键 + `relation`（子实体需在本文件声明） |
+| 一对一关系 | `customer: Customer` → `customerId` 外键 + `relation`；可加 `as orderCustomer @onDelete(cascade)` 自定义关系名/删除策略 |
+| 一对多关系 | `lines: OrderLine[]` → 在子实体生成 `orderId` 外键 + `relation`（子实体需在本文件声明）；同样支持 `as` 与 `@onDelete` |
+| 注解 | 实体/字段注解原样透传：`@display("{$.name}")`、`@label("…")`、`@code("…")`、`@onDelete(cascade)` 等 |
 | 多对多关系 | 双向数组（`tags: Tag[]` + `products: Product[]`）→ 自动生成 `products_tags` join 实体与两条 one 关系 |
 | 模块文件 | `include "modules/catalog.qiy";` → 展开 v1 片段（片段不带 `project`，可含 `module`/`entity`/配置块） |
 | 注释 | `#` 行内/独立注释 |
@@ -94,7 +95,7 @@ v1 也支持增量命令：`qiy add entity/field` 写入 v1 实体/字段；`qiy
 
 - `include` 路径必须是相对路径且位于项目内；片段不能带 `project`，可包含 `module`、`entity` 或配置块，展开后仍按 v1 规则校验；
 - 单向多对多（只在一侧写 `tags: Tag[]` 会被当作一对多；多对多需要双向数组，或显式建 join 实体）；
-- 自定义 `relation` 名称、`onDelete`、显示模板、注解。
+- 多对多数组上的自定义关系名/注解（请显式写 join 实体）。
 
 需要这些能力时继续使用 v0。不同项目/入口文件可以选择 v0 或 v1，Qiy 按入口首行自动识别，不需要额外参数。
 

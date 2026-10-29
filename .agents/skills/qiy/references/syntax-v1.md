@@ -29,8 +29,8 @@ module Catalog {
 - `entity Product` → table `products`; already-lowercase names are kept as written.
 - Fields: `name: type`, optional `primary`, `nullable`, `unique`; type aliases map to v0 (`uuid`→UUID, `text`→Text, `integer`→Integer, `decimal`/`money`, `date`/`time`/`datetime`, `file`/`files`, `vector(n)`).
 - Missing `id` is injected as `field id UUID @id;`.
-- `customer: Customer` injects `customerId UUID` plus a one relation to `customers`.
-- `lines: OrderLine[]` injects a child-side `orderId UUID @nullable` plus a one relation from `order_lines` to `orders`; the child entity must be declared in the same v1 source.
+- `customer: Customer` injects a `customerId UUID` field plus a one relation; append `as orderCustomer @onDelete(cascade)` to name the relation or set its delete policy. Entity/field annotations such as `@display("{$.name}")`, `@label("…")`, `@code("…")` pass through.
+- `lines: OrderLine[]` injects a child-side `orderId UUID @nullable` plus a one relation from `order_lines` to `orders`; the child entity must be declared in the same v1 source. It also accepts `as <relationName>` and `@onDelete(...)`.
 - Reciprocal arrays (`tags: Tag[]` + `products: Product[]`) generate an explicit `<parent>_<target>` join entity with two one relations.
 - `#` comments are preserved.
 - Entry files may `include "modules/x.qiy";` v1 fragments (relative path, no `project`; fragments may contain `module`, entities or config blocks). Includes are expanded before v1 translation; `explain/generate` work normally.
@@ -41,9 +41,8 @@ Commands need no flag: `qiy explain model.qiy`, `qiy generate model.qiy out/`, `
 
 ## Rejected with clear errors
 
-- one-way many declarations are treated as one-to-many; true many-to-many needs reciprocal arrays or an explicit join entity,
-- auth/permissions/menu/chart/dataflow must be written as v0 passthrough blocks (supported), not v1 keyword sugar,
-- custom relation names/onDelete/annotations.
+- one-way many declarations are treated as one-to-many; true many-to-many needs reciprocal arrays or an explicit join entity (custom names/annotations on reciprocal arrays are rejected; use an explicit join entity),
+- auth/permissions/menu/chart/dataflow must be written as v0 passthrough blocks (supported), not v1 keyword sugar.
 
 Canonical docs: https://ai-nodev.github.io/qiy/guide/syntax-v1
 V0 remains the production/default syntax; migrate when you only need the supported subset.

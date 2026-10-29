@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.5.3] - 2026-10-26
+
+### Added
+
+- v1 files pass entity/field annotations through (`@display`, `@label`,
+  `@code`, ...) and support `as <relationName>` plus `@onDelete(cascade|
+  restrict|setNull)` on inline one and one-to-many relations. Custom options on
+  reciprocal many-to-many arrays are rejected with a join-entity hint.
+
 ## [0.5.2] - 2026-10-26
 
 ### Added
@@ -333,6 +342,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.5.3]: https://github.com/AI-NoDev/qiy/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/AI-NoDev/qiy/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/AI-NoDev/qiy/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/AI-NoDev/qiy/compare/v0.4.9...v0.5.0
