@@ -3,7 +3,7 @@ import { addEntity, addFeature, addField, addModule, type AddModuleKind } from "
 import { formatQiyFiles } from "./format";
 import { generateApp } from "./commands/generate-app";
 import { initApp } from "./commands/init";
-import { checkProject, createProject, devProject, generateProject, runProjectScript } from "./commands/project";
+import { checkProject, createProject, devProject, diffProject, formatProjectDiff, generateProject, runProjectScript } from "./commands/project";
 import { explainQiyFile, formatQiyExplanation } from "./commands/explain";
 import { findQiyError, formatQiyError, qiyErrorCatalog } from "./error-catalog";
 import { qiyExplanationSchema } from "./qiy-schema";
@@ -25,6 +25,7 @@ Commands:
   generate                        Generate/sync the current project
     <source> <output-dir>         Legacy explicit generation; --sync updates it
   check                           Validate the current project model without writing
+  diff [--check] [--json]         Preview generated file additions/changes/removals without writing
   add entity <name> [--module <name>] [--field name:Type ...] [--label ...] [--icon ...]
                                   Append an entity to a model module and validate
   add field <entity> <name:Type> [--nullable] [--unique] [--code <template>]
@@ -234,6 +235,15 @@ async function main(argv: string[]): Promise<void> {
     }
     case "check": {
       await checkProject(process.cwd());
+      return;
+    }
+    case "diff": {
+      const unknown = rest.filter((argument) => argument.startsWith("-") && !["--check", "--json"].includes(argument));
+      if (unknown.length) throw new Error(`Unknown qiy diff option: ${unknown[0]}\n\n${USAGE}`);
+      const diff = await diffProject(process.cwd());
+      if (flag(rest, "--json")) console.log(JSON.stringify(diff, null, 2));
+      else console.log(formatProjectDiff(diff, diff.output));
+      if (flag(rest, "--check") && (diff.added.length > 0 || diff.changed.length > 0 || diff.removed.length > 0)) process.exitCode = 1;
       return;
     }
     case "fmt":

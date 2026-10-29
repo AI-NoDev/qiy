@@ -50,6 +50,7 @@ The executable embeds the Admin template, so it can generate a complete applicat
 ```text
 qiy create project <name> [--template minimal|standard] [--dir <path>]
 qiy check
+qiy diff [--check] [--json]
 qiy add entity <name> [--module <name>] [--field name:Type ...] [--label ...] [--icon ...]
 qiy add field <entity> <name:Type> [--nullable] [--unique] [--code <template>]
 qiy add module <name> [--kind entities|ui|permissions|dataflows|messages]
@@ -68,10 +69,10 @@ qiy doctor [--json]
 qiy explain <file.qiy> [--json]
 qiy schema
 qiy explain --errors [--json]
-qiy skill install [--force] [--global] [--dir <path>]
-qiy skill list [--json] [--global] [--dir <path>]
-qiy skill update [--force] [--global] [--dir <path>]
-qiy skill uninstall [--global] [--dir <path>]
+qiy skill install [name] [--all] [--force] [--global] [--dir <path>]
+qiy skill list [--all] [--json] [--global] [--dir <path>]
+qiy skill update [name] [--force] [--global] [--dir <path>]
+qiy skill uninstall [name] [--global] [--dir <path>]
 qiy help            # same as --help
 qiy --help | -h
 qiy --version | -v
@@ -126,6 +127,7 @@ qiy dev --watch
 
 ```bash
 qiy check      # validate only
+qiy diff       # preview added/changed/removed generated files (--check exits 1)
 qiy generate   # generate or sync admin/
 qiy dev        # generate + install first time + migrate + start API/admin
 qiy test
@@ -134,6 +136,7 @@ qiy preview
 ```
 
 - `qiy generate` reads `model` and `output` from the manifest; when `admin/` already exists it syncs (never reinitializes over it).
+- `qiy diff` renders the workspace in memory and reports added/changed/removed files without writing; `.env.*` secrets are ignored, `--check` exits 1 on drift, `--json` is machine-readable.
 - `qiy dev` installs dependencies on first run, runs `db:generate` + `db:migrate`, then `bun run dev` in the generated workspace; add `--watch` to regenerate/migrate on debounced model saves.
 - `qiy add entity <name> --field name:Text` and `qiy add field <entity> <name:Type>` edit the modular model in place, then re-parse and roll back on any validation error. Use them for AI-driven incremental modeling; use an editor for large restructuring.
 - `qiy fmt` normalizes indentation, blank lines, trailing whitespace and the final newline without changing declarations/comments/includes/order; `qiy fmt --check` is CI-friendly.

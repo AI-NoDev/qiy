@@ -1,7 +1,8 @@
-import { existsSync, watch, type FSWatcher } from "node:fs";
+import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
 import { dirname, join } from "node:path";
-import { generateApp } from "./generate-app";
+import { generateApp, renderAppFiles } from "./generate-app";
 import { explainQiyFile } from "./explain";
+import { generatedPath, readGeneratedManifest } from "../generated-paths";
 import { createQiyProject, requireQiyProject, type QiyProjectLocation } from "../project";
 
 export interface CreateProjectOptions {
@@ -38,6 +39,77 @@ export async function checkProject(cwd = process.cwd()): Promise<void> {
 export async function generateProject(cwd = process.cwd()): Promise<void> {
   const project = requireQiyProject(cwd);
   await generateApp(project.modelPath, project.outputPath, { sync: existsSync(project.outputPath) });
+}
+
+/** Differences between the current generated workspace and the model. */
+export interface ProjectDiff {
+  output: string;
+  added: string[];
+  changed: string[];
+  removed: string[];
+  unchanged: number;
+  ignoredEnvironmentFiles: number;
+}
+
+/** `qiy diff`: render in memory and report what generation would change. */
+export async function diffProject(cwd = process.cwd()): Promise<ProjectDiff> {
+  const project = requireQiyProject(cwd);
+  const { files, unowned } = await renderAppFiles(project.modelPath);
+  const expected = new Set<string>();
+  const added: string[] = [];
+  const changed: string[] = [];
+  let unchanged = 0;
+  let ignoredEnvironmentFiles = 0;
+  for (const [relativePath, content] of Object.entries(files)) {
+    if (unowned.has(relativePath)) continue;
+    if (/\.env\.(development|production)$/.test(relativePath)) {
+      ignoredEnvironmentFiles += 1;
+      continue;
+    }
+    expected.add(relativePath);
+    const path = generatedPath(project.outputPath, relativePath);
+    if (!existsSync(path)) added.push(relativePath);
+    else if (readFileSync(path, "utf8") !== String(content)) changed.push(relativePath);
+    else unchanged += 1;
+  }
+  const removed = new Set<string>();
+  const manifestPath = generatedPath(project.outputPath, ".qiy-generated.json");
+  if (existsSync(manifestPath)) {
+    try {
+      const manifest = readGeneratedManifest(JSON.parse(readFileSync(manifestPath, "utf8")));
+      for (const relativePath of manifest.files) {
+        if (expected.has(relativePath) || unowned.has(relativePath)) continue;
+        if (/\.env\.(development|production)$/.test(relativePath)) continue;
+        if (existsSync(generatedPath(project.outputPath, relativePath))) removed.add(relativePath);
+      }
+    } catch {
+      // An unreadable manifest is reported as a changed file; stale-file cleanup
+      // cannot be inferred safely without it.
+    }
+  }
+  return {
+    output: project.manifest.output,
+    added: added.sort(),
+    changed: changed.sort(),
+    removed: [...removed].sort(),
+    unchanged,
+    ignoredEnvironmentFiles,
+  };
+}
+
+/** Human-readable `qiy diff` output. */
+export function formatProjectDiff(diff: ProjectDiff, output: string): string {
+  const lines = [`Qiy diff against ${output}`];
+  if (diff.added.length === 0 && diff.changed.length === 0 && diff.removed.length === 0) {
+    lines.push(`No differences (${diff.unchanged} generated files match).`);
+  } else {
+    lines.push(`  added ${diff.added.length}, changed ${diff.changed.length}, removed ${diff.removed.length}, unchanged ${diff.unchanged}`);
+    if (diff.added.length) lines.push("", "Added:", ...diff.added.map((path) => `  + ${path}`));
+    if (diff.changed.length) lines.push("", "Changed:", ...diff.changed.map((path) => `  ~ ${path}`));
+    if (diff.removed.length) lines.push("", "Removed:", ...diff.removed.map((path) => `  - ${path}`));
+  }
+  if (diff.ignoredEnvironmentFiles > 0) lines.push("", `Ignored ${diff.ignoredEnvironmentFiles} .env file(s) that hold local secrets.`);
+  return lines.join("\n");
 }
 
 function run(command: string[], cwd: string): Promise<number> {

@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.6.1] - 2026-10-26
+
+### Added
+
+- `qiy diff [--check] [--json]` renders the generated workspace in memory and
+  reports added/changed/removed files without writing. `.env.*` secrets are
+  ignored, `--check` exits 1 on drift, and the generation pipeline is now split
+  into `renderAppFiles` + write so other tools can preview output safely.
+
 ## [0.6.0] - 2026-10-26
 
 ### Added
@@ -353,6 +362,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.6.1]: https://github.com/AI-NoDev/qiy/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/AI-NoDev/qiy/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/AI-NoDev/qiy/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/AI-NoDev/qiy/compare/v0.5.1...v0.5.2

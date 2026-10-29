@@ -13,11 +13,17 @@ export interface GenerateAppOptions {
   name?: string;
 }
 
-export async function generateApp(source: string, destination: string, options: GenerateAppOptions = {}): Promise<string> {
-  const output = resolve(destination);
-  if (existsSync(output) && readdirSync(output).length > 0 && !options.sync) {
-    throw new Error(`Output directory must be empty: ${output}`);
-  }
+export interface RenderedApp {
+  files: Record<string, string>;
+  unowned: Set<string>;
+  appName: string;
+}
+
+/**
+ * Renders the complete generated workspace in memory without touching disk.
+ * `qiy generate` writes it; `qiy diff` compares it with the current output.
+ */
+export async function renderAppFiles(source: string, options: GenerateAppOptions = {}): Promise<RenderedApp> {
   if (!source.endsWith(".qiy")) {
     throw new Error(`Unsupported input file: ${source}. Qiy application generation only accepts .qiy source files.`);
   }
@@ -57,8 +63,18 @@ export async function generateApp(source: string, destination: string, options: 
     testSuite,
   });
   Object.assign(files, generatedWiki(files, appName, source));
-  const manifestPath = generatedPath(output, ".qiy-generated.json");
   const unowned = new Set(Object.keys(files).filter((path) => path.startsWith("apps/web/app/extensions/") || path.startsWith("apps/server/src/extensions/") || path === "AGENTS.md" || path === "AGENT.MD"));
+  files[".qiy-generated.json"] = JSON.stringify(createGeneratedManifest(appName, "standalone", Object.keys(files).filter((path) => !unowned.has(path))), null, 2) + "\n";
+  return { files, unowned, appName };
+}
+
+export async function generateApp(source: string, destination: string, options: GenerateAppOptions = {}): Promise<string> {
+  const output = resolve(destination);
+  if (existsSync(output) && readdirSync(output).length > 0 && !options.sync) {
+    throw new Error(`Output directory must be empty: ${output}`);
+  }
+  const { files, unowned } = await renderAppFiles(source, options);
+  const manifestPath = generatedPath(output, ".qiy-generated.json");
   for (const relativePath of Object.keys(files)) generatedPath(output, relativePath);
   if (options.sync && existsSync(output)) {
     const manifest = Bun.file(manifestPath);
@@ -74,7 +90,6 @@ export async function generateApp(source: string, destination: string, options: 
     }
     for (const path of new Set(staleFiles)) if (existsSync(path)) unlinkSync(path);
   }
-  files[".qiy-generated.json"] = JSON.stringify(createGeneratedManifest(appName, "standalone", Object.keys(files).filter((path) => !unowned.has(path))), null, 2) + "\n";
   for (const [relativePath, content] of Object.entries(files)) {
     const path = generatedPath(output, relativePath);
     if (unowned.has(relativePath) && existsSync(path)) continue;

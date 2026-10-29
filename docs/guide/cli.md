@@ -43,6 +43,7 @@ qiy init -f <source> [-n <name>] [--sync]            # 挂载到现有 Bun 项�
 | `--template minimal` | 只保留最小 catalog 模块；默认 `standard` 含实体/关系/菜单/图表示例 |
 | `--dir <path>` | 改写目标目录 |
 | `qiy check` | 解析并校验模型，打印统计；不写文件 |
+| `qiy diff [--check] [--json]` | 在内存中生成并与 `admin/` 比较，列出将新增/修改/删除的文件；不写文件；`--check` 有差异时退出码 1；`.env.*` 本地密钥文件忽略比较 |
 | `qiy add entity <name>` | 向实体模块追加实体（默认自动加 `id UUID @id`），支持 `--field name:Type`、`--label`、`--icon`、`--module`；写入后立即校验，失败自动回滚 |
 | `qiy add field <entity> <name:Type>` | 在实体闭合括号前插入字段，支持 `--nullable`、`--unique`、`--code`；写入后立即校验并回滚 |
 | `qiy add module <name>` | 新建 `model/modules/<nn>-<name>.qiy` 并把 `include` 插到正确声明位置；`--kind entities|ui|permissions|dataflows|messages` 控制插入点 |
@@ -55,6 +56,14 @@ qiy init -f <source> [-n <name>] [--sync]            # 挂载到现有 Bun 项�
 | `qiy preview` | 本地内存预览（不可部署） |
 
 `qiy dev` 首次运行会安装依赖并处理默认 SQLite 数据库。推荐用 `qiy dev --watch`：监听 `model/` 下的 `.qiy` 变更，防抖后自动重新生成、迁移，dev server 会重新加载；也可手动 `qiy generate`。
+
+在 CI 或提交前可以先看差异，不写盘：
+
+```bash
+qiy diff              # 人类可读的 added/changed/removed
+qiy diff --json       # 机器可读，便于脚本/Agent
+qiy diff --check      # 有差异时退出码 1
+```
 
 ## 用命令增量建模
 
