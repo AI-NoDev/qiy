@@ -71,7 +71,8 @@
 - [x] API docs：verification 隐藏操作原因说明（`x-qiy-hidden` + 页面提示）
 - [x] API Key 轮换（`POST /auth/api-keys/:id/rotate`，旧 key 立即撤销）与审计轨迹（created/rotated/revoked）
 - [x] API Key 权限 scopes（创建/轮换可选，与用户权限取交集；只收窄不提权）
-- [ ] 本地密码限流/锁定、会话吊销
+- [x] 本地密码限流/锁定（默认 5 次/15 分钟窗口，锁 15 分钟，429 + Retry-After）
+- [x] 会话吊销（`qiy_session_revocations` + `POST /auth/logout-all` + 个人中心按钮）
 - [ ] `sum/avg ... group by` 聚合 + chart 扩展（area/stacked/scatter、颜色/图例、下钻）
 - [ ] 字段类型扩展（Boolean/Email/URL/JSON/数组）与迁移策略
 - [ ] 文档多语言：翻译核心页或隐藏未翻译语言入口

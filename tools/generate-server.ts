@@ -5066,7 +5066,8 @@ export const orderIdempotency = pgTable("order_idempotency", {
     + (usesDataflowIdempotency ? renderDataflowIdempotencySchema(database.dialect) : "")
     + ((options.dataflows ?? []).some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) ? renderDataflowOutboxSchema(database.dialect) : "")
     + (options.realtime ? renderRealtimeOutboxSchema(database.dialect) : "")
-    + (apiKeysEnabled ? renderApiKeySchema(database.dialect) : "");
+    + (apiKeysEnabled ? renderApiKeySchema(database.dialect) : "")
+    + (hasLocalAuth ? renderSessionRevocationSchema(database.dialect) : "");
   const pluginDependencies: Record<string, string> = {};
   if (options.elysiaPlugins?.bearer) pluginDependencies["@elysia/bearer"] = "1.4.4";
   if (options.elysiaPlugins?.serverTiming) pluginDependencies["@elysia/server-timing"] = "1.4.1";
@@ -6645,6 +6646,9 @@ export function createProductionAuthenticator() {
     if (hasLocalAuth) {
       const usernameField = auth.usernameField!;
       const passwordField = auth.passwordField!;
+      const sessionTimestamp = database.dialect === "sqlite" ? "INTEGER" : database.dialect === "postgresql" ? "TIMESTAMPTZ" : "DATETIME(3)";
+      const sessionUserColumn = database.dialect === "mysql" ? "VARCHAR(36)" : "TEXT";
+      const sessionRevocationDdl = `CREATE TABLE qiy_session_revocations (userId ${sessionUserColumn} PRIMARY KEY, revokedBefore ${sessionTimestamp} NOT NULL)`;
       const userEntity = database.entities.find((entity) => entity.name === auth.userEntity)!;
       const bootstrapFields = userEntity.fields.filter((field) => !field.primaryKey && !field.nullable && ![usernameField, passwordField, auth.roleField].includes(field.name) && !(hybridAuth && field.name === auth.subjectField));
       const bootstrapHasDisplayName = bootstrapFields.some((field) => field.name === "displayName");
@@ -6695,11 +6699,11 @@ export async function signAccessToken(user: { id: string; role: Role }, secret: 
     .sign(new TextEncoder().encode(secret));
 }
 
-export async function verifyAccessToken(token: string, secret: string, issuer: string): Promise<{ id: string; role: Role } | null> {
+export async function verifyAccessToken(token: string, secret: string, issuer: string): Promise<{ id: string; role: Role; issuedAt: number } | null> {
   try {
     const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), { issuer, audience: issuer, algorithms: ["HS256"] });
     if (typeof payload.sub !== "string" || !isRole(payload.role)) return null;
-    return { id: payload.sub, role: payload.role };
+    return { id: payload.sub, role: payload.role, issuedAt: typeof payload.iat === "number" ? payload.iat : 0 };
   } catch { return null; }
 }
 `;
@@ -6715,14 +6719,64 @@ export async function verifyAccessToken(token: string, secret: string, issuer: s
         return { claim, field: field.name };
       });
       const localScopeClaimLines = localScopeClaims.map(({ claim, field }) => `  if (row.${field} !== null && row.${field} !== undefined && row.${field} !== "") claims[${JSON.stringify(claim)}] = typeof row.${field} === "boolean" || typeof row.${field} === "number" ? row.${field} : String(row.${field});`).join("\n");
+      files["api/src/auth/session-revocations.ts"] = `import { eq } from "drizzle-orm";
+import { db } from "../db";
+import { qiySessionRevocations } from "../schema";
+
+/** Invalidates every local-access token issued before the returned instant. */
+export async function revokeUserSessions(userId: string): Promise<Date> {
+  const revokedBefore = new Date();
+  const rows = await db.select().from(qiySessionRevocations).where(eq(qiySessionRevocations.userId, userId)).limit(1);
+  if (rows[0]) await db.update(qiySessionRevocations).set({ revokedBefore }).where(eq(qiySessionRevocations.userId, userId));
+  else await db.insert(qiySessionRevocations).values({ userId, revokedBefore });
+  return revokedBefore;
+}
+
+/** Checks a JWT iat (seconds) against the user's revocation watermark. */
+export async function isSessionRevoked(userId: string, issuedAtSeconds: number): Promise<boolean> {
+  const rows = await db.select().from(qiySessionRevocations).where(eq(qiySessionRevocations.userId, userId)).limit(1);
+  const row = rows[0];
+  if (!row) return false;
+  const before = row.revokedBefore instanceof Date ? row.revokedBefore : new Date(row.revokedBefore as number | string);
+  return Number.isFinite(before.getTime()) && issuedAtSeconds * 1000 < before.getTime();
+}
+`;
       files["api/src/auth/local.ts"] = `import { Elysia, t } from "elysia";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { ${auth.userEntity} } from "../schema";
 import { isRole, signAccessToken, verifyAccessToken, verifyPassword } from "./password";
+import { isSessionRevoked } from "./session-revocations";
 import type { Authenticator, Principal } from "./guard";
 
 const ISSUER = "qiy-admin";
+function positiveInt(name: string, fallback: number): number {
+  const value = Number(Bun.env[name]);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+const LOGIN_MAX_ATTEMPTS = positiveInt("QIY_AUTH_LOGIN_MAX_ATTEMPTS", 5);
+const LOGIN_WINDOW_MS = positiveInt("QIY_AUTH_LOGIN_WINDOW_MS", 15 * 60_000);
+const LOGIN_LOCK_MS = positiveInt("QIY_AUTH_LOGIN_LOCK_MS", 15 * 60_000);
+interface LoginAttempt { failures: number; firstAt: number; lockedUntil: number }
+const loginAttempts = new Map<string, LoginAttempt>();
+function attemptKey(identifier: string): string { return identifier.trim().toLowerCase(); }
+function lockedFor(key: string, now: number): number {
+  const attempt = loginAttempts.get(key);
+  if (!attempt) return 0;
+  if (now - attempt.firstAt > LOGIN_WINDOW_MS) { loginAttempts.delete(key); return 0; }
+  return Math.max(0, attempt.lockedUntil - now);
+}
+function recordFailure(key: string, now: number): number {
+  const attempt = loginAttempts.get(key);
+  const next = attempt && now - attempt.firstAt <= LOGIN_WINDOW_MS ? { ...attempt, failures: attempt.failures + 1 } : { failures: 1, firstAt: now, lockedUntil: 0 };
+  if (next.failures >= LOGIN_MAX_ATTEMPTS) next.lockedUntil = now + LOGIN_LOCK_MS;
+  loginAttempts.set(key, next);
+  if (loginAttempts.size > 10_000) {
+    const oldest = [...loginAttempts.entries()].sort((left, right) => left[1].firstAt - right[1].firstAt)[0];
+    if (oldest) loginAttempts.delete(oldest[0]);
+  }
+  return Math.max(0, next.lockedUntil - now);
+}
 function secret(): string {
   const value = Bun.env.QIY_AUTH_SECRET;
   if (!value || value.length < 32) throw new Error("QIY_AUTH_SECRET must be at least 32 characters for local password login");
@@ -6744,7 +6798,9 @@ export function createProductionAuthenticator(): Authenticator {
     const match = /^Bearer ([^\\s]+)$/.exec(request.headers.get("authorization") ?? "");
     if (!match) return null;
     const verified = await verifyAccessToken(match[1]!, key, ISSUER);
-    return verified ? findUserById(verified.id) : null;
+    if (!verified) return null;
+    if (await isSessionRevoked(verified.id, verified.issuedAt)) return null;
+    return findUserById(verified.id);
   };
 }
 
@@ -6756,19 +6812,32 @@ export function createLocalAuthRoutes(findUser: UserLookup = async (username) =>
   return rows.length === 1 ? rows[0]! : null;
 }) {
   return new Elysia({ prefix: "/api/v1/auth" })
-    .post("/login", async ({ body, status }) => {
+    .post("/login", async ({ body, status, set }) => {
       const key = secret();
       const identifier = body.username.trim();
       if (!identifier || !body.password) return status(400, { error: "Username and password are required" });
+      const attempt = attemptKey(identifier);
+      const now = Date.now();
+      const retryAfterMs = lockedFor(attempt, now);
+      if (retryAfterMs > 0) {
+        set.headers["retry-after"] = String(Math.ceil(retryAfterMs / 1000));
+        return status(429, { error: "Too many login attempts; try again later", retryAfterSeconds: Math.ceil(retryAfterMs / 1000) });
+      }
       const row = await findUser(identifier);
       if (!row) {
         await verifyPassword("\$argon2id\$v=19\$m=65536,t=3,p=4\$c29tZXNhbHRzb21lc2FsdA\$0G5v8v0G5v8v0G5v8v0G5v8v0G5v8v0G5v8v0G5v8", body.password);
+        const lockMs = recordFailure(attempt, now);
+        if (lockMs > 0) { set.headers["retry-after"] = String(Math.ceil(lockMs / 1000)); return status(429, { error: "Too many login attempts; try again later", retryAfterSeconds: Math.ceil(lockMs / 1000) }); }
         return status(401, { error: "Invalid username or password" });
       }
-      if (!isRole(row.${auth.roleField}) || !await verifyPassword(row.${passwordField}, body.password)) return status(401, { error: "Invalid username or password" });
+      if (!isRole(row.${auth.roleField}) || !await verifyPassword(row.${passwordField}, body.password)) {
+        const lockMs = recordFailure(attempt, now);
+        if (lockMs > 0) { set.headers["retry-after"] = String(Math.ceil(lockMs / 1000)); return status(429, { error: "Too many login attempts; try again later", retryAfterSeconds: Math.ceil(lockMs / 1000) }); }
+        return status(401, { error: "Invalid username or password" });
+      }
+      loginAttempts.delete(attempt);
       const token = await signAccessToken({ id: row.id, role: row.${auth.roleField} }, key, ISSUER);
-      return { accessToken: token, tokenType: "Bearer", expiresIn: 43200, id: row.id, name: ${principalNameExpression(userEntity, "displayName", auth.usernameField)}, role: row.${auth.roleField} };
-    }, { body: t.Object({ username: t.String({ minLength: 1, maxLength: 190 }), password: t.String({ minLength: 1, maxLength: 200 }) }) });
+      return { accessToken: token, tokenType: "Bearer", expiresIn: 43200, id: row.id, name: ${principalNameExpression(userEntity, "displayName", auth.usernameField)}, role: row.${auth.roleField} };    }, { body: t.Object({ username: t.String({ minLength: 1, maxLength: 190 }), password: t.String({ minLength: 1, maxLength: 200 }) }) });
 }
 `;
       files["api/src/auth/set-password.ts"] = `import { createInterface } from "node:readline/promises";
@@ -6824,10 +6893,24 @@ test("hashes and verifies local passwords without storing plaintext", async () =
 
 test("round-trips a signed local access token and rejects tampering", async () => {
   const token = await signAccessToken({ id: "user-1", role: "admin" }, secret, "qiy-admin");
-  expect(await verifyAccessToken(token, secret, "qiy-admin")).toEqual({ id: "user-1", role: "admin" });
+  expect(await verifyAccessToken(token, secret, "qiy-admin")).toMatchObject({ id: "user-1", role: "admin" });
+  expect((await verifyAccessToken(token, secret, "qiy-admin"))!.issuedAt).toBeNumber();
   expect(await verifyAccessToken(token, secret + "x", "qiy-admin")).toBeNull();
   expect(await verifyAccessToken(token + "x", secret, "qiy-admin")).toBeNull();
   expect(await verifyAccessToken(token, secret, "other-app")).toBeNull();
+});
+
+test("locks a username after repeated failed logins", async () => {
+  Bun.env.QIY_AUTH_SECRET = secret;
+  const passwordHash = await hashPassword("correct-password");
+  const user = { id: "user-lock", ${JSON.stringify(auth.usernameField)}: "lock-user", ${JSON.stringify(auth.passwordField)}: passwordHash, ${JSON.stringify(auth.roleField)}: "admin" } as unknown as import("../src/auth/local").LocalUser;
+  const app = new Elysia().use(createLocalAuthRoutes(async (username) => username === "lock-user" ? user : null));
+  const login = (password: string) => app.handle(new Request("http://localhost/api/v1/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: "lock-user", password }) }));
+  for (let attempt = 0; attempt < 4; attempt += 1) expect((await login("wrong-password")).status).toBe(401);
+  const locked = await login("wrong-password");
+  expect(locked.status).toBe(429);
+  expect(locked.headers.get("retry-after")).toBeTruthy();
+  expect((await login("correct-password")).status).toBe(429);
 });
 
 test("local login route issues a bearer token and rejects invalid credentials", async () => {
@@ -6840,10 +6923,31 @@ test("local login route issues a bearer token and rejects invalid credentials", 
   expect(success.status).toBe(200);
   const payload = await success.json() as { accessToken: string; role: string };
   expect(payload.role).toBe("admin");
-  expect(await verifyAccessToken(payload.accessToken, secret, "qiy-admin")).toEqual({ id: "user-1", role: "admin" });
+  expect(await verifyAccessToken(payload.accessToken, secret, "qiy-admin")).toMatchObject({ id: "user-1", role: "admin" });
   expect((await login("admin", "wrong-password")).status).toBe(401);
   expect((await login("missing", "wrong-password")).status).toBe(401);
   expect((await app.handle(new Request("http://localhost/api/v1/auth/password", { method: "POST" }))).status).toBe(404);
+});
+`;
+      if (database.dialect === "sqlite") files["api/tests/session-revocation.test.ts"] = `import { expect, test } from "bun:test";
+import { client } from "../src/db";
+import { isSessionRevoked, revokeUserSessions } from "../src/auth/session-revocations";
+
+const DDL = ${JSON.stringify(sessionRevocationDdl)};
+
+test("revokes tokens issued before the revocation watermark", async () => {
+  client.exec("DROP TABLE IF EXISTS qiy_session_revocations");
+  client.exec(DDL);
+  try {
+    const userId = "00000000-0000-4000-8000-0000000000aa";
+    const issuedAt = Math.floor(Date.now() / 1000) - 60;
+    expect(await isSessionRevoked(userId, issuedAt)).toBe(false);
+    const revokedBefore = await revokeUserSessions(userId);
+    expect(await isSessionRevoked(userId, issuedAt)).toBe(true);
+    expect(await isSessionRevoked(userId, Math.floor(revokedBefore.getTime() / 1000) + 60)).toBe(false);
+  } finally {
+    client.exec("DROP TABLE IF EXISTS qiy_session_revocations");
+  }
 });
 `;
     }
@@ -7562,6 +7666,7 @@ function renderAccountModule(auth: NonNullable<QiyProject["auth"]>, database: Da
 import { Elysia } from "elysia";
 import { db } from "../db";
 import { ${auth.userEntity} } from "../schema";
+import { revokeUserSessions } from "./session-revocations";
 import type { Authenticator } from "./guard";
 
 interface QiyProviderIdentitySummary { id: string; label: string; bound: boolean; subject?: string; email?: string; name?: string }
@@ -7603,7 +7708,14 @@ export function createAccountRoutes(authenticate: Authenticator) {
     });
     const loginMethodCount = providers.filter((provider) => provider.bound).length + (passwordSet ? 1 : 0);
     return { user: { id: String(record.id), username, email, name, role: String(record[ROLE_FIELD] ?? "") }, password: { set: passwordSet }, providers, loginMethodCount };
-  });
+  })
+    .post("/logout-all", async (context: any) => {
+      const { request, set } = context;
+      const principal = await authenticate(request);
+      if (!principal) { set.status = 401; return { error: "Authentication required" }; }
+      const revokedBefore = await revokeUserSessions(principal.id);
+      return { ok: true, revokedBefore: revokedBefore.toISOString() };
+    });
 }
 `;
 }
@@ -8078,6 +8190,14 @@ export function createHybridAuthRoutes(authenticate: Authenticator) {
 /** ------------------------------------------------------------------------- */
 
 /** DDL-neutral column helpers for the `qiy_api_keys` table. */
+/** DDL-neutral `qiy_session_revocations` table for local-auth token revocation. */
+function renderSessionRevocationSchema(dialect: DatabaseIR["dialect"]): string {
+  const table = dialect === "postgresql" ? "pgTable" : dialect === "sqlite" ? "sqliteTable" : "mysqlTable";
+  const string = (name: string, length?: number) => dialect === "mysql" ? `varchar(${JSON.stringify(name)}, { length: ${length ?? 255} })` : `text(${JSON.stringify(name)})`;
+  const timestamp = (name: string) => dialect === "postgresql" ? `timestamp(${JSON.stringify(name)}, { withTimezone: true })` : dialect === "sqlite" ? `integer(${JSON.stringify(name)}, { mode: "timestamp_ms" })` : `datetime(${JSON.stringify(name)}, { mode: "date", fsp: 3 })`;
+  return `\n\nexport const qiySessionRevocations = ${table}("qiy_session_revocations", {\n  userId: ${string("userId", 36)}.primaryKey(),\n  revokedBefore: ${timestamp("revokedBefore")}.notNull(),\n});\n`;
+}
+
 function renderApiKeySchema(dialect: DatabaseIR["dialect"]): string {
   const table = dialect === "postgresql" ? "pgTable" : dialect === "sqlite" ? "sqliteTable" : "mysqlTable";
   const string = (name: string, length?: number) => dialect === "mysql" ? `varchar(${JSON.stringify(name)}, { length: ${length ?? 255} })` : `text(${JSON.stringify(name)})`;

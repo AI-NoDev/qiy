@@ -3747,6 +3747,13 @@ export async function unbindProvider(provider: string, fetcher: typeof fetch = f
   const result = await response.json().catch(() => null) as { error?: string; ok?: boolean } | null;
   if (!response.ok || !result?.ok) throw new Error(result?.error ?? "Could not unlink the identity provider");
 }
+
+/** Revokes every existing local session for the current account. */
+export async function revokeAllSessions(fetcher: typeof fetch = fetch): Promise<void> {
+  const response = await fetcher("/api/v1/auth/logout-all", { method: "POST", headers: { ...bearer() } });
+  const result = await response.json().catch(() => null) as { error?: string; ok?: boolean } | null;
+  if (!response.ok || !result?.ok) throw new Error(result?.error ?? "Could not revoke sessions");
+}
 `;
 }
 
@@ -3836,7 +3843,7 @@ function renderProfileRoute(options: { hasProviderBinding: boolean; roleEnumName
 import { Alert, Button, Card, Descriptions, List, Popconfirm, Space, Spin, Tag, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
-${bindImport}import { fetchIdentities, unbindProvider, type QiyIdentities, type QiyIdentityProvider } from "../auth/account";
+${bindImport}import { fetchIdentities, revokeAllSessions, unbindProvider, type QiyIdentities, type QiyIdentityProvider } from "../auth/account";
 
 export default function Profile() {
   const [searchParams] = useSearchParams();
@@ -3859,6 +3866,11 @@ export default function Profile() {
     catch (caught) { open?.({ type: "error", message: caught instanceof Error ? caught.message : String(caught) }); }
     finally { setBusy(undefined); }
   };
+  const revokeAll = async () => {
+    setBusy("revoke-all");
+    try { await revokeAllSessions(); open?.({ type: "success", message: translate("qiy.revokeAllDone", {}, "All sessions revoked") }); logout(); }
+    catch (caught) { open?.({ type: "error", message: caught instanceof Error ? caught.message : String(caught) }); setBusy(undefined); }
+  };
   ${options.hasProviderBinding ? `const bind = async (provider: QiyIdentityProvider) => {
     setBusy(provider.id);
     try { await beginProviderBind(provider.id); }
@@ -3870,7 +3882,7 @@ export default function Profile() {
   const canRemove = (provider: QiyIdentityProvider) => passwordSet || identities.providers.some((other) => other.id !== provider.id && other.bound);
   return <Space direction="vertical" size="large" style={{ width: "100%" }}>
     <Typography.Title level={2} style={{ margin: 0 }}>{translate("qiy.profileTitle", {}, "Profile")}</Typography.Title>
-    <Card title={translate("qiy.account", {}, "Account")} extra={<Button onClick={() => logout()}>{translate("qiy.signOut", {}, "Sign out")}</Button>}>
+    <Card title={translate("qiy.account", {}, "Account")} extra={<Space><Popconfirm title={translate("qiy.revokeAllConfirm", {}, "Sign out every device? Existing local sessions stop working immediately.")} onConfirm={() => void revokeAll()} okText={translate("qiy.revokeAll", {}, "Sign out all devices")} cancelText={translate("qiy.cancel", {}, "Cancel")}><Button danger loading={busy === "revoke-all"}>{translate("qiy.revokeAll", {}, "Sign out all devices")}</Button></Popconfirm><Button onClick={() => logout()}>{translate("qiy.signOut", {}, "Sign out")}</Button></Space>}>
       <Descriptions column={1} items={[
         { key: "username", label: translate("qiy.username", {}, "Username"), children: identities.user.username },
         { key: "email", label: translate("qiy.email", {}, "Email"), children: identities.user.email },

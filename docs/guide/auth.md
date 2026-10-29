@@ -122,6 +122,7 @@ QIY_OIDC_JWKS_CACHE_MAX_AGE_MS=600000 # 缓存有效期 = 撤销的最坏延迟
 - 单一 OIDC 模式用 `qiy.expires_at`（提前 60 秒）判定过期，并尝试一次 `prompt=none` 静默续期；`login_required`/`interaction_required`/`consent_required`/`account_selection_required` 视为需要交互，直接回登录页。多 Provider/混合模式不做静默续期。
 - `GET /auth/me` 返回 `{ id, name, role, claims?, permissions?, groups? }`；权限与组只在声明了 `permission` 时出现。
 - 角色以**数据库行**为准：每次请求重新读用户行，降权下一请求生效。
+- **会话吊销**：`POST /api/v1/auth/logout-all` 写入 `qiy_session_revocations` 水位；该用户所有在此时刻之前签发的本地 token 立即 401。个人中心的「Sign out all devices」调用该端点并退出当前会话。
 
 ## 密码与账号运维
 
@@ -130,7 +131,8 @@ QIY_OIDC_JWKS_CACHE_MAX_AGE_MS=600000 # 缓存有效期 = 撤销的最坏延迟
 | 哈希 | `Bun.password` Argon2id |
 | 最小长度 | 8 字符（无复杂度要求） |
 | 未知账号 | 仍执行一次 dummy 校验再 401（避免时序侧信道） |
-| 限流/锁定 | **未生成**，公网需网关/WAF 补 |
+| 限流/锁定 | 本地密码登录默认按用户名（小写）计数：15 分钟窗口内 5 次失败后锁定 15 分钟，返回 **429 + Retry-After**；可用 `QIY_AUTH_LOGIN_MAX_ATTEMPTS`、`QIY_AUTH_LOGIN_WINDOW_MS`、`QIY_AUTH_LOGIN_LOCK_MS` 调整。计数在**单进程内存**中，多实例部署需网关/WAF 或共享限流 |
+| 会话吊销 | `POST /api/v1/auth/logout-all`（个人中心按钮）；按用户写入 `qiy_session_revocations.revokedBefore`，之前签发的本地会话全部失效 |
 | 初始管理员 | `bun run auth:bootstrap-admin`（读 `.env.production`，已存在 admin 时拒绝） |
 | 重置密码 | `bun run auth:set-password`（按用户名/邮箱定位唯一一行） |
 | 自助改密 | 未生成；个人中心只显示密码是否已设置 |

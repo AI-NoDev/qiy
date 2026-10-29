@@ -1,7 +1,7 @@
 {
   "name": "qiy",
   "type": "module",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Model-driven full-stack application generator: one Qiy model generates a Refine admin, Bun + Elysia API, Drizzle schema and deployment config.",
   "license": "MIT",
   "private": false,

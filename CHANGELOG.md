@@ -8,6 +8,18 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.5.2] - 2026-10-26
+
+### Added
+
+- Local password login now locks a lowercased username after repeated failures:
+  5 failures / 15-minute window -> 15-minute lock, HTTP 429 with `Retry-After`.
+  Tune with `QIY_AUTH_LOGIN_MAX_ATTEMPTS`, `QIY_AUTH_LOGIN_WINDOW_MS`,
+  `QIY_AUTH_LOGIN_LOCK_MS`; counters are per-process memory.
+- Session revocation: `qiy_session_revocations` watermark table,
+  `POST /api/v1/auth/logout-all`, and a profile "Sign out all devices" action.
+  Local tokens issued before the watermark are rejected on the next request.
+
 ## [0.5.1] - 2026-10-26
 
 ### Added
@@ -321,6 +333,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.5.2]: https://github.com/AI-NoDev/qiy/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/AI-NoDev/qiy/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/AI-NoDev/qiy/compare/v0.4.9...v0.5.0
 [0.4.9]: https://github.com/AI-NoDev/qiy/compare/v0.4.8...v0.4.9

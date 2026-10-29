@@ -144,7 +144,8 @@ Identity write rules (not configurable):
 - Provider `iss` must exactly match a configured provider issuer (trailing `/` stripped); audience or client id may match; algorithms limited to RS256/ES256.
 - Claims are flattened into `Principal.claims` (`org.id`, `realm_access.roles`), used by `scope`, `permission from claim` and `restrict mask claim`. `iss/aud/exp/iat/nbf/jti/sub` are excluded.
 - Password hashing: `Bun.password.hash(..., { algorithm: "argon2id" })`; **minimum 8 characters**, no complexity rules. Unknown accounts still run one dummy Argon2id verify before 401.
-- Login response `{ accessToken, tokenType: "Bearer", expiresIn: 43200, id, name, role }`; failures are a uniform 401 `Invalid username or password`.
+- Login response `{ accessToken, tokenType: "Bearer", expiresIn: 43200, id, name, role }`; credential failures are a uniform 401 `Invalid username or password`. Local login counts failures per lowercased username: 5 failures in 15 minutes lock it for 15 minutes -> **429** with `Retry-After` (tune with `QIY_AUTH_LOGIN_MAX_ATTEMPTS`, `QIY_AUTH_LOGIN_WINDOW_MS`, `QIY_AUTH_LOGIN_LOCK_MS`). The counter is per-process memory; multi-instance deployments need a shared limiter or gateway/WAF.
+- `POST /api/v1/auth/logout-all` (profile "Sign out all devices") writes the user's `qiy_session_revocations.revokedBefore` watermark; local tokens with `iat` before it stop authenticating immediately. Unknown/bad tokens are rejected as before.
 - No self-service password change is generated. Operate accounts with `bun run auth:bootstrap-admin` (initial admin, refuses if an admin exists) and `bun run auth:set-password` (unique row by username/email).
 - The login page has no register, forgot-password or remember-me links. Accounts are created by bootstrap, an administrator, or hybrid onboarding.
 

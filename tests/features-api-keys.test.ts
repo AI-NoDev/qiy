@@ -174,6 +174,11 @@ describe("application feature flags", () => {
     expect(enabled["apps/web/app/api-keys.ts"]).toContain("scopes: input.scopes");
     expect(enabled["apps/web/app/components/api-keys-page.tsx"]).toContain("Permission scopes");
     expect(enabled["apps/server/src/auth/api-keys.ts"]).toContain("normalizeApiKeyScopes");
+    expect(enabled["apps/server/src/auth/local.ts"]).toContain("QIY_AUTH_LOGIN_MAX_ATTEMPTS");
+    expect(enabled["apps/server/src/auth/session-revocations.ts"]).toBeTruthy();
+    expect(enabled["apps/server/src/auth/account.ts"]).toContain('post("/logout-all"');
+    expect(enabled["apps/server/tests/session-revocation.test.ts"]).toBeTruthy();
+    expect(enabled["apps/web/app/routes/profile.tsx"]).toContain("revokeAllSessions");
     expect(enabled["apps/server/src/auth/api-key-hash.ts"]).toContain("apiKeyScopesAllow");
     expect(enabled["apps/server/tests/api-keys.test.ts"]).toContain("normalizeApiKeyScopes");
     expect(enabled["apps/web/app/components/api-keys-page.tsx"]).toContain("Rotate");
