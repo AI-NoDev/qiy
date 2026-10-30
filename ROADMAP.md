@@ -91,6 +91,7 @@
 - [x] `qiy dev --watch`：模型变更防抖后自动重新生成、迁移，dev server 重新加载
 
 ## P2：长期
+- [x] 测试审计（`AUDIT.md`）：400 tests、覆盖率 89.44% funcs / 93.12% lines、docs build、生成项目验收、依赖审计
 - [ ] Playwright E2E（登录、FK 批量、功能总览、API Key、Mermaid）+ 视觉回归
 - [ ] a11y、bundle size 预算、负载测试
 - [ ] lint/format、coverage 阈值、依赖扫描 / SBOM / CodeQL

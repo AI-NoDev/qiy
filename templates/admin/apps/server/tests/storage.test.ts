@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Elysia } from "elysia";
 import { createLocalStorage, createS3Storage, storageKey } from "../src/storage";
@@ -8,7 +7,7 @@ import { createStorageRoutes } from "../src/storage/routes";
 
 describe("storage providers", () => {
   test("stores and removes a local object", async () => {
-    const root = mkdtempSync(join(tmpdir(), "qiy-storage-"));
+    const root = mkdtempSync(join(import.meta.dir, ".qiy-storage-"));
     try {
       const storage = createLocalStorage(root);
       await storage.save("orders/invoice-1.txt", new Blob(["invoice"]));
@@ -30,7 +29,7 @@ describe("storage providers", () => {
   });
 
   __QIY_STORAGE_TEST_FUNCTION__("signed reads require ownership and fall back to authenticated local downloads", async () => {
-    const root = mkdtempSync(join(tmpdir(), "qiy-storage-signed-"));
+    const root = mkdtempSync(join(import.meta.dir, ".qiy-storage-signed-"));
     const prior = { root: Bun.env.QIY_STORAGE_ROOT, provider: Bun.env.QIY_STORAGE_PROVIDER, metadata: Bun.env.QIY_STORAGE_METADATA };
     Bun.env.QIY_STORAGE_ROOT = root;
     Bun.env.QIY_STORAGE_PROVIDER = "local";

@@ -10,12 +10,12 @@
     "dev": "turbo run dev",
     "dev:server": "bun run --cwd apps/server dev",
     "dev:web": "bun run --cwd apps/web --bun dev",
-    "build": "turbo run build",
+    "build": "turbo run build --concurrency=1",
     "preview": "bun run --cwd apps/server preview",
     "db:generate": "bun run --cwd apps/server --bun db:generate",
     "db:migrate": "bun run --cwd apps/server --bun db:migrate",
-    "test": "turbo run test",
-    "typecheck": "turbo run typecheck"
+    "test": "turbo run test --concurrency=1",
+    "typecheck": "turbo run typecheck --concurrency=1"
   },
   "devDependencies": {
     "turbo": "2.11.7"
