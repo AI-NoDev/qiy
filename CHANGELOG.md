@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.6.5] - 2026-10-30
+
+### Added
+
+- English documentation core pages: `/en/guide/getting-started` and
+  `/en/guide/cli`, with matching SEO descriptions. The language switcher now
+  only exposes Chinese and English; un-translated locale entries are hidden
+  instead of linking to Chinese-only pages.
+
 ## [0.6.4] - 2026-10-30
 
 ### Added
@@ -391,6 +400,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.6.5]: https://github.com/AI-NoDev/qiy/compare/v0.6.4...v0.6.5
 [0.6.4]: https://github.com/AI-NoDev/qiy/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/AI-NoDev/qiy/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/AI-NoDev/qiy/compare/v0.6.1...v0.6.2

@@ -24,6 +24,8 @@ export const pageDescriptions: Record<string, string> = {
   "dsl/charts.md": "chart DSL 参考：const/pie/bar/line/table 视图、数据迷你语言、labels、chart panels 响应式栅格与限制。",
   "dsl/i18n.md": "Qiy 多语言：messages 默认语言、locale 词典、模型派生键、界面 chrome 键与回退链。",
   "dsl/enum-menu-dashboard.md": "enum、menu 与 dashboard 参考：枚举值注解、分组折叠菜单、旧版指标卡片与页面布局。",
+  "en/guide/getting-started.md": "Get started with Qiy: install the CLI, create a modular .qiy project, generate, migrate and run the admin.",
+  "en/guide/cli.md": "Qiy CLI reference: project commands, diff/incremental generation, model inspection, agent skills and release flow.",
   "guide/what-is-qiy.md": "Qiy 是什么：模型驱动生成器的工作方式、生成物架构、适用场景以及与手写全栈的分工。",
   "guide/design-philosophy.md": "Qiy 设计理念：项目优先、命令优先、模块默认、受限自然语法、安全默认与 AI Agent 一等用户。",
   "guide/syntax-v1.md": "Qiy v1 友好语法预览：project/module、name: type 字段、自动主键、内联一对一关系、支持范围与限制。",
