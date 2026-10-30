@@ -76,7 +76,7 @@
 - [ ] `sum/avg ... group by` 聚合 + chart 扩展（area/stacked/scatter、颜色/图例、下钻）
 - [ ] 字段类型扩展（Boolean/Email/URL/JSON/数组）与迁移策略
 - [ ] 文档多语言：翻译核心页或隐藏未翻译语言入口
-- [ ] 文档版本化（`/v0.2/` 归档）
+- [x] 文档版本化（`/v0.6/` 归档，独立 base/canonical，导航切换）
 - [x] `qiy diff` / dry-run 预览（内存渲染、added/changed/removed、`--check`/`--json`）+ `qiy generate --incremental` 只写变化文件
 - [ ] 每页 OG 图、llms 分段（llms-full 已 ~484KB）
 

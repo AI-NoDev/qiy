@@ -4,6 +4,14 @@ import { descriptionFor } from "./seo";
 
 const base = (process.env.VITEPRESS_BASE ?? "/").replace(/\/?$/, "/");
 const siteUrl = (process.env.QIY_DOCS_SITE_URL ?? "https://ai-nodev.github.io/qiy").replace(/\/$/, "");
+const latestSiteUrl = (process.env.QIY_DOCS_LATEST_URL ?? process.env.QIY_DOCS_SITE_URL ?? "https://ai-nodev.github.io/qiy").replace(/\/$/, "");
+const versionNav = (label: string) => ({
+  text: label,
+  items: [
+    { text: "Latest", link: `${latestSiteUrl}/` },
+    { text: "v0.6 (archive)", link: `${latestSiteUrl}/v0.6/` },
+  ],
+});
 const siteDescription =
   "Qiy 是一个面向数据中心业务应用的领域语言与全栈应用生成框架：一份业务模型，生成 Refine 前端、Bun + Elysia API、Drizzle 数据层与部署配置。";
 const qiyLanguage = JSON.parse(readFileSync(new URL("../../editors/syntax/qiy.tmLanguage.json", import.meta.url), "utf8"));
@@ -26,6 +34,7 @@ function localizedTheme(localeRoot: string, guideLabel: string, chineseDocsLabel
     nav: [
       { text: guideLabel, link: localeRoot },
       { text: chineseDocsLabel, link: "/guide/what-is-qiy" },
+      versionNav("Version"),
     ],
     i18nRouting: false,
     socialLinks: [{ icon: "github", link: "https://github.com/AI-NoDev/qiy" }],
@@ -170,6 +179,7 @@ export default defineConfig({
     nav: [
       { text: "指南", link: "/guide/what-is-qiy", activeMatch: "/guide/" },
       { text: "DSL", link: "/dsl/overview", activeMatch: "/dsl/" },
+      versionNav("版本"),
     ],
     sidebar: {
       "/guide/": [

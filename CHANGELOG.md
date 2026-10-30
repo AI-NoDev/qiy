@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.6.4] - 2026-10-30
+
+### Added
+
+- Versioned documentation: `docs:build` now also builds a stable `/v0.6/`
+  archive with its own base/canonical URLs, and the site nav exposes
+  Latest / v0.6 archive links. Archive builds are pinned per minor version so
+  `latest` can keep changing.
+
 ## [0.6.3] - 2026-10-30
 
 ### Changed
@@ -382,6 +391,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.6.4]: https://github.com/AI-NoDev/qiy/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/AI-NoDev/qiy/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/AI-NoDev/qiy/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/AI-NoDev/qiy/compare/v0.6.0...v0.6.1
