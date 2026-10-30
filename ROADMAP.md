@@ -107,6 +107,7 @@
 - [x] `v0.2.2`：`qiy skill list/update/uninstall`（含 `--json`、本地修改保护、保留手写文件）；通过 dry-run → tag → Release 流程发布。
 - [x] `v0.2.3`：`qiy explain` / `qiy schema`，机器可读模型摘要 + 已发布 JSON Schema。
 - [x] `v0.2.4`：稳定错误码目录 `QIY1001–QIY1016`、`qiy explain --errors`、文档 `/dsl/errors`、`explain --json` 自动附带 code/fix。
+- [x] `v0.6.4`：文档版本化归档（`/v0.6/`，独立 base/canonical，导航 Latest/Archive）。
 - [x] `v0.6.3`：测试审计（`AUDIT.md`）+ 依赖安全加固（Vue XSS override）+ 生成测试临时目录/turbo 串行化。
 - [x] `v0.6.2`：`qiy generate --incremental` 只写内容变化的文件（保留 mtime，仍清理过期文件）。
 - [x] `v0.6.1`：`qiy diff [--check] [--json]` 内存预览生成差异（added/changed/removed，忽略 .env）。
