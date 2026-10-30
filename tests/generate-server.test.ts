@@ -225,7 +225,7 @@ describe("V0 Elysia API generation", () => {
       expect(files["api/src/graphql.ts"]).toContain("ordersTrend(field: String!, days: Int!)");
       expect(files["api/tests/trend.test.ts"]).toContain("status).toBe(403)");
       if (dialect === "mysql") {
-        expect(files["api/src/schema.ts"]).toContain("import { bigint, datetime,");
+        expect(files["api/src/schema.ts"]).toContain("import { bigint, boolean, datetime,");
         expect(files["api/src/schema.ts"]).toContain('datetime("createdAt", { mode: "date", fsp: 3 })');
         expect(files["api/src/db.ts"]).toContain('timezone: "Z"');
       }

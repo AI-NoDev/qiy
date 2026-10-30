@@ -63,6 +63,7 @@ entity <Name> [table <tableName>] [@annotation(...)]... {
 | `UUID` | UUID | `uuid` | 主键（必须叫 `id`）、外键 |
 | `Text` | Text | `text` | 字符串，也是枚举的存储类型 |
 | `Integer` | Integer | `integer` | 32 位整数 |
+| `Boolean` | Boolean | `boolean`（SQLite 用 integer boolean 模式） | 表单渲染为 Switch，API/GraphQL 使用布尔值 |
 | `Decimal(p[, s])` | Decimal | `numeric(p, s)` | 精度必填；`s` 缺省 0 |
 | `Money(p[, s])` | Money | `numeric(p, s)` | 与 Decimal 同构，语义用于金额 |
 | `Date` | Date | `date`（string 模式） | 传输 `YYYY-MM-DD` |

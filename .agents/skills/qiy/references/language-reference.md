@@ -475,13 +475,14 @@ Field types (closed set):
 | `UUID` | `uuid` | PK/FK |
 | `Text` | `text` | strings, enum storage |
 | `Integer` | `integer` | 32-bit |
+| `Boolean` | `boolean` | SQLite uses integer boolean mode; form renders a Switch |
 | `Decimal(p[,s])` / `Money(p[,s])` | `numeric(p,s)` | precision required |
 | `Date` / `Time` / `DateTime` | `date` / `time` / `timestamptz` | `YYYY-MM-DD` / `HH:mm:ss` / ISO |
 | `File` / `Files` | `text` / `jsonb` | storage key(s) |
 | `Vector(n)` | `vector(n)` | PostgreSQL + pgvector |
 | `<enumName>` | `text` | declared enum |
 
-Unknown types (`String`, `Boolean`, `Json`, ...) fail. Parameters only on `Vector`/`Decimal`/`Money` (`Field type Text has no parameters`). Field attributes: `@id`, `@nullable`, `@unique`, `@label`, `@comment`, `@icon`, `@visible`, `@listVisible`, `@formVisible`, `@showVisible`, `@sortable`, `@filterable`, `@filter(...)`, `@upload(...)`, `@maxBytes`, `@maxFiles`, `@mime`, `@extension`, `@code`, `@generated(uuid)`, `@column`, `@dimension`, `@precision`, `@scale`. There is no `@required`, `@default`, `@length`, `@computed`. Full matrices: [modeling-and-generation.md](modeling-and-generation.md).
+Unknown types (`String`, `Json`, ...) fail. Parameters only on `Vector`/`Decimal`/`Money` (`Field type Text has no parameters`). Field attributes: `@id`, `@nullable`, `@unique`, `@label`, `@comment`, `@icon`, `@visible`, `@listVisible`, `@formVisible`, `@showVisible`, `@sortable`, `@filterable`, `@filter(...)`, `@upload(...)`, `@maxBytes`, `@maxFiles`, `@mime`, `@extension`, `@code`, `@generated(uuid)`, `@column`, `@dimension`, `@precision`, `@scale`. There is no `@required`, `@default`, `@length`, `@computed`. Full matrices: [modeling-and-generation.md](modeling-and-generation.md).
 
 ## relation and index
 

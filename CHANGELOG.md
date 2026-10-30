@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.7.0] - 2026-10-30
+
+### Added
+
+- `Boolean` field type end-to-end: parser/IR/validation, PostgreSQL `boolean`,
+  SQLite integer boolean mode, MySQL `boolean`, REST/GraphQL Boolean schemas,
+  generated fixtures, API docs JSON Schema, and an Ant Design `Switch` in
+  generated create/edit forms. Filters default to `eq`.
+
 ## [0.6.5] - 2026-10-30
 
 ### Added
@@ -400,6 +409,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.7.0]: https://github.com/AI-NoDev/qiy/compare/v0.6.5...v0.7.0
 [0.6.5]: https://github.com/AI-NoDev/qiy/compare/v0.6.4...v0.6.5
 [0.6.4]: https://github.com/AI-NoDev/qiy/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/AI-NoDev/qiy/compare/v0.6.2...v0.6.3

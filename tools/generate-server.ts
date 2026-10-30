@@ -64,6 +64,7 @@ function apiFieldSchema(field: FieldIR, database: DatabaseIR): string {
     case "File": return "t.String({ minLength: 1, maxLength: 240 })";
     case "Files": return `t.Array(t.String({ minLength: 1, maxLength: 240 }), { minItems: 1, maxItems: ${field.maxFiles ?? 6} })`;
     case "Integer": return "t.Integer()";
+    case "Boolean": return "t.Boolean()";
     // The temporal contract is validated by api/src/temporal.ts so malformed values
     // return a documented 400 instead of TypeBox's 422: TypeBox has no strict
     // calendar/`HH:mm:ss` format (its "date" format accepts 2026-2-3 and 2026-02-31).
@@ -204,6 +205,7 @@ function graphqlType(field: FieldIR, required = true): string {
   const base = field.enumName ? graphqlName(field.enumName)
     : field.type === "UUID" ? "ID"
       : field.type === "Integer" ? "Int"
+      : field.type === "Boolean" ? "Boolean"
         : field.type === "Vector" ? "[Float!]"
           : field.type === "Files" ? "[String!]"
             : "String";
@@ -599,7 +601,7 @@ function renderGraphQLTest(database: DatabaseIR, hiddenFields: string[] = []): s
   // generated schema, so neither the selection set nor the input may reference them.
   const creatableFields = visibleFields.filter((field) => !generatedFieldsOf(entity, database.relations ?? []).some((generated) => generated.field.name === field.name));
   const values = visibleFields.filter((field) => !field.primaryKey && !field.nullable && creatableFields.includes(field)).map((field) => {
-    const example = field.type === "Integer" ? "1" : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
+    const example = field.type === "Integer" ? "1" : field.type === "Boolean" ? "true" : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
       : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
         : field.enumName ? JSON.stringify(database.enums?.find((enumeration) => enumeration.name === field.enumName)?.values[0]?.name ?? "") : '"Example"';
     return `${JSON.stringify(field.name)}: ${example}`;
@@ -776,6 +778,7 @@ function previewRecord(entity: EntityIR, database: DatabaseIR, scope?: { field: 
     else if (field.primaryKey) value = "00000000-0000-4000-8000-000000000001";
     else if (field.enumName) value = database.enums?.find((enumeration) => enumeration.name === field.enumName)?.values[0]?.name ?? null;
     else if (field.type === "Text") value = `Demo ${entity.name}`;
+    else if (field.type === "Boolean") value = true;
     else if (field.type === "Integer") value = 1;
     else if (field.type === "Decimal" || field.type === "Money") value = "49.90";
     return `${JSON.stringify(field.name)}: ${JSON.stringify(value)}`;
@@ -1976,7 +1979,7 @@ function renderRouteTest(entity: EntityIR, database: DatabaseIR, scopes: NonNull
   const name = modelName(entity);
   const claims = JSON.stringify(Object.fromEntries(scopes.map((scope) => [scope.claim, database.entities.find((item) => item.name === scope.resource || item.tableName === scope.resource)?.fields.find((field) => field.name === scope.field)?.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : "Example"])));
   const values = entity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => {
-    const example = field.type === "Integer" ? "1" : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
+    const example = field.type === "Integer" ? "1" : field.type === "Boolean" ? "true" : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
       : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
         : field.enumName ? JSON.stringify(database.enums?.find((enumeration) => enumeration.name === field.enumName)?.values[0]?.name ?? "") : '"Example"';
     return `${JSON.stringify(field.name)}: ${example}`;
@@ -3796,6 +3799,7 @@ function dataflowFixtureValue(field: FieldIR, requires: Array<{ field: string; o
   if (field.enumName || field.type === "Text" || field.type === "File") return '"Qiy fixture"';
   if (field.type === "Files") return '["uploads/sample.pdf"]';
   if (field.type === "Integer") return "1";
+  if (field.type === "Boolean") return "true";
   if (field.type === "Decimal" || field.type === "Money") return "1";
   if (field.type === "DateTime") return "new Date(0)";
   if (field.type === "Date") return '"2026-11-30"';
@@ -7422,7 +7426,7 @@ ${scope ? `  const missing = await createApp(repositories, async () => ({ id: "a
     const entity = database.entities[0]!;
     const entityGenerated = generatedFieldsOf(entity, database.relations ?? []);
     const columns = entity.fields.map((field) => `"${field.name}" ${field.type === "Integer" || field.type === "DateTime" ? "integer" : field.type === "Decimal" || field.type === "Money" ? "real" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
-    const values = entity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => `${JSON.stringify(field.name)}: ${field.enumName ? JSON.stringify(database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name) : field.type === "Integer" ? "1" : field.type === "Decimal" || field.type === "Money" ? '"1.00"' : field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"' : field.type === "Files" ? '["uploads/sample.pdf"]' : '"Example"'}`).join(", ");
+    const values = entity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => `${JSON.stringify(field.name)}: ${field.enumName ? JSON.stringify(database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name) : field.type === "Integer" ? "1" : field.type === "Boolean" ? "true" : field.type === "Decimal" || field.type === "Money" ? '"1.00"' : field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"' : field.type === "Files" ? '["uploads/sample.pdf"]' : '"Example"'}`).join(", ");
     // A generated @code field allocates from the sequence table before the insert,
     // so the rollback fixture has to provide it.
     const sequenceTable = entityGenerated.some((generated) => generated.kind === "code")

@@ -11,6 +11,7 @@ function column(field: FieldIR, relation?: RelationIR): string {
     case "File": declaration = `text(${name})`; break;
     case "Files": declaration = `jsonb(${name}).$type<string[]>()`; break;
     case "Integer": declaration = `integer(${name})`; break;
+    case "Boolean": declaration = `boolean(${name})`; break;
     // Date and Time are stored as ISO text (`YYYY-MM-DD`, `HH:mm:ss`) so the REST,
     // GraphQL and CSV contracts stay the same across dialects.
     case "Date": declaration = `date(${name}, { mode: "string" })`; break;
@@ -81,7 +82,7 @@ export function generateDrizzlePostgres(database: DatabaseIR): string {
   const imports = new Set(["pgTable", "index", "uniqueIndex", "jsonb", "timestamp", "uuid", "text", "integer", "boolean"]);
   for (const entity of database.entities) {
     for (const field of entity.fields) {
-      imports.add(({ UUID: "uuid", Text: "text", Integer: "integer", Decimal: "numeric", Money: "numeric", Date: "date", Time: "time", DateTime: "timestamp", File: "text", Files: "jsonb", Vector: "vector" } as const)[field.type]);
+      imports.add(({ UUID: "uuid", Text: "text", Integer: "integer", Boolean: "boolean", Decimal: "numeric", Money: "numeric", Date: "date", Time: "time", DateTime: "timestamp", File: "text", Files: "jsonb", Vector: "vector" } as const)[field.type]);
     }
     for (const index of entity.indexes ?? []) imports.add(index.unique ? "uniqueIndex" : "index");
   }

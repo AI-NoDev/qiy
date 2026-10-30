@@ -11,6 +11,7 @@ function column(field: FieldIR, relation?: RelationIR, indexed = false): string 
     case "File": declaration = field.unique || indexed ? `varchar(${name}, { length: 255 })` : `text(${name})`; break;
     case "Files": declaration = `json(${name}).$type<string[]>()`; break;
     case "Integer": declaration = `int(${name})`; break;
+    case "Boolean": declaration = `boolean(${name})`; break;
     // Date and Time keep the wire contract verbatim: `YYYY-MM-DD` and `HH:mm:ss` text.
     case "Date": declaration = `date(${name}, { mode: "string" })`; break;
     case "Time": declaration = `time(${name})`; break;
@@ -68,7 +69,7 @@ export function generateDrizzleMysql(database: DatabaseIR): string {
   if (database.dialect !== "mysql") errors.unshift("This Drizzle adapter only supports MySQL");
   if (database.extensions.length > 0) errors.push("MySQL adapter does not support PostgreSQL extensions");
   if (errors.length) throw new Error(errors.join("\n"));
-  const imports = new Set(["bigint", "datetime", "decimal", "index", "int", "json", "mediumtext", "mysqlTable", "text", "uniqueIndex", "varchar"]);
+  const imports = new Set(["bigint", "boolean", "datetime", "decimal", "index", "int", "json", "mediumtext", "mysqlTable", "text", "uniqueIndex", "varchar"]);
   for (const entity of database.entities) for (const field of entity.fields) if (field.type === "Date") imports.add("date");
   for (const entity of database.entities) for (const field of entity.fields) if (field.type === "Time") imports.add("time");
   const sequences = usesCodeSequences(database);

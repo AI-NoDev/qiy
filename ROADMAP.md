@@ -74,7 +74,8 @@
 - [x] 本地密码限流/锁定（默认 5 次/15 分钟窗口，锁 15 分钟，429 + Retry-After）
 - [x] 会话吊销（`qiy_session_revocations` + `POST /auth/logout-all` + 个人中心按钮）
 - [ ] `sum/avg ... group by` 聚合 + chart 扩展（area/stacked/scatter、颜色/图例、下钻）
-- [ ] 字段类型扩展（Boolean/Email/URL/JSON/数组）与迁移策略
+- [x] 字段类型扩展：Boolean（parser/IR/Drizzle/API/GraphQL/Web Switch/文档）
+- [ ] 字段类型扩展：Email/URL/JSON/数组与迁移策略
 - [x] 文档多语言：English 核心页（getting-started / CLI）+ 隐藏未翻译语言入口
 - [x] 文档版本化（`/v0.6/` 归档，独立 base/canonical，导航切换）
 - [x] `qiy diff` / dry-run 预览（内存渲染、added/changed/removed、`--check`/`--json`）+ `qiy generate --incremental` 只写变化文件

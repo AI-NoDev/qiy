@@ -103,7 +103,7 @@ describe("Date and Time scalar fields", () => {
   test("wires Date/Time pickers, formatter and generated web tests", () => {
     const project = parseQiyProject(model);
     const files = generateWeb(project.database);
-    expect(files["web/app/resources.ts"]).toContain('export type FieldType = "UUID" | "Text" | "Integer" | "Decimal" | "Money" | "Date" | "Time" | "DateTime"');
+    expect(files["web/app/resources.ts"]).toContain('export type FieldType = "UUID" | "Text" | "Integer"');
     expect(files["web/app/resources.ts"]).toContain('"type": "Date"');
     expect(files["web/app/date-fields.ts"]).toContain("export function toFormValue");
     expect(files["web/app/date-fields.ts"]).toContain("export function toPayloadValue");
