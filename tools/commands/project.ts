@@ -36,9 +36,9 @@ export async function checkProject(cwd = process.cwd()): Promise<void> {
 }
 
 /** `qiy generate` inside a project: regenerate/sync the manifest output. */
-export async function generateProject(cwd = process.cwd()): Promise<void> {
+export async function generateProject(cwd = process.cwd(), options: { incremental?: boolean } = {}): Promise<void> {
   const project = requireQiyProject(cwd);
-  await generateApp(project.modelPath, project.outputPath, { sync: existsSync(project.outputPath) });
+  await generateApp(project.modelPath, project.outputPath, { sync: existsSync(project.outputPath), ...(options.incremental && { incremental: true }) });
 }
 
 /** Differences between the current generated workspace and the model. */

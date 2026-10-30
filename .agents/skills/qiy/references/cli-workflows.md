@@ -57,6 +57,7 @@ qiy add module <name> [--kind entities|ui|permissions|dataflows|messages]
 qiy add feature <overview|apiDocs|apiKeys>
 qiy fmt [--check] [files...]
 qiy generate
+qiy generate --incremental
 qiy dev
 qiy dev --watch
 qiy build
@@ -128,7 +129,7 @@ qiy dev --watch
 ```bash
 qiy check      # validate only
 qiy diff       # preview added/changed/removed generated files (--check exits 1)
-qiy generate   # generate or sync admin/
+qiy generate   # generate or sync admin/; --incremental writes only changed files
 qiy dev        # generate + install first time + migrate + start API/admin
 qiy test
 qiy build

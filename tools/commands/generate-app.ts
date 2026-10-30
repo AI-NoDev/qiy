@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { generateProject } from "../generate-project";
 import { loadQiyProjectSource } from "../qiy-include";
@@ -11,6 +11,8 @@ import { generatedWiki } from "../generated-wiki";
 export interface GenerateAppOptions {
   sync?: boolean;
   name?: string;
+  /** Write only files whose content changed (still removes stale generated files when syncing). */
+  incremental?: boolean;
 }
 
 export interface RenderedApp {
@@ -99,6 +101,7 @@ export async function generateApp(source: string, destination: string, options: 
       ? await Bun.file(path).text()
       : undefined;
     const outputContent = environmentMode ? prepareEnvironmentFile(String(content), existingEnvironmentFile) : String(content);
+    if (options.incremental && existsSync(path) && readFileSync(path, "utf8") === outputContent) continue;
     await Bun.write(path, outputContent);
   }
   const count = Object.keys(files).length;

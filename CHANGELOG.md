@@ -8,6 +8,14 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.6.2] - 2026-10-26
+
+### Added
+
+- `qiy generate --incremental` writes only files whose content changed while
+  still syncing/removing stale generated files, reducing churn for watch mode
+  and CI. Unchanged files keep their mtimes.
+
 ## [0.6.1] - 2026-10-26
 
 ### Added
@@ -362,6 +370,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.6.2]: https://github.com/AI-NoDev/qiy/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/AI-NoDev/qiy/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/AI-NoDev/qiy/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/AI-NoDev/qiy/compare/v0.5.2...v0.5.3

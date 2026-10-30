@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateApp } from "../tools/commands/generate-app";
-import { diffProject, formatProjectDiff } from "../tools/commands/project";
+import { diffProject, formatProjectDiff, generateProject } from "../tools/commands/project";
 import { createQiyProject, requireQiyProject } from "../tools/project";
 
 async function fixture(): Promise<{ root: string; output: string }> {
@@ -22,6 +22,19 @@ test("reports no differences for a freshly generated project", async () => {
   expect(diff.removed).toEqual([]);
   expect(diff.unchanged).toBeGreaterThan(100);
   expect(formatProjectDiff(diff, diff.output)).toContain("No differences");
+});
+
+test("incremental generation leaves unchanged files untouched and repairs drift", async () => {
+  const { root, output } = await fixture();
+  const target = join(output, "apps/server/package.json");
+  const old = new Date("2020-01-01T00:00:00Z");
+  utimesSync(target, old, old);
+  await generateProject(root, { incremental: true });
+  expect(statSync(target).mtimeMs).toBe(old.getTime());
+
+  writeFileSync(target, "// drift\n");
+  await generateProject(root, { incremental: true });
+  expect(readFileSync(target, "utf8")).not.toContain("// drift");
 });
 
 test("detects added, changed and removed generated files", async () => {

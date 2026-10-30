@@ -22,7 +22,7 @@ Usage: qiy <command> [options]
 Commands:
   create project <name> [--template minimal|standard] [--dir <path>]
                                   Create a modular Qiy project (model/ + qiy.project.json)
-  generate                        Generate/sync the current project
+  generate [--incremental]        Generate/sync the current project; --incremental writes changed files only
     <source> <output-dir>         Legacy explicit generation; --sync updates it
   check                           Validate the current project model without writing
   diff [--check] [--json]         Preview generated file additions/changes/removals without writing
@@ -226,10 +226,13 @@ async function main(argv: string[]): Promise<void> {
     case "generate": {
       const [source, destination] = positional;
       if (!source && !destination) {
-        await generateProject(process.cwd());
+        const unknown = rest.filter((argument) => argument.startsWith("-") && argument !== "--incremental");
+        if (unknown.length) throw new Error(`Unknown qiy generate option: ${unknown[0]}\n\n${USAGE}`);
+        await generateProject(process.cwd(), { incremental: flag(rest, "--incremental") });
         return;
       }
       if (!source || !destination) throw new Error("qiy generate requires <source> and <output-dir> (or run it inside a qiy project).\n\n" + USAGE);
+      if (flag(rest, "--incremental")) throw new Error("--incremental is only available for project generation (qiy generate inside a qiy project).");
       await generateApp(source, destination, { sync: flag(rest, "--sync") });
       return;
     }

@@ -49,7 +49,7 @@ qiy init -f <source> [-n <name>] [--sync]            # 挂载到现有 Bun 项�
 | `qiy add module <name>` | 新建 `model/modules/<nn>-<name>.qiy` 并把 `include` 插到正确声明位置；`--kind entities|ui|permissions|dataflows|messages` 控制插入点 |
 | `qiy add feature <overview\|apiDocs\|apiKeys>` | 在 `features` 块启用系统页面；无 auth 时 `apiKeys` 会被校验拒绝并回滚 |
 | `qiy fmt [--check] [files...]` | 规范化 `.qiy` 缩进/空行/行尾空白与文件末尾换行；不改变声明顺序、注释、include 或语义；`--check` 只检查并以退出码 1 报告 |
-| `qiy generate` | 生成或同步 `admin/`；已有生成物时自动 `--sync` |
+| `qiy generate` | 生成或同步 `admin/`；已有生成物时自动 `--sync`；`--incremental` 只写入内容变化的文件（仍清理过期生成物），适合 watch/CI 减少磁盘抖动 |
 | `qiy dev [--watch]` | 生成 → 首次安装依赖 → 生成并执行数据库迁移 → 启动 API + Admin；`--watch` 监听 `model/` 并在保存后自动重生成/迁移 |
 | `qiy test` | 确保生成/安装后运行生成项目测试 |
 | `qiy build` | 确保生成/安装后生产构建 |
