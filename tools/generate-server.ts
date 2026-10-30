@@ -63,6 +63,7 @@ function apiFieldSchema(field: FieldIR, database: DatabaseIR): string {
     case "Text": return "t.String({ minLength: 1 })";
     case "Email": return "t.String({ format: \"email\", minLength: 3 })";
     case "URL": return "t.String({ format: \"uri\", minLength: 4 })";
+    case "JSON": return "t.Any()";
     case "File": return "t.String({ minLength: 1, maxLength: 240 })";
     case "Files": return `t.Array(t.String({ minLength: 1, maxLength: 240 }), { minItems: 1, maxItems: ${field.maxFiles ?? 6} })`;
     case "Integer": return "t.Integer()";
@@ -207,7 +208,8 @@ function graphqlType(field: FieldIR, required = true): string {
   const base = field.enumName ? graphqlName(field.enumName)
     : field.type === "UUID" ? "ID"
       : field.type === "Integer" ? "Int"
-      : field.type === "Boolean" ? "Boolean"
+      : field.type === "JSON" ? "JSON"
+        : field.type === "Boolean" ? "Boolean"
         : field.type === "Vector" ? "[Float!]"
           : field.type === "Files" ? "[String!]"
             : "String";
@@ -289,7 +291,9 @@ function graphqlSchema(database: DatabaseIR, hiddenFields: Record<string, string
       : undefined;
     return batch ? [single, batch] : [single];
   }).join("\n");
-  return `${enums ? `${enums}\n\n` : ""}input QiyFilterInput {\n  field: String!\n  operator: String = "eq"\n  value: String!\n}\n\ntype QiyDistribution {\n  value: String\n  count: Int!\n}\n\ntype QiyTrend {\n  day: String!\n  count: Int!\n}\n\n${types}${realtimeEntities.length ? `\n\n${realtimeEntities.map((entity) => `type ${modelName(entity)}Event {\n  event: String!\n  record: ${modelName(entity)}!\n}`).join("\n\n")}` : ""}${dataflowInputs ? `\n\n${dataflowInputs}` : ""}\n\ntype Query {\n${queries}\n}\n\ntype Mutation {\n${mutations}${dataflowMutations ? `\n${dataflowMutations}` : ""}\n}${realtimeEntities.length ? `\n\ntype Subscription {\n${realtimeEntities.map((entity) => `  ${entity.name}Changed: ${modelName(entity)}Event!`).join("\n")}\n}` : ""}`;
+  return `${enums ? `${enums}\n\n` : ""}scalar JSON
+
+input QiyFilterInput {\n  field: String!\n  operator: String = "eq"\n  value: String!\n}\n\ntype QiyDistribution {\n  value: String\n  count: Int!\n}\n\ntype QiyTrend {\n  day: String!\n  count: Int!\n}\n\n${types}${realtimeEntities.length ? `\n\n${realtimeEntities.map((entity) => `type ${modelName(entity)}Event {\n  event: String!\n  record: ${modelName(entity)}!\n}`).join("\n\n")}` : ""}${dataflowInputs ? `\n\n${dataflowInputs}` : ""}\n\ntype Query {\n${queries}\n}\n\ntype Mutation {\n${mutations}${dataflowMutations ? `\n${dataflowMutations}` : ""}\n}${realtimeEntities.length ? `\n\ntype Subscription {\n${realtimeEntities.map((entity) => `  ${entity.name}Changed: ${modelName(entity)}Event!`).join("\n")}\n}` : ""}`;
 }
 
 function graphqlResolver(entity: EntityIR, restricted = false): string {
@@ -782,6 +786,7 @@ function previewRecord(entity: EntityIR, database: DatabaseIR, scope?: { field: 
     else if (field.type === "Text") value = `Demo ${entity.name}`;
     else if (field.type === "Email") value = "user@example.com";
     else if (field.type === "URL") value = "https://example.com";
+    else if (field.type === "JSON") value = {};
     else if (field.type === "Boolean") value = true;
     else if (field.type === "Integer") value = 1;
     else if (field.type === "Decimal" || field.type === "Money") value = "49.90";
@@ -2303,6 +2308,7 @@ function dataflowInputField(type: string): string {
     case "Text": return "t.String({ minLength: 1 })";
     case "Email": return "t.String({ format: \"email\", minLength: 3 })";
     case "URL": return "t.String({ format: \"uri\", minLength: 4 })";
+    case "JSON": return "t.Any()";
     case "Integer": return "t.Integer({ minimum: -2147483648, maximum: 2147483647 })";
     case "Decimal": return 't.String({ pattern: "^-?[0-9]+(\\\\.[0-9]+)?$" })';
     case "Boolean": return "t.Boolean()";
@@ -8790,7 +8796,10 @@ function jsonSchemaForField(field: DocsField): Record<string, unknown> {
   const base: Record<string, unknown> = field.type === "Integer" ? { type: "integer" }
     : field.type === "Decimal" || field.type === "Money" ? { type: "number" }
       : field.type === "Boolean" ? { type: "boolean" }
-        : field.type === "Vector" ? { type: "array", items: { type: "number" } }
+        : field.type === "JSON" ? { type: "object", additionalProperties: true }
+          : field.type === "Email" ? { type: "string", format: "email" }
+            : field.type === "URL" ? { type: "string", format: "uri" }
+              : field.type === "Vector" ? { type: "array", items: { type: "number" } }
           : field.type === "File" || field.type === "Files" ? { type: "string", format: "binary" }
             : { type: "string" };
   if (field.enumValues?.length) base.enum = field.enumValues.map((value) => value.name);

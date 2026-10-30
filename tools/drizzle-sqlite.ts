@@ -13,6 +13,7 @@ function column(field: FieldIR, relation?: RelationIR): string {
     case "File": declaration = `text(${name})`; break;
     case "Files": declaration = `text(${name}, { mode: "json" }).$type<string[]>()`; break;
     case "Integer": declaration = `integer(${name})`; break;
+    case "JSON": declaration = `text(${name}, { mode: "json" })`; break;
     case "Boolean": declaration = `integer(${name}, { mode: "boolean" })`; break;
     // Date and Time keep the wire contract verbatim: `YYYY-MM-DD` and `HH:mm:ss` text.
     case "Date":

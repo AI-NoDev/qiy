@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.9.0] - 2026-10-30
+
+### Added
+
+- `JSON` field type: PostgreSQL `jsonb`, SQLite text JSON mode and MySQL
+  `json`; REST `t.Any()`, GraphQL `JSON` scalar, API-docs object schema,
+  JSON textarea/object serialization in generated forms, and JSON list values.
+  Use it for structured payloads and arrays.
+
 ## [0.8.0] - 2026-10-30
 
 ### Added
@@ -417,6 +426,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.9.0]: https://github.com/AI-NoDev/qiy/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/AI-NoDev/qiy/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/AI-NoDev/qiy/compare/v0.6.5...v0.7.0
 [0.6.5]: https://github.com/AI-NoDev/qiy/compare/v0.6.4...v0.6.5

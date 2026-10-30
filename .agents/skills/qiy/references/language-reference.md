@@ -475,6 +475,7 @@ Field types (closed set):
 | `UUID` | `uuid` | PK/FK |
 | `Text` | `text` | strings, enum storage |
 | `Email` / `URL` | `text` | email/uri validation; email/url form inputs |
+| `JSON` | `jsonb` | arbitrary JSON; GraphQL JSON scalar |
 | `Integer` | `integer` | 32-bit |
 | `Boolean` | `boolean` | SQLite uses integer boolean mode; form renders a Switch |
 | `Decimal(p[,s])` / `Money(p[,s])` | `numeric(p,s)` | precision required |
