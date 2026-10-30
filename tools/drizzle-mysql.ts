@@ -8,6 +8,8 @@ function column(field: FieldIR, relation?: RelationIR, indexed = false): string 
   switch (field.type) {
     case "UUID": declaration = `varchar(${name}, { length: 36 })`; break;
     case "Text":
+    case "Email":
+    case "URL":
     case "File": declaration = field.unique || indexed ? `varchar(${name}, { length: 255 })` : `text(${name})`; break;
     case "Files": declaration = `json(${name}).$type<string[]>()`; break;
     case "Integer": declaration = `int(${name})`; break;

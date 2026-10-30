@@ -8,6 +8,14 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.8.0] - 2026-10-30
+
+### Added
+
+- `Email` and `URL` field types: text-backed storage on all dialects, REST
+  `email`/`uri` validation, GraphQL strings, text-style filters, and email/url
+  HTML inputs in generated forms. Docs and Agent Skill updated.
+
 ## [0.7.0] - 2026-10-30
 
 ### Added
@@ -409,6 +417,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.8.0]: https://github.com/AI-NoDev/qiy/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/AI-NoDev/qiy/compare/v0.6.5...v0.7.0
 [0.6.5]: https://github.com/AI-NoDev/qiy/compare/v0.6.4...v0.6.5
 [0.6.4]: https://github.com/AI-NoDev/qiy/compare/v0.6.3...v0.6.4

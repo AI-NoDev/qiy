@@ -1120,7 +1120,7 @@ export function parseQiyProject(input: string): QiyProject {
     expect("field");
     const name = identifier();
     const type = identifier();
-    if (!["UUID", "Text", "Integer", "Decimal", "Money", "Date", "Time", "DateTime", "Boolean", "File", "Files", "Vector"].includes(type) && !enumNames.has(type)) throw new Error(`Unsupported field type ${type}`);
+    if (!["UUID", "Text", "Email", "URL", "Integer", "Decimal", "Money", "Date", "Time", "DateTime", "Boolean", "File", "Files", "Vector"].includes(type) && !enumNames.has(type)) throw new Error(`Unsupported field type ${type}`);
     const result: FieldIR = { name, type: type as FieldIR["type"] };
     if (enumNames.has(type)) { result.type = "Text"; result.enumName = type; }
     if (peek() === "(") {

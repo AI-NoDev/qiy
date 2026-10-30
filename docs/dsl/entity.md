@@ -62,6 +62,8 @@ entity <Name> [table <tableName>] [@annotation(...)]... {
 | --- | --- | --- | --- |
 | `UUID` | UUID | `uuid` | 主键（必须叫 `id`）、外键 |
 | `Text` | Text | `text` | 字符串，也是枚举的存储类型 |
+| `Email` | Email | `text` | 邮箱语义；REST 使用 email 格式校验，表单为 email 输入 |
+| `URL` | URL | `text` | URL 语义；REST 使用 uri 格式校验，表单为 url 输入 |
 | `Integer` | Integer | `integer` | 32 位整数 |
 | `Boolean` | Boolean | `boolean`（SQLite 用 integer boolean 模式） | 表单渲染为 Switch，API/GraphQL 使用布尔值 |
 | `Decimal(p[, s])` | Decimal | `numeric(p, s)` | 精度必填；`s` 缺省 0 |
