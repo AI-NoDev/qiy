@@ -116,6 +116,14 @@ export interface DatabaseIR {
   entities: EntityIR[];
   enums?: EnumIR[];
   relations?: RelationIR[];
+  /** Read-only projections over one entity, generated as database views. */
+  views?: QiyViewIR[];
+}
+
+export interface QiyViewIR {
+  name: string;
+  from: string;
+  columns: string[];
 }
 
 export type GeneratedFieldKind = "code" | "uuid";

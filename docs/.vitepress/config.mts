@@ -189,6 +189,7 @@ export default defineConfig({
             { text: "realtime", link: "/dsl/realtime" },
             { text: "storage（文件存储）", link: "/dsl/storage" },
             { text: "features（系统管理功能开关）", link: "/dsl/features" },
+            { text: "DB view", link: "/dsl/views" },
             { text: "注解总览（@annotations）", link: "/dsl/annotations" },
           ],
         },

@@ -1,4 +1,4 @@
-import { validateDatabaseIR, validateEntityDisplayTemplates, type DatabaseIR, type EntityIR, type FieldIR, type FilterMode, type IndexIR, type IndexColumnIR, type RelationIR } from "./database-ir";
+import { validateDatabaseIR, validateEntityDisplayTemplates, type DatabaseIR, type EntityIR, type FieldIR, type FilterMode, type IndexIR, type IndexColumnIR, type RelationIR, type QiyViewIR } from "./database-ir";
 import { validateCodeTemplate } from "./code-template";
 import { isQiyV1Source, translateQiyV1 } from "./qiy-v1";
 import {
@@ -2545,6 +2545,20 @@ function enumeration(): import("./database-ir").EnumIR {
   while (peek() === "entity") entities.push(entity(enumNames));
   const relations: RelationIR[] = [];
   while (peek() === "relation") relations.push(relation());
+  const views: QiyViewIR[] = [];
+  while (peek() === "view") {
+    expect("view");
+    const name = identifier();
+    expect("from");
+    const from = identifier();
+    expect("{");
+    expect("columns");
+    const columns = [identifier()];
+    while (peek() === ",") { expect(","); columns.push(identifier()); }
+    expect(";");
+    expect("}");
+    views.push({ name, from, columns });
+  }
   const scopes: NonNullable<QiyProject["scopes"]> = [];
   while (peek() === "scope") {
     expect("scope");
@@ -2942,13 +2956,25 @@ function enumeration(): import("./database-ir").EnumIR {
   }
   expect("}");
   expect("<end>");
+  for (const view of views) {
+    const source = entities.find((entity) => entity.name === view.from || entity.tableName === view.from);
+    if (!source) throw new Error(`view ${view.name}: unknown source entity ${view.from}`);
+    if (entities.some((entity) => entity.name === view.name || entity.tableName === view.name)) throw new Error(`view ${view.name}: name conflicts with an entity`);
+    if (views.filter((candidate) => candidate.name === view.name).length > 1) throw new Error(`view ${view.name}: duplicate view name`);
+    for (const column of view.columns) {
+      const field = source.fields.find((candidate) => candidate.name === column);
+      if (!field) throw new Error(`view ${view.name}: unknown column ${view.from}.${column}`);
+      if (field.computed !== undefined) throw new Error(`view ${view.name}: computed column ${column} cannot be selected`);
+    }
+    if (new Set(view.columns).size !== view.columns.length) throw new Error(`view ${view.name}: duplicate column`);
+  }
   if (mode === "integration" && (corsOrigins || elysiaPlugins || storageProvider || auth || environment || scopes.length || restrictions.length || workflows.length || dataflows.length || permissions)) {
     throw new Error("application mode integration cannot configure generated server features; use integration auth and host adapters instead.");
   }
   if (entities.some((entity) => entity.fields.some((field) => field.tenantClaim !== undefined)) && !auth) {
     throw new Error("@tenant requires an auth declaration so the tenant claim can be resolved");
   }
-  return { name: packageName, ...(applicationDescription && applicationDescription), database: { ...(databaseDescription && databaseDescription), dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}) }, ...(mode && { mode }), ...(integration && { integration }), ...(workspace && { workspace }), ...(ui && { ui }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(features && { features }), ...(auth && { auth }), ...(environment && { environment }), ...(messages && { messages }), ...(permissions && { permissions }), ...(scopes.length ? { scopes } : {}), ...(restrictions.length ? { restrictions } : {}), ...(pages.length ? { pages } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(dashboardMetrics.length && { dashboardMetrics }), ...(charts.length && { charts }), ...(chartPanels.length && { chartPanels }), ...(realtime && { realtime }), ...(dataflows.length && { dataflows }), ...(actions.length && { actions }) };
+  return { name: packageName, ...(applicationDescription && applicationDescription), database: { ...(databaseDescription && databaseDescription), dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}), ...(views.length ? { views } : {}) }, ...(mode && { mode }), ...(integration && { integration }), ...(workspace && { workspace }), ...(ui && { ui }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(features && { features }), ...(auth && { auth }), ...(environment && { environment }), ...(messages && { messages }), ...(permissions && { permissions }), ...(scopes.length ? { scopes } : {}), ...(restrictions.length ? { restrictions } : {}), ...(pages.length ? { pages } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(dashboardMetrics.length && { dashboardMetrics }), ...(charts.length && { charts }), ...(chartPanels.length && { chartPanels }), ...(realtime && { realtime }), ...(dataflows.length && { dataflows }), ...(actions.length && { actions }) };
 }
 
 function normalizePackageName(name: string): string {
@@ -3249,6 +3275,11 @@ export function serializeQiyProject(project: QiyProject): string {
     if (relation.onDelete) declaration += ` @onDelete(${relation.onDelete})`;
     if (relation.comment !== undefined) declaration += ` @comment(${qiyComment(relation)})`;
     lines.push(`${declaration};`);
+  }
+  for (const view of project.database.views ?? []) {
+    lines.push(`  view ${qiyIdentifier(view.name, "View name")} from ${qiyIdentifier(view.from, "View source entity")} {`);
+    lines.push(`    columns ${view.columns.map((column) => qiyIdentifier(column, "View column")).join(", ")};`);
+    lines.push("  }");
   }
   for (const scope of project.scopes ?? []) {
     if (scope.tenant) continue;

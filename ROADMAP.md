@@ -112,7 +112,8 @@
 - [x] 软删除（`@softDelete` nullable DateTime；读取过滤 + delete 写时间戳）
 - [x] 租户 DSL（`@tenant` 自动 principal scope + auth 校验）
 - [x] 计算字段（`@computed` Text 模板，只读派生）
-- [ ] DB view
+- [x] DB view（`view ... from ... { columns ... }`，生成只读 Drizzle view）
+- [ ] DB view 的 REST/GraphQL 只读资源与迁移支持
 
 ## 已完成（审计后）
 

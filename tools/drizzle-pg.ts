@@ -83,7 +83,7 @@ export function generateDrizzlePostgres(database: DatabaseIR): string {
   if (database.dialect !== "postgresql") errors.unshift("This Drizzle adapter only supports PostgreSQL");
   if (errors.length) throw new Error(errors.join("\n"));
 
-  const imports = new Set(["pgTable", "index", "uniqueIndex", "jsonb", "timestamp", "uuid", "text", "integer", "boolean"]);
+  const imports = new Set(["pgTable", "index", "uniqueIndex", "jsonb", "timestamp", "uuid", "text", "integer", "boolean", ...((database.views ?? []).length ? ["pgView"] : [])]);
   for (const entity of database.entities) {
     for (const field of entity.fields) {
       imports.add(({ UUID: "uuid", Text: "text", Email: "text", URL: "text", JSON: "jsonb", Array: "jsonb", Integer: "integer", Boolean: "boolean", Decimal: "numeric", Money: "numeric", Date: "date", Time: "time", DateTime: "timestamp", File: "text", Files: "jsonb", Vector: "vector" } as const)[field.type]);
@@ -94,8 +94,12 @@ export function generateDrizzlePostgres(database: DatabaseIR): string {
   if (sequences) imports.add("primaryKey");
   const selfRelations = (database.relations ?? []).some((relation) => relation.fromEntity === relation.toEntity);
   const typeImport = selfRelations ? `import type { AnyPgColumn } from "drizzle-orm/pg-core";\n` : "";
-  return `import { ${[...imports].sort().join(", ")} } from "drizzle-orm/pg-core";\n${typeImport}\n${database.entities.map((entity) => renderEntity(entity, database.relations ?? [])).join("\n\n")}\n${sequences ? codeSequenceTable() : ""}\nexport const auditEvents = pgTable("audit_events", {\n  id: uuid("id").primaryKey(),\n  actorId: uuid("actorId"),\n  action: text("action").notNull(),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  metadata: jsonb("metadata"),\n  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),\n}, (table) => [index("audit_events_resource_idx").on(table.resource, table.resourceId), index("audit_events_created_at_idx").on(table.createdAt)]);\n\nexport const attachments = pgTable("attachments", {\n  id: uuid("id").primaryKey(),\n  storageKey: text("storageKey").notNull().unique(),\n  fileName: text("fileName"),\n  contentType: text("contentType").notNull(),\n  size: integer("size").notNull(),\n  ownerId: uuid("ownerId"),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),\n}, (table) => [index("attachments_resource_idx").on(table.resource, table.resourceId), index("attachments_owner_idx").on(table.ownerId)]);
-
+  const viewCode = (database.views ?? []).length ? (database.views ?? []).map((view) => {
+    const source = database.entities.find((entity) => entity.name === view.from || entity.tableName === view.from)!;
+    const selection = view.columns.map((column) => `${JSON.stringify(column)}: ${source.name}.${column}`).join(", ");
+    return `export const ${view.name} = pgView(${JSON.stringify(view.name)}).as((qb) => qb.select({ ${selection} }).from(${source.name}));`;
+  }).join("\n") : "";
+  return `import { ${[...imports].sort().join(", ")} } from "drizzle-orm/pg-core";\n${typeImport}\n${database.entities.map((entity) => renderEntity(entity, database.relations ?? [])).join("\n\n")}\n${viewCode ? viewCode + "\n\n" : ""}${sequences ? codeSequenceTable() : ""}\nexport const auditEvents = pgTable("audit_events", {\n  id: uuid("id").primaryKey(),\n  actorId: uuid("actorId"),\n  action: text("action").notNull(),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  metadata: jsonb("metadata"),\n  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),\n}, (table) => [index("audit_events_resource_idx").on(table.resource, table.resourceId), index("audit_events_created_at_idx").on(table.createdAt)]);\n\nexport const attachments = pgTable("attachments", {\n  id: uuid("id").primaryKey(),\n  storageKey: text("storageKey").notNull().unique(),\n  fileName: text("fileName"),\n  contentType: text("contentType").notNull(),\n  size: integer("size").notNull(),\n  ownerId: uuid("ownerId"),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),\n}, (table) => [index("attachments_resource_idx").on(table.resource, table.resourceId), index("attachments_owner_idx").on(table.ownerId)]);
 export const qiyImportJobs = pgTable("qiy_import_jobs", {
   id: text("id").primaryKey(),
   resource: text("resource").notNull(),

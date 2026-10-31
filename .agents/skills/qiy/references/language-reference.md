@@ -487,6 +487,16 @@ Field types (closed set):
 
 Unknown types (`String`, `Json`, ...) fail. Parameters only on `Vector`/`Decimal`/`Money` (`Field type Text has no parameters`). Field attributes: `@id`, `@nullable`, `@unique`, `@label`, `@comment`, `@icon`, `@visible`, `@listVisible`, `@formVisible`, `@showVisible`, `@sortable`, `@filterable`, `@filter(...)`, `@upload(...)`, `@maxBytes`, `@maxFiles`, `@mime`, `@extension`, `@code`, `@generated(uuid)`, `@column`, `@dimension`, `@precision`, `@scale`. There is no `@required`, `@default`, `@length`, `@computed`; `@softDelete` marks a nullable DateTime for soft deletion; `@tenant("claim")` marks a tenant column and synthesizes a principal scope; `@computed("{a} {b}")` adds a read-only Text field computed in API responses. Full matrices: [modeling-and-generation.md](modeling-and-generation.md).
 
+## DB view
+
+```text
+view <Name> from <Entity> {
+  columns <field>, <field>;
+}
+```
+
+Schema-only read-only projection; no REST/GraphQL resource. Names/columns validated; computed columns excluded.
+
 ## relation and index
 
 ```text
