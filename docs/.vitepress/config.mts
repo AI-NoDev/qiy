@@ -132,6 +132,7 @@ export default defineConfig({
         {
           text: "开始",
           items: [
+            { text: "按任务查找", link: "/guide/tasks" },
             { text: "Qiy 是什么", link: "/guide/what-is-qiy" },
             { text: "设计理念", link: "/guide/design-philosophy" },
             { text: "v1 友好语法（预览）", link: "/guide/syntax-v1" },

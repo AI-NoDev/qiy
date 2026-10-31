@@ -73,7 +73,8 @@
 - [x] API Key 权限 scopes（创建/轮换可选，与用户权限取交集；只收窄不提权）
 - [x] 本地密码限流/锁定（默认 5 次/15 分钟窗口，锁 15 分钟，429 + Retry-After）
 - [x] 会话吊销（`qiy_session_revocations` + `POST /auth/logout-all` + 个人中心按钮）
-- [ ] `sum/avg ... group by` 聚合 + chart 扩展（area/stacked/scatter、颜色/图例、下钻）
+- [x] chart area 视图（trend 数据 + SVG 面积填充）
+- [ ] `sum/avg ... group by` 聚合 + stacked/scatter、颜色/图例、下钻
 - [x] 字段类型扩展：Boolean（parser/IR/Drizzle/API/GraphQL/Web Switch/文档）
 - [x] 字段类型扩展：Email / URL（text 存储 + REST email/uri 校验 + 表单 input）
 - [x] 字段类型扩展：JSON（jsonb / text JSON / mysql json + GraphQL JSON scalar + textarea）
@@ -81,7 +82,8 @@
 - [x] 文档多语言：English 核心页（getting-started / CLI）+ 隐藏未翻译语言入口
 - [x] 文档版本化（`/v0.6/` 归档，独立 base/canonical，导航切换）
 - [x] `qiy diff` / dry-run 预览（内存渲染、added/changed/removed、`--check`/`--json`）+ `qiy generate --incremental` 只写变化文件
-- [ ] 每页 OG 图、llms 分段（llms-full 已 ~484KB）
+- [x] 任务文档索引（`/guide/tasks`）+ llms 分段（`llms-dsl.txt` / `llms-guides.txt`）
+- [ ] 每页 OG 图
 
 ## 产品体验 Phase 2（CLI-first 之后）
 

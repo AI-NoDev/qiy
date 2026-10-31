@@ -8,6 +8,19 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.10.0] - 2026-10-30
+
+### Added
+
+- `area` chart view kind, reusing the existing `trend` data contract and
+  rendering a filled SVG area. Same-name chart declarations can now mix
+  line/area/bar/pie/table views.
+- Task-oriented docs index at `/guide/tasks`, and segmented machine-readable
+  docs: `/llms-dsl.txt` and `/llms-guides.txt` (plus the existing `llms.txt`
+  and `llms-full.txt`).
+- `coverage:check` CI gate (>=85% functions, >=90% lines), CycloneDX-style
+  `qiy-sbom.json` generation/upload, and a CodeQL workflow.
+
 ## [0.9.0] - 2026-10-30
 
 ### Added
@@ -426,6 +439,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.10.0]: https://github.com/AI-NoDev/qiy/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/AI-NoDev/qiy/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/AI-NoDev/qiy/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/AI-NoDev/qiy/compare/v0.6.5...v0.7.0

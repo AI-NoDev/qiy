@@ -1,7 +1,7 @@
 {
   "name": "qiy",
   "type": "module",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Model-driven full-stack application generator: one Qiy model generates a Refine admin, Bun + Elysia API, Drizzle schema and deployment config.",
   "license": "MIT",
   "private": false,
@@ -16,6 +16,9 @@
   ],
   "scripts": {
     "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "coverage:check": "bun run tools/check-coverage.ts",
+    "sbom": "bun run tools/build-sbom.ts",
     "check": "tsc --noEmit",
     "qiy": "bun run tools/cli.ts",
     "deploy": "bun run deploy/index.ts",

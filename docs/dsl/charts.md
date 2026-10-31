@@ -2,7 +2,7 @@
 
 `chart` 把概览页声明成两层：
 
-- **chart**：一个数据视图，kind 为 `const`（统计卡）、`pie`、`bar`、`line`、`table`。同名 chart 用不同 kind 重复声明，就得到同一张卡片的多个视图（卡片右上角出现视图切换下拉）。
+- **chart**：一个数据视图，kind 为 `const`（统计卡）、`pie`、`bar`、`line`、`area`、`table`。同名 chart 用不同 kind 重复声明，就得到同一张卡片的多个视图（卡片右上角出现视图切换下拉）。`line` 与 `area` 都使用 `trend` 数据；`area` 渲染填充面积。
 - **chart panels**：把一个或多个 chart 按 `grid <cols> <rows>` 声明的网格摆放；每个 chart 用 `larger`/`medium`/`small` 等变体给出 `x y w h` 栅格坐标。多个 panel 时页面右上角出现面板切换下拉。
 
 ```qiy

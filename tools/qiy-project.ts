@@ -37,11 +37,11 @@ export interface QiyIntegrationConfig {
 }
 
 /** Chart view kinds. `const` is the stat view (the old `stat` name is gone). */
-export type QiyChartViewKind = "const" | "pie" | "bar" | "line" | "table";
+export type QiyChartViewKind = "const" | "pie" | "bar" | "line" | "area" | "table";
 export type QiyChartAggregate = "count" | "sum" | "avg" | "min" | "max";
 export type QiyChartDataOperation = "count" | "sum" | "avg" | "min" | "max" | "trend" | "list";
 
-export const qiyChartKinds = ["const", "pie", "bar", "line", "table"] as const;
+export const qiyChartKinds = ["const", "pie", "bar", "line", "area", "table"] as const;
 /** Supported placement variant names and the breakpoint bucket each one belongs to. */
 export const qiyChartVariants = ["larger", "xl", "lg", "large", "medium", "md", "small", "sm", "xs"] as const;
 export type QiyChartVariant = (typeof qiyChartVariants)[number];
@@ -1850,7 +1850,7 @@ export function parseQiyProject(input: string): QiyProject {
             const labeled = fieldOf(view.labels.field);
             if (!labeled.enumName) throw new Error(`${prefix}: labels field ${view.labels.field} must be an enum field`);
           }
-        } else if (view.kind === "line") {
+        } else if (view.kind === "line" || view.kind === "area") {
           if (data.operation !== "trend") throw new Error(`${prefix}: line views require "trend <entity>.<DateTime field> days <n>" data`);
           const dateField = fieldOf(data.field!);
           if (dateField.type !== "DateTime") throw new Error(`${prefix}: trend field ${data.field} must be a DateTime field`);

@@ -36,7 +36,7 @@ import type { DisplayTranslate } from "../display-template";
  * several views gets a top-right view-kind selector.
  */
 
-const viewKindFallback: Record<ChartViewKind, string> = { const: "Stat", pie: "Pie chart", bar: "Bar chart", line: "Line chart", table: "Table" };
+const viewKindFallback: Record<ChartViewKind, string> = { const: "Stat", pie: "Pie chart", bar: "Bar chart", line: "Line chart", area: "Area chart", table: "Table" };
 const chartPalette = ["#1677ff", "#52c41a", "#faad14", "#eb2f96", "#722ed1", "#13c2c2", "#fa541c", "#8c8c8c"];
 
 function useChartViewportCategory(): ChartViewportCategory {
@@ -172,7 +172,7 @@ function DistributionView({ view, title, shape }: { view: ChartViewDefinition; t
 }
 
 /** `line`: daily count trend from the existing `/trend` endpoint (inline SVG polyline). */
-function TrendView({ view, title }: { view: ChartViewDefinition; title: string }) {
+function TrendView({ view, title, area = false }: { view: ChartViewDefinition; title: string; area?: boolean }) {
   const { translate } = useTranslation();
   const { result, query } = useCustom<{ items: Array<{ day: string; count: number }> }>({
     url: `/api/v1/${view.data.entity}/trend`,
@@ -194,6 +194,7 @@ function TrendView({ view, title }: { view: ChartViewDefinition; title: string }
           <Typography.Text type="secondary">{translate("qiy.aggMax", {}, "max") + " " + max}</Typography.Text>
         </Space>
         <svg className="qiy-chart-line" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} preserveAspectRatio="none">
+          {area && <polygon fill="rgba(22,119,255,0.18)" points={`0,${height} ${points} ${width},${height}`} />}
           <polyline fill="none" stroke="#1677ff" strokeWidth={2} points={points} />
           {items.map((item, index) => <circle key={item.day} cx={Math.round(index * step)} cy={y(item.count)} r={2} fill="#1677ff" />)}
         </svg>
@@ -234,7 +235,7 @@ function ChartViewBody({ chart, view, title }: { chart: ChartDefinition; view: C
   if (view.kind === "const") return <StatView chart={chart} view={view} title={title} />;
   if (view.kind === "bar") return <DistributionView view={view} title={title} shape="bar" />;
   if (view.kind === "pie") return <DistributionView view={view} title={title} shape="pie" />;
-  if (view.kind === "line") return <TrendView view={view} title={title} />;
+  if (view.kind === "line" || view.kind === "area") return <TrendView view={view} title={title} area={view.kind === "area"} />;
   return <ChartTableView view={view} />;
 }
 

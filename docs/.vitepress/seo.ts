@@ -27,6 +27,7 @@ export const pageDescriptions: Record<string, string> = {
   "en/guide/getting-started.md": "Get started with Qiy: install the CLI, create a modular .qiy project, generate, migrate and run the admin.",
   "en/guide/cli.md": "Qiy CLI reference: project commands, diff/incremental generation, model inspection, agent skills and release flow.",
   "guide/what-is-qiy.md": "Qiy 是什么：模型驱动生成器的工作方式、生成物架构、适用场景以及与手写全栈的分工。",
+  "guide/tasks.md": "按任务查找 Qiy 文档：创建项目、建模、权限、界面、集成、部署与 AI Agent 的入口索引。",
   "guide/design-philosophy.md": "Qiy 设计理念：项目优先、命令优先、模块默认、受限自然语法、安全默认与 AI Agent 一等用户。",
   "guide/syntax-v1.md": "Qiy v1 友好语法预览：project/module、name: type 字段、自动主键、内联一对一关系、支持范围与限制。",
   "guide/getting-started.md": "快速开始：安装 Qiy CLI、创建第一个 .qiy 模型、生成、安装依赖、迁移、运行与预览。",

@@ -137,6 +137,8 @@ export function buildDocsAssets(): void {
       "## Machine-readable schema",
       "",
       `- [qiy explain JSON Schema](${siteUrl}/schema/qiy-explanation-1.json): validate \`qiy explain --json\` output.`,
+      `- [DSL-only retrieval](${siteUrl}/llms-dsl.txt): the DSL reference without guides.`,
+      `- [Guides-only retrieval](${siteUrl}/llms-guides.txt): task guides without the DSL reference.`,
       "- Generate it with `qiy schema`; inspect a model with `qiy explain <file.qiy> [--json]`.",
       "",
     ].join("\n"),
@@ -158,9 +160,26 @@ export function buildDocsAssets(): void {
     ...guidePages.flatMap((page) => [`# ${page.title}`, "", `Source: ${siteUrl}${page.slug}`, "", page.body, ""]),
   ].join("\n");
 
+  const llmsDsl = [
+    "# Qiy DSL reference",
+    "",
+    `> Complete DSL reference text. Canonical index: ${siteUrl}/llms.txt`,
+    "",
+    ...dslPages.flatMap((page) => [`# ${page.title}`, "", `Source: ${siteUrl}${page.slug}`, "", page.body, ""]),
+  ].join("\n");
+  const llmsGuides = [
+    "# Qiy guides",
+    "",
+    `> Complete guide text. Canonical index: ${siteUrl}/llms.txt`,
+    "",
+    ...guidePages.flatMap((page) => [`# ${page.title}`, "", `Source: ${siteUrl}${page.slug}`, "", page.body, ""]),
+  ].join("\n");
+
   mkdirSync(publicDir, { recursive: true });
   writeFileSync(join(publicDir, "llms.txt"), llmsTxt);
   writeFileSync(join(publicDir, "llms-full.txt"), llmsFull);
+  writeFileSync(join(publicDir, "llms-dsl.txt"), llmsDsl);
+  writeFileSync(join(publicDir, "llms-guides.txt"), llmsGuides);
   writeFileSync(
     join(publicDir, "robots.txt"),
     ["User-agent: *", "Allow: /", `Sitemap: ${siteUrl}/sitemap.xml`, ""].join("\n"),

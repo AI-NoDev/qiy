@@ -176,7 +176,7 @@ Home page fallback:
 `chart` and `chart panels` are written after `menu` and before `dataflow`, sharing a slot with legacy `dashboard`.
 
 ```text
-chart [const|pie|bar|line|table] <ChartName> {
+chart [const|pie|bar|line|area|table] <ChartName> {
   icon  = "<IconName>" ;
   title = "<text>" ;
   data  = <data expression> ;
@@ -199,7 +199,7 @@ Chart view properties are `key = value;`; a trailing `;` may be omitted only bef
 
 | Property | Required | Values | Default | Notes |
 | --- | --- | --- | --- | --- |
-| kind | no | `const`, `pie`, `bar`, `line`, `table` | `const` | Omitting kind produces a statistic card |
+| kind | no | `const`, `pie`, `bar`, `line`, `area`, `table` | `const` | Omitting kind produces a statistic card |
 | `icon` | no | Ant Design `*Outlined` | none | Card icon; see chart limits |
 | `title` | no | string | chart name | Chart-level title |
 | `data` | **yes** | data mini-language | - | Exactly once per declaration |

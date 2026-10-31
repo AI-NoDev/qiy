@@ -569,7 +569,7 @@ dashboard {
 ## chart and chart panels
 
 ```text
-chart [const|pie|bar|line|table] <ChartName> {
+chart [const|pie|bar|line|area|table] <ChartName> {
   icon  = "<IconName>" ;
   title = "<text>" ;
   data  = <data expression> ;
@@ -584,7 +584,7 @@ chart panels <PanelName> {
 }
 ```
 
-Data expressions: `count <entity>` (const), `sum|avg|min|max <entity>.<field>` (const), `count <entity> group by <enumField>` (pie/bar), `trend <entity>.<DateTimeField> days <1..365>` (line), `list <entity> columns <a>, <b>` (table). Same-name declarations with different kinds are multiple views of one card (first is default). `grid cols` 1..24, `rows` 1..200; variants `larger`/`medium`/`small` (aliases `large`/`lg`/`xl`, `md`, `sm`/`xs`) with `x+w<=cols`, `y+h<=rows`. Full grammar, labels and limits: [ui-charts-i18n.md](ui-charts-i18n.md).
+Data expressions: `count <entity>` (const), `sum|avg|min|max <entity>.<field>` (const), `count <entity> group by <enumField>` (pie/bar), `trend <entity>.<DateTimeField> days <1..365>` (line/area), `list <entity> columns <a>, <b>` (table). Same-name declarations with different kinds are multiple views of one card (first is default). `grid cols` 1..24, `rows` 1..200; variants `larger`/`medium`/`small` (aliases `large`/`lg`/`xl`, `md`, `sm`/`xs`) with `x+w<=cols`, `y+h<=rows`. Full grammar, labels and limits: [ui-charts-i18n.md](ui-charts-i18n.md).
 
 ## dataflow
 

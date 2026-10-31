@@ -100,6 +100,18 @@ describe("chart DSL", () => {
     }]);
   });
 
+  test("area charts reuse the trend contract and render a filled view", () => {
+    const project = parseQiyProject(model(`chart area OrderTrend {
+  title = "Orders per day";
+  data = trend orders.createdAt days 7;
+}
+`));
+    expect(project.charts?.[0]?.views[0]?.kind).toBe("area");
+    const files = generateProject(project.database, "chart-demo", project);
+    expect(files["apps/web/app/charts.ts"]).toContain('"area"');
+    expect(files["apps/web/app/components/charts.tsx"]).toContain('area={view.kind === "area"}');
+  });
+
   test("round-trips chart views and panels through the serializer", () => {
     const project = parseQiyProject(model(chartBody));
     const serialized = serializeQiyProject(project);
