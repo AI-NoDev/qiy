@@ -21,7 +21,7 @@ const pages = markdownFiles(docs)
 
 // Build once for the whole file: repeated rebuilds race with editor watchers on
 // Windows and are unnecessary for these assertions.
-buildDocsAssets();
+await buildDocsAssets();
 
 test("every documentation page has a unique, page-specific description", () => {
   expect(pages.length).toBeGreaterThan(40);

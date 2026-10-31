@@ -37,11 +37,11 @@ export interface QiyIntegrationConfig {
 }
 
 /** Chart view kinds. `const` is the stat view (the old `stat` name is gone). */
-export type QiyChartViewKind = "const" | "pie" | "bar" | "line" | "area" | "table";
+export type QiyChartViewKind = "const" | "pie" | "bar" | "line" | "area" | "scatter" | "table";
 export type QiyChartAggregate = "count" | "sum" | "avg" | "min" | "max";
 export type QiyChartDataOperation = "count" | "sum" | "avg" | "min" | "max" | "trend" | "list";
 
-export const qiyChartKinds = ["const", "pie", "bar", "line", "area", "table"] as const;
+export const qiyChartKinds = ["const", "pie", "bar", "line", "area", "scatter", "table"] as const;
 /** Supported placement variant names and the breakpoint bucket each one belongs to. */
 export const qiyChartVariants = ["larger", "xl", "lg", "large", "medium", "md", "small", "sm", "xs"] as const;
 export type QiyChartVariant = (typeof qiyChartVariants)[number];
@@ -1862,6 +1862,11 @@ export function parseQiyProject(input: string): QiyProject {
           if (data.operation !== "trend") throw new Error(`${prefix}: line views require "trend <entity>.<DateTime field> days <n>" data`);
           const dateField = fieldOf(data.field!);
           if (dateField.type !== "DateTime") throw new Error(`${prefix}: trend field ${data.field} must be a DateTime field`);
+        } else if (view.kind === "scatter") {
+          if (data.operation !== "list" || (data.columns?.length ?? 0) < 2) throw new Error(`${prefix}: scatter views require "list <entity> columns <x>, <y>" data`);
+          const numeric = new Set(["Integer", "Decimal", "Money"]);
+          const [xField, yField] = data.columns!;
+          if (!numeric.has(fieldOf(xField!).type) || !numeric.has(fieldOf(yField!).type)) throw new Error(`${prefix}: scatter columns ${xField} and ${yField} must be numeric`);
         } else {
           if (data.operation !== "list") throw new Error(`${prefix}: table views require "list <entity> columns ..." data`);
           for (const column of data.columns ?? []) {

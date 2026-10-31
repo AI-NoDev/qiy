@@ -112,6 +112,18 @@ describe("chart DSL", () => {
     expect(files["apps/web/app/components/charts.tsx"]).toContain('area={view.kind === "area"}');
   });
 
+  test("scatter charts use numeric list columns and open records", () => {
+    const project = parseQiyProject(model(`chart scatter OrderScatter {
+  title = "Total by total";
+  data = list orders columns total, total;
+}
+`));
+    expect(project.charts?.[0]?.views[0]?.kind).toBe("scatter");
+    const files = generateProject(project.database, "chart-demo", project);
+    expect(files["apps/web/app/charts.ts"]).toContain('"scatter"');
+    expect(files["apps/web/app/components/charts.tsx"]).toContain('view.kind === "scatter"');
+  });
+
   test("round-trips chart views and panels through the serializer", () => {
     const project = parseQiyProject(model(chartBody));
     const serialized = serializeQiyProject(project);

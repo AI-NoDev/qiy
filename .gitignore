@@ -52,6 +52,11 @@ editors/jetbrains-qiy/build
 # local deployment credentials
 deploy/config.local.ts
 qiy-sbom.json
+docs/public/og/
+.tmp/
+test-results/
+playwright-report/
+blob-report/
 
 examples/**/qiy.sqlite
 

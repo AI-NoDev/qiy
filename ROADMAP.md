@@ -74,7 +74,8 @@
 - [x] 本地密码限流/锁定（默认 5 次/15 分钟窗口，锁 15 分钟，429 + Retry-After）
 - [x] 会话吊销（`qiy_session_revocations` + `POST /auth/logout-all` + 个人中心按钮）
 - [x] chart area 视图（trend 数据 + SVG 面积填充）
-- [ ] `sum/avg ... group by` 聚合 + stacked/scatter、颜色/图例、下钻
+- [x] chart scatter 视图（numeric list + 点击下钻）
+- [ ] `sum/avg ... group by` 聚合 + stacked、颜色/图例配置
 - [x] 字段类型扩展：Boolean（parser/IR/Drizzle/API/GraphQL/Web Switch/文档）
 - [x] 字段类型扩展：Email / URL（text 存储 + REST email/uri 校验 + 表单 input）
 - [x] 字段类型扩展：JSON（jsonb / text JSON / mysql json + GraphQL JSON scalar + textarea）
@@ -84,7 +85,7 @@
 - [x] 文档版本化（`/v0.6/` 归档，独立 base/canonical，导航切换）
 - [x] `qiy diff` / dry-run 预览（内存渲染、added/changed/removed、`--check`/`--json`）+ `qiy generate --incremental` 只写变化文件
 - [x] 任务文档索引（`/guide/tasks`）+ llms 分段（`llms-dsl.txt` / `llms-guides.txt`）
-- [ ] 每页 OG 图
+- [x] 每页 OG 图（sharp 生成 `/og/<page>.png`）
 
 ## 产品体验 Phase 2（CLI-first 之后）
 
@@ -98,7 +99,8 @@
 
 ## P2：长期
 - [x] 测试审计（`AUDIT.md`）：400 tests、覆盖率 89.44% funcs / 93.12% lines、docs build、生成项目验收、依赖审计
-- [ ] Playwright E2E（登录、FK 批量、功能总览、API Key、Mermaid）+ 视觉回归
+- [x] Playwright docs E2E + axe a11y + docs bundle budget
+- [ ] 生成应用的 Playwright E2E / 视觉回归
 - [ ] a11y、bundle size 预算、负载测试
 - [ ] lint/format、coverage 阈值、依赖扫描 / SBOM / CodeQL
 - [ ] MCP server 与结构化 Agent API

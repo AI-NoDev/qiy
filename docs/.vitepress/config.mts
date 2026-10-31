@@ -65,6 +65,8 @@ export default defineConfig({
     const description = pageData.description || descriptionFor(pageData.relativePath, siteConfig.description || siteDescription);
     const url = canonicalUrl(pageData.relativePath);
     const isHome = /(^|\/)index\.md$/.test(pageData.relativePath);
+    const ogSlug = isHome ? "home" : pageData.relativePath.replace(/\\/g, "/").replace(/(^|\/)index\.md$/, "$1").replace(/\.md$/, "").replace(/^\/+|\/+$/g, "").replace(/\//g, "-").replace(/-+$/, "");
+    const ogImage = `${siteUrl}/og/${ogSlug || "home"}.png`;
     const language = pageData.relativePath.split("/")[0];
     const articleLanguage = ["de", "en", "es", "fr", "ja", "ko", "pt", "ru"].includes(language) ? language : "zh-CN";
     const jsonLd = {
@@ -86,9 +88,10 @@ export default defineConfig({
       ["meta", { property: "og:title", content: title }],
       ["meta", { property: "og:description", content: description }],
       ["meta", { property: "og:url", content: url }],
-      ["meta", { property: "og:image", content: `${siteUrl}/qiy-logo-light.svg` }],
-      ["meta", { property: "og:image:alt", content: "Qiy logo" }],
-      ["meta", { name: "twitter:card", content: "summary" }],
+      ["meta", { property: "og:image", content: ogImage }],
+      ["meta", { property: "og:image:alt", content: `${title} — Qiy` }],
+      ["meta", { name: "twitter:card", content: "summary_large_image" }],
+      ["meta", { name: "twitter:image", content: ogImage }],
       ["meta", { name: "twitter:title", content: title }],
       ["meta", { name: "twitter:description", content: description }],
       ["link", { rel: "canonical", href: url }],

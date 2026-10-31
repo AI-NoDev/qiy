@@ -1,5 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import sharp from "sharp";
 import { pageDescriptions } from "../docs/.vitepress/seo";
 import { qiyExplanationSchema } from "./qiy-schema";
 
@@ -104,9 +105,10 @@ function section(title: string, pages: DocPage[]): string {
   return [`## ${title}`, "", ...lines, ""].join("\n");
 }
 
-export function buildDocsAssets(): void {
+export async function buildDocsAssets(): Promise<void> {
   const dslPages = ordered(markdownFiles(join(docs, "dsl")).map(readPage), dslOrder);
   const guidePages = ordered(markdownFiles(join(docs, "guide")).map(readPage), guideOrder);
+  const enPages = markdownFiles(join(docs, "en")).map(readPage);
 
   const llmsTxt = [
     "# Qiy",
@@ -203,9 +205,20 @@ export function buildDocsAssets(): void {
     if (tar.exitCode !== 0) throw new Error(`Failed to create ${name} skill archive: ${tar.stderr.toString()}`);
   }
   const skillBytes = statSync(join(publicDir, "skills", "qiy-skill.tar.gz")).size;
+
+  const ogDir = join(publicDir, "og");
+  mkdirSync(ogDir, { recursive: true });
+  const ogPages = [readPage(join(docs, "index.md")), ...dslPages, ...guidePages, ...enPages];
+  await Promise.all(ogPages.map(async (page) => {
+    const slug = page.slug === "/" ? "home" : page.slug.replace(/^\/+|\/+$/g, "").replace(/\//g, "-");
+    const label = page.slug === "/" ? "Qiy documentation" : page.slug.replace(/^\/+/, "").replace(/\//g, " / ");
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0f172a"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient></defs><rect width="1200" height="630" fill="url(#g)"/><text x="72" y="250" font-family="sans-serif" font-size="72" font-weight="700" fill="#ffffff">Qiy</text><text x="72" y="330" font-family="sans-serif" font-size="34" fill="#dbeafe">${label.replace(/[<>&]/g, "")}</text><text x="72" y="540" font-family="sans-serif" font-size="24" fill="#93c5fd">Model-driven full-stack applications</text></svg>`;
+    await sharp(Buffer.from(svg)).png().toFile(join(ogDir, `${slug}.png`));
+  }));
+
   console.log(
-    `Docs assets: llms.txt (${llmsTxt.length} bytes), llms-full.txt (${llmsFull.length} bytes), ${officialSkills.length} official skills (${skillFiles} files), qiy-skill.tar.gz (${skillBytes} bytes)`,
+    `Docs assets: llms.txt (${llmsTxt.length} bytes), llms-full.txt (${llmsFull.length} bytes), ${officialSkills.length} official skills (${skillFiles} files), qiy-skill.tar.gz (${skillBytes} bytes), ${ogPages.length} OG images`,
   );
 }
 
-if (import.meta.main) buildDocsAssets();
+if (import.meta.main) await buildDocsAssets();

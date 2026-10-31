@@ -8,6 +8,18 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.12.0] - 2026-10-31
+
+### Added
+
+- `scatter` chart views from numeric `list ... columns x, y` data; clicking a
+  point opens the record. Chart metadata/type generation includes `scatter`.
+- Per-page Open Graph/Twitter images (`/og/<page>.png`) generated with sharp
+  at docs-build time; `og:image` and `twitter:image` point at the page image.
+- Playwright docs E2E + axe accessibility checks, CI browser install, and a
+  documentation JS/CSS bundle budget (4MB default).
+- Fixed light-theme link contrast (`#059669` → `#047857`).
+
 ## [0.11.0] - 2026-10-31
 
 ### Added
@@ -448,6 +460,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.12.0]: https://github.com/AI-NoDev/qiy/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/AI-NoDev/qiy/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/AI-NoDev/qiy/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/AI-NoDev/qiy/compare/v0.8.0...v0.9.0

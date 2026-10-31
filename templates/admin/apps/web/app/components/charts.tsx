@@ -1,7 +1,7 @@
 import { CanAccess, useCustom, useList, useTranslation } from "@refinedev/core";
 import { Alert, Card, Col, Empty, Progress, Row, Select, Space, Spin, Statistic, Table, Typography, theme } from "antd";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import {
   chartViewKindLabelKey,
   chartViewportBreakpoints,
@@ -36,7 +36,7 @@ import type { DisplayTranslate } from "../display-template";
  * several views gets a top-right view-kind selector.
  */
 
-const viewKindFallback: Record<ChartViewKind, string> = { const: "Stat", pie: "Pie chart", bar: "Bar chart", line: "Line chart", area: "Area chart", table: "Table" };
+const viewKindFallback: Record<ChartViewKind, string> = { const: "Stat", pie: "Pie chart", bar: "Bar chart", line: "Line chart", area: "Area chart", scatter: "Scatter chart", table: "Table" };
 const chartPalette = ["#1677ff", "#52c41a", "#faad14", "#eb2f96", "#722ed1", "#13c2c2", "#fa541c", "#8c8c8c"];
 
 function useChartViewportCategory(): ChartViewportCategory {
@@ -207,6 +207,43 @@ function TrendView({ view, title, area = false }: { view: ChartViewDefinition; t
   );
 }
 
+/** `scatter`: client-side numeric x/y points from the list endpoint; click opens the record. */
+function ScatterView({ view, title }: { view: ChartViewDefinition; title: string }) {
+  const navigate = useNavigate();
+  const { translate } = useTranslation();
+  const { result, query } = useList<Record<string, unknown>>({ resource: view.data.entity, pagination: { currentPage: 1, pageSize: 200 } });
+  const [xName, yName] = view.data.columns ?? [];
+  const rows = (result.data?.data ?? []).flatMap((row) => {
+    const x = Number(row[xName ?? ""]);
+    const y = Number(row[yName ?? ""]);
+    return Number.isFinite(x) && Number.isFinite(y) ? [{ id: String(row.id ?? ""), x, y }] : [];
+  });
+  const width = 320;
+  const height = 160;
+  const maxX = Math.max(...rows.map((row) => row.x), 1);
+  const maxY = Math.max(...rows.map((row) => row.y), 1);
+  const minX = Math.min(...rows.map((row) => row.x), 0);
+  const minY = Math.min(...rows.map((row) => row.y), 0);
+  const px = (value: number) => 12 + ((value - minX) / (maxX - minX || 1)) * (width - 24);
+  const py = (value: number) => height - 12 - ((value - minY) / (maxY - minY || 1)) * (height - 24);
+  return (
+    <ViewState loading={query.isLoading} error={query.error}>
+      {rows.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} /> : <>
+        <Space style={{ width: "100%", justifyContent: "space-between" }}>
+          <Typography.Text type="secondary">{title}</Typography.Text>
+          <Typography.Text type="secondary">{`${xName} / ${yName}`}</Typography.Text>
+        </Space>
+        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} style={{ width: "100%", height: 160 }}>
+          <line x1={12} y1={height - 12} x2={width - 12} y2={height - 12} stroke="#d9d9d9" />
+          <line x1={12} y1={12} x2={12} y2={height - 12} stroke="#d9d9d9" />
+          {rows.map((row) => <circle key={row.id || `${row.x}-${row.y}`} cx={px(row.x)} cy={py(row.y)} r={4} fill="#1677ff" style={row.id ? { cursor: "pointer" } : undefined} onClick={() => row.id && navigate(`/${view.data.entity}/show/${row.id}`)} />)}
+        </svg>
+        <Typography.Text type="secondary">{translate("qiy.scatterHint", {}, "Click a point to open the record")}</Typography.Text>
+      </>}
+    </ViewState>
+  );
+}
+
 /** `table`: read-only preview page (no edit actions) rendered with the shared field formatters. */
 function ChartTableView({ view }: { view: ChartViewDefinition }) {
   const { translate, getLocale } = useTranslation();
@@ -236,6 +273,7 @@ function ChartViewBody({ chart, view, title }: { chart: ChartDefinition; view: C
   if (view.kind === "bar") return <DistributionView view={view} title={title} shape="bar" />;
   if (view.kind === "pie") return <DistributionView view={view} title={title} shape="pie" />;
   if (view.kind === "line" || view.kind === "area") return <TrendView view={view} title={title} area={view.kind === "area"} />;
+  if (view.kind === "scatter") return <ScatterView view={view} title={title} />;
   return <ChartTableView view={view} />;
 }
 
