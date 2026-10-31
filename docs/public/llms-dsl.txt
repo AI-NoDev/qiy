@@ -6877,9 +6877,16 @@ export const product_names = pgView("product_names").as((qb) =>
 
 SQLite / MySQL 分别使用 `sqliteView` / `mysqlView`；视图定义放在实体表之后，避免模块初始化顺序问题。
 
+同时生成只读 REST：
+
+- `GET /api/v1/<view>?page=1&pageSize=20`；
+- 若视图包含 `id` 列，`GET /api/v1/<view>/:id`。
+
+应用声明了 `auth` 时这些端点要求已认证；没有按实体 policy 做行级过滤。
+
 ## 边界
 
-- 当前 `view` 只生成 **Drizzle schema**，不会自动生成 REST/GraphQL resource、菜单或页面。
+- 当前 `view` 生成 **Drizzle schema + 只读 REST list/detail**，不生成 GraphQL resource、菜单或页面。
 - 需要 API 时，用生成器插件或在集成项目里挂载只读适配器；不要把它当成可变实体。
 - `drizzle-kit` 对 view 的迁移支持取决于版本与方言；生成后请用 `qiy diff`/迁移流程检查，生产环境先 dry-run。
 - 视图列没有字段注解、权限或表单语义；权限仍应通过底层实体或数据库账号控制。

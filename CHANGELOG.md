@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.25.0] - 2026-10-31
+
+### Added
+
+- Read-only REST resources for DB views: `GET /api/v1/<view>` with
+  `page`/`pageSize`, plus `GET /api/v1/<view>/:id` when the view includes `id`.
+  Auth-enabled apps require authentication; view rows are not policy-filtered.
+  Generated as `views-routes.ts` and mounted in `createApp`.
+
 ## [0.24.0] - 2026-10-31
 
 ### Added
@@ -571,6 +580,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.25.0]: https://github.com/AI-NoDev/qiy/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/AI-NoDev/qiy/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/AI-NoDev/qiy/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/AI-NoDev/qiy/compare/v0.21.0...v0.22.0

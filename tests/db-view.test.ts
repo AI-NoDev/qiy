@@ -21,6 +21,8 @@ test("DB views parse, serialize and generate dialect view constructors", () => {
   expect(serializeQiyProject(project)).toContain("columns id, name;");
   const sqlite = generateProject(project.database, "view-demo");
   expect(sqlite["apps/server/src/schema.ts"]).toContain('sqliteView("product_names")');
+  expect(sqlite["apps/server/src/views-routes.ts"]).toContain('createViewRoutes');
+  expect(sqlite["apps/server/src/views-routes.ts"]).toContain('/product_names');
   const postgres = generateProject(parseQiyProject(source("postgresql")).database, "view-demo");
   expect(postgres["apps/server/src/schema.ts"]).toContain('pgView("product_names")');
   const mysql = generateProject(parseQiyProject(source("mysql")).database, "view-demo");

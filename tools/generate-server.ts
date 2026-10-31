@@ -1,4 +1,5 @@
 import type { DatabaseIR, EntityIR, FieldIR, FilterMode } from "./database-ir";
+import { renderViewRoutes } from "./generate-view-routes";
 import type { QiyProject, DataflowIR, QiyPolicyExpression, QiyResourceRestriction, QiyRowPredicate, QiyFieldMask } from "./qiy-project";
 import { authHasLocal, authIsHybrid, authOAuthProviders, authProviderSubjectField, authUsesProviderChooser } from "./qiy-project";
 import {
@@ -5820,13 +5821,14 @@ export async function createApp(repositories: Repositories, authenticate: Authen
  ${dataflowRoutes ? '   const dataflows = includeDataflows ? (await import("./dataflows")).createDataflowRoutes(authenticateRequest) : undefined;' : ''}
     ${options.realtime ? "const realtime = createRealtimeRoutes(authenticateRequest);" : ""}
     const storage = includeStorage ? (await import("./storage/routes")).createStorageRoutes(authenticateRequest) : undefined;
+    ${(database.views ?? []).length ? 'const viewRoutes = (await import("./views-routes")).createViewRoutes(authenticateRequest);' : ""}
     ${hasLocalAuth ? 'const authRoutes = (await import("./auth/local")).createLocalAuthRoutes();' : auth?.provider === "otp" ? 'const authRoutes = (await import("./auth/otp")).createOtpAuthRoutes();' : ''}
     ${hasLocalAuth ? 'const accountRoutes = (await import("./auth/account")).createAccountRoutes(authenticateRequest);' : ''}
     ${apiKeysEnabled ? 'const apiKeyRoutes = (await import("./auth/api-keys")).createApiKeyRoutes(authenticateRequest);' : ''}
     ${hybridAuth ? 'const authProviderRoutes = (await import("./auth/oidc")).createHybridAuthRoutes(authenticateRequest);' : multiProviderAuth ? 'const authProviderRoutes = (await import("./auth/oidc")).createAuthProviderRoutes();' : ''}
     ${permissions ? 'const permissionRoutes = (await import("./auth/permission-routes")).createPermissionRoutes(authenticateRequest);' : ''}
     ${docsModelEnabled ? 'const docsRoutes = (await import("./docs-routes")).createDocsRoutes(authenticateRequest);' : ''}
-    const application = new Elysia().use(allowedOrigins.length > 0 ? cors({ origin: allowedOrigins, credentials: false, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key", "X-API-Key"] }) : new Elysia()).onRequest(({ request }) => guard(request)).use(openapi({ path: "/api/v1/openapi", documentation: { info: { title: "Qiy Admin API", version: "1.0.0" } } })).use(routes)${options.elysiaPlugins?.graphqlAdapter && options.elysiaPlugins.graphqlAdapter !== "native" ? '' : '.use(createGraphQLRoutes(repositories, authenticateRequest))'};
+    const application = new Elysia().use(allowedOrigins.length > 0 ? cors({ origin: allowedOrigins, credentials: false, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key", "X-API-Key"] }) : new Elysia()).onRequest(({ request }) => guard(request)).use(openapi({ path: "/api/v1/openapi", documentation: { info: { title: "Qiy Admin API", version: "1.0.0" } } })).use(routes)${(database.views ?? []).length ? ".use(viewRoutes)" : ""}${options.elysiaPlugins?.graphqlAdapter && options.elysiaPlugins.graphqlAdapter !== "native" ? '' : '.use(createGraphQLRoutes(repositories, authenticateRequest))'};
     let composed = application;
     ${hasLocalAuth || auth?.provider === "otp" ? "composed = composed.use(authRoutes);" : ""}
     ${hasLocalAuth ? "composed = composed.use(accountRoutes);" : ""}
@@ -5844,6 +5846,7 @@ export async function createApp(repositories: Repositories, authenticate: Authen
 }
 `,
     "api/src/modules/index.ts": database.entities.map((entity) => `export { ${modelName(entity)}Routes } from "./${entity.name}/${entity.name}.routes";`).join("\n") + "\n",
+    ...((database.views ?? []).length ? { "api/src/views-routes.ts": renderViewRoutes(database, auth !== undefined)! } : {}),
     "api/src/graphql.ts": renderGraphQL(scopedDatabase, hasLocalAuth ? { [options.auth!.userEntity]: [options.auth!.passwordField!] } : {}, options.dataflows ?? [], options.actions ?? [], (options.realtime?.resources ?? []).flatMap((resource) => {
       const entity = scopedDatabase.entities.find((candidate) => candidate.name === resource.resource || candidate.tableName === resource.resource);
       return entity ? [entity] : [];

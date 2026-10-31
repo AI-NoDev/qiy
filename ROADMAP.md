@@ -113,7 +113,8 @@
 - [x] 租户 DSL（`@tenant` 自动 principal scope + auth 校验）
 - [x] 计算字段（`@computed` Text 模板，只读派生）
 - [x] DB view（`view ... from ... { columns ... }`，生成只读 Drizzle view）
-- [ ] DB view 的 REST/GraphQL 只读资源与迁移支持
+- [x] DB view 只读 REST list/detail
+- [ ] DB view 的 GraphQL 资源、Web 列表与迁移支持
 
 ## 已完成（审计后）
 
