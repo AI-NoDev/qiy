@@ -121,6 +121,7 @@
 - [x] `v0.2.2`：`qiy skill list/update/uninstall`（含 `--json`、本地修改保护、保留手写文件）；通过 dry-run → tag → Release 流程发布。
 - [x] `v0.2.3`：`qiy explain` / `qiy schema`，机器可读模型摘要 + 已发布 JSON Schema。
 - [x] `v0.2.4`：稳定错误码目录 `QIY1001–QIY1016`、`qiy explain --errors`、文档 `/dsl/errors`、`explain --json` 自动附带 code/fix。
+- [x] `v0.20.0`：租户 DSL（`@tenant` 自动 principal scope）。
 - [x] `v0.19.0`：软删除（`@softDelete` nullable DateTime）。
 - [x] `v0.18.0`：生成器插件机制（`qiy.project.json` plugins）。
 - [x] `v0.17.0`：`qiy mcp` stdio MCP server（explain/schema/error catalog）。
