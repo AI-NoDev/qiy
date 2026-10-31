@@ -124,6 +124,7 @@ qiy dev --watch
 - Default `standard` template includes working products/orders entities, a relation, menu and chart, plus commented permissions/dataflow/messages examples.
 - `--template minimal` keeps only `10-catalog.qiy` and no relations/UI.
 - All project commands find `qiy.project.json` by walking up from the current directory.
+- `qiy.project.json` may declare `"plugins": ["./plugins/x.ts"]`; project generation and `qiy diff` load them and append returned files. Plugins cannot overwrite core files; see docs/guide/plugins.md.
 
 ## Project commands: check/generate/dev/build/test/preview
 

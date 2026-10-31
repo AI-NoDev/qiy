@@ -10,6 +10,8 @@ export interface QiyProjectManifest {
   model: string;
   /** Generated workspace, relative to the project root. */
   output: string;
+  /** Optional local generator plugin modules, relative to the project root. */
+  plugins?: string[];
 }
 
 export interface QiyProjectLocation {
@@ -37,6 +39,9 @@ export function readQiyProject(root: string): QiyProjectLocation {
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8").replace(/^\uFEFF/, "")) as QiyProjectManifest;
   if (manifest.formatVersion !== 1 || typeof manifest.name !== "string" || typeof manifest.model !== "string" || typeof manifest.output !== "string") {
     throw new Error(`Invalid ${QIY_PROJECT_FILE}: expected formatVersion 1, name, model and output.`);
+  }
+  if (manifest.plugins !== undefined && (!Array.isArray(manifest.plugins) || manifest.plugins.some((plugin) => typeof plugin !== "string"))) {
+    throw new Error(`Invalid ${QIY_PROJECT_FILE}: plugins must be an array of relative module paths.`);
   }
   const modelPath = resolve(root, manifest.model);
   const outputPath = resolve(root, manifest.output);

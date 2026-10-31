@@ -38,7 +38,7 @@ export async function checkProject(cwd = process.cwd()): Promise<void> {
 /** `qiy generate` inside a project: regenerate/sync the manifest output. */
 export async function generateProject(cwd = process.cwd(), options: { incremental?: boolean } = {}): Promise<void> {
   const project = requireQiyProject(cwd);
-  await generateApp(project.modelPath, project.outputPath, { sync: existsSync(project.outputPath), ...(options.incremental && { incremental: true }) });
+  await generateApp(project.modelPath, project.outputPath, { sync: existsSync(project.outputPath), ...(options.incremental && { incremental: true }), plugins: project.manifest.plugins, pluginRoot: project.root });
 }
 
 /** Differences between the current generated workspace and the model. */
@@ -54,7 +54,7 @@ export interface ProjectDiff {
 /** `qiy diff`: render in memory and report what generation would change. */
 export async function diffProject(cwd = process.cwd()): Promise<ProjectDiff> {
   const project = requireQiyProject(cwd);
-  const { files, unowned } = await renderAppFiles(project.modelPath);
+  const { files, unowned } = await renderAppFiles(project.modelPath, { plugins: project.manifest.plugins, pluginRoot: project.root });
   const expected = new Set<string>();
   const added: string[] = [];
   const changed: string[] = [];

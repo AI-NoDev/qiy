@@ -7,12 +7,16 @@ import { loadQiyTestSuite } from "../qiy-test";
 import { createGeneratedManifest, generatedPath, readGeneratedManifest } from "../generated-paths";
 import { prepareEnvironmentFile } from "../environment-files";
 import { generatedWiki } from "../generated-wiki";
+import { applyGeneratorPlugins } from "../plugins";
 
 export interface GenerateAppOptions {
   sync?: boolean;
   name?: string;
   /** Write only files whose content changed (still removes stale generated files when syncing). */
   incremental?: boolean;
+  /** Optional local generator plugin modules (project mode). */
+  plugins?: string[];
+  pluginRoot?: string;
 }
 
 export interface RenderedApp {
@@ -65,6 +69,7 @@ export async function renderAppFiles(source: string, options: GenerateAppOptions
     testSuite,
   });
   Object.assign(files, generatedWiki(files, appName, source));
+  await applyGeneratorPlugins(files, project, appName, options.pluginRoot ?? process.cwd(), options.plugins ?? []);
   const unowned = new Set(Object.keys(files).filter((path) => path.startsWith("apps/web/app/extensions/") || path.startsWith("apps/server/src/extensions/") || path === "AGENTS.md" || path === "AGENT.MD"));
   files[".qiy-generated.json"] = JSON.stringify(createGeneratedManifest(appName, "standalone", Object.keys(files).filter((path) => !unowned.has(path))), null, 2) + "\n";
   return { files, unowned, appName };

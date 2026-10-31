@@ -108,7 +108,7 @@
 - [ ] lint/format、coverage 阈值、依赖扫描 / SBOM / CodeQL
 - [x] MCP server（`qiy mcp`，explain/schema/error catalog）
 - [ ] 结构化 Agent API（除 MCP 外的 HTTP/Agent 接口）
-- [ ] 生成器插件机制
+- [x] 生成器插件机制（`qiy.project.json` plugins，追加文件/路径保护）
 - [ ] 软删除、租户 DSL、计算字段、DB view
 
 ## 已完成（审计后）
