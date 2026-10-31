@@ -8,6 +8,17 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.21.0] - 2026-10-31
+
+### Added
+
+- Computed Text fields: `field fullName Text @computed("{first} {last}")`.
+  Computed fields have no database column, are excluded from write schemas,
+  sorting/filtering and GraphQL inputs, and are materialized in list/one/create/
+  update/delete responses by the generated repository. Supports `{field}`
+  references to other Text fields; self/unknown/non-Text references are
+  rejected. Docs, skill note and tests included.
+
 ## [0.20.0] - 2026-10-31
 
 ### Added
@@ -533,6 +544,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.21.0]: https://github.com/AI-NoDev/qiy/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/AI-NoDev/qiy/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/AI-NoDev/qiy/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/AI-NoDev/qiy/compare/v0.17.0...v0.18.0

@@ -1147,6 +1147,7 @@ export function parseQiyProject(input: string): QiyProject {
       const attribute = identifier();
       if (attribute === "id") result.primaryKey = booleanAttribute();
       else if (attribute === "softDelete") result.softDelete = booleanAttribute();
+      else if (attribute === "computed") { expect("("); result.computed = value(); expect(")"); }
       else if (attribute === "tenant") {
         if (peek() === "(") {
           expect("(");
@@ -3207,6 +3208,7 @@ export function serializeQiyProject(project: QiyProject): string {
       if (field.nullable !== undefined) declaration += ` @nullable${field.nullable ? "" : "(false)"}`;
       if (field.softDelete) declaration += ` @softDelete`;
       if (field.tenantClaim !== undefined) declaration += ` @tenant(${qiyString(field.tenantClaim)})`;
+      if (field.computed !== undefined) declaration += ` @computed(${qiyString(field.computed)})`;
       if (field.unique !== undefined) declaration += ` @unique${field.unique ? "" : "(false)"}`;
       if (field.columnName !== undefined) declaration += ` @column(${qiyString(field.columnName)})`;
       if (field.extension !== undefined) declaration += ` @extension(${qiyIdentifier(field.extension, "Field extension")})`;

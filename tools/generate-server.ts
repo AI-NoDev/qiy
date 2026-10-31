@@ -163,7 +163,7 @@ function apiField(field: FieldIR, database: DatabaseIR): string {
 
 function createFields(entity: EntityIR, database: DatabaseIR): string {
   const generated = new Set(generatedFieldsOf(entity, database.relations ?? []).map((field) => field.field.name));
-  return entity.fields.filter((field) => !field.primaryKey && !field.softDelete && field.tenantClaim === undefined).map((field) => {
+  return entity.fields.filter((field) => !field.primaryKey && !field.softDelete && field.tenantClaim === undefined && field.computed === undefined).map((field) => {
     const value = field.nullable ? `t.Optional(t.Union([${apiField(field, database)}, t.Null()], ${JSON.stringify(field.comment !== undefined ? { description: field.comment } : {})}))` : apiField(field, database);
     // Generated fields are filled by the server, so the client may omit them even
     // when the column is NOT NULL. Client-supplied values are ignored on write.
@@ -172,7 +172,7 @@ function createFields(entity: EntityIR, database: DatabaseIR): string {
 }
 
 function patchFields(entity: EntityIR, database: DatabaseIR): string {
-  return entity.fields.filter((field) => !field.primaryKey && !field.softDelete && field.tenantClaim === undefined).map((field) => {
+  return entity.fields.filter((field) => !field.primaryKey && !field.softDelete && field.tenantClaim === undefined && field.computed === undefined).map((field) => {
     const value = field.nullable ? `t.Union([${apiField(field, database)}, t.Null()], ${JSON.stringify(field.comment !== undefined ? { description: field.comment } : {})})` : apiField(field, database);
     return `  ${JSON.stringify(field.name)}: t.Optional(${value}),`;
   }).join("\n");
@@ -222,7 +222,7 @@ function graphqlType(field: FieldIR, required = true): string {
 }
 
 function graphqlInputFields(entity: EntityIR, patch: boolean, hiddenFields: string[] = [], generatedFields: string[] = []): string {
-  return entity.fields.filter((field) => !field.primaryKey && !hiddenFields.includes(field.name)).map((field) => {
+  return entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !hiddenFields.includes(field.name)).map((field) => {
     // Generated fields are optional on create: the server renders them.
     const required = !patch && !field.primaryKey && !field.nullable && !generatedFields.includes(field.name);
     return `${graphqlDescription(field.comment, "  ")}  ${field.name}: ${graphqlType(field, required)}`;
@@ -303,9 +303,9 @@ input QiyFilterInput {\n  field: String!\n  operator: String = "eq"\n  value: St
 
 function graphqlResolver(entity: EntityIR, restricted = false): string {
   const name = modelName(entity);
-  const sortableFields = JSON.stringify(entity.fields.filter((field) => field.sortable !== false).map((field) => field.name));
-  const filterableFields = JSON.stringify(entity.fields.filter((field) => field.filterable !== false).map((field) => field.name));
-  const filterModes = JSON.stringify(Object.fromEntries(entity.fields.filter((field) => field.filterable !== false).map((field) => [field.name, filterModesForField(field)])));
+  const sortableFields = JSON.stringify(entity.fields.filter((field) => field.computed === undefined && field.sortable !== false).map((field) => field.name));
+  const filterableFields = JSON.stringify(entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => field.name));
+  const filterModes = JSON.stringify(Object.fromEntries(entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => [field.name, filterModesForField(field)])));
   // GraphQL must not become an authorization bypass: every resolver resolves the
   // same request policy as REST, forwards it to the service, and applies the
   // field masks before returning records.
@@ -611,7 +611,7 @@ function renderGraphQLTest(database: DatabaseIR, hiddenFields: string[] = []): s
   // Hidden fields (for example the local-auth password column) are absent from the
   // generated schema, so neither the selection set nor the input may reference them.
   const creatableFields = visibleFields.filter((field) => !generatedFieldsOf(entity, database.relations ?? []).some((generated) => generated.field.name === field.name));
-  const values = visibleFields.filter((field) => !field.primaryKey && !field.nullable && creatableFields.includes(field)).map((field) => {
+  const values = visibleFields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable && creatableFields.includes(field)).map((field) => {
     const example = field.type === "Integer" ? "1" : field.type === "Boolean" ? "true" : field.type === "Array" ? (field.itemType === "Integer" ? "[1]" : '["Example"]') : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
       : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
         : field.enumName ? JSON.stringify(database.enums?.find((enumeration) => enumeration.name === field.enumName)?.values[0]?.name ?? "") : field.type === "Email" ? '"user@example.com"' : field.type === "URL" ? '"https://example.com"' : '"Example"';
@@ -725,12 +725,12 @@ function renderSqliteScopeTest(database: DatabaseIR, scopes: NonNullable<QiyProj
   const configured = scopes[0]!;
   const entity = database.entities.find((item) => item.name === configured.resource || item.tableName === configured.resource)!;
   const dateField = entity.fields.find((field) => field.type === "DateTime")?.name;
-  const fields = entity.fields.filter((field) => !field.primaryKey && !field.nullable);
+  const fields = entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable);
   const values = fields.map((field) => {
     const value = field.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : field.type === "Integer" ? 1 : field.type === "Decimal" || field.type === "Money" ? "1.00" : field.type === "Date" ? "2026-11-30" : field.type === "Time" ? "08:30:00" : field.enumName ? database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name : "Example";
     return `${JSON.stringify(field.name)}: ${field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : JSON.stringify(value)}`;
   }).join(", ");
-  const columns = entity.fields.map((field) => `"${field.columnName ?? field.name}" ${field.type === "Integer" || field.type === "DateTime" ? "integer" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
+  const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `"${field.columnName ?? field.name}" ${field.type === "Integer" || field.type === "DateTime" ? "integer" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
   return `import { expect, test } from "bun:test";
 
 test("SQLite enforces tenant scope on reads and writes", async () => {
@@ -1085,9 +1085,9 @@ function renderRoutes(entity: EntityIR, database: DatabaseIR, scopes: Array<{ re
   const route = JSON.stringify(`/${entity.tableName}`);
   const scope = scopes.find((item) => item.resource === entity.name || item.resource === entity.tableName);
   const scopeLiteral = scope ? JSON.stringify({ field: scope.field, claim: scope.claim }) : "null";
-  const sortableFields = JSON.stringify(entity.fields.filter((field) => field.sortable !== false).map((field) => field.name));
-  const filterableFields = JSON.stringify(entity.fields.filter((field) => field.filterable !== false).map((field) => field.name));
-  const filterModes = JSON.stringify(Object.fromEntries(entity.fields.filter((field) => field.filterable !== false).map((field) => [field.name, filterModesForField(field)])));
+  const sortableFields = JSON.stringify(entity.fields.filter((field) => field.computed === undefined && field.sortable !== false).map((field) => field.name));
+  const filterableFields = JSON.stringify(entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => field.name));
+  const filterModes = JSON.stringify(Object.fromEntries(entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => [field.name, filterModesForField(field)])));
   const allowed = entity.fields.filter((field) => !field.primaryKey).map((field) => JSON.stringify(field.name)).join(", ");
   const sanitize = hiddenFields.length ? `const privateFields = ${JSON.stringify(hiddenFields)} as string[];
 const redact = (record: Record<string, unknown>) => { const safe = { ...record }; for (const field of privateFields) delete safe[field]; return safe; };` : "const redact = (record: Record<string, unknown>) => record;";
@@ -1689,18 +1689,50 @@ function wrapGeneratedCreateMethods(methods: string, entityName: string, fieldsL
   return `${methods.slice(0, start)}${head}${tail}${methods.slice(end)}`;
 }
 
+function renderComputedRepository(entity: EntityIR, baseName: string): string {
+  const fields = entity.fields.filter((field) => field.computed !== undefined);
+  if (fields.length === 0) return "";
+  const assignments = fields.map((field) => `    ${JSON.stringify(field.name)}: ${computedTemplateExpression(field.computed!)},`).join("\n");
+  return `function qiyComputeRecord(row: Record<string, any> | undefined) {
+  if (!row) return row;
+  return {
+    ...row,
+${assignments}
+  };
+}
+const qiyComputedRepository: ${modelName(entity)}RepositoryContract = {
+  ...${baseName},
+  list: async (...args: any[]) => { const result = await (${baseName}.list as any)(...args); return { ...result, data: result.data.map(qiyComputeRecord) }; },
+  one: async (...args: any[]) => qiyComputeRecord(await (${baseName}.one as any)(...args)),
+  create: async (...args: any[]) => qiyComputeRecord(await (${baseName}.create as any)(...args)) as any,
+  update: async (...args: any[]) => qiyComputeRecord(await (${baseName}.update as any)(...args)),
+  delete: async (...args: any[]) => qiyComputeRecord(await (${baseName}.delete as any)(...args)),
+  deleteMany: async (...args: any[]) => (await (${baseName}.deleteMany as any)(...args)).map(qiyComputeRecord),
+};
+`;
+}
+
+function computedTemplateExpression(template: string): string {
+  const parts = template.split(/(\{[A-Za-z_][A-Za-z0-9_]*\})/).filter(Boolean);
+  if (parts.length === 0) return '""';
+  return parts.map((part) => {
+    const match = /^\{([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(part);
+    return match ? `String(row.${match[1]} ?? "")` : JSON.stringify(part);
+  }).join(" + ");
+}
+
 function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtimeEvents: ReadonlySet<string> = new Set(), restricted = false, realtimeMasked: string[] = [], realtimeClaim?: { field: string; claim: string }): string {  const searchOperator = database.dialect === "postgresql" ? "ilike" : "like";
-  const searchableFields = entity.fields.filter((field) => field.type === "Text").map((field) => `${entity.name}.${field.name}`).join(", ");
-  const sortFields = entity.fields.filter((field) => field.sortable !== false).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
-  const filterableEntityFields = entity.fields.filter((field) => field.filterable !== false);
+  const searchableFields = entity.fields.filter((field) => field.type === "Text" && field.computed === undefined).map((field) => `${entity.name}.${field.name}`).join(", ");
+  const sortFields = entity.fields.filter((field) => field.computed === undefined && field.sortable !== false).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
+  const filterableEntityFields = entity.fields.filter((field) => field.computed === undefined && field.filterable !== false);
   const filterFields = filterableEntityFields.map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
   const filterTypes = JSON.stringify(Object.fromEntries(filterableEntityFields.map((field) => [field.name, field.type])));
   const configuredScopes = (database as DatabaseIR & { scopes?: QiyScope[] }).scopes ?? [];
-  const scopeFields = entity.fields.filter((field) => configuredScopes.some((scope) => (scope.resource === entity.name || scope.resource === entity.tableName) && scope.field === field.name));
+  const scopeFields = entity.fields.filter((field) => field.computed === undefined && configuredScopes.some((scope) => (scope.resource === entity.name || scope.resource === entity.tableName) && scope.field === field.name));
   const scopeColumnFields = [...new Set([...filterableEntityFields, ...scopeFields])].map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
-  const groupFields = entity.fields.filter((field) => field.enumName).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
-  const numericFields = entity.fields.filter((field) => ["Integer", "Decimal", "Money"].includes(field.type)).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
-  const dateFields = entity.fields.filter((field) => field.type === "DateTime").map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
+  const groupFields = entity.fields.filter((field) => field.computed === undefined && field.enumName).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
+  const numericFields = entity.fields.filter((field) => field.computed === undefined && ["Integer", "Decimal", "Money"].includes(field.type)).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
+  const dateFields = entity.fields.filter((field) => field.computed === undefined && field.type === "DateTime").map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
   const scopeColumns = scopeColumnFields || "";
   // A `tree` scope widens the claim to the whole subtree, so the row predicate
   // becomes a recursive CTE over the tree entity instead of an equality check.
@@ -2015,7 +2047,7 @@ ${mutationMethods}
 function renderRouteTest(entity: EntityIR, database: DatabaseIR, scopes: NonNullable<QiyProject["scopes"]> = [], hiddenFields: string[] = []): string {
   const name = modelName(entity);
   const claims = JSON.stringify(Object.fromEntries(scopes.map((scope) => [scope.claim, database.entities.find((item) => item.name === scope.resource || item.tableName === scope.resource)?.fields.find((field) => field.name === scope.field)?.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : "Example"])));
-  const values = entity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => {
+  const values = entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable).map((field) => {
     const example = field.type === "Integer" ? "1" : field.type === "Boolean" ? "true" : field.type === "Array" ? (field.itemType === "Integer" ? "[1]" : '["Example"]') : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
       : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
         : field.enumName ? JSON.stringify(database.enums?.find((enumeration) => enumeration.name === field.enumName)?.values[0]?.name ?? "") : field.type === "Email" ? '"user@example.com"' : field.type === "URL" ? '"https://example.com"' : '"Example"';
@@ -3782,7 +3814,7 @@ function renderSqliteRealtimeOutboxTest(database: DatabaseIR, realtime: NonNulla
   const entity = database.entities.find((candidate) => candidate.name === subscription?.resource || candidate.tableName === subscription?.resource);
   if (!entity) return undefined;
   const columns = entity.fields.map((field) => `${JSON.stringify(field.columnName ?? field.name)} ${sqliteColumnType(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
-  const fixture = (variant: 1 | 2) => entity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => {
+  const fixture = (variant: 1 | 2) => entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable).map((field) => {
     const enumeration = database.enums?.find((item) => item.name === field.enumName);
     const value = enumeration ? JSON.stringify(enumeration.values[Math.min(variant - 1, enumeration.values.length - 1)]!.name)
       : field.type === "UUID" ? JSON.stringify(`00000000-0000-4000-8000-00000000000${variant}`)
@@ -4812,7 +4844,7 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
   const features = options.features ?? { overview: true, apiDocs: false, apiKeys: false };
   const apiDocsEnabled = Boolean(features.apiDocs);
   const apiKeysEnabled = Boolean(features.apiKeys);
-  // The 功能总览 page is generated when it is enabled and at least one docs API
+  // The 鍔熻兘鎬昏 page is generated when it is enabled and at least one docs API
   // feature exists; its model endpoint must exist for that page to load.
   const overviewRequested = features.overview !== false && (apiDocsEnabled || apiKeysEnabled);
   const docsModelEnabled = apiDocsEnabled || overviewRequested;
@@ -6696,7 +6728,7 @@ export function createProductionAuthenticator() {
       const sessionUserColumn = database.dialect === "mysql" ? "VARCHAR(36)" : "TEXT";
       const sessionRevocationDdl = `CREATE TABLE qiy_session_revocations (userId ${sessionUserColumn} PRIMARY KEY, revokedBefore ${sessionTimestamp} NOT NULL)`;
       const userEntity = database.entities.find((entity) => entity.name === auth.userEntity)!;
-      const bootstrapFields = userEntity.fields.filter((field) => !field.primaryKey && !field.nullable && ![usernameField, passwordField, auth.roleField].includes(field.name) && !(hybridAuth && field.name === auth.subjectField));
+      const bootstrapFields = userEntity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable && ![usernameField, passwordField, auth.roleField].includes(field.name) && !(hybridAuth && field.name === auth.subjectField));
       const bootstrapHasDisplayName = bootstrapFields.some((field) => field.name === "displayName");
       // A hybrid account needs the required canonical subject column too; it is
       // derived instead of prompted because no OAuth identity exists yet.
@@ -7106,13 +7138,15 @@ ${generatedRepositoryImport}${realtimeMasked.length ? `\n// Every role that may 
 ${generatedRepositoryDeclaration}${renderScopeTreeHelper(scopedDatabase, publicEntity)}const notDeleted = ${publicEntity.fields.find((field) => field.softDelete) ? `isNull(${entity.name}.${publicEntity.fields.find((field) => field.softDelete)!.name})` : "undefined"};\nconst qiyBase${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = {
 ${renderRepositoryMethods(publicEntity, scopedDatabase, realtimeEvents, entityRestricted, realtimeMasked, realtimeClaim)}
 };
+${renderComputedRepository(publicEntity, `qiyBase${modelName(entity)}Repository`)}
+const qiyReadRepository: ${modelName(entity)}RepositoryContract = ${publicEntity.fields.some((field) => field.computed !== undefined) ? "qiyComputedRepository" : `qiyBase${modelName(entity)}Repository`};
 ${publicEntity.fields.find((field) => field.softDelete) ? `const qiySoftDeletedAt = ${JSON.stringify(publicEntity.fields.find((field) => field.softDelete)!.name)};
 export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = {
-  ...qiyBase${modelName(entity)}Repository,
-  delete: (...args: any[]) => (qiyBase${modelName(entity)}Repository.update as any)(args[0], { [qiySoftDeletedAt]: new Date() }, ...args.slice(1)),
-  deleteMany: async (...args: any[]) => { const rows = []; for (const id of args[0] as string[]) { const row = await (qiyBase${modelName(entity)}Repository.update as any)(id, { [qiySoftDeletedAt]: new Date() }, ...args.slice(1)); if (row) rows.push(row); } return rows; },
+  ...qiyReadRepository,
+  delete: (...args: any[]) => (qiyReadRepository.update as any)(args[0], { [qiySoftDeletedAt]: new Date() }, ...args.slice(1)),
+  deleteMany: async (...args: any[]) => { const rows = []; for (const id of args[0] as string[]) { const row = await (qiyReadRepository.update as any)(id, { [qiySoftDeletedAt]: new Date() }, ...args.slice(1)); if (row) rows.push(row); } return rows; },
 };
-` : `export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = qiyBase${modelName(entity)}Repository;
+` : `export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = qiyReadRepository;
 `}`;
     files[`${moduleRoot}/${entity.name}.contract.ts`] = `${generatedDocumentation(entity)}${entityRestricted ? 'import type { QiyPolicy } from "../../security/policy";\n' : ""}export interface ${modelName(entity)}Repository {
   distribution(field: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<{ value: string | null; count: number }>>;
@@ -7266,7 +7300,7 @@ ${database.entities.map((entity) => {
       ? database.enums?.find((enumeration) => enumeration.name === providerFilterField.enumName)?.values[0]?.name ?? ""
         : providerFilterField.type === "Integer" ? "1"
           : "Example";
-    const providerCreateValues = Object.fromEntries(adapterEntity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => [field.name, adapterRecord[field.name]]));
+    const providerCreateValues = Object.fromEntries(adapterEntity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable).map((field) => [field.name, adapterRecord[field.name]]));
     const disabledSort = database.entities.flatMap((entity) => entity.fields.filter((field) => field.sortable === false).map((field) => ({ entity, field })))[0];
     const disabledFilter = database.entities.flatMap((entity) => entity.fields.filter((field) => field.filterable === false).map((field) => ({ entity, field })))[0];
     files["api/tests/graphql-adapter.test.ts"] = `import { expect, test } from "bun:test";
@@ -7475,8 +7509,8 @@ ${scope ? `  const missing = await createApp(repositories, async () => ({ id: "a
   if (database.dialect === "sqlite") {
     const entity = database.entities[0]!;
     const entityGenerated = generatedFieldsOf(entity, database.relations ?? []);
-    const columns = entity.fields.map((field) => `"${field.name}" ${field.type === "Integer" || field.type === "DateTime" ? "integer" : field.type === "Decimal" || field.type === "Money" ? "real" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
-    const values = entity.fields.filter((field) => !field.primaryKey && !field.nullable).map((field) => `${JSON.stringify(field.name)}: ${field.enumName ? JSON.stringify(database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name) : field.type === "Integer" ? "1" : field.type === "Boolean" ? "true" : field.type === "Array" ? (field.itemType === "Integer" ? "[1]" : '["Example"]') : field.type === "Decimal" || field.type === "Money" ? '"1.00"' : field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"' : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "Email" ? '"user@example.com"' : field.type === "URL" ? '"https://example.com"' : '"Example"'}`).join(", ");
+    const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `"${field.name}" ${field.type === "Integer" || field.type === "DateTime" ? "integer" : field.type === "Decimal" || field.type === "Money" ? "real" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
+    const values = entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable).map((field) => `${JSON.stringify(field.name)}: ${field.enumName ? JSON.stringify(database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name) : field.type === "Integer" ? "1" : field.type === "Boolean" ? "true" : field.type === "Array" ? (field.itemType === "Integer" ? "[1]" : '["Example"]') : field.type === "Decimal" || field.type === "Money" ? '"1.00"' : field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"' : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "Email" ? '"user@example.com"' : field.type === "URL" ? '"https://example.com"' : '"Example"'}`).join(", ");
     // A generated @code field allocates from the sequence table before the insert,
     // so the rollback fixture has to provide it.
     const sequenceTable = entityGenerated.some((generated) => generated.kind === "code")

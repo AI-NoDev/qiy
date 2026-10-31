@@ -119,6 +119,7 @@ entity <Name> [table <tableName>] [@annotation(...)]... {
 | `@nullable` | 全部 | `@nullable` / `@nullable(false)` | 非空 | 生成可空列；请求体可省略；`setNull` 关系要求它 | — |
 | `@softDelete` | DateTime + `@nullable` | `@softDelete` | 无 | 软删除时间戳；delete 改为写入当前时间，list/one/update 默认排除已删除行 | 非 DateTime、非 nullable、重复声明报错 |
 | `@tenant("claim")` | UUID / Text / Integer | `@tenant` 或 `@tenant("tenant.id")` | `tenantId` | 租户列；自动生成 principal scope，值来自认证 claim，表单/写入只读 | 非标量、nullable、重复、无 auth 或与显式 scope 冲突都报错 |
+| `@computed("…")` | Text | 字符串模板，`{field}` 引用其他 Text 字段 | 无 | 只读派生字段；不建列，list/one/create/update 响应中计算；表单只读 | 非 Text、nullable、主键、自引用、未知或非 Text 引用报错 |
 | `@unique` | 除 `Files` | `@unique` / `@unique(false)` | 非唯一 | 生成唯一约束（`.unique()`）；可作为 relation 目标字段 | `Files cannot be unique` |
 | `@label("…")` | 全部 | 字符串或裸值 | 字段名 | 列头、详情字段名、表单 label、筛选占位符；`qiy.resources.<table>.fields.<field>.label` | 重复声明后者覆盖 |
 | `@comment("…")` | 全部 | 字面量或 `t("key")` | 无 | schema JSDoc（含 `i18n: key`）、资源元数据 `comment`/`commentKey` | `t()` key 缺失 → `Missing default locale message for comment: <key>` |

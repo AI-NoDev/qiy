@@ -111,7 +111,8 @@
 - [x] 生成器插件机制（`qiy.project.json` plugins，追加文件/路径保护）
 - [x] 软删除（`@softDelete` nullable DateTime；读取过滤 + delete 写时间戳）
 - [x] 租户 DSL（`@tenant` 自动 principal scope + auth 校验）
-- [ ] 计算字段、DB view
+- [x] 计算字段（`@computed` Text 模板，只读派生）
+- [ ] DB view
 
 ## 已完成（审计后）
 

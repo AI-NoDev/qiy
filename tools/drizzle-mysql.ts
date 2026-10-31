@@ -57,7 +57,7 @@ function codeSequenceTable(): string {
 
 function renderEntity(entity: EntityIR, relations: RelationIR[]): string {
   const indexedFields = new Set((entity.indexes ?? []).flatMap((index) => index.columns.map((column) => column.fieldName)));
-  const fields = entity.fields.map((field) => {
+  const fields = entity.fields.filter((field) => field.computed === undefined).map((field) => {
     const relation = relations.find((item) => item.fromEntity === entity.name && item.fromField === field.name);
     return `${generatedDocumentation(relation, "  ")}${generatedDocumentation(field, "  ")}  ${JSON.stringify(field.name)}: ${column(field, relation, indexedFields.has(field.name))},`;
   });

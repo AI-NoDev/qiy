@@ -69,7 +69,7 @@ function renderIndex(index: IndexIR): string {
 }
 
 function renderEntity(entity: EntityIR, relations: RelationIR[]): string {
-  const fields = entity.fields.map((field) => {
+  const fields = entity.fields.filter((field) => field.computed === undefined).map((field) => {
     const relation = relations.find((item) => item.fromEntity === entity.name && item.fromField === field.name);
     return `${generatedDocumentation(relation, "  ")}${generatedDocumentation(field, "  ")}  ${JSON.stringify(field.name)}: ${column(field, relation)},`;
   });

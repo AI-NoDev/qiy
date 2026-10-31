@@ -32,6 +32,8 @@ export interface FieldIR {
   softDelete?: boolean;
   /** Marks the tenant column; the value comes from this principal claim. */
   tenantClaim?: string;
+  /** Read-only template computed from other fields. */
+  computed?: string;
   primaryKey?: boolean;
   unique?: boolean;
   extension?: string;
@@ -457,6 +459,17 @@ export function validateDatabaseIR(database: DatabaseIR): string[] {
       if (field.tenantClaim !== undefined) {
         if (!["UUID", "Text", "Integer"].includes(field.type)) errors.push(`${entity.name}.${field.name}: @tenant requires UUID, Text or Integer`);
         if (field.nullable) errors.push(`${entity.name}.${field.name}: @tenant requires a non-null field`);
+      }
+      if (field.computed !== undefined) {
+        if (field.type !== "Text") errors.push(`${entity.name}.${field.name}: @computed currently supports Text fields only`);
+        if (field.nullable) errors.push(`${entity.name}.${field.name}: @computed fields cannot be nullable`);
+        if (field.primaryKey) errors.push(`${entity.name}.${field.name}: @computed fields cannot be primary keys`);
+        for (const match of field.computed.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)) {
+          const reference = match[1]!;
+          if (reference === field.name) errors.push(`${entity.name}.${field.name}: @computed cannot reference itself`);
+          else if (!fields.has(reference)) errors.push(`${entity.name}.${field.name}: @computed references unknown field ${reference}`);
+          else if (fields.get(reference)!.type !== "Text") errors.push(`${entity.name}.${field.name}: @computed reference ${reference} must be Text`);
+        }
       }
     }
     if (entity.fields.filter((field) => field.softDelete).length > 1) {
