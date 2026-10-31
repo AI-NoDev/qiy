@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.11.0] - 2026-10-31
+
+### Added
+
+- Dedicated scalar array fields: `Text[]`, `Email[]`, `URL[]`, `Integer[]`.
+  Stored as JSON (`jsonb`/text JSON/MySQL json), validated with REST
+  `t.Array(...)`, typed as GraphQL `[String!]` / `[Int!]`, rendered as Ant
+  Design tag inputs, and joined for list/detail display.
+
 ## [0.10.0] - 2026-10-30
 
 ### Added
@@ -439,6 +448,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.11.0]: https://github.com/AI-NoDev/qiy/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/AI-NoDev/qiy/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/AI-NoDev/qiy/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/AI-NoDev/qiy/compare/v0.7.0...v0.8.0

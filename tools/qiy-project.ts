@@ -430,7 +430,7 @@ export function parseQiyProject(input: string): QiyProject {
   // `&&`, `||`, `!`, `&` are only used by permission declarations and
   // verification expressions; they stay separate tokens so the rest of the
   // grammar is unaffected.
-  const pattern = /\s+|\/\/[^\r\n]*|#[^\r\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|&&|\|\||==|!=|>=|<=|[a-zA-Z_][a-zA-Z_0-9-]*|-?\d+|[{}();,@.=<>!&|]/g;
+  const pattern = /\s+|\/\/[^\r\n]*|#[^\r\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|&&|\|\||==|!=|>=|<=|[a-zA-Z_][a-zA-Z_0-9-]*|-?\d+|[{}();,@.=<>!&|\[\]]/g;
   const tokens: string[] = []; 
   let end = 0;
   for (const match of source.matchAll(pattern)) {
@@ -1119,9 +1119,17 @@ export function parseQiyProject(input: string): QiyProject {
   function field(enumNames: Set<string>): FieldIR {
     expect("field");
     const name = identifier();
-    const type = identifier();
-    if (!["UUID", "Text", "Email", "URL", "JSON", "Integer", "Decimal", "Money", "Date", "Time", "DateTime", "Boolean", "File", "Files", "Vector"].includes(type) && !enumNames.has(type)) throw new Error(`Unsupported field type ${type}`);
-    const result: FieldIR = { name, type: type as FieldIR["type"] };
+    let type = identifier();
+    let itemType: FieldIR["type"] | undefined;
+    if (peek() === "[") {
+      expect("[");
+      expect("]");
+      if (!["Text", "Email", "URL", "Integer"].includes(type)) throw new Error("Array item type must be Text, Email, URL or Integer");
+      itemType = type as FieldIR["type"];
+      type = "Array";
+    }
+    if (!["UUID", "Text", "Email", "URL", "JSON", "Integer", "Decimal", "Money", "Date", "Time", "DateTime", "Boolean", "Array", "File", "Files", "Vector"].includes(type) && !enumNames.has(type)) throw new Error(`Unsupported field type ${type}`);
+    const result: FieldIR = { name, type: type as FieldIR["type"], ...(itemType && { itemType }) };
     if (enumNames.has(type)) { result.type = "Text"; result.enumName = type; }
     if (peek() === "(") {
       expect("(");

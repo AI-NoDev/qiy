@@ -1,7 +1,7 @@
 import { validateCodeTemplate } from "./code-template";
 
 export type DatabaseDialect = "postgresql" | "mysql" | "sqlite";
-export type FieldType = "UUID" | "Text" | "Email" | "URL" | "JSON" | "Integer" | "Boolean" | "Decimal" | "Money" | "Date" | "Time" | "DateTime" | "File" | "Files" | "Vector";
+export type FieldType = "UUID" | "Text" | "Email" | "URL" | "JSON" | "Integer" | "Boolean" | "Decimal" | "Money" | "Date" | "Time" | "DateTime" | "Array" | "File" | "Files" | "Vector";
 export type FilterMode = "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in";
 
 export interface EnumValueIR {
@@ -26,6 +26,7 @@ export interface FieldIR {
   commentKey?: string;
   columnName?: string;
   type: FieldType;
+  itemType?: FieldType;
   nullable?: boolean;
   primaryKey?: boolean;
   unique?: boolean;
@@ -175,7 +176,7 @@ const reservedNames = new Set([
  */
 export const DISPLAY_TEMPLATE_TAGS = ["br", "b", "strong", "i", "em", "span", "small", "p", "div"] as const;
 /** Scalar field types a display template may interpolate; relations are rendered by the FK cell itself. */
-export const DISPLAY_TEMPLATE_FIELD_TYPES: ReadonlySet<FieldType> = new Set<FieldType>(["UUID", "Text", "Email", "URL", "JSON", "Integer", "Boolean", "Decimal", "Money", "Date", "Time", "DateTime"]);
+export const DISPLAY_TEMPLATE_FIELD_TYPES: ReadonlySet<FieldType> = new Set<FieldType>(["UUID", "Text", "Email", "URL", "JSON", "Integer", "Boolean", "Decimal", "Money", "Date", "Time", "DateTime", "Array"]);
 const displayTemplateTagSet = new Set<string>(DISPLAY_TEMPLATE_TAGS);
 const displayPlaceholder = /^\{\$\.([a-zA-Z_][a-zA-Z0-9_]*)\}/;
 const displayTag = /^<(\/?)([a-zA-Z][a-zA-Z0-9]*)(\/?)>/;
@@ -366,9 +367,16 @@ export function validateDatabaseIR(database: DatabaseIR): string[] {
       }
       columnNames.add(columnName);
       fields.set(field.name, field);
-      if (!["UUID", "Text", "Email", "URL", "JSON", "Integer", "Boolean", "Decimal", "Money", "Date", "Time", "DateTime", "File", "Files", "Vector"].includes(field.type)) {
+      if (!["UUID", "Text", "Email", "URL", "JSON", "Integer", "Boolean", "Decimal", "Money", "Date", "Time", "DateTime", "Array", "File", "Files", "Vector"].includes(field.type)) {
         errors.push(`${entity.name}.${field.name}: unsupported field type`);
         continue;
+      }
+      if (field.type === "Array") {
+        if (!field.itemType || !["Text", "Email", "URL", "Integer"].includes(field.itemType)) {
+          errors.push(`${entity.name}.${field.name}: Array requires itemType Text, Email, URL, Integer or UUID`);
+        }
+      } else if (field.itemType !== undefined) {
+        errors.push(`${entity.name}.${field.name}: itemType is only valid on Array fields`);
       }
       if (field.enumName && !enumNames.has(field.enumName)) {
         errors.push(`${entity.name}.${field.name}: unknown enum ${field.enumName}`);
