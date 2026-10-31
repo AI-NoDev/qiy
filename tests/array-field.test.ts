@@ -32,6 +32,8 @@ test("Array fields generate REST/GraphQL types and tag inputs", () => {
   expect(files["apps/server/src/graphql.ts"]).toContain("scores: [Int!]");
   expect(files["apps/web/app/resources.ts"]).toContain('"itemType": "Text"');
   expect(files["apps/web/app/components/resource-form.tsx"]).toContain("<Select mode=\"tags\"");
+  expect(all).toContain("must be a JSON array");
+  expect(all).toContain("must be an array of integers");
 });
 
 test("Array validation rejects non-scalar items", () => {

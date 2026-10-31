@@ -1251,6 +1251,7 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
   const EXPORT_PAGE_SIZE = Math.min(250, exportMaxRows());
   // Import accepts plain scalar columns only; vectors and key lists need the API.
   const importTypes = ${JSON.stringify(Object.fromEntries(entity.fields.filter((field) => !field.primaryKey && field.type !== "Vector" && field.type !== "Files").map((field) => [field.name, field.type])))} as Record<string, string>;
+  const importArrayItems = ${JSON.stringify(Object.fromEntries(entity.fields.filter((field) => field.type === "Array").map((field) => [field.name, field.itemType]))) } as Record<string, string | undefined>;
   const importColumns = Object.keys(importTypes);
   const importMaxRows = () => { const value = Number(Bun.env.QIY_IMPORT_MAX_ROWS ?? 1000); return Number.isSafeInteger(value) && value >= 1 && value <= 100000 ? value : 1000; };
   /** RFC 4180 reader: quoted fields, doubled quotes and CRLF line endings. */
@@ -1275,6 +1276,17 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
   const importValue = (field: string, value: string) => {
     if (value === "") return null;
     if (importTypes[field] === "Integer") { const parsed = Number(value); if (!Number.isFinite(parsed)) throw new Error("Column " + field + " must be an integer"); return parsed; }
+    if (importTypes[field] === "Boolean") { if (!["true", "false", "1", "0"].includes(value.toLowerCase())) throw new Error("Column " + field + " must be true or false"); return value === "1" || value.toLowerCase() === "true"; }
+    if (importTypes[field] === "JSON" || importTypes[field] === "Array") {
+      let parsed: unknown;
+      try { parsed = JSON.parse(value); } catch { throw new Error("Column " + field + " must be valid JSON"); }
+      if (importTypes[field] === "Array") {
+        if (!Array.isArray(parsed)) throw new Error("Column " + field + " must be a JSON array");
+        if (importArrayItems[field] === "Integer" && parsed.some((item) => !Number.isInteger(item))) throw new Error("Column " + field + " must be an array of integers");
+        if (importArrayItems[field] !== "Integer" && parsed.some((item) => typeof item !== "string")) throw new Error("Column " + field + " must be an array of strings");
+      }
+      return parsed;
+    }
     if (importTypes[field] === "DateTime") { const parsed = new Date(value); if (Number.isNaN(parsed.getTime())) throw new Error("Column " + field + " must be an ISO date-time"); return parsed; }${temporal.length ? `
     if (importTypes[field] === "Date") { const parsed = new Date(value + "T00:00:00Z"); if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(value) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) throw new Error("Column " + field + " must be a YYYY-MM-DD date"); return value; }
     if (importTypes[field] === "Time") { const match = /^([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9]))?$/.exec(value); if (!match) throw new Error("Column " + field + " must be a HH:mm:ss time"); return match[1] + ":" + match[2] + ":" + (match[3] ?? "00"); }` : ""}

@@ -82,7 +82,7 @@
 - [x] 字段类型扩展：Email / URL（text 存储 + REST email/uri 校验 + 表单 input）
 - [x] 字段类型扩展：JSON（jsonb / text JSON / mysql json + GraphQL JSON scalar + textarea）
 - [x] 专用数组字段：`Text[]` / `Email[]` / `URL[]` / `Integer[]`
-- [ ] 专用数组字段的 CSV/批量导入语义
+- [x] 数组/JSON/Boolean 的 CSV 导入语义
 - [x] 文档多语言：English 核心页（getting-started / CLI）+ 隐藏未翻译语言入口
 - [x] 文档版本化（`/v0.6/` 归档，独立 base/canonical，导航切换）
 - [x] `qiy diff` / dry-run 预览（内存渲染、added/changed/removed、`--check`/`--json`）+ `qiy generate --incremental` 只写变化文件

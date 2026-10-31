@@ -1760,7 +1760,7 @@ entity <Name> [table <tableName>] [@annotation(...)]... {
 | `Email` | Email | `text` | 邮箱语义；REST 使用 email 格式校验，表单为 email 输入 |
 | `URL` | URL | `text` | URL 语义；REST 使用 uri 格式校验，表单为 url 输入 |
 | `JSON` | JSON | `jsonb`（SQLite text JSON 模式 / MySQL json） | 任意 JSON 对象或数组；GraphQL 使用 JSON scalar，表单为 JSON textarea |
-| `Text[]` / `Integer[]` | Array + itemType | `jsonb`（SQLite text JSON / MySQL json） | 标量数组；表单为 tags 输入，GraphQL `[String!]` / `[Int!]` |
+| `Text[]` / `Integer[]` | Array + itemType | `jsonb`（SQLite text JSON / MySQL json） | 标量数组；表单为 tags 输入，GraphQL `[String!]` / `[Int!]`；CSV 用 JSON 数组文本（导出同样 JSON） |
 | `Integer` | Integer | `integer` | 32 位整数 |
 | `Boolean` | Boolean | `boolean`（SQLite 用 integer boolean 模式） | 表单渲染为 Switch，API/GraphQL 使用布尔值 |
 | `Decimal(p[, s])` | Decimal | `numeric(p, s)` | 精度必填；`s` 缺省 0 |

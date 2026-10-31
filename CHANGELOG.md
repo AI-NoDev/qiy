@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.24.0] - 2026-10-31
+
+### Added
+
+- CSV import for arrays/JSON/Boolean: array cells must be JSON arrays and are
+  validated per item type (`Integer[]` vs string arrays); JSON cells are parsed
+  as JSON; booleans accept `true/false/1/0`. Exports already emit JSON for
+  arrays/objects, so array round-trips are lossless.
+
 ## [0.23.0] - 2026-10-31
 
 ### Added
@@ -562,6 +571,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.24.0]: https://github.com/AI-NoDev/qiy/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/AI-NoDev/qiy/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/AI-NoDev/qiy/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/AI-NoDev/qiy/compare/v0.20.0...v0.21.0
