@@ -1,10 +1,11 @@
-import { readFileSync } from "node:fs";
 import { explainQiySource } from "./commands/explain";
 import { qiyExplanationSchema } from "./qiy-schema";
 import { findQiyError, qiyErrorCatalog } from "./error-catalog";
 
 export const MCP_PROTOCOL_VERSION = "2024-11-05";
-const VERSION = (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }).version;
+import packageMetadata from "../package.json" with { type: "json" };
+declare const __QIY_VERSION__: string;
+const VERSION = typeof __QIY_VERSION__ === "string" ? __QIY_VERSION__ : packageMetadata.version;
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
