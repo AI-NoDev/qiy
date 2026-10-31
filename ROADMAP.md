@@ -75,7 +75,8 @@
 - [x] 会话吊销（`qiy_session_revocations` + `POST /auth/logout-all` + 个人中心按钮）
 - [x] chart area 视图（trend 数据 + SVG 面积填充）
 - [x] chart scatter 视图（numeric list + 点击下钻）
-- [ ] `sum/avg ... group by` 聚合 + stacked、颜色/图例配置
+- [x] `sum/avg ... group by` 分组聚合（bar/pie）
+- [ ] chart stacked、颜色/图例配置
 - [x] 字段类型扩展：Boolean（parser/IR/Drizzle/API/GraphQL/Web Switch/文档）
 - [x] 字段类型扩展：Email / URL（text 存储 + REST email/uri 校验 + 表单 input）
 - [x] 字段类型扩展：JSON（jsonb / text JSON / mysql json + GraphQL JSON scalar + textarea）

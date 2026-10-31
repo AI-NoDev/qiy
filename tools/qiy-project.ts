@@ -1851,9 +1851,15 @@ export function parseQiyProject(input: string): QiyProject {
             throw new Error(`${prefix}: const views require count or sum/avg/min/max data`);
           }
         } else if (view.kind === "pie" || view.kind === "bar") {
-          if (data.operation !== "count" || !data.groupBy) throw new Error(`${prefix}: pie/bar views require "count <entity> group by <enum field>" data`);
+          if (!data.groupBy) throw new Error(`${prefix}: pie/bar views require "count|sum|avg|min|max ... group by <enum field>" data`);
           const grouped = fieldOf(data.groupBy);
           if (!grouped.enumName) throw new Error(`${prefix}: group by field ${data.groupBy} must be an enum field`);
+          if (data.operation === "sum" || data.operation === "avg" || data.operation === "min" || data.operation === "max") {
+            const metric = fieldOf(data.field!);
+            if (metric.type !== "Integer" && metric.type !== "Decimal" && metric.type !== "Money") throw new Error(`${prefix}: aggregate field ${data.field} must be Integer, Decimal or Money`);
+          } else if (data.operation !== "count") {
+            throw new Error(`${prefix}: pie/bar views require count or sum/avg/min/max data`);
+          }
           if (view.labels?.field) {
             const labeled = fieldOf(view.labels.field);
             if (!labeled.enumName) throw new Error(`${prefix}: labels field ${view.labels.field} must be an enum field`);

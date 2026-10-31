@@ -2713,7 +2713,7 @@ chart panels Overview {
 `chart` 与 `chart panels` 都写在 `application {}` 内、`menu` 之后、`dataflow` 之前。它们与旧的 `dashboard { metric ... }` **共用同一位置**，可以交错书写（解析器在一个循环里读取 `dashboard`/`chart`），但同一模型里图表优先于旧指标卡，见 [菜单与 Dashboard · 概览页选择](/guide/menu-dashboard#概览页选择chart-优先)。
 
 ```text
-chart [const|pie|bar|line|table] <ChartName> {
+chart [const|pie|bar|line|area|scatter|table] <ChartName> {
   icon  = "<IconName>" ;       // 可选
   title = "<文本>" ;            // 可选
   data  = <数据表达式> ;        // 必填，每个声明恰好一次
@@ -2741,12 +2741,13 @@ chart panels <PanelName> {
 - 同名 chart 的多个声明可以完全重复属性，但同一 chart 内**同一 kind 只能出现一次**。
 - `panels`、`title`、`grid` 不能作为普通 chart 的名字（`panels` 保留给 `chart panels`，`title`/`grid` 是 panel 内的保留 token）。
 - 数据表达式按空格分词，`group by`、`columns`、`days` 是关键字；`trend users.createdAt days 30` 由 `trend`、实体、`.`、字段、`days`、整数依次解析。
+- `bar` / `pie` 支持 `count <entity> group by <enum>`，也支持 `sum|avg|min|max <entity>.<numericField> group by <enum>`；散点使用 `list <entity> columns <numericX>, <numericY>`。
 
 ## 参数表：chart 视图
 
 | 属性 | 必填 | 取值 | 默认 | 说明 |
 | --- | --- | --- | --- | --- |
-| kind（位置参数） | 否 | `const` / `pie` / `bar` / `line` / `table` | `const` | 省略 kind 即统计卡；`stat` 旧名称已删除 |
+| kind（位置参数） | 否 | `const` / `pie` / `bar` / `line` / `area` / `scatter` / `table` | `const` | 省略 kind 即统计卡；`stat` 旧名称已删除 |
 | `icon` | 否 | 字符串 | 无 | Ant Design `*Outlined` 图标名；只有生成到 `app/icons.tsx` 的图标才会真正渲染，见[图标](#图标) |
 | `title` | 否 | 字符串 | chart 名 | 卡片标题（chart 级）；视图标题另见 `views.<kind>.label` |
 | `data` | **是** | 数据迷你语言 | 无 | 每个声明必须且只能出现一次 |

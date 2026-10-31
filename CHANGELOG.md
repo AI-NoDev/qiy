@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.13.0] - 2026-10-31
+
+### Added
+
+- Grouped aggregate bar/pie charts: `sum|avg|min|max <entity>.<numericField>
+  group by <enumField>` uses `/distribution?field=<group>&metric=<field>&op=<op>`
+  and the optional repository `grouped()` method. `count ... group by` is
+  unchanged.
+
 ## [0.12.0] - 2026-10-31
 
 ### Added
@@ -460,6 +469,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.13.0]: https://github.com/AI-NoDev/qiy/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/AI-NoDev/qiy/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/AI-NoDev/qiy/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/AI-NoDev/qiy/compare/v0.9.0...v0.10.0

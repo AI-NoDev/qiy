@@ -1200,6 +1200,7 @@ ${patchFields(entity, database)}
 
 export interface ${name}Repository {
   distribution(field: string, scope?: { field: string; value: string }${restricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<{ value: string | null; count: number }>>;
+  grouped?(groupBy: string, metric: string, operator: "sum" | "avg" | "min" | "max", scope?: { field: string; value: string }${restricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<{ value: string | null; count: number }>>;
   /** Optional so generated test doubles and hand-written repositories keep compiling. */
   aggregate?(field: string, operator: string, scope?: { field: string; value: string }${restricted ? ", policy?: QiyPolicy" : ""}): Promise<{ value: number | null; operator: string }>;
   trend(field: string, days: number, scope?: { field: string; value: string }${restricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<{ day: string; count: number }>>;
@@ -1418,8 +1419,14 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
       return repository.aggregate ? repository.aggregate(query.field, query.op as "sum" | "avg" | "min" | "max", await resolveScope(request)${restricted ? ", policy" : ""}) : { value: null, operator: query.op };
     }, { query: t.Object({ field: t.String({ minLength: 1 }), op: t.String({ minLength: 3 }) }) })
     .get("/distribution", async ({ query, status, request }) => {
-      ${restricted ? "const principal = await authenticate(request);\n      const policy = await resolveResourcePolicy(principal, request);\n      " : ""}return (${JSON.stringify(entity.fields.filter((field) => field.enumName).map((field) => field.name))} as string[]).includes(query.field) ? repository.distribution(query.field, await resolveScope(request)${restricted ? ", policy" : ""}) : status(400, { error: "Unsupported distribution field" });
-    }, { query: t.Object({ field: t.String() }) })
+      ${restricted ? "const principal = await authenticate(request);\n      const policy = await resolveResourcePolicy(principal, request);\n      " : ""}if (query.metric) {
+        if (!repository.grouped) return status(501, { error: "Grouped aggregation is not supported" });
+        if (!["sum", "avg", "min", "max"].includes(query.op ?? "")) return status(400, { error: "Unsupported aggregate operator" });
+        if (!(${JSON.stringify(entity.fields.filter((field) => ["Integer", "Decimal", "Money"].includes(field.type)).map((field) => field.name))} as string[]).includes(query.metric)) return status(400, { error: "Unsupported aggregate field" });
+        return (${JSON.stringify(entity.fields.filter((field) => field.enumName).map((field) => field.name))} as string[]).includes(query.field) ? repository.grouped(query.field, query.metric, query.op as "sum" | "avg" | "min" | "max", await resolveScope(request)${restricted ? ", policy" : ""}) : status(400, { error: "Unsupported distribution field" });
+      }
+      return (${JSON.stringify(entity.fields.filter((field) => field.enumName).map((field) => field.name))} as string[]).includes(query.field) ? repository.distribution(query.field, await resolveScope(request)${restricted ? ", policy" : ""}) : status(400, { error: "Unsupported distribution field" });
+    }, { query: t.Object({ field: t.String(), metric: t.Optional(t.String()), op: t.Optional(t.String()) }) })
     .get("/trend", async ({ query, status, request }) => {
       ${restricted ? "const principal = await authenticate(request);\n      const policy = await resolveResourcePolicy(principal, request);\n      " : ""}return (${JSON.stringify(entity.fields.filter((field) => field.type === "DateTime").map((field) => field.name))} as string[]).includes(query.field) ? repository.trend(query.field, query.days, await resolveScope(request)${restricted ? ", policy" : ""}) : status(400, { error: "Unsupported trend field" });
     }, { query: t.Object({ field: t.String(), days: t.Numeric({ minimum: 1, maximum: 365 }) }) })
@@ -1901,6 +1908,21 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
     const scopeCondition = scope && ${restricted ? "!(policy && policy.usesScope) && " : ""}scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
     ${policyCondition}
     return db.select({ value: column, count: count() }).from(${entity.name}).where(and(scopeCondition${policyArg})).groupBy(column);
+  },
+  async grouped(groupBy, metric, operator, scope${restricted ? ", policy" : ""}) {
+    if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
+    const groupColumns: Record<string, any> = { ${groupFields} };
+    const metricColumns: Record<string, any> = { ${numericFields} };
+    const group = groupColumns[groupBy];
+    const column = metricColumns[metric];
+    if (!group) throw new Error("Unsupported distribution field");
+    if (!column) throw new Error("Unsupported aggregate field");
+    const scopeColumns: Record<string, any> = { ${scopeColumns} };
+    const scopeCondition = scope && ${restricted ? "!(policy && policy.usesScope) && " : ""}scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+    ${policyCondition}
+    const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
+    const rows = await db.select({ value: group, count: expression }).from(${entity.name}).where(and(scopeCondition${policyArg})).groupBy(group);
+    return rows.map((row) => ({ value: row.value === null ? null : String(row.value), count: Number(row.count ?? 0) }));
   },
   async trend(field, days, scope${restricted ? ", policy" : ""}) {
     const columns: Record<string, any> = { ${dateFields} };
@@ -7087,6 +7109,7 @@ ${renderRepositoryMethods(publicEntity, scopedDatabase, realtimeEvents, entityRe
 `;
     files[`${moduleRoot}/${entity.name}.contract.ts`] = `${generatedDocumentation(entity)}${entityRestricted ? 'import type { QiyPolicy } from "../../security/policy";\n' : ""}export interface ${modelName(entity)}Repository {
   distribution(field: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<{ value: string | null; count: number }>>;
+  grouped?(groupBy: string, metric: string, operator: "sum" | "avg" | "min" | "max", scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<{ value: string | null; count: number }>>;
   /** Optional so generated test doubles and hand-written repositories keep compiling. */
   aggregate?(field: string, operator: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<{ value: number | null; operator: string }>;
   trend(field: string, days: number, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<{ day: string; count: number }>>;

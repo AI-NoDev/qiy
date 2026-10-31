@@ -110,7 +110,7 @@ function DistributionView({ view, title, shape }: { view: ChartViewDefinition; t
   const { result, query } = useCustom<{ items: Array<{ value: string | null; count: number }> }>({
     url: `/api/v1/${view.data.entity}/distribution`,
     method: "get",
-    config: { query: { field: view.data.groupBy } },
+    config: { query: { field: view.data.groupBy, ...(view.data.field && { metric: view.data.field, op: view.data.operation }) } },
   });
   const items = result.data?.items ?? [];
   const total = items.reduce((sum, item) => sum + item.count, 0);

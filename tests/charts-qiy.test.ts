@@ -124,6 +124,18 @@ describe("chart DSL", () => {
     expect(files["apps/web/app/components/charts.tsx"]).toContain('view.kind === "scatter"');
   });
 
+  test("bar charts can aggregate a numeric metric by enum", () => {
+    const project = parseQiyProject(model(`chart bar SpendByStatus {
+  title = "Spend by status";
+  data = sum orders.total group by status;
+}
+`));
+    expect(project.charts?.[0]?.views[0]?.data).toMatchObject({ operation: "sum", entity: "orders", field: "total", groupBy: "status" });
+    const files = generateProject(project.database, "chart-demo", project);
+    expect(Object.values(files).filter((value): value is string => typeof value === "string").join("\n")).toContain("query.metric");
+    expect(files["apps/web/app/components/charts.tsx"]).toContain("metric: view.data.field");
+  });
+
   test("round-trips chart views and panels through the serializer", () => {
     const project = parseQiyProject(model(chartBody));
     const serialized = serializeQiyProject(project);
