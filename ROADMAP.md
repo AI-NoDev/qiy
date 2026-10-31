@@ -116,6 +116,7 @@
 - [x] `v0.2.2`：`qiy skill list/update/uninstall`（含 `--json`、本地修改保护、保留手写文件）；通过 dry-run → tag → Release 流程发布。
 - [x] `v0.2.3`：`qiy explain` / `qiy schema`，机器可读模型摘要 + 已发布 JSON Schema。
 - [x] `v0.2.4`：稳定错误码目录 `QIY1001–QIY1016`、`qiy explain --errors`、文档 `/dsl/errors`、`explain --json` 自动附带 code/fix。
+- [x] `v0.13.0`：bar/pie 分组聚合（`sum/avg/min/max ... group by`）。
 - [x] `v0.12.0`：scatter chart、每页 OG 图、Playwright E2E/a11y、bundle budget。
 - [x] `v0.11.0`：标量数组字段（`Text[]` / `Email[]` / `URL[]` / `Integer[]`）。
 - [x] `v0.10.0`：area chart、任务文档索引、llms 分段、coverage gate、SBOM、CodeQL。
