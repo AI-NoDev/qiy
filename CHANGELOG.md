@@ -8,6 +8,14 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.14.0] - 2026-10-31
+
+### Added
+
+- Chart view `color = "#rrggbb"` and `legend = true|false` options. Colors apply
+  to bars, line/area strokes and scatter points; `legend = false` hides the
+  pie/bar legend. Parser, serializer, generated metadata, docs and skill updated.
+
 ## [0.13.0] - 2026-10-31
 
 ### Added
@@ -469,6 +477,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.14.0]: https://github.com/AI-NoDev/qiy/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/AI-NoDev/qiy/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/AI-NoDev/qiy/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/AI-NoDev/qiy/compare/v0.10.0...v0.11.0

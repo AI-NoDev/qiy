@@ -204,6 +204,8 @@ Chart view properties are `key = value;`; a trailing `;` may be omitted only bef
 | `title` | no | string | chart name | Chart-level title |
 | `data` | **yes** | data mini-language | - | Exactly once per declaration |
 | `labels` | no | enum field or mapping block | none | Only meaningful for `pie`/`bar`; silently ignored elsewhere |
+| `color` | no | `#rrggbb` | theme | Primary color for bar/line/area/scatter |
+| `legend` | no | `true` / `false` | `true` | Show the pie/bar legend |
 
 Multi-view semantics: declaring the same chart name with different kinds creates multiple views of one card, in declaration order; the first declaration is the default view. The same kind twice fails (`Chart <name>: duplicate <kind> view`), and two kind-less declarations both become `const` and collide. Chart-level `title`/`icon` come from the first view that declares them (not from the first view's whole attribute set). View title fallback: view `title` -> chart `title` -> chart name. The card header (icon/title) is chart-level and does not change when switching views; the view title appears inside the card.
 

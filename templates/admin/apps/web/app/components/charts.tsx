@@ -124,7 +124,7 @@ function DistributionView({ view, title, shape }: { view: ChartViewDefinition; t
               <Typography.Text>{labelFor(view, item.value, translate)}</Typography.Text>
               <Typography.Text type="secondary">{item.count}</Typography.Text>
             </Space>
-            <Progress percent={total ? Math.round(item.count / total * 100) : 0} showInfo={false} />
+            <Progress percent={total ? Math.round(item.count / total * 100) : 0} showInfo={false} strokeColor={view.color} />
           </div>
         )) : <>
           <div className="qiy-chart-pie">
@@ -154,7 +154,7 @@ function DistributionView({ view, title, shape }: { view: ChartViewDefinition; t
               })()}
             </svg>
           </div>
-          <div className="qiy-chart-legend">
+          {view.legend !== false && <div className="qiy-chart-legend">
             {items.map((item, index) => (
               <Space key={item.value ?? "null"} style={{ width: "100%", justifyContent: "space-between" }}>
                 <Space>
@@ -164,7 +164,7 @@ function DistributionView({ view, title, shape }: { view: ChartViewDefinition; t
                 <Typography.Text type="secondary">{item.count}</Typography.Text>
               </Space>
             ))}
-          </div>
+          </div>}
         </>}
       </>}
     </ViewState>
@@ -194,8 +194,8 @@ function TrendView({ view, title, area = false }: { view: ChartViewDefinition; t
           <Typography.Text type="secondary">{translate("qiy.aggMax", {}, "max") + " " + max}</Typography.Text>
         </Space>
         <svg className="qiy-chart-line" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} preserveAspectRatio="none">
-          {area && <polygon fill="rgba(22,119,255,0.18)" points={`0,${height} ${points} ${width},${height}`} />}
-          <polyline fill="none" stroke="#1677ff" strokeWidth={2} points={points} />
+          {area && <polygon fill={view.color ?? "#1677ff"} fillOpacity={0.18} points={`0,${height} ${points} ${width},${height}`} />}
+          <polyline fill="none" stroke={view.color ?? "#1677ff"} strokeWidth={2} points={points} />
           {items.map((item, index) => <circle key={item.day} cx={Math.round(index * step)} cy={y(item.count)} r={2} fill="#1677ff" />)}
         </svg>
         <Space style={{ width: "100%", justifyContent: "space-between" }}>
@@ -236,7 +236,7 @@ function ScatterView({ view, title }: { view: ChartViewDefinition; title: string
         <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} style={{ width: "100%", height: 160 }}>
           <line x1={12} y1={height - 12} x2={width - 12} y2={height - 12} stroke="#d9d9d9" />
           <line x1={12} y1={12} x2={12} y2={height - 12} stroke="#d9d9d9" />
-          {rows.map((row) => <circle key={row.id || `${row.x}-${row.y}`} cx={px(row.x)} cy={py(row.y)} r={4} fill="#1677ff" style={row.id ? { cursor: "pointer" } : undefined} onClick={() => row.id && navigate(`/${view.data.entity}/show/${row.id}`)} />)}
+          {rows.map((row) => <circle key={row.id || `${row.x}-${row.y}`} cx={px(row.x)} cy={py(row.y)} r={4} fill={view.color ?? "#1677ff"} style={row.id ? { cursor: "pointer" } : undefined} onClick={() => row.id && navigate(`/${view.data.entity}/show/${row.id}`)} />)}
         </svg>
         <Typography.Text type="secondary">{translate("qiy.scatterHint", {}, "Click a point to open the record")}</Typography.Text>
       </>}

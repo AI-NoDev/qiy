@@ -427,6 +427,8 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
         label: view.title ?? chart.title ?? chart.name,
         labelKey: qiyModelKeys.chartViewLabel(chart.name, view.kind),
         data: view.data,
+        ...(view.color ? { color: view.color } : {}),
+        ...(view.legend !== undefined ? { legend: view.legend } : {}),
         ...(labels ? { labels } : {}),
       };
     }),
@@ -774,7 +776,7 @@ export type ChartDataOperation = "count" | "sum" | "avg" | "min" | "max" | "tren
 export interface ChartDataDefinition { operation: ChartDataOperation; entity: string; field?: string; groupBy?: string; days?: number; columns?: string[]; }
 export interface ChartLabelValue { value: string; label: string; labelKey: string; }
 export interface ChartLabelsDefinition { field?: string; values: ChartLabelValue[]; }
-export interface ChartViewDefinition { kind: ChartViewKind; label: string; labelKey: string; data: ChartDataDefinition; labels?: ChartLabelsDefinition; }
+export interface ChartViewDefinition { kind: ChartViewKind; label: string; labelKey: string; data: ChartDataDefinition; labels?: ChartLabelsDefinition; color?: string; legend?: boolean; }
 export interface ChartDefinition { name: string; title: string; labelKey: string; icon?: string; views: ChartViewDefinition[]; }
 export type ChartVariant = "larger" | "xl" | "lg" | "large" | "medium" | "md" | "small" | "sm" | "xs";
 export interface ChartPlacement { variant: ChartVariant; x: number; y: number; w: number; h: number; }

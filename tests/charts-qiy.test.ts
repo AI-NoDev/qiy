@@ -136,6 +136,20 @@ describe("chart DSL", () => {
     expect(files["apps/web/app/components/charts.tsx"]).toContain("metric: view.data.field");
   });
 
+  test("chart views accept color and legend options", () => {
+    const project = parseQiyProject(model(`chart bar SpendByStatus {
+  color = "#ff0000";
+  legend = false;
+  data = count orders group by status;
+}
+`));
+    expect(project.charts?.[0]?.views[0]).toMatchObject({ color: "#ff0000", legend: false });
+    expect(serializeQiyProject(project)).toContain('color = "#ff0000"');
+    const files = generateProject(project.database, "chart-demo", project);
+    expect(files["apps/web/app/charts.ts"]).toContain('"color": "#ff0000"');
+    expect(files["apps/web/app/charts.ts"]).toContain('"legend": false');
+  });
+
   test("round-trips chart views and panels through the serializer", () => {
     const project = parseQiyProject(model(chartBody));
     const serialized = serializeQiyProject(project);

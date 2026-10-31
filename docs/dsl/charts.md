@@ -62,6 +62,8 @@ chart [const|pie|bar|line|area|scatter|table] <ChartName> {
   icon  = "<IconName>" ;       // 可选
   title = "<文本>" ;            // 可选
   data  = <数据表达式> ;        // 必填，每个声明恰好一次
+  color = "#1677ff" ;          // 可选，条/线/面积/散点主色
+  legend = false ;             // 可选，pie/bar 是否显示图例
   labels = <enumField> ;       // 可选（pie/bar），或
   labels [=] { <value> "<文本>" ; ... } ;   // 显式映射
 }
@@ -97,6 +99,8 @@ chart panels <PanelName> {
 | `title` | 否 | 字符串 | chart 名 | 卡片标题（chart 级）；视图标题另见 `views.<kind>.label` |
 | `data` | **是** | 数据迷你语言 | 无 | 每个声明必须且只能出现一次 |
 | `labels` | 否 | 枚举字段或映射块 | 无 | 只对 `pie`/`bar` 有意义；其他 kind 会被静默忽略 |
+| `color` | 否 | `#rrggbb` | 主题色 | bar/line/area/scatter 主色 |
+| `legend` | 否 | `true` / `false` | `true` | pie/bar 是否显示图例 |
 
 ### 多视图（同名声明）语义
 

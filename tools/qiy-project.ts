@@ -78,6 +78,8 @@ export interface QiyChartView {
   icon?: string;
   data: QiyChartData;
   labels?: QiyChartLabels;
+  color?: string;
+  legend?: boolean;
 }
 
 /** A chart: one or more view declarations sharing a name, plus fallback title/icon. */
@@ -1716,8 +1718,10 @@ export function parseQiyProject(input: string): QiyProject {
         expect("=");
         if (property === "icon") view.icon = value();
         else if (property === "title") view.title = value();
+        else if (property === "color") { const color = value(); if (!/^#[0-9a-fA-F]{6}$/.test(color)) throw new Error(`${prefix}: color must be a #rrggbb hex value`); view.color = color; }
+        else if (property === "legend") view.legend = boolean();
         else if (property === "data") { view.data = chartData(chartName, kind); hasData = true; }
-        else throw new Error(`${prefix}: unknown property ${property}; expected icon, title, data or labels`);
+        else throw new Error(`${prefix}: unknown property ${property}; expected icon, title, color, legend, data or labels`);
       }
       chartPropertySemicolon(`${prefix} property ${property}`);
     }
@@ -3298,6 +3302,8 @@ export function serializeQiyProject(project: QiyProject): string {
       lines.push(`  chart ${view.kind === "const" ? "const" : view.kind} ${qiyIdentifier(chart.name, "Chart name")} {`);
       if (view.icon !== undefined) lines.push(`    icon = ${qiyString(view.icon)};`);
       if (view.title !== undefined) lines.push(`    title = ${qiyString(view.title)};`);
+      if (view.color !== undefined) lines.push(`    color = ${qiyString(view.color)};`);
+      if (view.legend !== undefined) lines.push(`    legend = ${view.legend};`);
       lines.push(`    data = ${dataText};`);
       if (view.labels?.field !== undefined) lines.push(`    labels = ${qiyIdentifier(view.labels.field, "Chart labels field")};`);
       else if (view.labels?.values?.length) {
