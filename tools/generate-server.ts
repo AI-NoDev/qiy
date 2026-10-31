@@ -163,7 +163,7 @@ function apiField(field: FieldIR, database: DatabaseIR): string {
 
 function createFields(entity: EntityIR, database: DatabaseIR): string {
   const generated = new Set(generatedFieldsOf(entity, database.relations ?? []).map((field) => field.field.name));
-  return entity.fields.filter((field) => !field.primaryKey).map((field) => {
+  return entity.fields.filter((field) => !field.primaryKey && !field.softDelete).map((field) => {
     const value = field.nullable ? `t.Optional(t.Union([${apiField(field, database)}, t.Null()], ${JSON.stringify(field.comment !== undefined ? { description: field.comment } : {})}))` : apiField(field, database);
     // Generated fields are filled by the server, so the client may omit them even
     // when the column is NOT NULL. Client-supplied values are ignored on write.
@@ -172,7 +172,7 @@ function createFields(entity: EntityIR, database: DatabaseIR): string {
 }
 
 function patchFields(entity: EntityIR, database: DatabaseIR): string {
-  return entity.fields.filter((field) => !field.primaryKey).map((field) => {
+  return entity.fields.filter((field) => !field.primaryKey && !field.softDelete).map((field) => {
     const value = field.nullable ? `t.Union([${apiField(field, database)}, t.Null()], ${JSON.stringify(field.comment !== undefined ? { description: field.comment } : {})})` : apiField(field, database);
     return `  ${JSON.stringify(field.name)}: t.Optional(${value}),`;
   }).join("\n");
@@ -1757,7 +1757,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const record = tx.update(${entity.name}).set({ ...values, ${scopeWriteSpread} }).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg})).returning().get();
+      const record = tx.update(${entity.name}).set({ ...values, ${scopeWriteSpread} }).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.updated", resource: "${entity.tableName}", resourceId: id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
        if (record) ${realtimeWrite("updated", "record") || "void 0;"}
       return record;
@@ -1768,7 +1768,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const record = tx.delete(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg})).returning().get();
+      const record = tx.delete(${entity.name}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: id, metadata: "{}", createdAt: new Date() }).run();
        if (record) ${realtimeWrite("deleted", "record") || "void 0;"}
       return record;
@@ -1779,7 +1779,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const deletedRows = tx.delete(${entity.name}).where(and(inArray(${entity.name}.id, ids), scopeCondition${policyArg})).returning().all();
+      const deletedRows = tx.delete(${entity.name}).where(and(notDeleted, inArray(${entity.name}.id, ids), scopeCondition${policyArg})).returning().all();
       if (deletedRows.length) tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: record.id, metadata: "{}", createdAt: new Date() }))).run();
        if (deletedRows.length) ${realtimeDeleteManyWrite || "void 0;"}
       return deletedRows;
@@ -1802,10 +1802,10 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const [existing] = await tx.select().from(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg})).limit(1).for("update");
+      const [existing] = await tx.select().from(${entity.name}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).limit(1).for("update");
       if (!existing) return undefined;
-      await tx.update(${entity.name}).set({ ...values, ${scopeWriteSpread} }).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg}));
-      const [record] = await tx.select().from(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg})).limit(1);
+      await tx.update(${entity.name}).set({ ...values, ${scopeWriteSpread} }).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg}));
+      const [record] = await tx.select().from(${entity.name}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).limit(1);
       if (record) await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.updated", resource: "${entity.tableName}", resourceId: id, metadata: { fields: Object.keys(values) }, createdAt: Date.now() });
        if (record) ${realtimeWrite("updated", "record") || "void 0;"}
       return record;
@@ -1816,9 +1816,9 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const [record] = await tx.select().from(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg})).limit(1).for("update");
+      const [record] = await tx.select().from(${entity.name}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).limit(1).for("update");
       if (!record) return undefined;
-      await tx.delete(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg}));
+      await tx.delete(${entity.name}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg}));
       await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: id, metadata: {}, createdAt: Date.now() });
        ${realtimeWrite("deleted", "record")}
       return record;
@@ -1829,9 +1829,9 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const deletedRows = await tx.select().from(${entity.name}).where(and(inArray(${entity.name}.id, ids), scopeCondition${policyArg})).for("update");
+      const deletedRows = await tx.select().from(${entity.name}).where(and(notDeleted, inArray(${entity.name}.id, ids), scopeCondition${policyArg})).for("update");
       if (deletedRows.length) {
-        await tx.delete(${entity.name}).where(and(inArray(${entity.name}.id, deletedRows.map((record) => record.id)), scopeCondition${policyArg}));
+        await tx.delete(${entity.name}).where(and(notDeleted, inArray(${entity.name}.id, deletedRows.map((record) => record.id)), scopeCondition${policyArg}));
         await tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: record.id, metadata: {}, createdAt: Date.now() })));
          ${realtimeDeleteManyWrite}
       }
@@ -1854,7 +1854,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const [record] = await tx.update(${entity.name}).set({ ...values, ${scopeWriteSpread} }).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg})).returning();
+      const [record] = await tx.update(${entity.name}).set({ ...values, ${scopeWriteSpread} }).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).returning();
       if (record) await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.updated", resource: "${entity.tableName}", resourceId: id, metadata: { fields: Object.keys(values) } });
        if (record) ${realtimeWrite("updated", "record") || "void 0;"}
       return record;
@@ -1865,7 +1865,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const [record] = await tx.delete(${entity.name}).where(and(eq(${entity.name}.id, id), scopeCondition${policyArg})).returning();
+      const [record] = await tx.delete(${entity.name}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).returning();
       if (record) await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: id, metadata: {} });
        if (record) ${realtimeWrite("deleted", "record") || "void 0;"}
       return record;
@@ -1876,7 +1876,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const deletedRows = await tx.delete(${entity.name}).where(and(inArray(${entity.name}.id, ids), scopeCondition${policyArg})).returning();
+      const deletedRows = await tx.delete(${entity.name}).where(and(notDeleted, inArray(${entity.name}.id, ids), scopeCondition${policyArg})).returning();
       if (deletedRows.length) await tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: record.id, metadata: {} })));
        if (deletedRows.length) ${realtimeDeleteManyWrite || "void 0;"}
       return deletedRows;
@@ -1896,7 +1896,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
     const scopeCondition = scope && ${restricted ? "!(policy && policy.usesScope) && " : ""}scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
     ${policyCondition}
     const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
-    const [row] = await db.select({ value: expression }).from(${entity.name}).where(and(scopeCondition${policyArg}));
+    const [row] = await db.select({ value: expression }).from(${entity.name}).where(and(notDeleted, scopeCondition${policyArg}));
     const value = row?.value === null || row?.value === undefined ? null : Number(row.value);
     return { value: value === null || Number.isFinite(value) ? value : null, operator };
   },
@@ -1907,7 +1907,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
     const scopeColumns: Record<string, any> = { ${scopeColumns} };
     const scopeCondition = scope && ${restricted ? "!(policy && policy.usesScope) && " : ""}scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
     ${policyCondition}
-    return db.select({ value: column, count: count() }).from(${entity.name}).where(and(scopeCondition${policyArg})).groupBy(column);
+    return db.select({ value: column, count: count() }).from(${entity.name}).where(and(notDeleted, scopeCondition${policyArg})).groupBy(column);
   },
   async grouped(groupBy, metric, operator, scope${restricted ? ", policy" : ""}) {
     if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
@@ -1921,7 +1921,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
     const scopeCondition = scope && ${restricted ? "!(policy && policy.usesScope) && " : ""}scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
     ${policyCondition}
     const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
-    const rows = await db.select({ value: group, count: expression }).from(${entity.name}).where(and(scopeCondition${policyArg})).groupBy(group);
+    const rows = await db.select({ value: group, count: expression }).from(${entity.name}).where(and(notDeleted, scopeCondition${policyArg})).groupBy(group);
     return rows.map((row) => ({ value: row.value === null ? null : String(row.value), count: Number(row.count ?? 0) }));
   },
   async trend(field, days, scope${restricted ? ", policy" : ""}) {
@@ -1936,7 +1936,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
     const start = new Date(today - (days - 1) * 86400000);
     const end = new Date(today + 86400000);
     const day = ${database.dialect === "postgresql" ? "sql<string>`to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`" : database.dialect === "sqlite" ? "sql<string>`strftime('%Y-%m-%d', ${column} / 1000, 'unixepoch')`" : "sql<string>`date_format(${column}, '%Y-%m-%d')`"};
-    return db.select({ day, count: count() }).from(${entity.name}).where(and(gte(column, start), lt(column, end), scopeCondition${policyArg})).groupBy(day).orderBy(day);
+    return db.select({ day, count: count() }).from(${entity.name}).where(and(notDeleted, gte(column, start), lt(column, end), scopeCondition${policyArg})).groupBy(day).orderBy(day);
   },
   async list(page, pageSize, options = {}) {
     const searchableColumns: any[] = [${searchableFields}];
@@ -1980,7 +1980,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
     const scopeColumns: Record<string, any> = { ${scopeColumns} };
     const scopeCondition = options.scope && ${restricted ? "!(options.policy && options.policy.usesScope) && " : ""}scopeColumns[options.scope.field] ? ${scopeColumnConditionFor("options.scope")} : undefined;
     ${policyCondition.replace("policy && policy.conditions.length", "options.policy && options.policy.conditions.length").replace("(policy.conditions as any[])", "(options.policy.conditions as any[])")}
-    const whereCondition = and(searchCondition, scopeCondition${policyArg}, ...(filters as FilterExpression[]).map(filterExpression));
+    const whereCondition = and(notDeleted, searchCondition, scopeCondition${policyArg}, ...(filters as FilterExpression[]).map(filterExpression));
     const [data, totalRows] = await Promise.all([
       db.select().from(
 ${entity.name}
@@ -1997,7 +1997,7 @@ ${entity.name}
     ${policyCondition}
     const [record] = await db.select().from(
 ${entity.name}
-).where(and(eq(
+).where(and(notDeleted, eq(
 ${entity.name}
 .id, id), scopeCondition${policyArg})).limit(1);
     return record;
@@ -7097,16 +7097,23 @@ test("verifies issuer, audience and rotating JWKS keys before resolving subject"
     const generatedEntityFields = generatedFieldsOf(publicEntity, database.relations ?? []);
     const generatedRepositoryImport = generatedEntityFields.length ? 'import { qiyCreateWithGeneratedValues, type QiyGeneratedField } from "../../generated-values";\n' : "";
     const generatedRepositoryDeclaration = generatedEntityFields.length ? `const qiyGeneratedFields = ${JSON.stringify(generatedFieldSpecs(publicEntity, database))} as QiyGeneratedField[];\n` : "";
-    files[`${moduleRoot}/${entity.name}.repository.ts`] = `import { and, asc, avg, count, desc, eq, gt, gte, lt, lte, max, min, sql, sum, ${database.dialect === "postgresql" ? "ilike" : "like"}, inArray, or } from "drizzle-orm";
+    files[`${moduleRoot}/${entity.name}.repository.ts`] = `import { and, asc, avg, count, desc, eq, gt, gte, isNull, lt, lte, max, min, sql, sum, ${database.dialect === "postgresql" ? "ilike" : "like"}, inArray, or } from "drizzle-orm";
 import { db } from "../../db";
  import { ${entity.name}, auditEvents${realtimeSubscription ? ", realtimeOutbox" : ""}${resolveScopeTree(scopedDatabase, publicEntity) && resolveScopeTree(scopedDatabase, publicEntity)!.table.name !== entity.name ? `, ${resolveScopeTree(scopedDatabase, publicEntity)!.table.name}` : ""} } from "../../schema";
 import type { FilterClause, FilterExpression, ${modelName(entity)}Repository as ${modelName(entity)}RepositoryContract } from "./${entity.name}.contract";
 ${entityRestricted ? 'import { QiyPolicyError, type QiyPolicy } from "../../security/policy";' : ""}
 ${generatedRepositoryImport}${realtimeMasked.length ? `\n// Every role that may subscribe has one of these fields masked, so the shared\n// channel must not carry them.\nfunction qiyRealtimePayload(record: Record<string, unknown>): Record<string, unknown> {\n  const safe = { ...record };\n  for (const field of ${JSON.stringify(realtimeMasked)}) delete safe[field];\n  return safe;\n}\n` : ""}
-${generatedRepositoryDeclaration}${renderScopeTreeHelper(scopedDatabase, publicEntity)}export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = {
+${generatedRepositoryDeclaration}${renderScopeTreeHelper(scopedDatabase, publicEntity)}const notDeleted = ${publicEntity.fields.find((field) => field.softDelete) ? `isNull(${entity.name}.${publicEntity.fields.find((field) => field.softDelete)!.name})` : "undefined"};\nconst qiyBase${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = {
 ${renderRepositoryMethods(publicEntity, scopedDatabase, realtimeEvents, entityRestricted, realtimeMasked, realtimeClaim)}
 };
-`;
+${publicEntity.fields.find((field) => field.softDelete) ? `const qiySoftDeletedAt = ${JSON.stringify(publicEntity.fields.find((field) => field.softDelete)!.name)};
+export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = {
+  ...qiyBase${modelName(entity)}Repository,
+  delete: (...args: any[]) => (qiyBase${modelName(entity)}Repository.update as any)(args[0], { [qiySoftDeletedAt]: new Date() }, ...args.slice(1)),
+  deleteMany: async (...args: any[]) => { const rows = []; for (const id of args[0] as string[]) { const row = await (qiyBase${modelName(entity)}Repository.update as any)(id, { [qiySoftDeletedAt]: new Date() }, ...args.slice(1)); if (row) rows.push(row); } return rows; },
+};
+` : `export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = qiyBase${modelName(entity)}Repository;
+`}`;
     files[`${moduleRoot}/${entity.name}.contract.ts`] = `${generatedDocumentation(entity)}${entityRestricted ? 'import type { QiyPolicy } from "../../security/policy";\n' : ""}export interface ${modelName(entity)}Repository {
   distribution(field: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<{ value: string | null; count: number }>>;
   grouped?(groupBy: string, metric: string, operator: "sum" | "avg" | "min" | "max", scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<{ value: string | null; count: number }>>;

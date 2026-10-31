@@ -1146,6 +1146,7 @@ export function parseQiyProject(input: string): QiyProject {
       expect("@");
       const attribute = identifier();
       if (attribute === "id") result.primaryKey = booleanAttribute();
+      else if (attribute === "softDelete") result.softDelete = booleanAttribute();
       else if (attribute === "nullable") result.nullable = booleanAttribute();
       else if (attribute === "unique") result.unique = booleanAttribute();
       else if (attribute === "label") { expect("("); result.label = value(); expect(")"); }
@@ -3184,6 +3185,7 @@ export function serializeQiyProject(project: QiyProject): string {
       if (field.type === "Decimal" || field.type === "Money") declaration += `(${field.precision}${field.scale !== undefined ? `,${field.scale}` : ""})`;
       if (field.primaryKey !== undefined) declaration += ` @id${field.primaryKey ? "" : "(false)"}`;
       if (field.nullable !== undefined) declaration += ` @nullable${field.nullable ? "" : "(false)"}`;
+      if (field.softDelete) declaration += ` @softDelete`;
       if (field.unique !== undefined) declaration += ` @unique${field.unique ? "" : "(false)"}`;
       if (field.columnName !== undefined) declaration += ` @column(${qiyString(field.columnName)})`;
       if (field.extension !== undefined) declaration += ` @extension(${qiyIdentifier(field.extension, "Field extension")})`;

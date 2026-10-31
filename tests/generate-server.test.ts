@@ -192,8 +192,8 @@ describe("V0 Elysia API generation", () => {
       expect(files["api/src/graphql.ts"]).toContain('"resource":"orders","field":"customerId","claim":"tenant.customerId"');
       expect(repository).toContain('"customerId": orders.customerId');
       expect(repository).toContain("...(scope ? { [scope.field]: scope.value } : {})");
-      expect(repository).toContain("where(and(eq(orders.id, id), scopeCondition))");
-      expect(repository).toContain("where(and(inArray(orders.id, ids), scopeCondition))");
+      expect(repository).toContain("where(and(notDeleted, eq(orders.id, id), scopeCondition))");
+      expect(repository).toContain("where(and(notDeleted, inArray(orders.id, ids), scopeCondition))");
       expect(repository).toContain("db.transaction");
       expect(files["api/tests/data-scope.test.ts"]).toContain("data scope rejects missing claims");
     }

@@ -28,6 +28,8 @@ export interface FieldIR {
   type: FieldType;
   itemType?: FieldType;
   nullable?: boolean;
+  /** Marks the nullable DateTime column used for soft deletes. */
+  softDelete?: boolean;
   primaryKey?: boolean;
   unique?: boolean;
   extension?: string;
@@ -446,8 +448,14 @@ export function validateDatabaseIR(database: DatabaseIR): string[] {
       if (field.scale !== undefined && (!Number.isSafeInteger(field.scale) || field.scale < 0 || field.scale > (field.precision ?? 0))) {
         errors.push(`${entity.name}.${field.name}: scale must be between zero and precision`);
       }
+      if (field.softDelete) {
+        if (field.type !== "DateTime") errors.push(`${entity.name}.${field.name}: @softDelete requires a DateTime field`);
+        if (!field.nullable) errors.push(`${entity.name}.${field.name}: @softDelete requires @nullable`);
+      }
     }
-
+    if (entity.fields.filter((field) => field.softDelete).length > 1) {
+      errors.push(`${entity.name}: at most one @softDelete field is allowed`);
+    }
     for (const index of entity.indexes ?? []) {
       if (!index || !Array.isArray(index.columns)) {
         errors.push(`Entity ${entity.name}: index columns must be an array`);

@@ -8,6 +8,16 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.19.0] - 2026-10-31
+
+### Added
+
+- `@softDelete` on a nullable DateTime field: generated reads (`list`, `one`,
+  update, distribution, grouped, trend, aggregate) exclude tombstones; delete
+  and deleteMany update the timestamp instead of removing rows. The field is
+  omitted from create/update payloads and rendered read-only. Includes parser,
+  validation, serializer, docs, skill note and generated API verification.
+
 ## [0.18.0] - 2026-10-31
 
 ### Added
@@ -513,6 +523,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.19.0]: https://github.com/AI-NoDev/qiy/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/AI-NoDev/qiy/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/AI-NoDev/qiy/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/AI-NoDev/qiy/compare/v0.15.0...v0.16.0
