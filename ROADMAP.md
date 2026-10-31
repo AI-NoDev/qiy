@@ -107,7 +107,7 @@
 - [ ] a11y、bundle size 预算、负载测试
 - [ ] lint/format、coverage 阈值、依赖扫描 / SBOM / CodeQL
 - [x] MCP server（`qiy mcp`，explain/schema/error catalog）
-- [ ] 结构化 Agent API（除 MCP 外的 HTTP/Agent 接口）
+- [x] 结构化 HTTP Agent API（`qiy agent`，只读 explain/validate/schema/errors）
 - [x] 生成器插件机制（`qiy.project.json` plugins，追加文件/路径保护）
 - [x] 软删除（`@softDelete` nullable DateTime；读取过滤 + delete 写时间戳）
 - [x] 租户 DSL（`@tenant` 自动 principal scope + auth 校验）

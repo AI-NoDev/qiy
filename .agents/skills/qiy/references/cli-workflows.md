@@ -70,6 +70,7 @@ qiy doctor [--json]
 qiy explain <file.qiy> [--json]
 qiy schema
 qiy mcp
+qiy agent [--port <n>]
 qiy explain --errors [--json]
 qiy skill install [name] [--all] [--force] [--global] [--dir <path>]
 qiy skill list [--all] [--json] [--global] [--dir <path>]

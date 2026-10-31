@@ -26,6 +26,7 @@ export const pageDescriptions: Record<string, string> = {
   "dsl/enum-menu-dashboard.md": "enum、menu 与 dashboard 参考：枚举值注解、分组折叠菜单、旧版指标卡片与页面布局。",
   "en/guide/getting-started.md": "Get started with Qiy: install the CLI, create a modular .qiy project, generate, migrate and run the admin.",
   "guide/plugins.md": "Qiy 生成器插件：在 qiy.project.json 声明本地模块，向生成工作区追加文件，路径与覆盖保护、diff/同步语义。",
+  "guide/agent-api.md": "Qiy HTTP Agent API：qiy agent 在本机 loopback 暴露 explain/validate/schema/errors 只读 JSON 端点与安全边界。",
   "dsl/views.md": "Qiy DB view：view Name from Entity { columns ... } 生成只读 Drizzle 视图，含校验、方言语法与 API/迁移边界。",
   "guide/mcp.md": "Qiy MCP server：通过 stdio 暴露 qiy_explain、qiy_schema 与错误码目录，供 Agent 只读校验和解释 .qiy 模型。",
   "en/guide/cli.md": "Qiy CLI reference: project commands, diff/incremental generation, model inspection, agent skills and release flow.",
