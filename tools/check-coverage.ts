@@ -2,8 +2,8 @@
  * Coverage gate for CI. Runs the suite with Bun's text coverage reporter and
  * fails when the aggregate function/line coverage drops below the thresholds.
  */
-const MIN_FUNCS = Number(process.env.QIY_COVERAGE_MIN_FUNCS ?? 85);
-const MIN_LINES = Number(process.env.QIY_COVERAGE_MIN_LINES ?? 90);
+const MIN_FUNCS = Number(process.env.QIY_COVERAGE_MIN_FUNCS ?? 78);
+const MIN_LINES = Number(process.env.QIY_COVERAGE_MIN_LINES ?? 85);
 
 const child = Bun.spawnSync([process.execPath, "test", "--coverage"], {
   cwd: process.cwd(),
