@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.17.0] - 2026-10-31
+
+### Added
+
+- `qiy mcp`: a stdio MCP server (protocol `2024-11-05`) exposing `qiy_explain`,
+  `qiy_schema` and `qiy_error_catalog`. Explain accepts model source in memory,
+  is read-only and returns structured parser errors. Includes docs, sidebar,
+  SEO and handler tests.
+
 ## [0.16.0] - 2026-10-31
 
 ### Added
@@ -494,6 +503,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.17.0]: https://github.com/AI-NoDev/qiy/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/AI-NoDev/qiy/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/AI-NoDev/qiy/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/AI-NoDev/qiy/compare/v0.13.0...v0.14.0

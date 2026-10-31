@@ -7,6 +7,7 @@ import { checkProject, createProject, devProject, diffProject, formatProjectDiff
 import { explainQiyFile, formatQiyExplanation } from "./commands/explain";
 import { findQiyError, formatQiyError, qiyErrorCatalog } from "./error-catalog";
 import { qiyExplanationSchema } from "./qiy-schema";
+import { runMcpServer } from "./mcp";
 import { OFFICIAL_SKILL_NAMES, formatSkillStatuses, installOfficialSkill, installSkill, listOfficialSkillInstallations, listSkillInstallations, uninstallOfficialSkill, uninstallSkill, updateOfficialSkill, updateSkill } from "./commands/skill";
 import { formatDoctorReport, runDoctor } from "./commands/doctor";
 import packageMetadata from "../package.json" with { type: "json" };
@@ -50,6 +51,7 @@ Commands:
   explain <file.qiy> [--json]     Print a normalized model summary without generating
     --errors [--json]             List the stable error-code catalog
   schema                          Print the JSON Schema for explain --json output
+  mcp                             Run the Qiy MCP server over stdio (tools: explain/schema/error catalog)
   skill install [name] [--all] [--force] [--global] [--dir <path>]
                                   Install an official agent skill (qiy default; also bun/drizzle/elysia/refine-dev;
                                   --all installs every official skill, --global writes ~/.agents/skills/<name>)
@@ -221,6 +223,10 @@ async function main(argv: string[]): Promise<void> {
     }
     case "schema": {
       process.stdout.write(`${JSON.stringify(qiyExplanationSchema, null, 2)}\n`);
+      return;
+    }
+    case "mcp": {
+      await runMcpServer();
       return;
     }
     case "generate": {

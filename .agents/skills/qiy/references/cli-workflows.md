@@ -69,6 +69,7 @@ qiy init -f <source.qiy> [-n <name>] [-o <project-root>] [--sync]
 qiy doctor [--json]
 qiy explain <file.qiy> [--json]
 qiy schema
+qiy mcp
 qiy explain --errors [--json]
 qiy skill install [name] [--all] [--force] [--global] [--dir <path>]
 qiy skill list [--all] [--json] [--global] [--dir <path>]

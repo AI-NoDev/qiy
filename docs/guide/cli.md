@@ -20,6 +20,7 @@ qiy doctor [--json]
 qiy explain [<source.qiy>] [--json]
 qiy explain --errors [--json]
 qiy schema
+qiy mcp
 qiy skill install|list|update|uninstall [...]
 ```
 
@@ -154,6 +155,7 @@ qiy explain examples/catalog/app.qiy --json
 qiy explain --errors
 qiy explain --errors --json
 qiy schema
+qiy mcp
 ```
 
 `explain` 解析 `.qiy` 后输出规范化摘要：application 模式/数据库、实体与字段（含 `@code`/`@generated` 信息）、关系、枚举、权限、dataflow、action、chart 与计数。`--json` 输出机器可读结构，解析失败时输出 `{ "valid": false, "error": "...", "code": "QIY10xx", "fix": "..." }`（能识别时）并以退出码 1 结束。`explain --errors` 打印稳定错误码目录，定义见 [错误码目录](../dsl/errors)。`schema` 输出该 JSON 的 JSON Schema（draft 2020-12），也发布在 `/schema/qiy-explanation-1.json`；schema 里的 `formatVersion` 发生破坏性变化时会递增。

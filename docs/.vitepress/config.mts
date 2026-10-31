@@ -146,6 +146,7 @@ export default defineConfig({
             { text: "最佳实践：仓储系统", link: "/guide/best-practice-warehouse" },
             { text: "编辑器支持", link: "/guide/editor-support" },
             { text: "Agent Skill", link: "/guide/agent-skill" },
+            { text: "MCP server", link: "/guide/mcp" },
             { text: "生成的项目结构", link: "/guide/project-structure" },
           ],
         },

@@ -482,6 +482,7 @@ qiy doctor [--json]
 qiy explain [<source.qiy>] [--json]
 qiy explain --errors [--json]
 qiy schema
+qiy mcp
 qiy skill install|list|update|uninstall [...]
 ```
 
@@ -616,6 +617,7 @@ qiy explain examples/catalog/app.qiy --json
 qiy explain --errors
 qiy explain --errors --json
 qiy schema
+qiy mcp
 ```
 
 `explain` 解析 `.qiy` 后输出规范化摘要：application 模式/数据库、实体与字段（含 `@code`/`@generated` 信息）、关系、枚举、权限、dataflow、action、chart 与计数。`--json` 输出机器可读结构，解析失败时输出 `{ "valid": false, "error": "...", "code": "QIY10xx", "fix": "..." }`（能识别时）并以退出码 1 结束。`explain --errors` 打印稳定错误码目录，定义见 [错误码目录](../dsl/errors)。`schema` 输出该 JSON 的 JSON Schema（draft 2020-12），也发布在 `/schema/qiy-explanation-1.json`；schema 里的 `formatVersion` 发生破坏性变化时会递增。
@@ -5376,6 +5378,75 @@ bun run tools/verify-ably.ts
 - 错误 key 会被 Ably 拒绝。
 
 浏览器端重连：生成 Web 使用 Ably JS SDK 2.x，SDK 自带断线重连；GraphQL Subscription 的 SSE / graphql-ws 客户端有 Qiy 自己的指数退避重连（见 `docs/guide/api.md`）。
+
+# MCP server
+
+Source: https://ai-nodev.github.io/qiy/guide/mcp
+
+# MCP server
+
+Qiy ships a local **Model Context Protocol** server over stdio. Agents can
+validate and explain `.qiy` source without running generation or scraping CLI
+output.
+
+## Start
+
+```bash
+qiy mcp
+```
+
+The server speaks line-delimited JSON-RPC 2.0. It reads from stdin and writes
+one JSON response per line; logs must go to stderr (Qiy writes none).
+
+Typical MCP client configuration:
+
+```json
+{
+  "mcpServers": {
+    "qiy": {
+      "command": "qiy",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+If `qiy` is not on `PATH`, use the absolute executable path or `bunx qiy mcp`.
+
+## Tools
+
+| Tool | Input | Result |
+| --- | --- | --- |
+| `qiy_explain` | `{ "source": "<complete .qiy model>" }` | Same structure as `qiy explain --json`: application, entities, fields, relations, permissions, dataflows, charts, counts |
+| `qiy_schema` | `{}` | JSON Schema for the explain result |
+| `qiy_error_catalog` | `{}` | Stable error codes, titles, fixes and docs links |
+
+`qiy_explain` is read-only: it parses the supplied source in memory and never
+writes files. On invalid input the tool returns `isError: true` with either a
+stable `code` or the raw parser message.
+
+## Protocol
+
+- `initialize` returns protocol `2024-11-05` and `tools` capability.
+- `notifications/initialized` and `notifications/cancelled` are accepted without
+  a response.
+- `tools/list` returns the tools above.
+- `tools/call` returns MCP `content` blocks; the text block contains pretty JSON.
+- Unknown methods return JSON-RPC `-32601`; malformed JSON returns `-32700`.
+
+## Security
+
+The MCP server does not read arbitrary paths, execute generated code, install
+packages or write the workspace. It only parses the source string supplied by
+the client. Generation still belongs to `qiy generate` / `qiy dev` under the
+user's normal CLI permissions.
+
+## Example
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"qiy_explain","arguments":{"source":"qiy v0; application demo { database sqlite {} entity items { field id UUID @id; field name Text; } }"}}}
+```
 
 # 按任务查找文档
 

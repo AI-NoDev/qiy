@@ -106,7 +106,8 @@
 - [ ] 生成应用的视觉回归
 - [ ] a11y、bundle size 预算、负载测试
 - [ ] lint/format、coverage 阈值、依赖扫描 / SBOM / CodeQL
-- [ ] MCP server 与结构化 Agent API
+- [x] MCP server（`qiy mcp`，explain/schema/error catalog）
+- [ ] 结构化 Agent API（除 MCP 外的 HTTP/Agent 接口）
 - [ ] 生成器插件机制
 - [ ] 软删除、租户 DSL、计算字段、DB view
 
