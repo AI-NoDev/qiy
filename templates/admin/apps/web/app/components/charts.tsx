@@ -213,7 +213,7 @@ function ScatterView({ view, title }: { view: ChartViewDefinition; title: string
   const { translate } = useTranslation();
   const { result, query } = useList<Record<string, unknown>>({ resource: view.data.entity, pagination: { currentPage: 1, pageSize: 200 } });
   const [xName, yName] = view.data.columns ?? [];
-  const rows = (result.data?.data ?? []).flatMap((row) => {
+  const rows = (result.data ?? []).flatMap((row) => {
     const x = Number(row[xName ?? ""]);
     const y = Number(row[yName ?? ""]);
     return Number.isFinite(x) && Number.isFinite(y) ? [{ id: String(row.id ?? ""), x, y }] : [];
