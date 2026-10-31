@@ -8,6 +8,14 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.15.0] - 2026-10-31
+
+### Added
+
+- `stacked` chart kind: client-side group/series/value aggregation from
+  `list <entity> columns <group>, <series>, <numericValue>`, segmented bars,
+  series colors, optional `color` override and `legend = false`.
+
 ## [0.14.0] - 2026-10-31
 
 ### Added
@@ -477,6 +485,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.15.0]: https://github.com/AI-NoDev/qiy/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/AI-NoDev/qiy/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/AI-NoDev/qiy/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/AI-NoDev/qiy/compare/v0.11.0...v0.12.0

@@ -150,6 +150,18 @@ describe("chart DSL", () => {
     expect(files["apps/web/app/charts.ts"]).toContain('"legend": false');
   });
 
+  test("stacked charts aggregate group/series/value from list data", () => {
+    const project = parseQiyProject(model(`chart stacked SpendByStatus {
+  color = "#22c55e";
+  data = list orders columns status, number, total;
+}
+`));
+    expect(project.charts?.[0]?.views[0]?.kind).toBe("stacked");
+    const files = generateProject(project.database, "chart-demo", project);
+    expect(files["apps/web/app/charts.ts"]).toContain('"stacked"');
+    expect(files["apps/web/app/components/charts.tsx"]).toContain("function StackedView");
+  });
+
   test("round-trips chart views and panels through the serializer", () => {
     const project = parseQiyProject(model(chartBody));
     const serialized = serializeQiyProject(project);

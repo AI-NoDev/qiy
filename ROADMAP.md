@@ -77,7 +77,7 @@
 - [x] chart scatter 视图（numeric list + 点击下钻）
 - [x] `sum/avg ... group by` 分组聚合（bar/pie）
 - [x] chart color / legend 配置
-- [ ] chart stacked
+- [x] chart stacked（客户端 group/series/value 聚合）
 - [x] 字段类型扩展：Boolean（parser/IR/Drizzle/API/GraphQL/Web Switch/文档）
 - [x] 字段类型扩展：Email / URL（text 存储 + REST email/uri 校验 + 表单 input）
 - [x] 字段类型扩展：JSON（jsonb / text JSON / mysql json + GraphQL JSON scalar + textarea）

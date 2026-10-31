@@ -570,7 +570,7 @@ dashboard {
 ## chart and chart panels
 
 ```text
-chart [const|pie|bar|line|area|scatter|table] <ChartName> {
+chart [const|pie|bar|line|area|scatter|stacked|table] <ChartName> {
   icon  = "<IconName>" ;
   title = "<text>" ;
   data  = <data expression> ;

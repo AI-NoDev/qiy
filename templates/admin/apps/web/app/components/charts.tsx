@@ -36,7 +36,7 @@ import type { DisplayTranslate } from "../display-template";
  * several views gets a top-right view-kind selector.
  */
 
-const viewKindFallback: Record<ChartViewKind, string> = { const: "Stat", pie: "Pie chart", bar: "Bar chart", line: "Line chart", area: "Area chart", scatter: "Scatter chart", table: "Table" };
+const viewKindFallback: Record<ChartViewKind, string> = { const: "Stat", pie: "Pie chart", bar: "Bar chart", line: "Line chart", area: "Area chart", scatter: "Scatter chart", stacked: "Stacked bar", table: "Table" };
 const chartPalette = ["#1677ff", "#52c41a", "#faad14", "#eb2f96", "#722ed1", "#13c2c2", "#fa541c", "#8c8c8c"];
 
 function useChartViewportCategory(): ChartViewportCategory {
@@ -244,6 +244,47 @@ function ScatterView({ view, title }: { view: ChartViewDefinition; title: string
   );
 }
 
+/** `stacked`: client-side group/series/value aggregation from the list endpoint. */
+function StackedView({ view, title }: { view: ChartViewDefinition; title: string }) {
+  const { result, query } = useList<Record<string, unknown>>({ resource: view.data.entity, pagination: { currentPage: 1, pageSize: 500 } });
+  const [groupName, seriesName, valueName] = view.data.columns ?? [];
+  const groups = new Map<string, Map<string, number>>();
+  const seriesSet = new Set<string>();
+  for (const row of result.data ?? []) {
+    const group = String(row[groupName ?? ""] ?? "—");
+    const series = String(row[seriesName ?? ""] ?? "—");
+    const value = Number(row[valueName ?? ""]);
+    if (!Number.isFinite(value)) continue;
+    const bucket = groups.get(group) ?? new Map<string, number>();
+    bucket.set(series, (bucket.get(series) ?? 0) + value);
+    groups.set(group, bucket);
+    seriesSet.add(series);
+  }
+  const series = [...seriesSet];
+  const rows = [...groups.entries()].map(([group, values]) => ({ group, values, total: [...values.values()].reduce((sum, value) => sum + value, 0) })).sort((a, b) => b.total - a.total);
+  const max = Math.max(...rows.map((row) => row.total), 1);
+  return (
+    <ViewState loading={query.isLoading} error={query.error}>
+      {rows.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} /> : <>
+        <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8 }}>{title}</Typography.Text>
+        {rows.map((row) => (
+          <div key={row.group} style={{ marginBottom: 10 }}>
+            <Space style={{ width: "100%", justifyContent: "space-between" }}><Typography.Text>{row.group}</Typography.Text><Typography.Text type="secondary">{row.total}</Typography.Text></Space>
+            <div style={{ display: "flex", width: `${Math.round(row.total / max * 100)}%`, minWidth: 2, height: 18, borderRadius: 4, overflow: "hidden" }}>
+              {series.map((name, index) => {
+                const value = row.values.get(name) ?? 0;
+                if (!value) return null;
+                return <div key={name} title={`${name}: ${value}`} style={{ width: `${row.total ? value / row.total * 100 : 0}%`, background: view.color && index === 0 ? view.color : chartPalette[index % chartPalette.length] }} />;
+              })}
+            </div>
+          </div>
+        ))}
+        {view.legend !== false && <Space wrap>{series.map((name, index) => <Space key={name} size={4}><span className="qiy-chart-legend-swatch" style={{ background: view.color && index === 0 ? view.color : chartPalette[index % chartPalette.length] }} /><Typography.Text>{name}</Typography.Text></Space>)}</Space>}
+      </>}
+    </ViewState>
+  );
+}
+
 /** `table`: read-only preview page (no edit actions) rendered with the shared field formatters. */
 function ChartTableView({ view }: { view: ChartViewDefinition }) {
   const { translate, getLocale } = useTranslation();
@@ -274,6 +315,7 @@ function ChartViewBody({ chart, view, title }: { chart: ChartDefinition; view: C
   if (view.kind === "pie") return <DistributionView view={view} title={title} shape="pie" />;
   if (view.kind === "line" || view.kind === "area") return <TrendView view={view} title={title} area={view.kind === "area"} />;
   if (view.kind === "scatter") return <ScatterView view={view} title={title} />;
+  if (view.kind === "stacked") return <StackedView view={view} title={title} />;
   return <ChartTableView view={view} />;
 }
 

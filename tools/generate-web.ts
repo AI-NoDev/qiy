@@ -770,7 +770,7 @@ export function qiyApiError(payload: unknown, statusCode: number, locale = typeo
     "web/app/dashboard.ts": `export interface DashboardMetric { name: string; resource: string; label: string; labelKey: string; icon?: string; comment?: string; commentKey?: string; span: 8 | 12 | 24; type?: "count" | "distribution" | "trend" | "aggregate"; groupBy?: string; days?: number; field?: string; agg?: "sum" | "avg" | "min" | "max" }
 export const dashboardMetrics: DashboardMetric[] = ${JSON.stringify(localizedDashboardMetrics, null, 2)};
 `,
-    "web/app/charts.ts": `export type ChartViewKind = "const" | "pie" | "bar" | "line" | "area" | "scatter" | "table";
+    "web/app/charts.ts": `export type ChartViewKind = "const" | "pie" | "bar" | "line" | "area" | "scatter" | "stacked" | "table";
 export type ChartAggregate = "sum" | "avg" | "min" | "max";
 export type ChartDataOperation = "count" | "sum" | "avg" | "min" | "max" | "trend" | "list";
 export interface ChartDataDefinition { operation: ChartDataOperation; entity: string; field?: string; groupBy?: string; days?: number; columns?: string[]; }
@@ -783,7 +783,7 @@ export interface ChartPlacement { variant: ChartVariant; x: number; y: number; w
 export interface ChartPanelChart { name: string; placements: ChartPlacement[]; }
 export interface ChartPanelDefinition { name: string; title: string; labelKey: string; grid: { columns: number; rows: number }; charts: ChartPanelChart[]; }
 export type ChartViewportCategory = "larger" | "medium" | "small";
-export const chartViewKinds: ChartViewKind[] = ["const", "pie", "bar", "line", "area", "scatter", "table"];
+export const chartViewKinds: ChartViewKind[] = ["const", "pie", "bar", "line", "area", "scatter", "stacked", "table"];
 export const chartVariantNames: ChartVariant[] = ${JSON.stringify([...qiyChartVariants])};
 export const chartVariantBreakpoint: Record<ChartVariant, ChartViewportCategory> = { larger: "larger", xl: "larger", lg: "larger", large: "larger", medium: "medium", md: "medium", small: "small", sm: "small", xs: "small" };
 export const chartViewportBreakpoints = { larger: 1200, medium: 768 } as const;
@@ -1721,7 +1721,7 @@ export const localeMessages = {
     visibleColumns: "显示列", confirmDelete: "确认删除选中记录？", deleted: "删除成功", unknownResource: "未知资源", detail: "详情",
     createResource: "新建{{resource}}", editResource: "编辑{{resource}}", openDetail: "打开详情", searchRelation: "搜索…",
     drawerBreadcrumb: "关联记录路径", recordDetails: "字段详情", recordSummary: "关联摘要", close: "关闭",
-    chartView: "视图", "chartViewKind.const": "统计", "chartViewKind.pie": "饼图", "chartViewKind.bar": "柱状图", "chartViewKind.line": "折线图", "chartViewKind.area": "面积图", "chartViewKind.scatter": "散点图", "scatterHint": "点击散点打开记录", "chartViewKind.table": "表格",
+    chartView: "视图", "chartViewKind.const": "统计", "chartViewKind.pie": "饼图", "chartViewKind.bar": "柱状图", "chartViewKind.line": "折线图", "chartViewKind.area": "面积图", "chartViewKind.scatter": "散点图", "chartViewKind.stacked": "堆叠柱", "scatterHint": "点击散点打开记录", "chartViewKind.table": "表格",
     "docs.title": "功能总览", "docs.subtitle": "当前应用生成的实体、数据流、API 文档与访问密钥",
     "docs.tabEntities": "实体系", "docs.tabDataflows": "Dataflow", "docs.tabApi": "API 文档", "docs.tabPermissions": "权限模型", "docs.tabApiKeys": "访问密钥",
     "docs.entitiesTitle": "实体与关系", "docs.relationsTitle": "关系", "docs.accessNote": "API 文档只列出当前角色和权限允许的操作",
@@ -1796,7 +1796,7 @@ export const localeMessages = {
     visibleColumns: "Columns", confirmDelete: "Delete selected records?", deleted: "Deleted", unknownResource: "Unknown resource", detail: "Detail",
     createResource: "Create {{resource}}", editResource: "Edit {{resource}}", openDetail: "Open details", searchRelation: "Search…",
     drawerBreadcrumb: "Related record path", recordDetails: "Field details", recordSummary: "Relation summary", close: "Close",
-    chartView: "View", "chartViewKind.const": "Stat", "chartViewKind.pie": "Pie chart", "chartViewKind.bar": "Bar chart", "chartViewKind.line": "Line chart", "chartViewKind.area": "Area chart", "chartViewKind.scatter": "Scatter chart", "scatterHint": "Click a point to open the record", "chartViewKind.table": "Table",
+    chartView: "View", "chartViewKind.const": "Stat", "chartViewKind.pie": "Pie chart", "chartViewKind.bar": "Bar chart", "chartViewKind.line": "Line chart", "chartViewKind.area": "Area chart", "chartViewKind.scatter": "Scatter chart", "chartViewKind.stacked": "Stacked bar", "scatterHint": "Click a point to open the record", "chartViewKind.table": "Table",
     "docs.title": "Feature overview", "docs.subtitle": "Entities, dataflows, API reference and access keys generated for this application",
     "docs.tabEntities": "Entities", "docs.tabDataflows": "Dataflow", "docs.tabApi": "API reference", "docs.tabPermissions": "Permissions", "docs.tabApiKeys": "API keys",
     "docs.entitiesTitle": "Entities & relations", "docs.relationsTitle": "Relations", "docs.accessNote": "The API reference only lists operations allowed for your role and permissions",
@@ -2345,7 +2345,7 @@ const chromeKeys = [
   "qiy.treeView", "qiy.auditTitle", "qiy.auditAction", "qiy.auditAuthor", "qiy.auditSystem", "qiy.auditTime",
   "qiy.new", "qiy.edit", "qiy.delete", "qiy.batchDelete", "qiy.confirmDelete", "qiy.detail",
   "qiy.createResource", "qiy.editResource", "qiy.openDetail", "qiy.searchRelation",
-  "qiy.drawerBreadcrumb", "qiy.recordDetails", "qiy.recordSummary", "qiy.close", "qiy.chartView", "qiy.chartViewKind.const", "qiy.chartViewKind.pie", "qiy.chartViewKind.bar", "qiy.chartViewKind.line", "qiy.chartViewKind.area", "qiy.scatterHint", "qiy.chartViewKind.scatter", "qiy.chartViewKind.table",
+  "qiy.drawerBreadcrumb", "qiy.recordDetails", "qiy.recordSummary", "qiy.close", "qiy.chartView", "qiy.chartViewKind.const", "qiy.chartViewKind.pie", "qiy.chartViewKind.bar", "qiy.chartViewKind.line", "qiy.chartViewKind.area", "qiy.scatterHint", "qiy.chartViewKind.scatter", "qiy.chartViewKind.stacked", "qiy.chartViewKind.table",
   "qiy.docs.title", "qiy.docs.subtitle", "qiy.docs.tabEntities", "qiy.docs.tabDataflows", "qiy.docs.tabPermissions", "qiy.docs.entitiesTitle", "qiy.docs.relationsTitle", "qiy.docs.accessNote", "qiy.docs.apiFiltered", "qiy.docs.mermaidError", "qiy.docs.mermaidTimeout", "qiy.docs.panelError", "qiy.docs.noData", "qiy.docs.fieldName", "qiy.docs.fieldType", "qiy.docs.fieldNullable", "qiy.docs.fieldEnum", "qiy.docs.fieldAnnotations", "qiy.docs.emptySpec", "qiy.docs.principal", "qiy.docs.parameters", "qiy.docs.paramName", "qiy.docs.paramIn", "qiy.docs.paramRequired", "qiy.docs.requestBody", "qiy.docs.responses", "qiy.docs.responseStatus", "qiy.docs.responseDescription", "qiy.docs.security", "qiy.docs.securityBearer", "qiy.docs.securityApiKey", "qiy.docs.curl", "qiy.docs.roles", "qiy.docs.permissions",
   "qiy.apiDocs.title", "qiy.apiDocs.pageTitle", "qiy.apiDocs.pageSubtitle", "qiy.apiDocs.roleTooltip", "qiy.apiDocs.permissionTooltip", "qiy.apiDocs.rolesTooltip", "qiy.apiDocs.permissionsTooltip", "qiy.apiDocs.securityTooltip", "qiy.apiDocs.currentRole", "qiy.apiDocs.currentPermissions", "qiy.apiDocs.searchPlaceholder", "qiy.apiDocs.resultCount", "qiy.apiDocs.noResults", "qiy.apiDocs.loadError",
   "qiy.apiKey.pageTitle", "qiy.apiKey.pageSubtitle", "qiy.apiKey.curlTitle", "qiy.apiKey.apiDocsLink", "qiy.apiKey.searchPlaceholder", "qiy.apiKey.status.all", "qiy.apiKey.status.active", "qiy.apiKey.status.revoked", "qiy.apiKey.status.expired", "qiy.apiKey.limitHint", "qiy.apiKey.never", "qiy.apiKey.revokedMessage", "qiy.apiKey.roleTooltip", "qiy.apiKey.permissionTooltip", "qiy.apiKey.groupTooltip",
