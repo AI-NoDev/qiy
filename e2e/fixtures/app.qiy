@@ -1,0 +1,8 @@
+qiy v0; application e2e-demo {
+  database sqlite {}
+  entity products {
+    field id UUID @id;
+    field name Text;
+    field price Integer;
+  }
+}

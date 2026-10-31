@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.16.0] - 2026-10-31
+
+### Added
+
+- Generated-app Playwright E2E: a real generated SQLite admin/API workspace is
+  generated and installed in CI, then the browser creates a product and sees it
+  in the list. Adds `playwright.generated.config.ts`, `e2e/generated.spec.ts`,
+  the `e2e:generated` script and a `generated-e2e` CI job.
+
 ## [0.15.0] - 2026-10-31
 
 ### Added
@@ -485,6 +494,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.16.0]: https://github.com/AI-NoDev/qiy/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/AI-NoDev/qiy/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/AI-NoDev/qiy/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/AI-NoDev/qiy/compare/v0.12.0...v0.13.0

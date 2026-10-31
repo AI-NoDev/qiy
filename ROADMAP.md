@@ -102,7 +102,8 @@
 ## P2：长期
 - [x] 测试审计（`AUDIT.md`）：400 tests、覆盖率 89.44% funcs / 93.12% lines、docs build、生成项目验收、依赖审计
 - [x] Playwright docs E2E + axe a11y + docs bundle budget
-- [ ] 生成应用的 Playwright E2E / 视觉回归
+- [x] 生成应用的 Playwright CRUD E2E（CI 生成 + 安装 + 浏览器）
+- [ ] 生成应用的视觉回归
 - [ ] a11y、bundle size 预算、负载测试
 - [ ] lint/format、coverage 阈值、依赖扫描 / SBOM / CodeQL
 - [ ] MCP server 与结构化 Agent API
