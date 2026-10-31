@@ -157,7 +157,7 @@ export interface QiyProject {
   /** `chart panels <Name> { ... }` dashboard layouts referencing charts by name. */
   chartPanels?: QiyChartPanel[];
   realtime?: QiyRealtimeConfig;
-  scopes?: Array<{ resource: string; field: string; claim: string; tree?: { entity: string; parentField: string } }>;
+  scopes?: Array<{ resource: string; field: string; claim: string; tree?: { entity: string; parentField: string }; tenant?: boolean }>;
   restrictions?: QiyResourceRestriction[];
   /**
    * Page-level rules: per resource and per page action, the roles allowed to open
@@ -1147,6 +1147,15 @@ export function parseQiyProject(input: string): QiyProject {
       const attribute = identifier();
       if (attribute === "id") result.primaryKey = booleanAttribute();
       else if (attribute === "softDelete") result.softDelete = booleanAttribute();
+      else if (attribute === "tenant") {
+        if (peek() === "(") {
+          expect("(");
+          result.tenantClaim = value();
+          expect(")");
+        } else {
+          result.tenantClaim = "tenantId";
+        }
+      }
       else if (attribute === "nullable") result.nullable = booleanAttribute();
       else if (attribute === "unique") result.unique = booleanAttribute();
       else if (attribute === "label") { expect("("); result.label = value(); expect(")"); }
@@ -2551,6 +2560,14 @@ function enumeration(): import("./database-ir").EnumIR {
     expect(";");
     scopes.push({ resource, field, claim, ...(tree && { tree }) });
   }
+  for (const entity of entities) {
+    const tenantField = entity.fields.find((field) => field.tenantClaim !== undefined);
+    if (!tenantField) continue;
+    if (scopes.some((scope) => scope.resource === entity.name || scope.resource === entity.tableName)) {
+      throw new Error(`${entity.name}: @tenant cannot be combined with an explicit scope for the same entity`);
+    }
+    scopes.push({ resource: entity.name, field: tenantField.name, claim: tenantField.tenantClaim!, tenant: true });
+  }
   const restrictions: NonNullable<QiyProject["restrictions"]> = [];
   while (peek() === "restrict") restrictions.push(resourceRestriction());
   const pages: NonNullable<QiyProject["pages"]> = [];
@@ -2927,6 +2944,9 @@ function enumeration(): import("./database-ir").EnumIR {
   if (mode === "integration" && (corsOrigins || elysiaPlugins || storageProvider || auth || environment || scopes.length || restrictions.length || workflows.length || dataflows.length || permissions)) {
     throw new Error("application mode integration cannot configure generated server features; use integration auth and host adapters instead.");
   }
+  if (entities.some((entity) => entity.fields.some((field) => field.tenantClaim !== undefined)) && !auth) {
+    throw new Error("@tenant requires an auth declaration so the tenant claim can be resolved");
+  }
   return { name: packageName, ...(applicationDescription && applicationDescription), database: { ...(databaseDescription && databaseDescription), dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}) }, ...(mode && { mode }), ...(integration && { integration }), ...(workspace && { workspace }), ...(ui && { ui }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(features && { features }), ...(auth && { auth }), ...(environment && { environment }), ...(messages && { messages }), ...(permissions && { permissions }), ...(scopes.length ? { scopes } : {}), ...(restrictions.length ? { restrictions } : {}), ...(pages.length ? { pages } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(dashboardMetrics.length && { dashboardMetrics }), ...(charts.length && { charts }), ...(chartPanels.length && { chartPanels }), ...(realtime && { realtime }), ...(dataflows.length && { dataflows }), ...(actions.length && { actions }) };
 }
 
@@ -3186,6 +3206,7 @@ export function serializeQiyProject(project: QiyProject): string {
       if (field.primaryKey !== undefined) declaration += ` @id${field.primaryKey ? "" : "(false)"}`;
       if (field.nullable !== undefined) declaration += ` @nullable${field.nullable ? "" : "(false)"}`;
       if (field.softDelete) declaration += ` @softDelete`;
+      if (field.tenantClaim !== undefined) declaration += ` @tenant(${qiyString(field.tenantClaim)})`;
       if (field.unique !== undefined) declaration += ` @unique${field.unique ? "" : "(false)"}`;
       if (field.columnName !== undefined) declaration += ` @column(${qiyString(field.columnName)})`;
       if (field.extension !== undefined) declaration += ` @extension(${qiyIdentifier(field.extension, "Field extension")})`;
@@ -3228,6 +3249,7 @@ export function serializeQiyProject(project: QiyProject): string {
     lines.push(`${declaration};`);
   }
   for (const scope of project.scopes ?? []) {
+    if (scope.tenant) continue;
     const tree = scope.tree ? ` tree ${qiyIdentifier(scope.tree.entity, "Scope tree entity")} ${qiyIdentifier(scope.tree.parentField, "Scope tree parent field")}` : "";
     lines.push(`  scope ${qiyIdentifier(scope.resource, "Scope resource")} ${qiyIdentifier(scope.field, "Scope field")} claim ${scope.claim.split(".").map((part) => qiyIdentifier(part, "Scope claim")).join(".")}${tree};`);
   }

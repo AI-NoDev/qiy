@@ -4,7 +4,7 @@ description: "Build and maintain applications with the Qiy CLI and .qiy models: 
 license: MIT
 metadata:
   short-description: "Build apps from .qiy models with the Qiy CLI"
-  version: "0.19.0"
+  version: "0.20.0"
   homepage: "https://ai-nodev.github.io/qiy/"
   skill-docs: "https://ai-nodev.github.io/qiy/guide/agent-skill"
   llms-txt: "https://ai-nodev.github.io/qiy/llms.txt"

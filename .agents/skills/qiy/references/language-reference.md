@@ -485,7 +485,7 @@ Field types (closed set):
 | `Vector(n)` | `vector(n)` | PostgreSQL + pgvector |
 | `<enumName>` | `text` | declared enum |
 
-Unknown types (`String`, `Json`, ...) fail. Parameters only on `Vector`/`Decimal`/`Money` (`Field type Text has no parameters`). Field attributes: `@id`, `@nullable`, `@unique`, `@label`, `@comment`, `@icon`, `@visible`, `@listVisible`, `@formVisible`, `@showVisible`, `@sortable`, `@filterable`, `@filter(...)`, `@upload(...)`, `@maxBytes`, `@maxFiles`, `@mime`, `@extension`, `@code`, `@generated(uuid)`, `@column`, `@dimension`, `@precision`, `@scale`. There is no `@required`, `@default`, `@length`, `@computed`; `@softDelete` marks a nullable DateTime for soft deletion. Full matrices: [modeling-and-generation.md](modeling-and-generation.md).
+Unknown types (`String`, `Json`, ...) fail. Parameters only on `Vector`/`Decimal`/`Money` (`Field type Text has no parameters`). Field attributes: `@id`, `@nullable`, `@unique`, `@label`, `@comment`, `@icon`, `@visible`, `@listVisible`, `@formVisible`, `@showVisible`, `@sortable`, `@filterable`, `@filter(...)`, `@upload(...)`, `@maxBytes`, `@maxFiles`, `@mime`, `@extension`, `@code`, `@generated(uuid)`, `@column`, `@dimension`, `@precision`, `@scale`. There is no `@required`, `@default`, `@length`, `@computed`; `@softDelete` marks a nullable DateTime for soft deletion; `@tenant("claim")` marks a tenant column and synthesizes a principal scope. Full matrices: [modeling-and-generation.md](modeling-and-generation.md).
 
 ## relation and index
 

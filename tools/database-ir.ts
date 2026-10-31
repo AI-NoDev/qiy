@@ -30,6 +30,8 @@ export interface FieldIR {
   nullable?: boolean;
   /** Marks the nullable DateTime column used for soft deletes. */
   softDelete?: boolean;
+  /** Marks the tenant column; the value comes from this principal claim. */
+  tenantClaim?: string;
   primaryKey?: boolean;
   unique?: boolean;
   extension?: string;
@@ -452,9 +454,16 @@ export function validateDatabaseIR(database: DatabaseIR): string[] {
         if (field.type !== "DateTime") errors.push(`${entity.name}.${field.name}: @softDelete requires a DateTime field`);
         if (!field.nullable) errors.push(`${entity.name}.${field.name}: @softDelete requires @nullable`);
       }
+      if (field.tenantClaim !== undefined) {
+        if (!["UUID", "Text", "Integer"].includes(field.type)) errors.push(`${entity.name}.${field.name}: @tenant requires UUID, Text or Integer`);
+        if (field.nullable) errors.push(`${entity.name}.${field.name}: @tenant requires a non-null field`);
+      }
     }
     if (entity.fields.filter((field) => field.softDelete).length > 1) {
       errors.push(`${entity.name}: at most one @softDelete field is allowed`);
+    }
+    if (entity.fields.filter((field) => field.tenantClaim !== undefined).length > 1) {
+      errors.push(`${entity.name}: at most one @tenant field is allowed`);
     }
     for (const index of entity.indexes ?? []) {
       if (!index || !Array.isArray(index.columns)) {

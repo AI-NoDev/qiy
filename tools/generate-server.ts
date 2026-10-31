@@ -163,7 +163,7 @@ function apiField(field: FieldIR, database: DatabaseIR): string {
 
 function createFields(entity: EntityIR, database: DatabaseIR): string {
   const generated = new Set(generatedFieldsOf(entity, database.relations ?? []).map((field) => field.field.name));
-  return entity.fields.filter((field) => !field.primaryKey && !field.softDelete).map((field) => {
+  return entity.fields.filter((field) => !field.primaryKey && !field.softDelete && field.tenantClaim === undefined).map((field) => {
     const value = field.nullable ? `t.Optional(t.Union([${apiField(field, database)}, t.Null()], ${JSON.stringify(field.comment !== undefined ? { description: field.comment } : {})}))` : apiField(field, database);
     // Generated fields are filled by the server, so the client may omit them even
     // when the column is NOT NULL. Client-supplied values are ignored on write.
@@ -172,7 +172,7 @@ function createFields(entity: EntityIR, database: DatabaseIR): string {
 }
 
 function patchFields(entity: EntityIR, database: DatabaseIR): string {
-  return entity.fields.filter((field) => !field.primaryKey && !field.softDelete).map((field) => {
+  return entity.fields.filter((field) => !field.primaryKey && !field.softDelete && field.tenantClaim === undefined).map((field) => {
     const value = field.nullable ? `t.Union([${apiField(field, database)}, t.Null()], ${JSON.stringify(field.comment !== undefined ? { description: field.comment } : {})})` : apiField(field, database);
     return `  ${JSON.stringify(field.name)}: t.Optional(${value}),`;
   }).join("\n");
@@ -520,7 +520,7 @@ ${policyImports}${commandImport}${serviceImports}${realtimeEntities.length ? '\n
 
 export const graphqlTypeDefs = ${schema};
 const schema = buildSchema(graphqlTypeDefs);
-const scopeDefinitions = ${scopeDefinitions} as Array<{ resource: string; field: string; claim: string; tree?: { entity: string; parentField: string } }>;${policyColumnsLiteral}
+const scopeDefinitions = ${scopeDefinitions} as Array<{ resource: string; field: string; claim: string; tree?: { entity: string; parentField: string }; tenant?: boolean }>;${policyColumnsLiteral}
 
 ${commandHelpers}export async function createGraphQLContext(authenticate: Authenticator, request: Request) {
   const principal = await authenticate(request);

@@ -8,6 +8,16 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.20.0] - 2026-10-31
+
+### Added
+
+- Tenant DSL: `field tenantId UUID @tenant` (or `@tenant("tenant.id")`) marks a
+  non-null UUID/Text/Integer tenant column. It synthesizes a principal scope,
+  requires auth (the claim resolves from the session/user field), hides the
+  column from create/update payloads and forms, and rejects explicit-scope
+  conflicts or duplicate tenant fields. Docs/skill/tests included.
+
 ## [0.19.0] - 2026-10-31
 
 ### Added
@@ -523,6 +533,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.20.0]: https://github.com/AI-NoDev/qiy/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/AI-NoDev/qiy/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/AI-NoDev/qiy/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/AI-NoDev/qiy/compare/v0.16.0...v0.17.0
