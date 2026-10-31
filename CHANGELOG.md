@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.26.0] - 2026-10-31
+
+### Added
+
+- GraphQL views: generated `<view>(page, pageSize)` queries and
+  `<view>ById(id)` when the view includes `id`, backed by Drizzle db selects.
+  View roots are registered in the authorization guard so GraphQL/REST agree.
+  Docs/tests updated.
+
 ## [0.25.0] - 2026-10-31
 
 ### Added
@@ -580,6 +589,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.26.0]: https://github.com/AI-NoDev/qiy/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/AI-NoDev/qiy/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/AI-NoDev/qiy/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/AI-NoDev/qiy/compare/v0.22.0...v0.23.0

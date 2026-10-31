@@ -274,6 +274,28 @@ function graphqlSchema(database: DatabaseIR, hiddenFields: Record<string, string
     const generatedFields = generatedFieldsOf(entity, database.relations ?? []).map((generated) => generated.field.name);
     return `${graphqlDescription(entity.comment)}type ${modelName(entity)} {\n${publicFields.map((field) => `${graphqlDescription(field.comment, "  ")}  ${field.name}: ${graphqlType(field)}`).join("\n")}\n}\n\ntype ${modelName(entity)}Page {\n  items: [${modelName(entity)}!]!\n  total: Int!\n  page: Int!\n  pageSize: Int!\n}\n\n${graphqlDescription(entity.comment)}input ${modelName(entity)}CreateInput {\n${graphqlInputFields(entity, false, hidden, generatedFields)}\n}\n\n${graphqlDescription(entity.comment)}input ${modelName(entity)}UpdateInput {\n${graphqlInputFields(entity, true, hidden)}\n}`;
   }).join("\n\n");
+  const views = database.views ?? [];
+  const viewTypes = views.map((view) => {
+    const source = database.entities.find((entity) => entity.name === view.from || entity.tableName === view.from)!;
+    const fields = view.columns.map((name) => source.fields.find((field) => field.name === name)!).filter(Boolean);
+    return `type ${view.name} {
+${fields.map((field) => `  ${field.name}: ${graphqlType(field)}`).join("\n")}
+}
+
+type ${view.name}Page {
+  items: [${view.name}!]!
+  total: Int!
+  page: Int!
+  pageSize: Int!
+}`;
+  }).join("\n\n");
+  const viewQueries = views.flatMap((view) => {
+    const hasId = view.columns.includes("id");
+    return [
+      `  ${view.name}(page: Int = 1, pageSize: Int = 20): ${view.name}Page!`,
+      ...(hasId ? [`  ${view.name}ById(id: ID!): ${view.name}`] : []),
+    ];
+  }).join("\n");
   const queries = database.entities.flatMap((entity) => [
     `  ${entity.name}(page: Int = 1, pageSize: Int = 20, search: String, sort: String, order: String, filters: [QiyFilterInput!]): ${modelName(entity)}Page!`,
     `  ${entity.name}ById(id: ID!): ${modelName(entity)}`,
@@ -299,7 +321,7 @@ function graphqlSchema(database: DatabaseIR, hiddenFields: Record<string, string
   }).join("\n");
   return `${enums ? `${enums}\n\n` : ""}scalar JSON
 
-input QiyFilterInput {\n  field: String!\n  operator: String = "eq"\n  value: String!\n}\n\ntype QiyDistribution {\n  value: String\n  count: Int!\n}\n\ntype QiyTrend {\n  day: String!\n  count: Int!\n}\n\n${types}${realtimeEntities.length ? `\n\n${realtimeEntities.map((entity) => `type ${modelName(entity)}Event {\n  event: String!\n  record: ${modelName(entity)}!\n}`).join("\n\n")}` : ""}${dataflowInputs ? `\n\n${dataflowInputs}` : ""}\n\ntype Query {\n${queries}\n}\n\ntype Mutation {\n${mutations}${dataflowMutations ? `\n${dataflowMutations}` : ""}\n}${realtimeEntities.length ? `\n\ntype Subscription {\n${realtimeEntities.map((entity) => `  ${entity.name}Changed: ${modelName(entity)}Event!`).join("\n")}\n}` : ""}`;
+input QiyFilterInput {\n  field: String!\n  operator: String = "eq"\n  value: String!\n}\n\ntype QiyDistribution {\n  value: String\n  count: Int!\n}\n\ntype QiyTrend {\n  day: String!\n  count: Int!\n}\n\n${types}${viewTypes ? "\n\n" + viewTypes : ""}${realtimeEntities.length ? `\n\n${realtimeEntities.map((entity) => `type ${modelName(entity)}Event {\n  event: String!\n  record: ${modelName(entity)}!\n}`).join("\n\n")}` : ""}${dataflowInputs ? `\n\n${dataflowInputs}` : ""}\n\ntype Query {\n${queries}${viewQueries ? "\n" + viewQueries : ""}\n}\n\ntype Mutation {\n${mutations}${dataflowMutations ? `\n${dataflowMutations}` : ""}\n}${realtimeEntities.length ? `\n\ntype Subscription {\n${realtimeEntities.map((entity) => `  ${entity.name}Changed: ${modelName(entity)}Event!`).join("\n")}\n}` : ""}`;
 }
 
 function graphqlResolver(entity: EntityIR, restricted = false): string {
@@ -362,6 +384,14 @@ function renderGraphQL(database: DatabaseIR, hiddenFields: Record<string, string
   const serviceImports = database.entities.map((entity) => `import { create${modelName(entity)}Service } from "./modules/${entity.name}/${entity.name}.service";`).join("\n") + '\nimport { withPaginationLimit } from "./pagination";\n\ntype FilterOperator = "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in";';
   const services = database.entities.map((entity) => `  ${entity.name}: withPaginationLimit(create${modelName(entity)}Service(repositories.${entity.name})),`).join("\n");
   const resolvers = database.entities.map((entity) => graphqlResolver(entity, restrictedResources.has(entity.name))).join("\n");
+  const views = database.views ?? [];
+  const viewResolvers = views.map((view) => {
+    const hasId = view.columns.includes("id");
+    return `  ${view.name}: async ({ page = 1, pageSize = 20 }: { page?: number; pageSize?: number }) => { const size = Math.min(100, Math.max(1, Math.floor(pageSize))); const current = Math.max(1, Math.floor(page)); const [data, totalRows] = await Promise.all([db.select().from(${view.name}).limit(size).offset((current - 1) * size), db.select({ count: count() }).from(${view.name})]); return { items: data, total: Number(totalRows[0]?.count ?? 0), page: current, pageSize: size }; },${hasId ? `\n  ${view.name}ById: async ({ id }: { id: string }) => { const [row] = await db.select().from(${view.name}).where(eq(${view.name}.id, id)).limit(1); return row ?? null; },` : ""}`;
+  }).join("\n");
+  const viewImports = views.length
+    ? `import { count, eq } from "drizzle-orm";\nimport { db } from "./db";\nimport { ${views.map((view) => view.name).join(", ")} } from "./schema";\n`
+    : "";
   // Subscription roots resolve through the in-process bus that the outbox dispatcher feeds.
   // Subscriptions stream over Server-Sent Events: one `data:` frame per GraphQL result.
   const policyImports = restrictions.length
@@ -517,7 +547,7 @@ function renderGraphQL(database: DatabaseIR, hiddenFields: Record<string, string
 import { buildSchema, graphql, parse, subscribe, getOperationAST, Kind, GraphQLError } from "graphql";
 import type { Repositories } from "./app";
 import type { Authenticator, Principal } from "./auth/guard";
-${policyImports}${commandImport}${serviceImports}${realtimeEntities.length ? '\nimport { realtimeChannelIterator } from "./realtime";\nimport { realtimeCapabilities } from "./realtime";\n' : ""}
+${policyImports}${viewImports}${commandImport}${serviceImports}${realtimeEntities.length ? '\nimport { realtimeChannelIterator } from "./realtime";\nimport { realtimeCapabilities } from "./realtime";\n' : ""}
 
 export const graphqlTypeDefs = ${schema};
 const schema = buildSchema(graphqlTypeDefs);
@@ -571,7 +601,7 @@ function resolvers(services: {
 ${database.entities.map((entity) => `  ${entity.name}: ReturnType<typeof create${modelName(entity)}Service>;`).join("\n")}
 }${commandParameter}, context?: { canSubscribe?: (channel: string) => boolean; channelFor?: (prefix: string) => string | undefined }) {
   return {
-${subscriptionResolvers ? `${subscriptionResolvers}\n` : ""}${resolvers}${commandResolvers ? `\n${commandResolvers}` : ""}
+${subscriptionResolvers ? `${subscriptionResolvers}\n` : ""}${resolvers}${viewResolvers ? "\n" + viewResolvers : ""}${commandResolvers ? `\n${commandResolvers}` : ""}
   };}
 
 export function createGraphQLResolvers(repositories: Repositories, authenticate: Authenticator = async () => null) {
@@ -4857,7 +4887,7 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
   const features = options.features ?? { overview: true, apiDocs: false, apiKeys: false };
   const apiDocsEnabled = Boolean(features.apiDocs);
   const apiKeysEnabled = Boolean(features.apiKeys);
-  // The 鍔熻兘鎬昏 page is generated when it is enabled and at least one docs API
+  // The 閸旂喕鍏橀幀鏄忣潔 page is generated when it is enabled and at least one docs API
   // feature exists; its model endpoint must exist for that page to load.
   const overviewRequested = features.overview !== false && (apiDocsEnabled || apiKeysEnabled);
   const docsModelEnabled = apiDocsEnabled || overviewRequested;
@@ -5126,6 +5156,7 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
   const dataflowRoutes = renderDataflowRoutes(database, options.dataflows ?? [], options.scopes ?? [], options.actions ?? [], options.realtime !== undefined, permissions);
   const protectedResources = JSON.stringify([
     ...database.entities.map((entity) => ({ path: entity.tableName, query: entity.name })),
+    ...(database.views ?? []).map((view) => ({ path: view.name, query: view.name })),
     { path: "files", query: "files" },
     ...(dataflowRoutes ? [{ path: "commands", query: "commands", mutations: (options.dataflows ?? []).flatMap((flow) => {
       const operation = `run${dataflowGraphqlName(flow.name)}`;
