@@ -115,7 +115,8 @@
 - [x] DB view（`view ... from ... { columns ... }`，生成只读 Drizzle view）
 - [x] DB view 只读 REST list/detail
 - [x] DB view 只读 GraphQL（list/detail + guard）
-- [ ] DB view 的 Web 列表与迁移支持
+- [x] DB view Web 只读列表
+- [ ] DB view 的迁移支持与表单/详情页
 
 ## 已完成（审计后）
 
