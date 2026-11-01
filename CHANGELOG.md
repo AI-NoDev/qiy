@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.29.0] - 2026-11-01
+
+### Added
+
+- `bun run load:test`: dependency-free HTTP load smoke with configurable
+  requests/concurrency/timeout/method/headers/body, p50/p90/p95/p99 latency,
+  status/error counts, JSON output and optional `--p95` CI threshold. Unit
+  tests and guide included.
+
 ## [0.28.0] - 2026-11-01
 
 ### Added
@@ -605,6 +614,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.29.0]: https://github.com/AI-NoDev/qiy/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/AI-NoDev/qiy/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/AI-NoDev/qiy/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/AI-NoDev/qiy/compare/v0.25.0...v0.26.0

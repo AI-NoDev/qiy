@@ -71,6 +71,7 @@ qiy explain <file.qiy> [--json]
 qiy schema
 qiy mcp
 qiy agent [--port <n>]
+bun run load:test --url http://127.0.0.1:3000/api/v1/health --requests 200 --concurrency 20
 qiy explain --errors [--json]
 qiy skill install [name] [--all] [--force] [--global] [--dir <path>]
 qiy skill list [--all] [--json] [--global] [--dir <path>]

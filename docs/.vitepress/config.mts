@@ -148,6 +148,7 @@ export default defineConfig({
             { text: "Agent Skill", link: "/guide/agent-skill" },
             { text: "MCP server", link: "/guide/mcp" },
             { text: "HTTP Agent API", link: "/guide/agent-api" },
+            { text: "负载测试", link: "/guide/load-testing" },
             { text: "生成器插件", link: "/guide/plugins" },
             { text: "生成的项目结构", link: "/guide/project-structure" },
           ],
