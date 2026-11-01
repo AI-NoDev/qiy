@@ -2707,7 +2707,9 @@ describe("CSV export helper", () => {
     generated["web/app/routes/show.tsx"] = generated["web/app/routes/show.tsx"]!
       // Read-only integrations never offer an edit form; the show page drops the
       // edit button but keeps the shared `RecordDetails` body.
-      .replace('<CanAccess resource={resource.name} action="edit"><EditButton resource={resource.name} recordItemId={id}>{t(locale, "edit")}</EditButton></CanAccess>', "");
+      .replace('import { useOne, useGetIdentity, useTranslation, CanAccess } from "@refinedev/core";', 'import { useOne, useGetIdentity, useTranslation } from "@refinedev/core";')
+      .replace('import { EditButton, ListButton, Show } from "@refinedev/antd";', 'import { ListButton, Show } from "@refinedev/antd";')
+      .replace('{!resource.readOnly && <CanAccess resource={resource.name} action="edit"><EditButton resource={resource.name} recordItemId={id}>{t(locale, "edit")}</EditButton></CanAccess>}', "");
     for (const path of ["web/app/routes/create.tsx", "web/app/routes/edit.tsx", "web/app/routes/guard-create.tsx", "web/app/routes/guard-edit.tsx", "web/app/components/resource-form.tsx"]) delete generated[path];
   }
   const localizedFailure = (options.dataflows ?? []).flatMap((flow) => flow.steps.flatMap((step) => step.actions.flatMap((action) => action.kind === "require" && action.errorKey ? [{ flow: flow.name, error: action.error, errorKey: action.errorKey }] : [])))[0];

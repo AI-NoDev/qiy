@@ -91,6 +91,9 @@ test("generates a working host data provider instead of CRUD stubs", async () =>
   expect(auth).toContain("Host tenant identity is missing");
   const guide = readFileSync(join(root, "apps/host-admin/QIY_INTEGRATION.md"), "utf8");
   expect(guide).toContain("baseline getList/getOne/create/update/deleteOne");
+  const show = readFileSync(join(root, "apps/host-admin/app/routes/show.tsx"), "utf8");
+  expect(show).not.toContain("EditButton");
+  expect(show).not.toContain("{!resource.readOnly && }");
 
   const provider = await import(pathToFileURL(join(root, "apps/host-admin/app/host/data-provider.ts")).href) as unknown as HostProvider;
   expect(provider.responseContract).toEqual({ data: "items", total: "meta.count", error: "message" });
