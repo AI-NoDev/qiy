@@ -105,7 +105,7 @@
 - [x] 生成应用的 Playwright CRUD E2E（CI 生成 + 安装 + 浏览器）
 - [ ] 生成应用的视觉回归
 - [x] a11y、bundle size 预算、负载测试
-- [ ] lint/format、coverage 阈值、依赖扫描 / SBOM / CodeQL
+- [x] lint/format、coverage 阈值、依赖扫描 / SBOM / CodeQL
 - [x] MCP server（`qiy mcp`，explain/schema/error catalog）
 - [x] 结构化 HTTP Agent API（`qiy agent`，只读 explain/validate/schema/errors）
 - [x] 生成器插件机制（`qiy.project.json` plugins，追加文件/路径保护）

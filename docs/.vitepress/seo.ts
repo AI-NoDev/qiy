@@ -28,6 +28,7 @@ export const pageDescriptions: Record<string, string> = {
   "guide/plugins.md": "Qiy 生成器插件：在 qiy.project.json 声明本地模块，向生成工作区追加文件，路径与覆盖保护、diff/同步语义。",
   "guide/agent-api.md": "Qiy HTTP Agent API：qiy agent 在本机 loopback 暴露 explain/validate/schema/errors 只读 JSON 端点与安全边界。",
   "guide/load-testing.md": "Qiy 负载测试：bun run load:test 无依赖 HTTP 冒烟，报告 p50/p90/p95/p99、错误率、状态码与 CI 阈值。",
+  "guide/lint-format.md": "Qiy lint 与格式：oxlint correctness 规则、bun run lint/lint:fix、qiy fmt DSL 格式化与 CI 门禁。",
   "dsl/views.md": "Qiy DB view：view Name from Entity { columns ... } 生成只读 Drizzle 视图，含校验、方言语法与 API/迁移边界。",
   "guide/mcp.md": "Qiy MCP server：通过 stdio 暴露 qiy_explain、qiy_schema 与错误码目录，供 Agent 只读校验和解释 .qiy 模型。",
   "en/guide/cli.md": "Qiy CLI reference: project commands, diff/incremental generation, model inspection, agent skills and release flow.",

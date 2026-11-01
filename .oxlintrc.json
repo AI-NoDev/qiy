@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "no-constant-condition": "off",
+    "no-useless-escape": "off",
+    "unicorn/no-useless-fallback-in-spread": "off",
+    "oxc/const-comparisons": "off",
+    "typescript/no-non-null-asserted-optional-chain": "off"
+  }
+}

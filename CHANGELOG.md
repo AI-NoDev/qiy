@@ -8,6 +8,14 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.30.0] - 2026-11-01
+
+### Added
+
+- oxlint toolchain: `bun run lint` / `lint:fix`, correctness-only config,
+  CI gate after type-check, and a lint/format guide. `qiy fmt` remains the DSL
+  formatter.
+
 ## [0.29.0] - 2026-11-01
 
 ### Added
@@ -614,6 +622,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.30.0]: https://github.com/AI-NoDev/qiy/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/AI-NoDev/qiy/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/AI-NoDev/qiy/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/AI-NoDev/qiy/compare/v0.26.0...v0.27.0
