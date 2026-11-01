@@ -75,6 +75,7 @@ function RefineApplication({ i18nProvider }: { i18nProvider: I18nProvider }) {
       name: resource.name,
       meta: { label: modelLabel(resource.pluralKey, modelLabel(resource.labelKey, resource.label)), icon: resolveResourceIcon(resource.icon), ...(resource.menuParent && { parent: resource.menuParent }) },
       list: `/${resource.name}`,
+      ...(resource.hasDetail ? { show: `/${resource.name}/:id` } : {}),
     }) : ({
       name: resource.name,
       meta: { label: modelLabel(resource.pluralKey, modelLabel(resource.labelKey, resource.label)), icon: resolveResourceIcon(resource.icon), ...(resource.menuParent && { parent: resource.menuParent }) },

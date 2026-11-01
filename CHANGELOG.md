@@ -8,6 +8,14 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.28.0] - 2026-11-01
+
+### Added
+
+- DB view detail page: views containing `id` now link to a read-only detail
+  route with a back button, no edit/delete actions. Views without `id` remain
+  list-only.
+
 ## [0.27.0] - 2026-10-31
 
 ### Added
@@ -597,6 +605,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.28.0]: https://github.com/AI-NoDev/qiy/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/AI-NoDev/qiy/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/AI-NoDev/qiy/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/AI-NoDev/qiy/compare/v0.24.0...v0.25.0

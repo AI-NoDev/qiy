@@ -116,7 +116,8 @@
 - [x] DB view 只读 REST list/detail
 - [x] DB view 只读 GraphQL（list/detail + guard）
 - [x] DB view Web 只读列表
-- [ ] DB view 的迁移支持与表单/详情页
+- [x] DB view 只读详情页
+- [ ] DB view 迁移支持
 
 ## 已完成（审计后）
 

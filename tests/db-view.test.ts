@@ -27,7 +27,8 @@ test("DB views parse, serialize and generate dialect view constructors", () => {
   expect(sqlite["apps/server/src/graphql.ts"]).toContain("product_names: async");
   expect(sqlite["apps/web/app/resources.ts"]).toContain('"product_names"');
   expect(sqlite["apps/web/app/resources.ts"]).toContain('"readOnly": true');
-  expect(sqlite["apps/web/app/root.tsx"]).toContain("resource.readOnly");
+  expect(sqlite["apps/web/app/resources.ts"]).toContain('"hasDetail": true');
+  expect(sqlite["apps/web/app/root.tsx"]).toContain("resource.hasDetail");
   const postgres = generateProject(parseQiyProject(source("postgresql")).database, "view-demo");
   expect(postgres["apps/server/src/schema.ts"]).toContain('pgView("product_names")');
   const mysql = generateProject(parseQiyProject(source("mysql")).database, "view-demo");
