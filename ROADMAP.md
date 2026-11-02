@@ -117,7 +117,7 @@
 - [x] DB view 只读 GraphQL（list/detail + guard）
 - [x] DB view Web 只读列表
 - [x] DB view 只读详情页
-- [ ] DB view 迁移支持
+- [x] DB view 迁移支持（SQLite 已验证；PG/MySQL 需目标环境 dry-run）
 
 ## 已完成（审计后）
 

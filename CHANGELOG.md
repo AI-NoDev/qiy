@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.31.0] - 2026-11-01
+
+### Added
+
+- Generated E2E now includes a DB view: the fixture declares `product_names`,
+  the generated migration creates it, and Playwright asserts the read-only
+  view list renders after a product is created. This verifies SQLite view
+  migration end-to-end.
+
 ## [0.30.0] - 2026-11-01
 
 ### Added
@@ -622,6 +631,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.31.0]: https://github.com/AI-NoDev/qiy/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/AI-NoDev/qiy/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/AI-NoDev/qiy/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/AI-NoDev/qiy/compare/v0.27.0...v0.28.0
