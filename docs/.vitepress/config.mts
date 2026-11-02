@@ -150,6 +150,7 @@ export default defineConfig({
             { text: "HTTP Agent API", link: "/guide/agent-api" },
             { text: "负载测试", link: "/guide/load-testing" },
             { text: "Lint 与格式", link: "/guide/lint-format" },
+            { text: "布局快照（视觉回归）", link: "/guide/visual-regression" },
             { text: "生成器插件", link: "/guide/plugins" },
             { text: "生成的项目结构", link: "/guide/project-structure" },
           ],

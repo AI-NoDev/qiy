@@ -1,0 +1,13 @@
+{
+  "heading": "product_names",
+  "sidebar": true,
+  "search": true,
+  "columns": [
+    "id",
+    "name",
+    "操作"
+  ],
+  "hasCreate": false,
+  "hasImport": false,
+  "hasExport": true
+}

@@ -5,6 +5,8 @@ export default defineConfig({
   testDir: "e2e",
   testMatch: "generated.spec.ts",
   timeout: 60_000,
+  // Layout snapshots are DOM/text contracts, so one baseline works on every OS.
+  snapshotPathTemplate: "{testDir}/{testFileName}-snapshots/{arg}{ext}",
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "github" : "list",

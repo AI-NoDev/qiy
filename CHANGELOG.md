@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.32.0] - 2026-11-02
+
+### Added
+
+- Cross-platform layout snapshot regression for the generated read-only view
+  page: heading/sidebar/search/column order/action visibility are compared to
+  one OS-independent JSON baseline. Added a visual-regression guide and
+  `snapshotPathTemplate` without platform suffixes.
+
 ## [0.31.0] - 2026-11-01
 
 ### Added
@@ -631,6 +640,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.32.0]: https://github.com/AI-NoDev/qiy/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/AI-NoDev/qiy/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/AI-NoDev/qiy/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/AI-NoDev/qiy/compare/v0.28.0...v0.29.0
