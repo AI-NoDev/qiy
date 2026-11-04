@@ -19,7 +19,7 @@
 | Agent Skill 打包 | 88 个文件 / 5 个 skill | `bun run skill:build` |
 | 生成应用 E2E | **2 pass**，含只读 view 迁移与布局快照 | `bun run e2e:generated` |
 | 发布 v0.32.0 | dry-run 5 平台全绿；release + smoke 通过 | GitHub Actions |
-| 依赖漏洞 | 9 个（1 high / 7 moderate / 1 low），均在 docs 开发依赖链 | `bun audit` |
+| 依赖漏洞 | 8 个（1 high / 6 moderate / 1 low），均在 docs 开发依赖链 | `bun audit` |
 
 ## 已验证能力
 
@@ -32,7 +32,7 @@
 
 ## 已知边界（非发布阻塞）
 
-1. **依赖审计剩余 9 个漏洞**：均来自 `vitepress → vite → launch-editor/esbuild` 文档开发链，不进入 Qiy CLI 运行时或生成应用。`launch-editor` 的 high 需要等 VitePress/Vite 升级链。
+1. **依赖审计剩余 8 个漏洞**：来自 `vitepress → vite → launch-editor` 文档开发链；已通过 override 将 `esbuild` 升到 0.25.12，`launch-editor` 的 high 仍需等 VitePress/Vite 升级链。
 2. **DB view 的 PG/MySQL 迁移未实库执行**：仅验证生成 SQL 与 TypeScript；生产前需在目标数据库 dry-run。
 3. **视觉回归是布局快照**：验证标题、侧边栏、搜索、列顺序与操作可见性，不比较像素/颜色/间距。
 4. **DB view 权限**：REST/GraphQL 只做认证，不套用实体 policy 行级过滤；敏感视图需数据库账号或网关限制。

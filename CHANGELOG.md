@@ -16,6 +16,8 @@ Releases before `0.2.0` are listed on the
   100 requests / 10 concurrency / p95 1000ms.
 - Task docs index covers DB view, soft delete/tenant/computed fields, MCP,
   HTTP Agent API, plugins, lint, load testing and layout snapshots.
+- Docs toolchain overrides `esbuild` to 0.25.12 (from 0.21.5); `bun audit`
+  drops from 9 to 8 findings. Remaining high is `launch-editor` via VitePress.
 
 ## [0.32.0] - 2026-11-02
 
