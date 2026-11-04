@@ -61,3 +61,5 @@ bun run load:test --url http://127.0.0.1:3000/api/v1/health --requests 100 --con
 ```
 
 生产压测应在独立环境、真实数据库和网关限流配置下进行；不要对生产直接压测。
+
+仓库 CI 的 `generated-e2e` 作业会在生成应用 E2E 后启动 API，执行 100 请求 / 10 并发 / p95 1000ms 的冒烟门禁。

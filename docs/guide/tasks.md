@@ -19,6 +19,8 @@
 | 定义一对一 / 一对多 / 多对多 | [relation](../dsl/relation-index) |
 | 使用 v1 友好语法 | [v1 语法](./syntax-v1) |
 | 生成业务编码、UUID | [自动生成值](../dsl/generated-values) |
+| 软删除、租户隔离、计算字段 | [entity 与 field](../dsl/entity) |
+| 声明只读 DB view（REST/GraphQL/Web） | [DB view](../dsl/views) |
 | 校验模型并预览变更 | [CLI：check / diff / explain](./cli) |
 
 ## 权限与登录
@@ -48,10 +50,21 @@
 | 部署到 Docker / Kubernetes / Vercel | [部署](./deployment) |
 | 配置 API 文档与 API Key | [API 文档与密钥](./api-docs-and-keys) |
 
+## 质量与发布
+
+| 任务 | 入口 |
+| --- | --- |
+| 运行 lint / TypeScript / 测试 | [Lint 与格式](./lint-format) |
+| 压测生成应用 | [负载测试](./load-testing) |
+| 检查生成应用布局回归 | [布局快照](./visual-regression) |
+| 生成器插件追加文件 | [生成器插件](./plugins) |
+
 ## AI Agent
 
 | 任务 | 入口 |
 | --- | --- |
 | 安装官方 Qiy Skill | [Agent Skill](./agent-skill) |
+| 通过 MCP 让 Agent 调用 Qiy | [MCP server](./mcp) |
+| 通过本机 HTTP API 调用 Qiy | [HTTP Agent API](./agent-api) |
 | 让 Agent 读取机器可读文档 | [llms.txt](https://ai-nodev.github.io/qiy/llms.txt)、[llms-full.txt](https://ai-nodev.github.io/qiy/llms-full.txt) |
 | 校验 `qiy explain --json` | [CLI](./cli) |

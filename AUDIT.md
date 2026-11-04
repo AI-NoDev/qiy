@@ -39,7 +39,7 @@
 5. **计算字段**：仅支持 Text 模板，不支持算术或多类型结果。
 6. **软删除**：delete 复用 update 写时间戳，审计动作当前记为 `updated`，无 restore API/UI。
 7. **租户 DSL**：依赖 auth claim；本地登录要求 users 实体存在同名字段。
-8. **负载测试**：单机冒烟，不代表生产容量；未纳入 CI 定时任务。
+8. **负载测试**：CI `generated-e2e` 已执行 100 请求 / 10 并发 / p95 1000ms 门禁；仍是单机冒烟，不代表生产容量。
 9. **本地 Windows 沙箱**：根 `turbo run test` 仍可能因 OS 临时目录 `EPERM` 失败；直接运行 `apps/server` / `apps/web` 测试通过。
 
 ## 复现命令

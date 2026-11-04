@@ -69,3 +69,15 @@ jobs:
         run: bunx playwright install --with-deps chromium
       - name: Generated app CRUD E2E
         run: bun run e2e:generated
+      - name: Generated API load smoke
+        working-directory: tmp/e2e-admin
+        run: |
+          bun run dev:server > /tmp/qiy-load-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/api/v1/health > /dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://localhost:3000/api/v1/health > /dev/null
+          bun run ../../tools/load-test.ts --url http://localhost:3000/api/v1/health --requests 100 --concurrency 10 --p95 1000

@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [Unreleased]
+
+### Changed
+
+- CI `generated-e2e` now runs a generated-API load smoke after Playwright:
+  100 requests / 10 concurrency / p95 1000ms.
+- Task docs index covers DB view, soft delete/tenant/computed fields, MCP,
+  HTTP Agent API, plugins, lint, load testing and layout snapshots.
+
 ## [0.32.0] - 2026-11-02
 
 ### Added
