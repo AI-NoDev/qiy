@@ -1,6 +1,6 @@
 # Qiy 测试与发布审计
 
-审计对象：Qiy **0.33.0**（tag `v0.33.0`，commit `95d5444`）  
+审计对象：Qiy **0.34.0**（tag `v0.34.0`，commit `931c67a`）  
 审计日期：2026-11-02  
 执行者：Qiy maintainer session  
 范围：仓库测试、类型检查、lint、覆盖率、文档构建、Agent Skill 打包、生成项目验收、DB view 方言验证、依赖漏洞与发布流水线。
@@ -18,7 +18,7 @@
 | 文档 Agent 资产 | 5 个 skill、99 个文件 | `docs/public/` |
 | Agent Skill 打包 | 88 个文件 / 5 个 skill | `bun run skill:build` |
 | 生成应用 E2E | **2 pass**，含只读 view 迁移与布局快照 | `bun run e2e:generated` |
-| 发布 v0.33.0 | dry-run 5 平台全绿；release + smoke 通过 | GitHub Actions |
+| 发布 v0.34.0 | dry-run 5 平台全绿；release + smoke 通过 | GitHub Actions |
 | 依赖漏洞 | **0** | `bun audit` |
 
 ## 已验证能力
@@ -73,7 +73,7 @@ bun audit
 
 ## 审计判定
 
-- 0.33.0 的质量门槛（测试、类型、lint、文档、生成应用、发布验收）通过；
+- 0.34.0 的质量门槛（测试、类型、lint、文档、生成应用、发布验收）通过；
 - 没有阻断发布的缺陷；
 - 未完成项与已知边界已登记，不应表述为“全部完美完成”；
 - 生产使用前仍需对目标数据库、认证 provider、对象存储和网关限流做真实环境验收。
