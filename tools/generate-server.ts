@@ -5349,7 +5349,7 @@ export function expectedTables(): DriftTable[] {
 }
 ${database.dialect === "postgresql" ? `
 export async function introspect(): Promise<DriftTable[]> {
-  const columns = await client.unsafe("select table_name, column_name, is_nullable, coalesce(udt_name, data_type) as type from information_schema.columns where table_schema = current_schema() and table_name <> '__drizzle_migrations'") as Array<{ table_name: string; column_name: string; is_nullable: string; type: string }>;
+  const columns = await client.unsafe("select table_name, column_name, is_nullable, coalesce(udt_name, data_type) as type from information_schema.columns where table_schema = current_schema() and table_name <> '__drizzle_migrations' and table_name in (select table_name from information_schema.tables where table_schema = current_schema() and table_type = 'BASE TABLE')") as Array<{ table_name: string; column_name: string; is_nullable: string; type: string }>;
   const keys = await client.unsafe("select tc.table_name, kcu.column_name from information_schema.table_constraints tc join information_schema.key_column_usage kcu on tc.constraint_name = kcu.constraint_name and tc.table_schema = kcu.table_schema where tc.constraint_type = 'PRIMARY KEY' and tc.table_schema = current_schema()") as Array<{ table_name: string; column_name: string }>;
   const primary = new Set(keys.map((row) => row.table_name + "." + row.column_name));
   const tables = new Map<string, DriftTable>();
@@ -5371,7 +5371,7 @@ export async function appliedMigrations(): Promise<number | null> {
 export async function introspect(): Promise<DriftTable[]> {
   // MySQL returns information_schema column names in uppercase, so every field is
   // aliased to an explicit lowercase name instead of relying on the driver keys.
-  const [rows] = await client.query("select table_name as tbl, column_name as col, is_nullable as nullable, data_type as dtype, column_type as ctype, column_key as ckey from information_schema.columns where table_schema = database() and table_name <> '__drizzle_migrations'") as unknown as [Array<{ tbl: string; col: string; nullable: string; dtype: string; ctype: string; ckey: string }>, unknown];
+  const [rows] = await client.query("select table_name as tbl, column_name as col, is_nullable as nullable, data_type as dtype, column_type as ctype, column_key as ckey from information_schema.columns where table_schema = database() and table_name <> '__drizzle_migrations' and table_name in (select table_name from information_schema.tables where table_schema = database() and table_type = 'BASE TABLE')") as unknown as [Array<{ tbl: string; col: string; nullable: string; dtype: string; ctype: string; ckey: string }>, unknown];
   const tables = new Map<string, DriftTable>();
   for (const row of rows) {
     const table = tables.get(row.tbl) ?? { name: row.tbl, columns: [] };

@@ -8,7 +8,7 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
-## [Unreleased]
+## [0.33.0] - 2026-11-04
 
 ### Changed
 
@@ -18,6 +18,12 @@ Releases before `0.2.0` are listed on the
   HTTP Agent API, plugins, lint, load testing and layout snapshots.
 - Docs toolchain overrides `esbuild` to 0.25.12 (from 0.21.5); `bun audit`
   drops from 9 to 8 findings. Remaining high is `launch-editor` via VitePress.
+
+### Fixed
+
+- PostgreSQL/MySQL schema drift no longer reports generated views as
+  `unexpected table`; introspection only considers base tables. Verified by
+  applying migrations and querying view data in PostgreSQL 16 and MySQL 8.4.
 
 ## [0.32.0] - 2026-11-02
 
@@ -651,6 +657,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.33.0]: https://github.com/AI-NoDev/qiy/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/AI-NoDev/qiy/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/AI-NoDev/qiy/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/AI-NoDev/qiy/compare/v0.29.0...v0.30.0

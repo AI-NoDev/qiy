@@ -117,7 +117,7 @@
 - [x] DB view 只读 GraphQL（list/detail + guard）
 - [x] DB view Web 只读列表
 - [x] DB view 只读详情页
-- [x] DB view 迁移支持（SQLite 实库 E2E；PG/MySQL 已验证生成 SQL 与类型检查，需目标环境 dry-run）
+- [x] DB view 迁移支持（SQLite/PostgreSQL/MySQL 实库验证；drift 忽略 view）
 
 ## 已完成（审计后）
 

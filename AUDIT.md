@@ -27,20 +27,19 @@
 - 软删除、租户 DSL、计算字段、DB view。
 - DB view REST/GraphQL/Web list/detail。
 - SQLite view 迁移：`drizzle-kit generate` 生成 `CREATE VIEW`，`db:migrate` 后 E2E 可查询。
-- PostgreSQL / MySQL view：生成项目 `tsc --noEmit` 通过；`drizzle-kit generate` 分别生成 `CREATE VIEW` / `CREATE ALGORITHM ... VIEW` SQL（未连接真实数据库执行）。
+- PostgreSQL / MySQL view：生成项目 `tsc --noEmit` 通过；容器实库执行迁移后 view 可查询，schema drift 忽略 view。
 - CSV 数组/JSON/Boolean 导入、负载冒烟、oxlint、跨平台布局快照。
 
 ## 已知边界（非发布阻塞）
 
 1. **依赖审计剩余 8 个漏洞**：来自 `vitepress → vite → launch-editor` 文档开发链；已通过 override 将 `esbuild` 升到 0.25.12，`launch-editor` 的 high 仍需等 VitePress/Vite 升级链。
-2. **DB view 的 PG/MySQL 迁移未实库执行**：仅验证生成 SQL 与 TypeScript；生产前需在目标数据库 dry-run。
-3. **视觉回归是布局快照**：验证标题、侧边栏、搜索、列顺序与操作可见性，不比较像素/颜色/间距。
-4. **DB view 权限**：REST/GraphQL 只做认证，不套用实体 policy 行级过滤；敏感视图需数据库账号或网关限制。
-5. **计算字段**：仅支持 Text 模板，不支持算术或多类型结果。
-6. **软删除**：delete 复用 update 写时间戳，审计动作当前记为 `updated`，无 restore API/UI。
-7. **租户 DSL**：依赖 auth claim；本地登录要求 users 实体存在同名字段。
-8. **负载测试**：CI `generated-e2e` 已执行 100 请求 / 10 并发 / p95 1000ms 门禁；仍是单机冒烟，不代表生产容量。
-9. **本地 Windows 沙箱**：根 `turbo run test` 仍可能因 OS 临时目录 `EPERM` 失败；直接运行 `apps/server` / `apps/web` 测试通过。
+2. **视觉回归是布局快照**：验证标题、侧边栏、搜索、列顺序与操作可见性，不比较像素/颜色/间距。
+3. **DB view 权限**：REST/GraphQL 只做认证，不套用实体 policy 行级过滤；敏感视图需数据库账号或网关限制。
+4. **计算字段**：仅支持 Text 模板，不支持算术或多类型结果。
+5. **软删除**：delete 复用 update 写时间戳，审计动作当前记为 `updated`，无 restore API/UI。
+6. **租户 DSL**：依赖 auth claim；本地登录要求 users 实体存在同名字段。
+7. **负载测试**：CI `generated-e2e` 已执行 100 请求 / 10 并发 / p95 1000ms 门禁；仍是单机冒烟，不代表生产容量。
+8. **本地 Windows 沙箱**：根 `turbo run test` 仍可能因 OS 临时目录 `EPERM` 失败；直接运行 `apps/server` / `apps/web` 测试通过。
 
 ## 复现命令
 

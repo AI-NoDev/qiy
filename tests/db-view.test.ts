@@ -31,8 +31,10 @@ test("DB views parse, serialize and generate dialect view constructors", () => {
   expect(sqlite["apps/web/app/root.tsx"]).toContain("resource.hasDetail");
   const postgres = generateProject(parseQiyProject(source("postgresql")).database, "view-demo");
   expect(postgres["apps/server/src/schema.ts"]).toContain('pgView("product_names")');
+  expect(postgres["apps/server/src/schema-drift.ts"]).toContain("table_type = 'BASE TABLE'");
   const mysql = generateProject(parseQiyProject(source("mysql")).database, "view-demo");
   expect(mysql["apps/server/src/schema.ts"]).toContain('mysqlView("product_names")');
+  expect(mysql["apps/server/src/schema-drift.ts"]).toContain("table_type = 'BASE TABLE'");
 });
 
 test("DB views reject unknown tables, columns and computed fields", () => {
