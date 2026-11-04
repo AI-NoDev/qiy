@@ -8,6 +8,14 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.35.0] - 2026-11-04
+
+### Changed
+
+- Generated workspaces now use Vite 8.3.5 and override `path-to-regexp` to
+  8.4.x / `esbuild` to 0.25.x. A freshly generated app reports **0 audit
+  findings**; typecheck, web build and generated E2E were re-run.
+
 ## [0.34.0] - 2026-11-04
 
 ### Changed
@@ -665,6 +673,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.35.0]: https://github.com/AI-NoDev/qiy/compare/v0.34.0...v0.35.0
 [0.34.0]: https://github.com/AI-NoDev/qiy/compare/v0.33.0...v0.34.0
 [0.33.0]: https://github.com/AI-NoDev/qiy/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/AI-NoDev/qiy/compare/v0.31.0...v0.32.0

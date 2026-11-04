@@ -19,5 +19,9 @@
   },
   "devDependencies": {
     "turbo": "2.11.7"
+  },
+  "overrides": {
+    "path-to-regexp": "^8.4.0",
+    "esbuild": "^0.25.0"
   }
 }

@@ -19,7 +19,7 @@
 | Agent Skill 打包 | 88 个文件 / 5 个 skill | `bun run skill:build` |
 | 生成应用 E2E | **2 pass**，含只读 view 迁移与布局快照 | `bun run e2e:generated` |
 | 发布 v0.34.0 | dry-run 5 平台全绿；release + smoke 通过 | GitHub Actions |
-| 依赖漏洞 | **0** | `bun audit` |
+| 依赖漏洞 | **0**（仓库与新建生成应用） | `bun audit` |
 
 ## 已验证能力
 
@@ -29,6 +29,7 @@
 - SQLite view 迁移：`drizzle-kit generate` 生成 `CREATE VIEW`，`db:migrate` 后 E2E 可查询。
 - PostgreSQL / MySQL view：生成项目 `tsc --noEmit` 通过；容器实库执行迁移后 view 可查询，schema drift 忽略 view。
 - CSV 数组/JSON/Boolean 导入、负载冒烟、oxlint、跨平台布局快照。
+- 新建生成应用：Vite 8.3.5 + `path-to-regexp`/`esbuild` override，`bun audit` 0；typecheck、web build、generated E2E 通过。
 
 ## 已知边界（非发布阻塞）
 

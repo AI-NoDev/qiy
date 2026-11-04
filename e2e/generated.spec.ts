@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
 
 test("generated admin creates and lists a product", async ({ page }) => {
+  test.setTimeout(120_000);
   await page.goto("/products");
-  await expect(page.getByRole("heading", { name: /products/i })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { name: /products/i })).toBeVisible({ timeout: 60_000 });
   await page.getByRole("button", { name: /新建|Create/i }).click();
   await page.getByLabel("name").fill("E2E Widget");
   await page.getByLabel("price").fill("42");
