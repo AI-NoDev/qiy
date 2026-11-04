@@ -2,7 +2,7 @@
 
 > 本文件记录发布质量审计后的待办，按 P0 → P1 → P2 顺序逐项推进。
 > 面向维护者与 AI Agent，不属于文档站用户内容；用户文档见 `docs/`。
-> 当前版本：`0.2.1`（tag `v0.2.1`，已发布）。
+> 当前版本：`0.32.0`（tag `v0.32.0`，已发布）。
 
 ## 状态图例
 
@@ -117,7 +117,7 @@
 - [x] DB view 只读 GraphQL（list/detail + guard）
 - [x] DB view Web 只读列表
 - [x] DB view 只读详情页
-- [x] DB view 迁移支持（SQLite 已验证；PG/MySQL 需目标环境 dry-run）
+- [x] DB view 迁移支持（SQLite 实库 E2E；PG/MySQL 已验证生成 SQL 与类型检查，需目标环境 dry-run）
 
 ## 已完成（审计后）
 

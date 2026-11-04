@@ -6890,7 +6890,8 @@ SQLite / MySQL 分别使用 `sqliteView` / `mysqlView`；视图定义放在实�
 
 - 当前 `view` 生成 **Drizzle schema + 只读 REST/GraphQL + Web 列表/详情**，不生成表单与变更端点。
 - 需要 API 时，用生成器插件或在集成项目里挂载只读适配器；不要把它当成可变实体。
-- SQLite 已验证 `drizzle-kit generate` 会生成 `CREATE VIEW`，`db:migrate` 后可查询；PostgreSQL/MySQL 仍需在目标环境用 `qiy diff`/迁移 dry-run 验证。
+- SQLite 已实库验证：`drizzle-kit generate` 生成 `CREATE VIEW`，`db:migrate` 后可查询。
+- PostgreSQL / MySQL 已验证生成 `CREATE VIEW` SQL 且生成项目 typecheck 通过；尚未连接真实数据库执行，生产前仍需 dry-run。
 - 视图列没有字段注解、权限或表单语义；权限仍应通过底层实体或数据库账号控制。
 
 ## 校验
