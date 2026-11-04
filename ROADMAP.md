@@ -2,7 +2,7 @@
 
 > 本文件记录发布质量审计后的待办，按 P0 → P1 → P2 顺序逐项推进。
 > 面向维护者与 AI Agent，不属于文档站用户内容；用户文档见 `docs/`。
-> 当前版本：`0.34.0`（tag `v0.34.0`，已发布）。
+> 当前版本：`0.35.0`（tag `v0.35.0`，已发布）。
 
 ## 状态图例
 
@@ -127,6 +127,7 @@
 - [x] `v0.2.2`：`qiy skill list/update/uninstall`（含 `--json`、本地修改保护、保留手写文件）；通过 dry-run → tag → Release 流程发布。
 - [x] `v0.2.3`：`qiy explain` / `qiy schema`，机器可读模型摘要 + 已发布 JSON Schema。
 - [x] `v0.2.4`：稳定错误码目录 `QIY1001–QIY1016`、`qiy explain --errors`、文档 `/dsl/errors`、`explain --json` 自动附带 code/fix。
+- [x] `v0.35.0`：生成应用 Vite 8.3.5 + override，生成应用 audit 归零。
 - [x] `v0.34.0`：Vite 6 docs 工具链，`bun audit` 归零。
 - [x] `v0.33.0`：DB view drift 修复、PG/MySQL 实库迁移验证、CI 负载门禁。
 - [x] `v0.32.0`：跨平台布局快照视觉回归。
