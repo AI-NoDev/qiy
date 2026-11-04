@@ -8,6 +8,14 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [0.34.0] - 2026-11-04
+
+### Changed
+
+- Docs toolchain overrides Vite to 6.4.5 (from 5.4.21) and esbuild to 0.25.12;
+  `bun audit` is now **0 vulnerabilities**, while `docs:build` and `docs:dev`
+  were re-verified on Vite 6.
+
 ## [0.33.0] - 2026-11-04
 
 ### Changed
@@ -657,6 +665,7 @@ Releases before `0.2.0` are listed on the
 
 See the [v0.1.5 release](https://github.com/AI-NoDev/qiy/releases/tag/v0.1.5).
 
+[0.34.0]: https://github.com/AI-NoDev/qiy/compare/v0.33.0...v0.34.0
 [0.33.0]: https://github.com/AI-NoDev/qiy/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/AI-NoDev/qiy/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/AI-NoDev/qiy/compare/v0.30.0...v0.31.0
