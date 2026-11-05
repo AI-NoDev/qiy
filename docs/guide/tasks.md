@@ -46,7 +46,7 @@
 | 任务 | 入口 |
 | --- | --- |
 | 数据流、审批、事务 | [dataflow](../dsl/dataflow) |
-| 集成外部 HTTP API | [integration](./real-services) |
+| 集成外部 HTTP API | [认证与登录](./auth) |
 | 部署到 Docker / Kubernetes / Vercel | [部署](./deployment) |
 | 配置 API 文档与 API Key | [API 文档与密钥](./api-docs-and-keys) |
 

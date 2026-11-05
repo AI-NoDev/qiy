@@ -81,7 +81,7 @@ admin/
 `.qiy-generated.json` 记录了本次生成拥有的文件清单，配合 `--sync` 可以安全地同步模型变化：
 
 ```powershell
-bun run tools/generate-app.ts examples/erpadmin/app.qiy out/erpadmin --sync
+qiy generate --sync
 ```
 
 `--sync` 会写入新文件、删除被模型移除的登记文件，但不会触碰不在 manifest 中的自定义文件。

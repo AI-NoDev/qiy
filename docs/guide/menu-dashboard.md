@@ -63,14 +63,14 @@ menu {
 
 ### 默认值与校验
 
-解析阶段（`tools/qiy-project.ts`）：
+解析与生成校验：
 
 - 组名必须是标识符；`@label`/`@icon`/`@parent` 的值必须是合法 `value()`（字符串或标识符）。
 - 未知注解：`Unsupported menu group attribute @<x>`。
 - 重复 `@comment`：`Menu group <name>: duplicate @comment annotation`。
 - 组内出现非 `resource` token：`Expected resource near token <n>`。
 
-生成阶段（`tools/generate-web.ts`，报错会合并为多行）：
+生成阶段校验：
 
 - 组名非法或重复：`Menu group <name>: invalid or duplicate name`。
 - 组内资源不存在：`Menu group <g>: unknown resource <r>`。

@@ -8,6 +8,15 @@ Release notes on GitHub are generated from the matching section of this file.
 Releases before `0.2.0` are listed on the
 [GitHub releases page](https://github.com/AI-NoDev/qiy/releases).
 
+## [Unreleased]
+
+### Changed
+
+- User docs no longer expose repository-internal verification scripts:
+  real-service/IdP acceptance moved to `MAINTAINER_VERIFICATION.md`, internal
+  commands to `CONTRIBUTING.md`, and auth/deployment/project-structure pages
+  now use public commands and production checklists.
+
 ## [0.35.0] - 2026-11-04
 
 ### Changed

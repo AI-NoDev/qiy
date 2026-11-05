@@ -133,40 +133,14 @@ location /         { try_files $uri $uri/ /index.html; }
 
 :::
 
-## 真实数据库验收（Docker）
+## 生产验收清单
 
-本地有 Docker 时，可以用真实 PostgreSQL/MySQL 跑生成结果验收（迁移、Dataflow 事务、导入导出 worker、共享视图、tree scope 策略）：
+部署前至少确认：
 
-```powershell
-docker run -d --name qiy-erp-pg -e POSTGRES_PASSWORD=qiyacceptance -p 55432:5432 postgres:16-alpine
-docker run -d --name qiy-dataflow-mysql -e MYSQL_ROOT_PASSWORD=qiyacceptance -p 53306:3306 mysql:8.4
-bun run tools/verify-postgres-dataflow.ts qiy-erp-pg postgresql
-bun run tools/verify-mysql-dataflow.ts qiy-dataflow-mysql
-# 新功能验收按方言复用同一脚本：
-$env:QIY_ACCEPTANCE_DIALECT="postgresql"
-$env:QIY_ACCEPTANCE_DATABASE_URL="postgres://postgres:qiyacceptance@127.0.0.1:55432/qiy_views"
-bun run tools/verify-saved-views.ts
-```
+- `QIY_AUTH_SECRET` ≥32 字符，`DATABASE_URL` 指向目标数据库；
+- 已运行迁移，`/api/v1/health` 返回 200；
+- 未认证请求返回 401，错误凭据返回 4xx；
+- 对象存储（local/S3）可读写，附件下载正常；
+- 反向代理把 `/api/v1/*` 与 `/graphql` 转发到 Elysia，静态资源回退到 `index.html`。
 
-Linux 产物可以直接在 Docker 里执行：`docker run --rm -v dist:/dist debian:bookworm-slim /dist/qiy-<version>-linux-x64 --version`；OIDC 可用 `bun run tools/verify-oidc-docker.ts --isolated` 在 Docker 网络内完成 HTTPS JWKS 验收。
-
-## 容器化部署验收（Docker）
-
-`bun run tools/verify-docker-deploy.ts` 会生成一个 PostgreSQL 应用并完成真实容器部署：
-
-1. `docker build` 一个 `oven/bun:1.3.13` 镜像（镜像内先 `bun run db:generate` 生成迁移）；
-2. 起 `postgres:16-alpine` 容器；
-3. 应用容器启动命令：`bun src/db-migrate.ts && bun src/server.ts`；
-4. 用同网络探针容器验证 `/api/v1/health` 200、匿名 401、错误凭据 4xx。
-
-关键环境变量：`DATABASE_URL`、`HOST=0.0.0.0`、`PORT`、`QIY_STORAGE_METADATA=database`、`QIY_AUTH_SECRET`（生产模式下缺少会直接退出）。
-
-## Kubernetes 部署验收（k3s in Docker）
-
-`bun run tools/verify-k8s-deploy.ts` 在 Docker 里起单节点 k3s，部署生成器的 `deploy/kubernetes` 清单并做真实探针：
-
-- k3s 容器无法直连 Docker Hub 时，宿主机先 `docker pull` 系统镜像（pause / coredns / local-path-provisioner / busybox），再 `docker save` + `docker cp` + `/bin/ctr -n k8s.io images import`；
-- 生成的 PVC 使用 **ReadWriteOnce**（默认存储类可满足），Deployment 带 **`HOST=0.0.0.0`**；
-- 断言：Pod Running、PVC Bound、Pod 内 `/api/v1/health` 200、匿名 401、日志确认迁移、Service 存在、可用副本 > 0。
-
-部署到真实集群时，把 Deployment 的 `image` 换成你的镜像仓库地址，并按 `secret.example.yaml` 创建同名 Secret（`DATABASE_URL`、`QIY_AUTH_SECRET` 至少 32 字符、`QIY_STORAGE_*`）。
+数据库、容器和 Kubernetes 的维护者验收脚本见 [CONTRIBUTING](https://github.com/AI-NoDev/qiy/blob/main/CONTRIBUTING.md)，不在用户文档内。

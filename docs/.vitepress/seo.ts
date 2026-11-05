@@ -51,7 +51,7 @@ export const pageDescriptions: Record<string, string> = {
   "guide/ui-theming.md": "UI 与主题：Ant Design 适配器、主题色、明暗模式、sider 折叠持久化与界面定制边界。",
   "guide/storage.md": "存储配置指南：本地与 S3、上传大小/类型策略、附件权限、分片上传与孤儿清理。",
   "guide/deployment.md": "部署指南：生产环境变量、Docker/Kubernetes、反向代理、数据库迁移、备份与健康检查。",
-  "guide/real-services.md": "真实服务验收：数据库、OIDC、S3、实时 transport 的端到端检查清单与常见失败模式。",
+
   "guide/existing-bun-project.md": "接入现有 Bun 项目：init 前置条件、aliases、路径冲突、--sync 所有权与增量生成边界。",
   "guide/best-practice-warehouse.md": "仓储后台最佳实践：从 .qiy 模型到库存、仓库、单据与报表的完整示例。",
   "guide/dsl-cookbook.md": "Qiy DSL 用法手册：按目标分组的数据建模、权限、自动化、图表、多语言与系统管理配方。",

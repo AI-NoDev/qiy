@@ -210,25 +210,9 @@ QIY_OTP_DELIVERY_TIMEOUT_MS=10000
 
 ## Provider 配置与验收
 
-完整的 Provider 配置表（Okta/Keycloak/Google/Kinde/Azure AD B2C/Auth0/Dex）与环境变量见 [DSL：认证 · Provider 配置表](/dsl/auth#provider-配置表)。真实租户验收：
+完整的 Provider 配置表（Okta/Keycloak/Google/Kinde/Azure AD B2C/Auth0/Dex）与环境变量见 [DSL：认证 · Provider 配置表](/dsl/auth#provider-配置表)。
 
-```sh
-bun tools/verify-multi-provider.ts     # 多 Provider 路由/映射/公开列表（本地 JWKS）
-bun tools/verify-oidc-docker.ts --isolated   # 临时 HTTPS IdP + 容器内生成与认证测试（需 Docker）
-bun tools/verify-okta.ts               # 需要 QIY_OKTA_* 与 HTTPS_PROXY
-bun tools/verify-google.ts             # 需要 QIY_GOOGLE_*
-bun tools/verify-azure-b2c.ts / verify-keycloak.ts / verify-kinde.ts / verify-dex.ts
-```
-
-`verify-oidc-docker.ts --isolated` 会创建临时网络、自签名证书和仅供测试的 HTTPS IdP，再从 `.qiy` 生成 SQLite/OIDC 应用，在容器内安装依赖、测试 HTTP 认证与类型检查；服务只通过临时 `NODE_EXTRA_CA_CERTS` 信任该证书，仍校验 TLS/签名/issuer/audience/用户映射；结束后删除容器、网络与工作目录。
-
-受限网络下 Bun `fetch` 需要代理（生成器服务端同理）：
-
-```powershell
-$env:HTTPS_PROXY="http://127.0.0.1:10090"
-$env:HTTP_PROXY="http://127.0.0.1:10090"
-$env:NO_PROXY="localhost,127.0.0.1"
-```
+生产上线前，应在目标环境用真实租户完成一次登录、JWKS 轮换、audience/claim 映射、退出登录和第三方 Cookie 策略验收；仓库维护者使用的 Docker/厂商验收脚本不在用户文档内，见 [CONTRIBUTING](https://github.com/AI-NoDev/qiy/blob/main/CONTRIBUTING.md)。
 
 :::warning 当前限制
 
@@ -245,5 +229,5 @@ $env:NO_PROXY="localhost,127.0.0.1"
 - [DSL：认证与登录](/dsl/auth)：完整语法、Provider 表、全部环境变量、校验错误。
 - [DSL：权限](/dsl/permissions)：原子权限、权限组、`restrict`/`scope`/`pages`。
 - [API 文档与访问密钥](./api-docs-and-keys)：API Key 与 `features`。
-- [真实外部服务验收](./real-services)：各 IdP 的脚本与凭据。
+- [CONTRIBUTING](https://github.com/AI-NoDev/qiy/blob/main/CONTRIBUTING.md)：维护者验收与贡献流程。
 - 生成项目测试：`apps/server/tests/{auth,local-auth,hybrid-auth,otp-auth,api-keys,permissions}.test.ts`。

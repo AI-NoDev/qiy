@@ -169,7 +169,7 @@ export default defineConfig({
             { text: "文件存储", link: "/guide/storage" },
             { text: "DSL 用法手册（按目标分组）", link: "/guide/dsl-cookbook" },
             { text: "部署", link: "/guide/deployment" },
-            { text: "真实外部服务验收", link: "/guide/real-services" },
+
           ],
         },
       ],

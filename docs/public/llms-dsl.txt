@@ -4160,7 +4160,7 @@ QIY_OIDC_JWKS_CACHE_MAX_AGE_MS=600000
 - [features](/dsl/features) 与 [API 文档与访问密钥](/guide/api-docs-and-keys)：API Key 生命周期与文档过滤。
 - [认证与权限（指南）](/guide/auth)：页面守卫、迁移路径与多 Provider 验收。
 - [Refine Providers](/guide/refine-providers)：AuthProvider / AccessControlProvider 的生成约定。
-- [真实外部服务验收](/guide/real-services)：Okta/Google/Kinde/Azure/Keycloak/Dex 的离线与真实租户脚本。
+- [CONTRIBUTING](https://github.com/AI-NoDev/qiy/blob/main/CONTRIBUTING.md)：维护者真实租户/IdP 验收脚本。
 - 仓库测试：`tests/auth-providers.test.ts`、`tests/local-auth-generation.test.ts`、`tests/features-api-keys.test.ts`；生成项目 `apps/server/tests/{auth,local-auth,hybrid-auth,otp-auth}.test.ts`。
 
 # 权限（permission / restrict / scope / pages）
