@@ -96,7 +96,7 @@
 - [x] 友好语法 v1 RFC：设计理念页记录提案（project/module、name:type、内联关系、可选分号、v0 兼容）
 - [x] v1 语法最小版：v1 → v0 预处理器（project/module、name:type、自动主键、one、one-to-many、many-to-many、常用配置块 v0 透传、include v1 片段），`explain/generate/fmt` 自动识别；`add entity/field/module/feature` 支持 v1
 - [x] v1 注解透传 + 自定义关系名/onDelete（one / one-to-many）
-- [~] 文档按任务重构：任务索引已覆盖当前能力；内部工具/真实验收页已移至 CONTRIBUTING/MAINTAINER；逐页“目标 → 命令 → 语法”复核仍可继续
+- [x] 文档按任务重构：任务索引覆盖当前能力；内部工具/真实验收页移至 CONTRIBUTING/MAINTAINER；用户页改用公开命令与生产验收清单
 - [x] `qiy dev --watch`：模型变更防抖后自动重新生成、迁移，dev server 重新加载
 
 ## P2：长期
