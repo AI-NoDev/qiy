@@ -1,0 +1,89 @@
+dataflow closeTicket @label(t("kitchen.flow.close")) @confirm(t("kitchen.flow.closeConfirm")) @comment(t("kitchen.flow.closeHelp")) {
+  allow verification CanCloseTickets;
+  idempotency required;
+  audit "ticket.closed";
+  input {
+    field ticketId UUID @required;
+    field reason Text @required @comment("Closing note");
+  }
+  context {
+    ticket = entity tickets by id input.ticketId @required;
+  }
+  step validate @order(10) {
+    require ticket.status != "closed" @error("Ticket is already closed");
+  }
+  step close @order(20) {
+    update ticket {
+      status = "closed";
+      internalNote = input.reason;
+    }
+    create comment = entity ticketComments {
+      ticketId = input.ticketId;
+      body = input.reason;
+    }
+    emit "ticket.closed" { ticketId = input.ticketId; }
+    call notifyRequester { ticketId = input.ticketId; reason = input.reason; }
+  }
+  result { return ticket; }
+}
+
+dataflow purgeComment {
+  allow roles admin;
+  idempotency required;
+  input { field commentId UUID @required; }
+  context { comment = entity ticketComments by id input.commentId @required; }
+  step remove { delete comment; }
+  result { return comment; }
+}
+
+dataflow reopenTicket @label("Reopen ticket") {
+  allow permission TicketClosePermission;
+  idempotency required;
+  input { field ticketId UUID @required; }
+  context { ticket = entity tickets by id input.ticketId @required; }
+  step reopen { update ticket { status = "open"; } }
+  result { return ticket; }
+}
+
+action closeTicket {
+  resource tickets;
+  dataflow closeTicket;
+  placement list, show;
+  label t("kitchen.action.close");
+  when status != "closed";
+  confirm "Close this ticket now?";
+}
+
+action reviewTicket {
+  allow roles operator, viewer;
+  resource tickets;
+  placement show;
+  label "Review";
+  navigate "/tickets/:id/review";
+  page manual @comment("Reviewer timeline implemented by the developer");
+}
+
+action ticketHistory {
+  allow permission TicketReadPermission;
+  resource tickets;
+  placement show;
+  label "History";
+  navigate "/tickets/:id/history";
+  page manual @comment("Audit timeline");
+}
+
+action ticketEscalation {
+  allow verification CanCloseTickets;
+  resource tickets;
+  placement show;
+  label "Escalate";
+  navigate "/tickets/:id/escalate";
+  page manual @comment("Escalation form");
+}
+
+action closeSelected {
+  resource tickets;
+  dataflow closeTicket;
+  placement list;
+  batch true;
+}

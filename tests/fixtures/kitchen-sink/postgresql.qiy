@@ -1,0 +1,21 @@
+qiy v0;
+
+# Kitchen-sink fixture: every construct the grammar accepts, in parser order.
+# mysql.qiy and sqlite.qiy share the same modules; only this entry adds the
+# PostgreSQL + pgvector module. tests/kitchen-sink.test.ts fails when a new
+# QiyProject/entity/field property is not exercised here.
+application kitchen-sink @comment(t("kitchen.application")) {
+  database postgresql @comment(t("kitchen.database")) {
+    extension pgvector;
+  }
+  mode standalone;
+  include "modules/config.qiy";
+  include "modules/messages.qiy";
+  include "modules/permissions.qiy";
+  include "modules/entities.qiy";
+  include "modules/vector.qiy";
+  include "modules/relations.qiy";
+  include "modules/policy.qiy";
+  include "modules/ui.qiy";
+  include "modules/commands.qiy";
+}

@@ -1,0 +1,14 @@
+qiy v0;
+
+application kitchen-sink @comment(t("kitchen.application")) {
+  database sqlite @comment(t("kitchen.database")) {}
+  mode standalone;
+  include "modules/config.qiy";
+  include "modules/messages.qiy";
+  include "modules/permissions.qiy";
+  include "modules/entities.qiy";
+  include "modules/relations.qiy";
+  include "modules/policy.qiy";
+  include "modules/ui.qiy";
+  include "modules/commands.qiy";
+}

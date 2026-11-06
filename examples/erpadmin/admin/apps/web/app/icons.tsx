@@ -1,2 +1,2 @@
-import { AppstoreOutlined, CheckOutlined, CloseOutlined, DatabaseOutlined, EditOutlined, EyeOutlined, SafetyOutlined, SendOutlined, ShoppingOutlined, TableOutlined, TagsOutlined, UserOutlined } from "@ant-design/icons";
-export const qiyIcons = { AppstoreOutlined, CheckOutlined, CloseOutlined, DatabaseOutlined, EditOutlined, EyeOutlined, SafetyOutlined, SendOutlined, ShoppingOutlined, TableOutlined, TagsOutlined, UserOutlined };
+import { AppstoreOutlined, CheckOutlined, CloseOutlined, DashboardOutlined, DatabaseOutlined, EditOutlined, EyeOutlined, FileTextOutlined, KeyOutlined, SafetyOutlined, SendOutlined, ShoppingOutlined, TableOutlined, TagsOutlined, UserOutlined } from "@ant-design/icons";
+export const qiyIcons = { AppstoreOutlined, CheckOutlined, CloseOutlined, DashboardOutlined, DatabaseOutlined, EditOutlined, EyeOutlined, FileTextOutlined, KeyOutlined, SafetyOutlined, SendOutlined, ShoppingOutlined, TableOutlined, TagsOutlined, UserOutlined };

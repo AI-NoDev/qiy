@@ -9,7 +9,21 @@ const repository: WarehousesRepository = {
   async list(page, pageSize, options = {}) {
     const data = [...records.values()];
     const filtered = options.search ? data.filter((record) => Object.values(record).some((value) => String(value ?? "").toLowerCase().includes(options.search!.toLowerCase()))) : data;
-    const filteredByFields = Object.entries(options.filters ?? {}).reduce((rows, [field, value]) => rows.filter((record) => String(record[field] ?? "") === value), filtered);
+    const filterClauses = (expressions: Array<{ field: string; operator: string; value: string } | { operator: "and" | "or"; filters: unknown[] }>): Array<{ field: string; operator: string; value: string }> => expressions.flatMap((filter) => "field" in filter ? [filter] : filterClauses(filter.filters as Array<{ field: string; operator: string; value: string } | { operator: "and" | "or"; filters: unknown[] }>));
+    const clauses = Array.isArray(options.filters) ? filterClauses(options.filters) : Object.entries(options.filters ?? {}).map(([field, value]) => ({ field, operator: "eq" as const, value }));
+    const filteredByFields = clauses.reduce((rows, { field, operator, value }) => rows.filter((record) => {
+      const actual = record[field]; const text = String(actual ?? "");
+      if (operator === "contains") return text.toLowerCase().includes(value.toLowerCase());
+      if (operator === "startsWith") return text.toLowerCase().startsWith(value.toLowerCase());
+      if (operator === "endsWith") return text.toLowerCase().endsWith(value.toLowerCase());
+      if (operator === "in") return value.split(",").map((item) => item.trim()).includes(text);
+      if (operator === "between") { const [lower, upper] = value.split(",").map(Number); return Number(actual) >= lower! && Number(actual) <= upper!; }
+      if (operator === "gt") return Number(actual) > Number(value);
+      if (operator === "gte") return Number(actual) >= Number(value);
+      if (operator === "lt") return Number(actual) < Number(value);
+      if (operator === "lte") return Number(actual) <= Number(value);
+      return text === value;
+    }), filtered);
     const sorted = options.sort ? [...filteredByFields].sort((left, right) => String(left[options.sort!] ?? "").localeCompare(String(right[options.sort!] ?? ""))) : filteredByFields;
     if (options.order === "desc") sorted.reverse();
     return { data: sorted.slice((page - 1) * pageSize, page * pageSize), total: sorted.length };

@@ -7,7 +7,7 @@ test("SQLite enforces tenant scope on reads and writes", async () => {
   client.exec("DROP TABLE IF EXISTS \"records\"; DROP TABLE IF EXISTS \"audit_events\"; CREATE TABLE \"records\" (\"id\" text primary key, \"tenantId\" text not null, \"title\" text not null, \"createdAt\" integer); CREATE TABLE \"audit_events\" (\"id\" text primary key, \"actorId\" text, \"action\" text not null, \"resource\" text not null, \"resourceId\" text, \"metadata\" text, \"createdAt\" integer not null);");
   const first = { field: "tenantId", value: "tenant-a" };
   const second = { field: "tenantId", value: "tenant-b" };
-  const values = {"tenantId":"Example","title":"Example"};
+  const values = { "tenantId": "Example", "title": "Example" };
   const owned = await repository.create({ ...values, "tenantId": second.value }, "actor", first);
   const foreign = await repository.create(values, "actor", second);
   expect(owned["tenantId"]).toBe(first.value);

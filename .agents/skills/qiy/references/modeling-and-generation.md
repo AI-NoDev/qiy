@@ -87,7 +87,7 @@ Fragment rules:
 
 - A fragment contains application children only. It must not repeat `qiy v0;` and must not wrap content in `application`.
 - Nested includes resolve relative to the including fragment; expansion is recursive.
-- All files share one namespace: entity, table, enum, relation name, index name (global), menu group, metric, dataflow and action names are checked after expansion.
+- All files share one namespace: entity, table, enum, relation name, index name (global), menu group, chart, dataflow and action names are checked after expansion.
 - Including the same file twice is not deduplicated; it produces duplicate declarations.
 - Cycles are detected by realpath; symlinks escaping the project root and `..` are rejected.
 - Recommended layout: `app.qiy` holds header + `database` + config + includes + `scope`/`restrict`; `modules/messages.qiy`, `modules/permissions.qiy`, `modules/platform.qiy` (shared enums + users), domain `entities.qiy`, `relations.qiy`, `pages.qiy`, `menu.qiy`, `charts.qiy`, `dataflows.qiy`, `actions.qiy`.
@@ -118,7 +118,7 @@ Entity annotations (order does not matter): `@label`, `@icon` (must match `^[A-Z
 
 ## Field types
 
-The type set is closed. Unknown names (including `String`, `Boolean`, `Email`, `Json`) fail with `Unsupported field type X`.
+The type set is closed. Unknown names (including `String`, `Json` — write `JSON` — and `Date[]`) fail with `Unsupported field type X`.
 
 | Syntax | PostgreSQL column | Notes |
 | --- | --- | --- |
@@ -393,7 +393,7 @@ Steps after editing: run `qiy generate <model> <dir> --sync` (or `qiy init --syn
 
 | Error | Cause | Fix |
 | --- | --- | --- |
-| `Unsupported field type String` | Type is a closed set | Use `Text`, `Integer`, an enum, or `Text` + `@mime` |
+| `Unsupported field type String` | Type is a closed set | Use `Text`, `JSON`, `Boolean`, `Text[]`/`Integer[]` or an enum |
 | `Field type Text has no parameters` | Parentheses on a non-parameterized type | Remove them; enforce length in migrations/business code |
 | `Unsupported field attribute @required` | Fields have no `@required` | Required is the default; use `@nullable` |
 | `... V0 CRUD requires exactly one UUID primary key named id` | Missing/renamed/retyped PK | Keep `field id UUID @id` |

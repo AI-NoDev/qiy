@@ -1,0 +1,72 @@
+# Every application configuration block, in parser order (after `database`).
+
+workspace { name admin; }
+ui {
+  library antd;
+  theme purple;
+  themes purple, blue, green;
+  colorMode system;
+  allowThemeSwitch true;
+  allowColorModeSwitch true;
+}
+api {
+  client graphql;
+  cors {
+    origin "https://admin.example.com";
+    origin "http://localhost:5173";
+  }
+}
+features {
+  overview true;
+  apiDocs true;
+  apiKeys true;
+}
+realtime {
+  mode auto;
+  resource announcements {
+    events created, updated, deleted;
+    roles admin, operator;
+    when queue claim queue.code;
+  }
+}
+elysia {
+  bearer;
+  serverTiming;
+  html;
+  drizzle;
+  jwt { name accessToken; secretEnv QIY_ACCESS_SECRET; }
+  static { assets "public"; prefix "/public-assets"; }
+  graphqlAdapter adapter yoga;
+  cron { job attachmentCleanup pattern "0 3 * * *" task cleanupMissingAttachments; }
+}
+storage { provider s3; }
+auth {
+  providers local, okta, corp;
+  user users;
+  subjectField subject;
+  roleField role;
+  usernameField email;
+  passwordField passwordHash;
+  profileField oauthProfiles;
+  claim tenant.id tenantId;
+  claim queue.code queueCode;
+  provider okta { subjectField oktaSubject; }
+  provider corp { preset keycloak; label "Corp SSO"; subjectField corpSubject; claim sub; }
+}
+env {
+  variable PAYMENT_API_URL {
+    development "http://localhost:8080";
+    production required;
+    example "https://api.example.com";
+  }
+  variable PAYMENT_API_TOKEN {
+    secret;
+    development generate;
+    production required;
+    example required;
+  }
+  variable VITE_SUPPORT_URL {
+    development "http://localhost:5173/help";
+    production required;
+  }
+}

@@ -1,4 +1,4 @@
-apiVersion: apps/v1
+﻿apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: qiy-catalog-admin
@@ -18,6 +18,8 @@ spec:
           ports:
             - containerPort: 3000
           env:
+            - name: HOST
+              value: "0.0.0.0"
             - name: PORT
               value: "3000"
             - name: DATABASE_URL
@@ -36,6 +38,11 @@ spec:
               value: "/var/lib/qiy/storage"
             - name: QIY_DEV_MODE
               value: "0"
+            - name: QIY_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: qiy-catalog-admin
+                  key: QIY_AUTH_SECRET
             - name: QIY_OIDC_ISSUER
               valueFrom:
                 secretKeyRef:
@@ -51,6 +58,10 @@ spec:
                 secretKeyRef:
                   name: qiy-catalog-admin
                   key: QIY_OIDC_JWKS_URL
+            - name: QIY_CORS_ORIGINS
+              value: ""
+            - name: QIY_CRON_ENABLED
+              value: "0"
           volumeMounts:
             - name: qiy-storage
               mountPath: /var/lib/qiy/storage

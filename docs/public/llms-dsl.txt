@@ -81,7 +81,7 @@ theme blue
 
 | 位置 | 分号 | 说明 |
 | --- | --- | --- |
-| `field` / `index` / `relation` / `scope` / `metric` / `permission field` / `permission from` / `workflow` / `variable` 声明 | 必须 | 缺少时报 `Expected ; near token N` |
+| `field` / `index` / `relation` / `scope` / `permission field` / `permission from` / `workflow` / `variable` 声明 | 必须 | 缺少时报 `Expected ; near token N` |
 | 块（`database`、`ui`、`entity`、`enum`、`menu`、`chart` …）的 `}` | **不加** `;` | 多写一个 `;` 会报 `Expected … near token N` |
 | `permission group … { … }` | 可选 | 列表形式后面可以跟 `;` |
 | `permission verification … { … }` | 可选 | 同上 |
@@ -91,7 +91,7 @@ theme blue
 
 ### 数字
 
-整数只用于数值参数与坐标：类型参数（`Decimal(12,2)`、`Vector(1536)`）、`@span`/`@days`/`@maxBytes`/`@maxFiles`/`@order`/`@dimension` 等注解、`chart panels` 的 `grid` 与坐标、dataflow 的整数比较。浮点数没有语法；需要小数时用 `Decimal`/`Money` 类型。
+整数只用于数值参数与坐标：类型参数（`Decimal(12,2)`、`Vector(1536)`）、`@maxBytes`/`@maxFiles`/`@order`/`@dimension` 等注解、chart `data` 的 `days`、`chart panels` 的 `grid` 与坐标、dataflow 的整数比较。浮点数没有语法；需要小数时用 `Decimal`/`Money` 类型。
 
 ## 顶层构造地图
 
@@ -284,7 +284,7 @@ application reviews-admin @comment(t("application.reviews")) {
 | `Expected <end> near token N`（语法） | `}` 之后还有内容，或漏了 `application` 的 `}` | 检查括号 |
 | `Expected value near token N`（语法） | 该位置需要字符串/标识符，却给了数字或符号 | 加引号或改成标识符 |
 | `Expected ; near token N`（语法） | 漏了分号，或在块 `}` 后多写分号 | 补/删分号 |
-| `Unsupported field type X`（语法） | 类型不在闭集（`String`、`Boolean`、`Json`…） | 用 `Text`/`Integer`/枚举等受支持类型 |
+| `Unsupported field type X`（语法） | 类型不在闭集（`String`、`Json`、`Date[]`…） | 用 `Text`/`JSON`/`Boolean`/枚举等受支持类型 |
 | `Unsupported field attribute @X` / `Unsupported entity attribute @X`（语法） | 注解用错位置或拼错 | 对照 [注解总览](/dsl/annotations) |
 | `duplicate … annotation`（语法） | 同一注解写了两遍 | 只保留一处 |
 | `Missing default locale message for comment: key`（语法） | `messages` 在引用它的声明之后 | 把 `messages`（或它的 include）提前 |
@@ -304,11 +304,11 @@ application reviews-admin @comment(t("application.reviews")) {
 | 文件/版本/注释/标识符/字符串/数字/分号 | 本页 §词法规则 |
 | include / 模块化 | [模块化模型](/dsl/modules) |
 | `application` 全部块与设置 | [application](/dsl/application)（含设置总表、块顺序表） |
-| 全部注解 | [注解总览](/dsl/annotations)（42 个注解 + `t()` 参考） |
+| 全部注解 | [注解总览](/dsl/annotations)（36 个注解 + `t()` 参考） |
 | entity / field / 类型 / 属性 / 显示模板 / 筛选 | [entity 与 field](/dsl/entity) |
 | relation / index | [relation 与 index](/dsl/relation-index) |
 | `@code` / `@generated` / 模板 / 序号 / 并发 | [自动生成值与业务编码](/dsl/generated-values) |
-| enum / menu / dashboard | [enum / menu / dashboard](/dsl/enum-menu-dashboard) |
+| enum / menu | [enum / menu](/dsl/enum-menu-dashboard) |
 | chart / chart panels | [chart](/dsl/charts) |
 | messages / i18n 键 | 本页 §i18n 键 + [多语言](/dsl/i18n) |
 | permission | [权限（permission）](/dsl/permissions) |
@@ -613,13 +613,14 @@ application qiy-erp-admin @comment("Operations administration") {
 | 16 | `enum …` | 0..N | 枚举（见 [enum/menu/dashboard](/dsl/enum-menu-dashboard)） |
 | 17 | `entity …` | 0..N | 实体（见 [entity 与 field](/dsl/entity)） |
 | 18 | `relation …;` | 0..N | 关系（见 [relation 与 index](/dsl/relation-index)） |
-| 19 | `scope …;` | 0..N | 数据范围 |
-| 20 | `restrict … { }` | 0..N | 行级/字段级策略 |
-| 21 | `pages … { }` | 0..N | 页面级角色规则 |
-| 22 | `menu { … }` | 0..1 | 侧边栏分组 |
-| 23 | `chart …` / `chart panels …` | 0..N | 概览页图表与面板 |
-| 24 | `dataflow … { }` | 0..N | 事务型命令（见 [dataflow](/dsl/dataflow)） |
-| 25 | `action … { }` | 0..N | 命令按钮/手写页（见 [action](/dsl/actions)） |
+| 19 | `view … { }` | 0..N | 只读数据库视图（见 [views](/dsl/views)） |
+| 20 | `scope …;` | 0..N | 数据范围 |
+| 21 | `restrict … { }` | 0..N | 行级/字段级策略 |
+| 22 | `pages … { }` | 0..N | 页面级角色规则 |
+| 23 | `menu { … }` | 0..1 | 侧边栏分组 |
+| 24 | `chart …` / `chart panels …` | 0..N | 概览页图表与面板 |
+| 25 | `dataflow … { }` | 0..N | 事务型命令（见 [dataflow](/dsl/dataflow)） |
+| 26 | `action … { }` | 0..N | 命令按钮/手写页（见 [action](/dsl/actions)） |
 
 ## application 设置总表
 
@@ -1267,7 +1268,7 @@ auth {
 
 | 规则 | 错误信息 |
 | --- | --- |
-| `usernameField`：非空、唯一、`Text` | `Auth: usernameField must be a required unique Text field` |
+| `usernameField`：非空、唯一、`Text` 或 `Email` | `Auth: usernameField must be a required unique Text or Email field` |
 | `passwordField`：可空 `Text`（存 hash） | `Auth: passwordField must be a nullable Text field storing the password hash` |
 | `subjectField`：非空、唯一、`Text` | `Auth: subjectField must be a required unique Text field` |
 | `roleField`：必须是枚举，且值恰好是 `admin`/`operator`/`viewer` | `Auth: roleField must be an enum with admin, operator and viewer values` |
@@ -1753,7 +1754,7 @@ entity <Name> [table <tableName>] [@annotation(...)]... {
 
 ## 字段类型
 
-字段类型是**闭集**，只支持下表 11 种类型与已声明的 `enum` 名称：
+字段类型是**闭集**，只支持下表的类型与已声明的 `enum` 名称：
 
 | 写法 | IR 类型 | 数据库列（PostgreSQL 示例） | 说明 |
 | --- | --- | --- | --- |
@@ -2007,7 +2008,7 @@ entity orders @label("订单") @singular("订单") @plural("订单")
 
 | 错误 | 原因 | 修复 |
 | --- | --- | --- |
-| `Unsupported field type String` | 类型是闭集，没有 `String`/`Boolean`/`Email`/`URL`/`Json`/`Date[]` | 用 `Text`、`Integer`、`Text` + `@mime` 等受支持组合表达；布尔用 `Integer` 或枚举 |
+| `Unsupported field type String` | 类型是闭集，没有 `String`/`Json`（应写 `JSON`）/`Date[]` 这类写法 | 用上表的写法：字符串 `Text`、JSON `JSON`、数组只有 `Text[]`/`Integer[]` |
 | `Field type Text has no parameters` | 给非 `Vector`/`Decimal`/`Money` 类型加了括号 | 去掉括号；Text 没有长度参数，需要长度限制时写在业务校验或数据库迁移里 |
 | `Unsupported field attribute @required` | 字段没有 `@required` 属性 | 非空由 `@nullable` 的反面表达，默认就是必填 |
 | `Field id: @code requires a Text field without an enum` | 把 `@code` 用在 UUID/枚举字段 | 换成 `Text` 字段 |
@@ -3693,7 +3694,7 @@ auth {
 | `user` | 是 | — | 用户实体名；必须是已声明实体，否则 `Auth: unknown user entity` |
 | `subjectField` | OAuth 家族必填 | `""` | 外部身份列：必须是**非空 + 唯一 + Text**；单 Provider 模式写入 `<iss>`\|`<sub>`，映射模式写入该 Provider 的映射列（见下） |
 | `roleField` | 是 | — | 必须是枚举，且枚举值集合**恰好**是 `admin`/`operator`/`viewer`（多一个少一个都报错） |
-| `usernameField` | `local` 必填；`otp` 必填 | `""` | 登录标识列：必须非空 + 唯一 + Text；不能与 `passwordField` 同名列 |
+| `usernameField` | `local` 必填；`otp` 必填 | `""` | 登录标识列：必须非空 + 唯一 + `Text` 或 `Email`；不能与 `passwordField` 同名列 |
 | `passwordField` | `local` 必填 | `""` | 密码哈希列：必须 `@nullable` + Text，且不会出现在 API schema（`@listVisible(false)` 之类由生成器隐式隐藏） |
 | `profileField` | 否 | `""` | `@nullable` Text，存 `{ "<provider>": { email, name, sub } }` JSON；只有声明了 OAuth Provider 才允许 |
 | `provider <id> { subjectField ... }` | 混合模式必需 | — | 该 Provider 的身份列：必须存在、Text、`@nullable`、`@unique` |
@@ -3738,7 +3739,7 @@ entity users table users @label("用户") {
 
 | 字段角色 | 要求 | 校验错误（节选） |
 | --- | --- | --- |
-| `usernameField` | 非空、唯一、Text | `Auth: usernameField must be a required unique Text field` |
+| `usernameField` | 非空、唯一、`Text` 或 `Email` | `Auth: usernameField must be a required unique Text or Email field` |
 | `passwordField` | `@nullable` Text | `Auth: passwordField must be a nullable Text field storing the password hash` |
 | 两者不同列 | — | `Auth: usernameField and passwordField must be different fields` |
 | `subjectField` | 非空、唯一、Text（有 OAuth 时） | `Auth: subjectField must be a required unique Text field` |
@@ -4053,7 +4054,7 @@ QIY_OIDC_JWKS_CACHE_MAX_AGE_MS=600000
 | `Auth provider <p> does not accept usernameField or passwordField` | 纯 OAuth 模式多写了本地列 |
 | `Auth profileField requires at least one OAuth/OIDC provider` | 无 OAuth 却声明 `profileField` |
 | `Auth: unknown user entity` | `user` 不存在 |
-| `Auth: usernameField must be a required unique Text field` | 列契约 |
+| `Auth: usernameField must be a required unique Text or Email field` | 列契约 |
 | `Auth: passwordField must be a nullable Text field storing the password hash` | 列契约 |
 | `Auth: usernameField and passwordField must be different fields` | 同列 |
 | `Auth: subjectField must be a required unique Text field` | 列契约 |
@@ -6464,21 +6465,21 @@ Source: https://ai-nodev.github.io/qiy/dsl/annotations
 - **参数形态**：
   - `documentation`：`("字面量")` 或 `(t("message.key"))`。
   - `string`：`("…")` 或裸标识符（`@icon(UserOutlined)`、`@label(Products)`）；裸值不能含空格或非 ASCII 字符。
-  - `integer`：十进制非负整数（`@span(12)`、`@maxBytes(10485760)`）。
+  - `integer`：十进制非负整数（`@maxFiles(3)`、`@maxBytes(10485760)`）。
   - `boolean`：`@x`（等价 `true`）或 `@x(true)` / `@x(false)`；不是所有布尔注解都允许省略括号（见各表）。
   - `identifier`：枚举式取值（`@upload(binary)`、`@type(trend)`）。
 - **`t("key")` 参考**：只有 `documentation` 位置支持。解析时立即到 `messages` 的默认语言里查 key，缺失报 `Missing default locale message for <purpose>: <key>`；因此 `messages` 必须写在实体/枚举之前（`application`/`database` 的注释延后解析）。
 - **i18n**：`@label` 会派生稳定翻译键（见各表）；`@comment` 不派生键，但会把 `i18n: key` 写进生成的 JSDoc，并在元数据里保留 `commentKey`。
-- **重复声明**：多数注解后者覆盖、不报错；显式报重复的是 `@singular`/`@plural`/`@display`/`@tableDisplay`/`@relationDetail`、`@code`、`@generated`、`@filter`（同一 operator）、`@mime`（同一类型），以及 `@comment`（在 enum / menu group / dashboard metric / dataflow 等定义处）；`@order` 由步骤顺序唯一性检查兜底（`step order must be a unique positive integer`）。
+- **重复声明**：多数注解后者覆盖、不报错；显式报重复的是 `@singular`/`@plural`/`@display`/`@tableDisplay`/`@relationDetail`、`@code`、`@generated`、`@filter`（同一 operator）、`@mime`（同一类型），以及 `@comment`（在 enum / menu group / dataflow 等定义处）；`@order` 由步骤顺序唯一性检查兜底（`step order must be a unique positive integer`）。
 - **未实现的注解一律报错**，不会静默忽略。
 
 ## 文档类注解
 
 | 注解 | 可用位置 | 参数 | 默认 | i18n | 生成效果 | 校验错误 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `@comment(…)` | `application`、`database`、`enum`、枚举值、`entity`、`field`、`index`、`relation`、`menu group`、`dashboard metric`、`permission field/group/verification`、`dataflow`、dataflow `input`/`context`/`step`、`action … page manual` | `documentation` | 无 | 保留 `commentKey`；schema JSDoc 写 `i18n: key`；枚举值/指标说明按当前语言渲染 | 见各构造 | `Missing default locale message for <purpose>: <key>`；`duplicate @comment annotation`（enum/menu/metric/dataflow 等定义处） |
+| `@comment(…)` | `application`、`database`、`enum`、枚举值、`entity`、`field`、`index`、`relation`、`menu group`、`permission field/group/verification`、`dataflow`、dataflow `input`/`context`/`step`、`action … page manual` | `documentation` | 无 | 保留 `commentKey`；schema JSDoc 写 `i18n: key`；枚举值说明按当前语言渲染 | 见各构造 | `Missing default locale message for <purpose>: <key>`；`duplicate @comment annotation`（enum/menu/dataflow 等定义处） |
 | `@label(…)` | `entity`、`field`、`menu group`、`permission field/group/verification`、`dataflow` | `documentation`（支持 `t("key")`） | 实体名 / 字段名 / 分组名 | `qiy.resources.<table>.label`、`qiy.resources.<table>.fields.<field>.label`、`qiy.menu.<group>.label`；dataflow 的 `t()` 键被 action 继承 | 显示文本 | 位置错误：`Unsupported <construct> attribute @label` |
-| `@icon(…)` | `entity`、`field`、`menu group`、`dashboard metric` | `string` | 实体按名字启发（`user`/`order`/`warehouse`/其他）；菜单 `AppstoreOutlined`；其他无 | 无 | 图标渲染/元数据 | 必须匹配 `^[A-Z][a-zA-Z0-9]*Outlined$`，否则 `Invalid Ant Design icon X` |
+| `@icon(…)` | `entity`、`field`、`menu group` | `string` | 实体按名字启发（`user`/`order`/`warehouse`/其他）；菜单 `AppstoreOutlined`；其他无 | 无 | 图标渲染/元数据 | 必须匹配 `^[A-Z][a-zA-Z0-9]*Outlined$`，否则 `Invalid Ant Design icon X` |
 | `@confirm(…)` | `dataflow` | `documentation` | 无 | `t()` 键会被 action 继承为 `confirmKey` | 生成命令按钮的二次确认文案 | `duplicate @confirm annotation`；action 上的 `confirm` 只对 dataflow 目标有效 |
 | `@error(…)` | dataflow `step` 内的 `require … @error(…)` | `documentation` | 必填 | `t()` 键用于业务错误翻译 | 校验失败时返回的错误文案 | 缺失或写错位置都会在语法阶段失败（`Expected @ near token N`） |
 
@@ -6591,14 +6592,14 @@ Source: https://ai-nodev.github.io/qiy/dsl/annotations
 | entity | `@singular`、`@plural`、`@display`、`@tableDisplay`、`@relationDetail` |
 | field | `@id`、`@nullable`、`@unique`、`@visible`、`@listVisible`、`@formVisible`、`@showVisible`、`@sortable`、`@filterable`、`@filter`、`@upload`、`@maxBytes`、`@maxFiles`、`@mime`、`@extension`、`@code`、`@generated`、`@column`、`@dimension`、`@precision`、`@scale` |
 | index / relation | `@unique`、`@concurrently`、`@onDelete` |
-| menu / metric | `@label`、`@icon`、`@parent`、`@span`、`@type`、`@groupBy`、`@field`、`@agg`、`@days` |
+| menu | `@label`、`@icon`、`@parent` |
 | permission / dataflow / action | `@label`、`@comment`、`@confirm`、`@required`、`@order`、`@error` |
 
 ## 相关
 
 - [entity 与 field](/dsl/entity)：字段属性矩阵与显示模板
 - [relation 与 index](/dsl/relation-index)：`@onDelete` / 索引属性
-- [enum / menu / dashboard](/dsl/enum-menu-dashboard)：枚举值属性、菜单与指标注解
+- [enum / menu](/dsl/enum-menu-dashboard)：枚举值属性与菜单注解
 - [自动生成值与业务编码](/dsl/generated-values)：`@code` / `@generated`
 - [多语言（messages / i18n）](/dsl/i18n)：`t("key")` 与模型 label 键
 - [dataflow](/dsl/dataflow) / [action](/dsl/actions)：`@label`/`@confirm`/`@required`/`@order`/`@error`

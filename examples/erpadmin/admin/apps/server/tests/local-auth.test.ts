@@ -16,10 +16,24 @@ test("hashes and verifies local passwords without storing plaintext", async () =
 
 test("round-trips a signed local access token and rejects tampering", async () => {
   const token = await signAccessToken({ id: "user-1", role: "admin" }, secret, "qiy-admin");
-  expect(await verifyAccessToken(token, secret, "qiy-admin")).toEqual({ id: "user-1", role: "admin" });
+  expect(await verifyAccessToken(token, secret, "qiy-admin")).toMatchObject({ id: "user-1", role: "admin" });
+  expect((await verifyAccessToken(token, secret, "qiy-admin"))!.issuedAt).toBeNumber();
   expect(await verifyAccessToken(token, secret + "x", "qiy-admin")).toBeNull();
   expect(await verifyAccessToken(token + "x", secret, "qiy-admin")).toBeNull();
   expect(await verifyAccessToken(token, secret, "other-app")).toBeNull();
+});
+
+test("locks a username after repeated failed logins", async () => {
+  Bun.env.QIY_AUTH_SECRET = secret;
+  const passwordHash = await hashPassword("correct-password");
+  const user = { id: "user-lock", "email": "lock-user", "passwordHash": passwordHash, "role": "admin" } as unknown as import("../src/auth/local").LocalUser;
+  const app = new Elysia().use(createLocalAuthRoutes(async (username) => username === "lock-user" ? user : null));
+  const login = (password: string) => app.handle(new Request("http://localhost/api/v1/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: "lock-user", password }) }));
+  for (let attempt = 0; attempt < 4; attempt += 1) expect((await login("wrong-password")).status).toBe(401);
+  const locked = await login("wrong-password");
+  expect(locked.status).toBe(429);
+  expect(locked.headers.get("retry-after")).toBeTruthy();
+  expect((await login("correct-password")).status).toBe(429);
 });
 
 test("local login route issues a bearer token and rejects invalid credentials", async () => {
@@ -32,7 +46,7 @@ test("local login route issues a bearer token and rejects invalid credentials", 
   expect(success.status).toBe(200);
   const payload = await success.json() as { accessToken: string; role: string };
   expect(payload.role).toBe("admin");
-  expect(await verifyAccessToken(payload.accessToken, secret, "qiy-admin")).toEqual({ id: "user-1", role: "admin" });
+  expect(await verifyAccessToken(payload.accessToken, secret, "qiy-admin")).toMatchObject({ id: "user-1", role: "admin" });
   expect((await login("admin", "wrong-password")).status).toBe(401);
   expect((await login("missing", "wrong-password")).status).toBe(401);
   expect((await app.handle(new Request("http://localhost/api/v1/auth/password", { method: "POST" }))).status).toBe(404);

@@ -27,7 +27,7 @@ Canonical reference: https://ai-nodev.github.io/qiy/dsl/overview
 | `Expected <end> near token N` | Parser | Extra content after the application `}` or a missing brace | Check braces |
 | `Expected ; near token N` | Parser | Missing `;` on a declaration, or a `;` after a block `}` | Add/remove it |
 | `Expected value near token N` | Parser | Number/symbol where a string or identifier is required | Quote it or use an identifier |
-| `Unsupported field type X` | Parser | Not one of the 11 types + declared enums | Use `Text`/`Integer`/`Decimal`/... ([modeling-and-generation.md](modeling-and-generation.md)) |
+| `Unsupported field type X` | Parser | Not a supported type or declared enum | Use `Text`/`Integer`/`Decimal`/... ([modeling-and-generation.md](modeling-and-generation.md)) |
 | `Unsupported field attribute @X` | Parser | Annotation not allowed on fields, or typo | Check the annotation inventory |
 | `duplicate ... annotation` | Parser | Same annotation twice where duplicates are rejected | Keep one |
 | `Missing default locale message for <purpose>: <key>` | Parser | `t("key")` missing from the default locale, or `messages` declared too late | Add the key; move `messages` before enums/entities |
@@ -77,7 +77,7 @@ Canonical reference: https://ai-nodev.github.io/qiy/dsl/overview
 | Error / symptom | Cause | Fix |
 | --- | --- | --- |
 | `Auth: roleField must be an enum with admin, operator and viewer values` | Role enum has extra/missing values | Declare exactly those three |
-| `Auth: usernameField must be a required unique Text field` | Column contract violated | Make it non-null, unique, Text |
+| `Auth: usernameField must be a required unique Text or Email field` | Column contract violated | Make it non-null, unique, Text or Email |
 | `Auth: passwordField must be a nullable Text field ...` | Hash column not nullable | Make it `@nullable` Text |
 | `Auth: subjectField must be a required unique Text field` | Missing/duplicate subject | Non-null unique Text |
 | `Auth: provider X subjectField Y must be nullable` | Per-provider identity column not nullable | `@nullable` + `@unique` |

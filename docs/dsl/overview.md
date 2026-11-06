@@ -73,7 +73,7 @@ theme blue
 
 | 位置 | 分号 | 说明 |
 | --- | --- | --- |
-| `field` / `index` / `relation` / `scope` / `metric` / `permission field` / `permission from` / `workflow` / `variable` 声明 | 必须 | 缺少时报 `Expected ; near token N` |
+| `field` / `index` / `relation` / `scope` / `permission field` / `permission from` / `workflow` / `variable` 声明 | 必须 | 缺少时报 `Expected ; near token N` |
 | 块（`database`、`ui`、`entity`、`enum`、`menu`、`chart` …）的 `}` | **不加** `;` | 多写一个 `;` 会报 `Expected … near token N` |
 | `permission group … { … }` | 可选 | 列表形式后面可以跟 `;` |
 | `permission verification … { … }` | 可选 | 同上 |
@@ -83,7 +83,7 @@ theme blue
 
 ### 数字
 
-整数只用于数值参数与坐标：类型参数（`Decimal(12,2)`、`Vector(1536)`）、`@span`/`@days`/`@maxBytes`/`@maxFiles`/`@order`/`@dimension` 等注解、`chart panels` 的 `grid` 与坐标、dataflow 的整数比较。浮点数没有语法；需要小数时用 `Decimal`/`Money` 类型。
+整数只用于数值参数与坐标：类型参数（`Decimal(12,2)`、`Vector(1536)`）、`@maxBytes`/`@maxFiles`/`@order`/`@dimension` 等注解、chart `data` 的 `days`、`chart panels` 的 `grid` 与坐标、dataflow 的整数比较。浮点数没有语法；需要小数时用 `Decimal`/`Money` 类型。
 
 ## 顶层构造地图
 
@@ -276,7 +276,7 @@ application reviews-admin @comment(t("application.reviews")) {
 | `Expected <end> near token N`（语法） | `}` 之后还有内容，或漏了 `application` 的 `}` | 检查括号 |
 | `Expected value near token N`（语法） | 该位置需要字符串/标识符，却给了数字或符号 | 加引号或改成标识符 |
 | `Expected ; near token N`（语法） | 漏了分号，或在块 `}` 后多写分号 | 补/删分号 |
-| `Unsupported field type X`（语法） | 类型不在闭集（`String`、`Boolean`、`Json`…） | 用 `Text`/`Integer`/枚举等受支持类型 |
+| `Unsupported field type X`（语法） | 类型不在闭集（`String`、`Json`、`Date[]`…） | 用 `Text`/`JSON`/`Boolean`/枚举等受支持类型 |
 | `Unsupported field attribute @X` / `Unsupported entity attribute @X`（语法） | 注解用错位置或拼错 | 对照 [注解总览](/dsl/annotations) |
 | `duplicate … annotation`（语法） | 同一注解写了两遍 | 只保留一处 |
 | `Missing default locale message for comment: key`（语法） | `messages` 在引用它的声明之后 | 把 `messages`（或它的 include）提前 |
@@ -296,11 +296,11 @@ application reviews-admin @comment(t("application.reviews")) {
 | 文件/版本/注释/标识符/字符串/数字/分号 | 本页 §词法规则 |
 | include / 模块化 | [模块化模型](/dsl/modules) |
 | `application` 全部块与设置 | [application](/dsl/application)（含设置总表、块顺序表） |
-| 全部注解 | [注解总览](/dsl/annotations)（42 个注解 + `t()` 参考） |
+| 全部注解 | [注解总览](/dsl/annotations)（36 个注解 + `t()` 参考） |
 | entity / field / 类型 / 属性 / 显示模板 / 筛选 | [entity 与 field](/dsl/entity) |
 | relation / index | [relation 与 index](/dsl/relation-index) |
 | `@code` / `@generated` / 模板 / 序号 / 并发 | [自动生成值与业务编码](/dsl/generated-values) |
-| enum / menu / dashboard | [enum / menu / dashboard](/dsl/enum-menu-dashboard) |
+| enum / menu | [enum / menu](/dsl/enum-menu-dashboard) |
 | chart / chart panels | [chart](/dsl/charts) |
 | messages / i18n 键 | 本页 §i18n 键 + [多语言](/dsl/i18n) |
 | permission | [权限（permission）](/dsl/permissions) |

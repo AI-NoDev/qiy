@@ -9,7 +9,7 @@ Canonical reference: https://ai-nodev.github.io/qiy/dsl/charts (`/guide/ui-themi
 - [ui block](#ui-block)
 - [Themes, color mode and persistence](#themes-color-mode-and-persistence)
 - [Menu](#menu)
-- [Legacy dashboard metrics](#legacy-dashboard-metrics)
+- [Overview page and migrating from dashboard metrics](#overview-page-and-migrating-from-dashboard-metrics)
 - [chart grammar](#chart-grammar)
 - [chart data mini-language](#chart-data-mini-language)
 - [labels](#labels)
@@ -361,8 +361,8 @@ When `features` enables them, three authenticated pages appear under a `System` 
 | Theme resets after changing defaults | localStorage holds the old choice | Clear `qiy.ui.theme` / `qiy.ui.color-mode` |
 | `Menu group X: unknown resource Y` | Entity not declared, or entity name used instead of table name | Use the `table` name |
 | Menu group missing | All its resources are permission-filtered | Check `restrict`/`pages` |
-| `distribution requires an enum groupBy field` | `@groupBy` not enum | Use an enum field |
-| `trend requires a DateTime groupBy field` | Used `Date` | Use `DateTime` |
+| `Chart X pie view: group by field F must be an enum field` | `group by` names a non-enum field | Group by an enum field |
+| `Chart X line view: trend field F must be a DateTime field` | Used `Date` | Use `DateTime` |
 | `Chart X pie view: pie/bar views require "count <entity> group by <enum field>" data` | Wrong data expression | Use `count ... group by` |
 | `Chart panel P: placement larger exceeds 24 grid columns` | `x + w > cols` | Shrink `x`/`w` or enlarge grid |
 | Chart cards overlap | No overlap detection | Make `x` ranges disjoint |

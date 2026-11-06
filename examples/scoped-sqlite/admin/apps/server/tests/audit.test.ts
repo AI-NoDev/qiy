@@ -4,9 +4,9 @@ test("SQLite CRUD audit rolls back the mutation when the audit insert fails", as
   Bun.env.DATABASE_URL = ":memory:";
   const { client } = await import("../src/db");
   const { RecordsRepository } = await import("../src/modules/records/records.repository");
-  client.exec("DROP TABLE IF EXISTS \"records\"; DROP TABLE IF EXISTS \"audit_events\"; CREATE TABLE \"records\" (\"id\" text primary key, \"tenantId\" text not null, \"title\" text not null, \"createdAt\" text); CREATE TABLE \"audit_events\" (\"id\" text primary key, \"actorId\" text, \"action\" text not null, \"resource\" text not null, \"resourceId\" text, \"metadata\" text, \"createdAt\" integer not null);");
+  client.exec("DROP TABLE IF EXISTS \"records\"; DROP TABLE IF EXISTS \"audit_events\"; DROP TABLE IF EXISTS \"qiy_code_sequences\"; CREATE TABLE \"records\" (\"id\" text primary key, \"tenantId\" text not null, \"title\" text not null, \"createdAt\" integer); CREATE TABLE \"audit_events\" (\"id\" text primary key, \"actorId\" text, \"action\" text not null, \"resource\" text not null, \"resourceId\" text, \"metadata\" text, \"createdAt\" integer not null);");
   const actorId = "00000000-0000-4000-8000-000000000001";
-  const values = {"tenantId":"Example","title":"Example"};
+  const values = { "tenantId": "Example", "title": "Example" };
   const created = await RecordsRepository.create(values, actorId);
   expect(created.id).toBeTruthy();
   expect(client.query<{ action: string; actorId: string }, []>("select action, actorId from audit_events").get()).toEqual({ action: "records.created", actorId });

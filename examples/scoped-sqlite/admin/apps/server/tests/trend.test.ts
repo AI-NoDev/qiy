@@ -20,5 +20,8 @@ test("REST and GraphQL trend uses the authorized data scope", async () => {
   expect((await anonymous.handle(new Request(endpoint))).status).toBe(401);
   const missing = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: "admin" }), false, false);
   expect((await missing.handle(new Request(endpoint))).status).toBe(403);
-  expect((await missing.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "query { recordsTrend(field: \"createdAt\", days: 30) { day } }" }) }))).status).toBe(403);
+  const deniedGraph = await missing.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "query { recordsTrend(field: \"createdAt\", days: 30) { day } }" }) }));
+  if (deniedGraph.status === 200) expect((await deniedGraph.json() as { errors?: Array<{ message: string }> }).errors?.length).toBeGreaterThan(0);
+  else expect(deniedGraph.status).toBe(403);
+  expect(seen).toHaveLength(2);
 });

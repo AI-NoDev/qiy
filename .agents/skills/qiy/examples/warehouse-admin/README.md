@@ -12,7 +12,7 @@ The model generates warehouses, products, and stock movements; explicit warehous
 | Shared enums with labels, colors and icons | `modules/shared/enums.qiy` |
 | Entities with `UUID @id`, unique `Text` codes, enum and `DateTime` fields | `modules/catalog.qiy`, `modules/inventory.qiy` |
 | Explicit foreign keys and `@onDelete` behavior | `modules/inventory.qiy` |
-| Grouped menu plus a legacy dashboard metric | `modules/navigation.qiy` |
+| Grouped menu plus a `chart const` overview card | `modules/navigation.qiy` |
 | `api`/`storage` config blocks and workspace aliases for `qiy init` | `modules/application-config.qiy`, `app.qiy` |
 
 It deliberately stays small: it does not demonstrate auth, permissions, `@code`, dataflows, actions, charts, realtime or `features`. For those, read the focused references below and the full-feature model in the Qiy repository (`examples/self`). Every `.qiy` snippet can be added to this example after regenerating.

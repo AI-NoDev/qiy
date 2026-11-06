@@ -36,7 +36,7 @@ auth {
 | `user` | 用户实体名，必须存在 |
 | `subjectField` | 外部身份 ID 映射列；有 OAuth 时必须是**非空 + 唯一 + Text** |
 | `roleField` | 角色列，必须是枚举且值恰好 `admin`/`operator`/`viewer` |
-| `usernameField` | 本地密码/OTP 登录标识列；必须**非空 + 唯一 + Text** |
+| `usernameField` | 本地密码/OTP 登录标识列；必须**非空 + 唯一**，类型为 `Text` 或 `Email` |
 | `passwordField` | 密码哈希列；必须 `@nullable` Text，不进 API schema |
 | `profileField` | 可选 `@nullable` Text：保存每个 Provider 的 email/name/sub（JSON），供个人中心展示 |
 | `provider <id> { subjectField …; claim …; }` | 每 Provider 身份列与身份 claim；混合模式下每个 Provider 必须有**自己的** `@nullable @unique` Text 列 |

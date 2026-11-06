@@ -87,13 +87,14 @@ application qiy-erp-admin @comment("Operations administration") {
 | 16 | `enum …` | 0..N | 枚举（见 [enum/menu/dashboard](/dsl/enum-menu-dashboard)） |
 | 17 | `entity …` | 0..N | 实体（见 [entity 与 field](/dsl/entity)） |
 | 18 | `relation …;` | 0..N | 关系（见 [relation 与 index](/dsl/relation-index)） |
-| 19 | `scope …;` | 0..N | 数据范围 |
-| 20 | `restrict … { }` | 0..N | 行级/字段级策略 |
-| 21 | `pages … { }` | 0..N | 页面级角色规则 |
-| 22 | `menu { … }` | 0..1 | 侧边栏分组 |
-| 23 | `chart …` / `chart panels …` | 0..N | 概览页图表与面板 |
-| 24 | `dataflow … { }` | 0..N | 事务型命令（见 [dataflow](/dsl/dataflow)） |
-| 25 | `action … { }` | 0..N | 命令按钮/手写页（见 [action](/dsl/actions)） |
+| 19 | `view … { }` | 0..N | 只读数据库视图（见 [views](/dsl/views)） |
+| 20 | `scope …;` | 0..N | 数据范围 |
+| 21 | `restrict … { }` | 0..N | 行级/字段级策略 |
+| 22 | `pages … { }` | 0..N | 页面级角色规则 |
+| 23 | `menu { … }` | 0..1 | 侧边栏分组 |
+| 24 | `chart …` / `chart panels …` | 0..N | 概览页图表与面板 |
+| 25 | `dataflow … { }` | 0..N | 事务型命令（见 [dataflow](/dsl/dataflow)） |
+| 26 | `action … { }` | 0..N | 命令按钮/手写页（见 [action](/dsl/actions)） |
 
 ## application 设置总表
 
@@ -741,7 +742,7 @@ auth {
 
 | 规则 | 错误信息 |
 | --- | --- |
-| `usernameField`：非空、唯一、`Text` | `Auth: usernameField must be a required unique Text field` |
+| `usernameField`：非空、唯一、`Text` 或 `Email` | `Auth: usernameField must be a required unique Text or Email field` |
 | `passwordField`：可空 `Text`（存 hash） | `Auth: passwordField must be a nullable Text field storing the password hash` |
 | `subjectField`：非空、唯一、`Text` | `Auth: subjectField must be a required unique Text field` |
 | `roleField`：必须是枚举，且值恰好是 `admin`/`operator`/`viewer` | `Auth: roleField must be an enum with admin, operator and viewer values` |

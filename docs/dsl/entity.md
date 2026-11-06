@@ -56,7 +56,7 @@ entity <Name> [table <tableName>] [@annotation(...)]... {
 
 ## 字段类型
 
-字段类型是**闭集**，只支持下表 11 种类型与已声明的 `enum` 名称：
+字段类型是**闭集**，只支持下表的类型与已声明的 `enum` 名称：
 
 | 写法 | IR 类型 | 数据库列（PostgreSQL 示例） | 说明 |
 | --- | --- | --- | --- |
@@ -310,7 +310,7 @@ entity orders @label("订单") @singular("订单") @plural("订单")
 
 | 错误 | 原因 | 修复 |
 | --- | --- | --- |
-| `Unsupported field type String` | 类型是闭集，没有 `String`/`Boolean`/`Email`/`URL`/`Json`/`Date[]` | 用 `Text`、`Integer`、`Text` + `@mime` 等受支持组合表达；布尔用 `Integer` 或枚举 |
+| `Unsupported field type String` | 类型是闭集，没有 `String`/`Json`（应写 `JSON`）/`Date[]` 这类写法 | 用上表的写法：字符串 `Text`、JSON `JSON`、数组只有 `Text[]`/`Integer[]` |
 | `Field type Text has no parameters` | 给非 `Vector`/`Decimal`/`Money` 类型加了括号 | 去掉括号；Text 没有长度参数，需要长度限制时写在业务校验或数据库迁移里 |
 | `Unsupported field attribute @required` | 字段没有 `@required` 属性 | 非空由 `@nullable` 的反面表达，默认就是必填 |
 | `Field id: @code requires a Text field without an enum` | 把 `@code` 用在 UUID/枚举字段 | 换成 `Text` 字段 |

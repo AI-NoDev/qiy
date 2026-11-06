@@ -1,0 +1,9 @@
+relation organizationParent organizations parentId organizations id one @onDelete(setNull);
+relation ticketOrganization tickets orgId organizations id one @onDelete(restrict);
+relation contractOrganization contracts orgId organizations id one;
+relation ticketAssignee tickets assigneeId users id one @onDelete(setNull);
+relation commentTicket ticketComments ticketId tickets id one @onDelete(cascade) @comment(t("kitchen.relation.comment"));
+
+view open_ticket_titles from tickets {
+  columns id, code, title, status;
+}

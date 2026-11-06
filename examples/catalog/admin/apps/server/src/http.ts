@@ -4,7 +4,9 @@ export function createHandler(api: (request: Request) => Response | Promise<Resp
   const root = resolve(clientRoot);
   return async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
-    if (url.pathname === "/api" || url.pathname.startsWith("/api/") || url.pathname === "/graphql" || url.pathname.startsWith("/graphql/")) return api(request);
+    if (url.pathname === "/api" || url.pathname.startsWith("/api/") || url.pathname === "/graphql") return api(request);
+    if (url.pathname === "/graphql/") return api(new Request(new URL("/graphql", request.url), request));
+    if (url.pathname.startsWith("/graphql/")) return api(request);
     if (request.method !== "GET" && request.method !== "HEAD") return new Response(null, { status: 405 });
     let pathname: string;
     try { pathname = decodeURIComponent(url.pathname); }

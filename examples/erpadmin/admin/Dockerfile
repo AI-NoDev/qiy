@@ -1,9 +1,9 @@
 FROM oven/bun:1.3.13 AS dependencies
 
 WORKDIR /app
-COPY package.json bun.lock turbo.json ./
+COPY package.json turbo.json ./
 COPY apps ./apps
-RUN bun install --frozen-lockfile
+RUN bun install
 
 # React Router's SPA mode removes this output after building, but its build
 # pipeline still loads react-dom's server entry. On Linux, Bun currently fails
@@ -13,7 +13,7 @@ FROM node:22-alpine AS web-build
 
 WORKDIR /app
 COPY --from=dependencies /app ./
-RUN cd apps/web && node node_modules/@react-router/dev/bin.js build
+RUN cd apps/web && node build.mjs
 
 FROM oven/bun:1.3.13 AS runtime
 

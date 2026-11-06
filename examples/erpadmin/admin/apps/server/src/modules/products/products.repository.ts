@@ -1,16 +1,47 @@
-import { and, asc, count, desc, eq, gte, lt, sql, ilike, inArray, or } from "drizzle-orm";
+import { and, asc, avg, count, desc, eq, gt, gte, isNotNull, isNull, lt, lte, max, min, sql, sum, ilike, inArray, or } from "drizzle-orm";
 import { db } from "../../db";
-import { products, auditEvents } from "../../schema";
-import type { ProductsRepository as ProductsRepositoryContract } from "./products.contract";
+ import { products, auditEvents } from "../../schema";
+import type { FilterClause, FilterExpression, ProductsRepository as ProductsRepositoryContract } from "./products.contract";
 
-export const ProductsRepository: ProductsRepositoryContract = {
+
+const notDeleted = undefined;
+const qiyBaseProductsRepository: ProductsRepositoryContract = {
+  async aggregate(field, operator, scope) {
+    if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
+    const columns: Record<string, any> = { "unitPrice": products.unitPrice, "reorderPoint": products.reorderPoint };
+    const column = columns[field];
+    if (!column) throw new Error("Unsupported aggregate field");
+    const scopeColumns: Record<string, any> = { "id": products.id, "sku": products.sku, "name": products.name, "unitPrice": products.unitPrice, "reorderPoint": products.reorderPoint, "datasheet": products.datasheet };
+    const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
+    
+    const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
+    const [row] = await db.select({ value: expression }).from(products).where(and(notDeleted, scopeCondition));
+    const value = row?.value === null || row?.value === undefined ? null : Number(row.value);
+    return { value: value === null || Number.isFinite(value) ? value : null, operator };
+  },
   async distribution(field, scope) {
     const columns: Record<string, any> = {  };
     const column = columns[field];
     if (!column) throw new Error("Unsupported distribution field");
     const scopeColumns: Record<string, any> = { "id": products.id, "sku": products.sku, "name": products.name, "unitPrice": products.unitPrice, "reorderPoint": products.reorderPoint, "datasheet": products.datasheet };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
-    return db.select({ value: column, count: count() }).from(products).where(scopeCondition).groupBy(column);
+    
+    return db.select({ value: column, count: count() }).from(products).where(and(notDeleted, scopeCondition)).groupBy(column);
+  },
+  async grouped(groupBy, metric, operator, scope) {
+    if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
+    const groupColumns: Record<string, any> = {  };
+    const metricColumns: Record<string, any> = { "unitPrice": products.unitPrice, "reorderPoint": products.reorderPoint };
+    const group = groupColumns[groupBy];
+    const column = metricColumns[metric];
+    if (!group) throw new Error("Unsupported distribution field");
+    if (!column) throw new Error("Unsupported aggregate field");
+    const scopeColumns: Record<string, any> = { "id": products.id, "sku": products.sku, "name": products.name, "unitPrice": products.unitPrice, "reorderPoint": products.reorderPoint, "datasheet": products.datasheet };
+    const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
+    
+    const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
+    const rows = await db.select({ value: group, count: expression }).from(products).where(and(notDeleted, scopeCondition)).groupBy(group);
+    return rows.map((row) => ({ value: row.value === null ? null : String(row.value), count: Number(row.count ?? 0) }));
   },
   async trend(field, days, scope) {
     const columns: Record<string, any> = {  };
@@ -18,12 +49,13 @@ export const ProductsRepository: ProductsRepositoryContract = {
     if (!column || !Number.isInteger(days) || days < 1 || days > 365) throw new Error("Invalid trend query");
     const scopeColumns: Record<string, any> = { "id": products.id, "sku": products.sku, "name": products.name, "unitPrice": products.unitPrice, "reorderPoint": products.reorderPoint, "datasheet": products.datasheet };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
+    
     const now = new Date();
     const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
     const start = new Date(today - (days - 1) * 86400000);
     const end = new Date(today + 86400000);
     const day = sql<string>`to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`;
-    return db.select({ day, count: count() }).from(products).where(and(gte(column, start), lt(column, end), scopeCondition)).groupBy(day).orderBy(day);
+    return db.select({ day, count: count() }).from(products).where(and(notDeleted, gte(column, start), lt(column, end), scopeCondition)).groupBy(day).orderBy(day);
   },
   async list(page, pageSize, options = {}) {
     const searchableColumns: any[] = [products.sku, products.name];
@@ -35,12 +67,39 @@ export const ProductsRepository: ProductsRepositoryContract = {
     if (options.sort && !sortColumn) throw new Error("Unsupported sort field");
     const orderBy = options.order === "desc" ? desc(sortColumn) : asc(sortColumn);
     const filterColumns: Record<string, any> = { "id": products.id, "sku": products.sku, "name": products.name, "unitPrice": products.unitPrice, "reorderPoint": products.reorderPoint, "datasheet": products.datasheet };
-    const filters = Object.entries(options.filters ?? {});
-    if (filters.some(([field]) => !filterColumns[field])) throw new Error("Unsupported filter field");
-    const filterConditions = filters.map(([field, value]) => eq(filterColumns[field], value));
+    const filterTypes = {"id":"UUID","sku":"Text","name":"Text","unitPrice":"Money","reorderPoint":"Integer","datasheet":"File"} as Record<string, string>;
+    const filters = Array.isArray(options.filters) ? options.filters : Object.entries(options.filters ?? {}).map(([field, value]) => ({ field, operator: "eq" as const, value }));
+    const filterClauses = (expressions: FilterExpression[]): FilterClause[] => expressions.flatMap((filter) => "field" in filter ? [filter] : filterClauses(filter.filters));
+    if (filterClauses(filters as FilterExpression[]).some(({ field }) => !filterColumns[field])) throw new Error("Unsupported filter field");
+    const coerce = (field: string, value: string) => filterTypes[field] === "Integer" ? Number(value) : filterTypes[field] === "DateTime" ? new Date(value) : value;
+    const filterCondition = ({ field, operator, value }: FilterClause) => {
+      const column = filterColumns[field];
+      if (operator === "contains") return ilike(column, "%" + value + "%");
+      if (operator === "startsWith") return ilike(column, value + "%");
+      if (operator === "endsWith") return ilike(column, "%" + value);
+      if (operator === "gt") return gt(column, coerce(field, value));
+      if (operator === "gte") return gte(column, coerce(field, value));
+      if (operator === "lt") return lt(column, coerce(field, value));
+      if (operator === "lte") return lte(column, coerce(field, value));
+      if (operator === "between") {
+        const [lower, upper, extra] = value.split(",").map((item) => item.trim());
+        if (!lower || !upper || extra !== undefined) throw new Error("Between filter requires two values");
+        return and(gte(column, coerce(field, lower)), lte(column, coerce(field, upper)));
+      }
+      if (operator === "in") {
+        const values = value.split(",").map((item) => item.trim()).filter(Boolean).map((item) => coerce(field, item));
+        if (values.length === 0) throw new Error("In filter requires at least one value");
+        return inArray(column, values);
+      }
+      return eq(column, coerce(field, value));
+    };
+    const filterExpression = (filter: FilterExpression): any => "field" in filter
+      ? filterCondition(filter)
+      : filter.operator === "and" ? and(...filter.filters.map(filterExpression)) : or(...filter.filters.map(filterExpression));
     const scopeColumns: Record<string, any> = { "id": products.id, "sku": products.sku, "name": products.name, "unitPrice": products.unitPrice, "reorderPoint": products.reorderPoint, "datasheet": products.datasheet };
     const scopeCondition = options.scope && scopeColumns[options.scope.field] ? eq(scopeColumns[options.scope.field], options.scope.value) : undefined;
-    const whereCondition = and(searchCondition, scopeCondition, ...filterConditions);
+    
+    const whereCondition = and(notDeleted, searchCondition, scopeCondition, ...(filters as FilterExpression[]).map(filterExpression));
     const [data, totalRows] = await Promise.all([
       db.select().from(
 products
@@ -54,18 +113,22 @@ products
   async one(id, scope) {
     const scopeColumns: Record<string, any> = { "id": products.id, "sku": products.sku, "name": products.name, "unitPrice": products.unitPrice, "reorderPoint": products.reorderPoint, "datasheet": products.datasheet };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
+    
     const [record] = await db.select().from(
 products
-).where(and(eq(
+).where(and(notDeleted, eq(
 products
 .id, id), scopeCondition)).limit(1);
     return record;
   },
   async create(values, actorId, scope) {
     return db.transaction(async (tx) => {
+      
       const [record] = await tx.insert(products).values({ ...values, ...(scope ? { [scope.field]: scope.value } : {}), id: crypto.randomUUID() } as typeof products.$inferInsert).returning();
       if (!record) throw new Error("Insert returned no record");
+      
       await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "products.created", resource: "products", resourceId: record.id, metadata: { fields: Object.keys(values) } });
+       
       return record;
     });
   },
@@ -73,8 +136,10 @@ products
     return db.transaction(async (tx) => {
       const scopeColumns: Record<string, any> = { "id": products.id, "sku": products.sku, "name": products.name, "unitPrice": products.unitPrice, "reorderPoint": products.reorderPoint, "datasheet": products.datasheet };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
-      const [record] = await tx.update(products).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(eq(products.id, id), scopeCondition)).returning();
+      
+      const [record] = await tx.update(products).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(notDeleted, eq(products.id, id), scopeCondition)).returning();
       if (record) await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "products.updated", resource: "products", resourceId: id, metadata: { fields: Object.keys(values) } });
+       if (record) void 0;
       return record;
     });
   },
@@ -82,8 +147,10 @@ products
     return db.transaction(async (tx) => {
       const scopeColumns: Record<string, any> = { "id": products.id, "sku": products.sku, "name": products.name, "unitPrice": products.unitPrice, "reorderPoint": products.reorderPoint, "datasheet": products.datasheet };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
-      const [record] = await tx.delete(products).where(and(eq(products.id, id), scopeCondition)).returning();
+      
+      const [record] = await tx.delete(products).where(and(notDeleted, eq(products.id, id), scopeCondition)).returning();
       if (record) await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "products.deleted", resource: "products", resourceId: id, metadata: {} });
+       if (record) void 0;
       return record;
     });
   },
@@ -91,11 +158,21 @@ products
     return db.transaction(async (tx) => {
       const scopeColumns: Record<string, any> = { "id": products.id, "sku": products.sku, "name": products.name, "unitPrice": products.unitPrice, "reorderPoint": products.reorderPoint, "datasheet": products.datasheet };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
-      const deletedRows = await tx.delete(products).where(and(inArray(products.id, ids), scopeCondition)).returning();
+      
+      const deletedRows = await tx.delete(products).where(and(notDeleted, inArray(products.id, ids), scopeCondition)).returning();
       if (deletedRows.length) await tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "products.deleted", resource: "products", resourceId: record.id, metadata: {} })));
+       if (deletedRows.length) void 0;
       return deletedRows;
     });
   },
 
+  async recordExportAudit(input) {
+    await db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: input.principalId ?? null, action: "products.exported", resource: "products", resourceId: null, metadata: { rows: input.rows, filters: input.filters } });
+  },
+  async recordImportAudit(input) {
+    await db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: input.principalId ?? null, action: "products.imported", resource: "products", resourceId: null, metadata: { rows: input.rows } });
+  },
 
 };
+
+export const ProductsRepository: ProductsRepositoryContract = qiyBaseProductsRepository;

@@ -59,7 +59,7 @@ Semicolons:
 
 | Position | `;` | Notes |
 | --- | --- | --- |
-| `field`, `index`, `relation`, `scope`, `metric`, `permission field/from`, `workflow`, `variable` declarations | required | Missing -> `Expected ; near token N` |
+| `field`, `index`, `relation`, `scope`, `permission field/from`, `workflow`, `variable` declarations | required | Missing -> `Expected ; near token N` |
 | Block closing `}` (`database`, `ui`, `entity`, `enum`, `menu`, `chart`, ...) | **not allowed** | Extra `;` -> `Expected ... near token N` |
 | `permission group { ... }`, `permission verification { ... }` | optional | List form may end with `;` |
 | `chart` view properties | required between properties; optional before `}` | `expected ; after the property value` |
@@ -121,7 +121,7 @@ include expansion -> lexer/parser -> IR validation -> generation validation -> w
 | Include expansion | relative `.qiy` paths, `..`/absolute/symlink escapes, cycles, selectors | `Qiy include cycle detected: ...` |
 | Parser | tokens, block order, annotation values, duplicates, templates, chart semantics, permission model, cross-block references | `Expected entity near token 42`, `Unsupported field attribute @required` |
 | IR validation | names/types/indexes/relations/display templates with FK info | `V3 foreign keys require UUID fields` |
-| Generation | primary-key shape, icons, route names, auth columns, scope/restrict, menu/metrics, CORS, cron/static, features deps, permission sources | `V0 CRUD requires exactly one UUID primary key named id` |
+| Generation | primary-key shape, icons, route names, auth columns, scope/restrict, menu, charts, CORS, cron/static, features deps, permission sources | `V0 CRUD requires exactly one UUID primary key named id` |
 | Write | path safety, env merge, manifest, `--sync` cleanup | `Output directory must be empty` |
 
 Parse errors abort on the first problem; IR/generation errors are collected and joined. The CLI exits 1 and writes nothing on failure. Parse success does not imply generation success.
@@ -366,7 +366,7 @@ auth {
 | `user` | declared entity | yes |
 | `subjectField` | required unique Text | OAuth family |
 | `roleField` | enum with exactly admin/operator/viewer | yes |
-| `usernameField` | required unique Text | `local`/`otp` |
+| `usernameField` | required unique Text or Email | `local`/`otp` |
 | `passwordField` | nullable Text | `local` |
 | `profileField` | nullable Text | optional, OAuth only |
 | mapping `subjectField` | nullable unique Text | hybrid/multi |
@@ -617,17 +617,16 @@ action <Name> {
 
 ## Annotation inventory
 
-42 annotation names exist; the same name means different things by placement. Unknown annotations fail (`Unsupported ... attribute @X`); unimplemented annotations are never silently ignored.
+36 annotation names exist; the same name means different things by placement. Unknown annotations fail (`Unsupported ... attribute @X`); unimplemented annotations are never silently ignored.
 
 | Placement | Annotations |
 | --- | --- |
-| Documentation | `@comment(...)` (application, database, enum, enum value, entity, field, index, relation, menu group, metric, permission field/group/verification, dataflow and its input/context/step, action page manual), `@label(...)` (entity, field, menu group, metric, permission field/group/verification, dataflow), `@icon(...)` (entity, field, menu group, metric), `@confirm(...)` (dataflow), `@error(...)` (require) |
+| Documentation | `@comment(...)` (application, database, enum, enum value, entity, field, index, relation, menu group, permission field/group/verification, dataflow and its input/context/step, action page manual), `@label(...)` (entity, field, menu group, permission field/group/verification, dataflow), `@icon(...)` (entity, field, menu group), `@confirm(...)` (dataflow), `@error(...)` (require) |
 | Entity | `@label`, `@icon`, `@comment`, `@singular`, `@plural`, `@display`, `@tableDisplay`, `@relationDetail` |
 | Field | `@id`, `@nullable`, `@unique`, `@label`, `@comment`, `@icon`, `@visible`, `@listVisible`, `@formVisible`, `@showVisible`, `@sortable`, `@filterable`, `@filter(...)`, `@upload(...)`, `@maxBytes`, `@maxFiles`, `@mime`, `@extension`, `@code`, `@generated`, `@column`, `@dimension`, `@precision`, `@scale` |
 | Index | `@unique`, `@concurrently`, `@comment` |
 | Relation | `@onDelete(...)`, `@comment` |
 | Menu group | `@label`, `@icon`, `@parent`, `@comment` |
-| Dashboard metric | `@label`, `@icon`, `@span`, `@type`, `@groupBy`, `@days`, `@field`, `@agg`, `@comment` |
 | Permission / dataflow / action | `@label`, `@comment`, `@confirm`, `@required`, `@order`, `@error` |
 
 Parameter forms: `documentation` accepts a literal or `t("key")`; `string` accepts a quoted string or bare identifier; `integer` is a non-negative decimal; boolean is `@x` (= true) or `@x(true|false)` - not all booleans allow omitting parentheses; identifiers are enumeration values. Duplicates usually overwrite silently; explicitly rejected duplicates: `@singular`, `@plural`, `@display`, `@tableDisplay`, `@relationDetail`, `@code`, `@generated`, `@filter` (same operator), `@mime` (same type), `@comment` on definition-site blocks, `@order` (via step uniqueness).

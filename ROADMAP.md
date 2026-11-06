@@ -190,12 +190,14 @@
 
 0.37.0 删除了冗余写法（v1 语法、MPS、OIDC 厂商关键字、Ably、dashboard 指标、llms-full.txt）。之后按顺序推进：
 
+- [x] kitchen-sink 全语法 fixture（三方言）+ CI 示例漂移检查
 - [ ] 字段校验与默认值：`@min`/`@max`/`@length`/`@pattern`/`@default`，服务端与表单同源
 - [ ] 乐观锁 `@version`（冲突 409）
-- [ ] kitchen-sink 全语法 fixture（三方言）+ CI 示例漂移检查
-- [ ] 多对多关系与多选 UI
-- [ ] 声明式状态机 / 审批流转
-- [ ] Webhook、通知适配器（SMTP 默认 / Resend / webhook / 开发环境 console）与定时任务
+- [ ] 自定义角色（替代固定的 `admin`/`operator`/`viewer`）
+- [ ] 多对多关系与多选 UI（`relation ... many` 目前解析后被拒绝）
+- [ ] 声明式状态机 / 审批流转，完成后删除 `workflow orderInventory`
+- [ ] Dataflow 应用资源的 `restrict` 行策略（目前带行策略的资源不能被 Dataflow 使用）
+- [ ] Webhook、通知适配器（SMTP 默认 / Resend / webhook / 开发环境 console）；cron 调用 Dataflow 并加分布式锁
 - [ ] 拆分 `tools/generate-server.ts`；计算字段落为数据库生成列；view IN 子查询性能
 - [ ] 本地 E2E 对陈旧服务的鲁棒性
 - [ ] 英文用户文档

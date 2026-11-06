@@ -9,21 +9,21 @@
 - **参数形态**：
   - `documentation`：`("字面量")` 或 `(t("message.key"))`。
   - `string`：`("…")` 或裸标识符（`@icon(UserOutlined)`、`@label(Products)`）；裸值不能含空格或非 ASCII 字符。
-  - `integer`：十进制非负整数（`@span(12)`、`@maxBytes(10485760)`）。
+  - `integer`：十进制非负整数（`@maxFiles(3)`、`@maxBytes(10485760)`）。
   - `boolean`：`@x`（等价 `true`）或 `@x(true)` / `@x(false)`；不是所有布尔注解都允许省略括号（见各表）。
   - `identifier`：枚举式取值（`@upload(binary)`、`@type(trend)`）。
 - **`t("key")` 参考**：只有 `documentation` 位置支持。解析时立即到 `messages` 的默认语言里查 key，缺失报 `Missing default locale message for <purpose>: <key>`；因此 `messages` 必须写在实体/枚举之前（`application`/`database` 的注释延后解析）。
 - **i18n**：`@label` 会派生稳定翻译键（见各表）；`@comment` 不派生键，但会把 `i18n: key` 写进生成的 JSDoc，并在元数据里保留 `commentKey`。
-- **重复声明**：多数注解后者覆盖、不报错；显式报重复的是 `@singular`/`@plural`/`@display`/`@tableDisplay`/`@relationDetail`、`@code`、`@generated`、`@filter`（同一 operator）、`@mime`（同一类型），以及 `@comment`（在 enum / menu group / dashboard metric / dataflow 等定义处）；`@order` 由步骤顺序唯一性检查兜底（`step order must be a unique positive integer`）。
+- **重复声明**：多数注解后者覆盖、不报错；显式报重复的是 `@singular`/`@plural`/`@display`/`@tableDisplay`/`@relationDetail`、`@code`、`@generated`、`@filter`（同一 operator）、`@mime`（同一类型），以及 `@comment`（在 enum / menu group / dataflow 等定义处）；`@order` 由步骤顺序唯一性检查兜底（`step order must be a unique positive integer`）。
 - **未实现的注解一律报错**，不会静默忽略。
 
 ## 文档类注解
 
 | 注解 | 可用位置 | 参数 | 默认 | i18n | 生成效果 | 校验错误 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `@comment(…)` | `application`、`database`、`enum`、枚举值、`entity`、`field`、`index`、`relation`、`menu group`、`dashboard metric`、`permission field/group/verification`、`dataflow`、dataflow `input`/`context`/`step`、`action … page manual` | `documentation` | 无 | 保留 `commentKey`；schema JSDoc 写 `i18n: key`；枚举值/指标说明按当前语言渲染 | 见各构造 | `Missing default locale message for <purpose>: <key>`；`duplicate @comment annotation`（enum/menu/metric/dataflow 等定义处） |
+| `@comment(…)` | `application`、`database`、`enum`、枚举值、`entity`、`field`、`index`、`relation`、`menu group`、`permission field/group/verification`、`dataflow`、dataflow `input`/`context`/`step`、`action … page manual` | `documentation` | 无 | 保留 `commentKey`；schema JSDoc 写 `i18n: key`；枚举值说明按当前语言渲染 | 见各构造 | `Missing default locale message for <purpose>: <key>`；`duplicate @comment annotation`（enum/menu/dataflow 等定义处） |
 | `@label(…)` | `entity`、`field`、`menu group`、`permission field/group/verification`、`dataflow` | `documentation`（支持 `t("key")`） | 实体名 / 字段名 / 分组名 | `qiy.resources.<table>.label`、`qiy.resources.<table>.fields.<field>.label`、`qiy.menu.<group>.label`；dataflow 的 `t()` 键被 action 继承 | 显示文本 | 位置错误：`Unsupported <construct> attribute @label` |
-| `@icon(…)` | `entity`、`field`、`menu group`、`dashboard metric` | `string` | 实体按名字启发（`user`/`order`/`warehouse`/其他）；菜单 `AppstoreOutlined`；其他无 | 无 | 图标渲染/元数据 | 必须匹配 `^[A-Z][a-zA-Z0-9]*Outlined$`，否则 `Invalid Ant Design icon X` |
+| `@icon(…)` | `entity`、`field`、`menu group` | `string` | 实体按名字启发（`user`/`order`/`warehouse`/其他）；菜单 `AppstoreOutlined`；其他无 | 无 | 图标渲染/元数据 | 必须匹配 `^[A-Z][a-zA-Z0-9]*Outlined$`，否则 `Invalid Ant Design icon X` |
 | `@confirm(…)` | `dataflow` | `documentation` | 无 | `t()` 键会被 action 继承为 `confirmKey` | 生成命令按钮的二次确认文案 | `duplicate @confirm annotation`；action 上的 `confirm` 只对 dataflow 目标有效 |
 | `@error(…)` | dataflow `step` 内的 `require … @error(…)` | `documentation` | 必填 | `t()` 键用于业务错误翻译 | 校验失败时返回的错误文案 | 缺失或写错位置都会在语法阶段失败（`Expected @ near token N`） |
 
@@ -136,14 +136,14 @@
 | entity | `@singular`、`@plural`、`@display`、`@tableDisplay`、`@relationDetail` |
 | field | `@id`、`@nullable`、`@unique`、`@visible`、`@listVisible`、`@formVisible`、`@showVisible`、`@sortable`、`@filterable`、`@filter`、`@upload`、`@maxBytes`、`@maxFiles`、`@mime`、`@extension`、`@code`、`@generated`、`@column`、`@dimension`、`@precision`、`@scale` |
 | index / relation | `@unique`、`@concurrently`、`@onDelete` |
-| menu / metric | `@label`、`@icon`、`@parent`、`@span`、`@type`、`@groupBy`、`@field`、`@agg`、`@days` |
+| menu | `@label`、`@icon`、`@parent` |
 | permission / dataflow / action | `@label`、`@comment`、`@confirm`、`@required`、`@order`、`@error` |
 
 ## 相关
 
 - [entity 与 field](/dsl/entity)：字段属性矩阵与显示模板
 - [relation 与 index](/dsl/relation-index)：`@onDelete` / 索引属性
-- [enum / menu / dashboard](/dsl/enum-menu-dashboard)：枚举值属性、菜单与指标注解
+- [enum / menu](/dsl/enum-menu-dashboard)：枚举值属性与菜单注解
 - [自动生成值与业务编码](/dsl/generated-values)：`@code` / `@generated`
 - [多语言（messages / i18n）](/dsl/i18n)：`t("key")` 与模型 label 键
 - [dataflow](/dsl/dataflow) / [action](/dsl/actions)：`@label`/`@confirm`/`@required`/`@order`/`@error`

@@ -77,15 +77,38 @@ test("protects file storage endpoints and rejects traversal", async () => {
   Bun.env.QIY_STORAGE_ROOT = import.meta.dir + "/.qiy-test-storage";
   const repositories = Object.fromEntries(["users","customers","warehouses","products","inventoryItems","orders","orderItems"].map((name) => [name, repository])) as unknown as Repositories;
   const app = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: "admin", claims: {"tenant.customerId":"00000000-0000-4000-8000-000000000002"} }));
-  const key = "orders/" + crypto.randomUUID() + ".txt";
-  const fileUrl = "http://localhost/api/v1/files?key=" + encodeURIComponent(key) + "&fileName=invoice.txt&resource=orders&resourceId=00000000-0000-4000-8000-000000000001";
+  const resource = "products";
+  const field = "datasheet";
+  const uploadMode = String("both") as "binary" | "base64" | "both";
+  const maxBytes = 10485760;
+  const contentType = "application/pdf";
+  const restrictsMime = true;
+  const key = resource + "/" + crypto.randomUUID() + ".bin";
+  const fileUrlFor = (targetKey: string, targetField = field) => "http://localhost/api/v1/files?key=" + encodeURIComponent(targetKey) + "&fileName=fixture.bin&resource=" + resource + "&field=" + targetField + "&resourceId=00000000-0000-4000-8000-000000000001";
+  const base64Url = "http://localhost/api/v1/files/base64";
+  const upload = (targetKey: string, bytes = "invoice", mime = contentType) => uploadMode === "base64"
+    ? app.handle(new Request(base64Url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: targetKey, fileName: "fixture.bin", resource, field, resourceId: "00000000-0000-4000-8000-000000000001", contentType: mime, data: Buffer.from(bytes).toString("base64") }) }))
+    : app.handle(new Request(fileUrlFor(targetKey), { method: "POST", body: new Blob([bytes], { type: mime }) }));
+  const fileUrl = fileUrlFor(key);
   const metadataUrl = "http://localhost/api/v1/files/metadata?key=" + encodeURIComponent(key);
-  const upload = await app.handle(new Request(fileUrl, { method: "POST", body: "invoice" }));
-  expect(upload.status).toBe(200);
+  expect((await upload(key)).status).toBe(200);
   const metadata = await app.handle(new Request(metadataUrl));
   expect(metadata.status).toBe(200);
-  expect(await metadata.json() as { ownerId: string; size: number; storageKey: string; fileName: string; resource: string; resourceId: string }).toMatchObject({ ownerId: "admin", size: 7, storageKey: key, fileName: "invoice.txt", resource: "orders", resourceId: "00000000-0000-4000-8000-000000000001" });
-  expect((await app.handle(new Request(fileUrl, { method: "POST", body: "overwritten" }))).status).toBe(409);
+  expect(await metadata.json() as { ownerId: string; size: number; storageKey: string; fileName: string; resource: string; resourceId: string }).toMatchObject({ ownerId: "admin", size: 7, storageKey: key, fileName: "fixture.bin", resource: "products", resourceId: "00000000-0000-4000-8000-000000000001" });
+  expect((await upload(key)).status).toBe(409);
+  expect((await app.handle(new Request(fileUrlFor(resource + "/unknown.bin", "missing"), { method: "POST", body: new Blob(["ok"], { type: contentType }) }))).status).toBe(400);
+  if (restrictsMime) expect((await upload(resource + "/wrong-mime.bin", "ok", "application/x-qiy-disallowed")).status).toBe(415);
+  expect((await upload(resource + "/too-large.bin", "x".repeat(maxBytes + 1))).status).toBe(413);
+  expect((await app.handle(new Request(base64Url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: resource + "/malformed.bin", resource, field, contentType, data: "not base64" }) }))).status).toBe(400);
+  if (uploadMode === "binary") {
+    expect((await app.handle(new Request(base64Url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: resource + "/base64-rejected.bin", resource, field, contentType, data: Buffer.from("ok").toString("base64") }) }))).status).toBe(415);
+  } else {
+    const base64Key = resource + "/" + crypto.randomUUID() + "-base64.bin";
+    expect((await app.handle(new Request(base64Url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: base64Key, resource, field, contentType, data: Buffer.from("base64").toString("base64") }) }))).status).toBe(200);
+    expect((await app.handle(new Request(fileUrlFor(base64Key)))).status).toBe(200);
+    expect((await app.handle(new Request(fileUrlFor(base64Key), { method: "DELETE" }))).status).toBe(200);
+  }
+  if (uploadMode === "base64") expect((await app.handle(new Request(fileUrlFor(resource + "/binary-rejected.bin"), { method: "POST", body: new Blob(["ok"], { type: contentType }) }))).status).toBe(415);
   const download = await app.handle(new Request(fileUrl));
   expect(download.status).toBe(200);
   expect(await download.text()).toBe("invoice");

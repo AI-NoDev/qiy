@@ -4,6 +4,9 @@ import { Elysia } from "elysia";
  import { registerPlugins } from "./plugins";
  import { createGraphQLRoutes } from "./graphql";
  import { createAuthorizationGuard, type Authenticator } from "./auth/guard";
+ 
+ 
+ 
  import { UsersRoutes } from "./modules/users/users.routes";
 import { CustomersRoutes } from "./modules/customers/customers.routes";
 import { WarehousesRoutes } from "./modules/warehouses/warehouses.routes";
@@ -36,28 +39,52 @@ export function normalizeCorsOrigins(origins: string[]): string[] {
   return [...unique];
 }
 
-export async function createApp(repositories: Repositories, authenticate: Authenticator = async () => null, includeWorkflows = true, includeStorage = true, corsOrigins?: string[]) {
+export async function createApp(repositories: Repositories, authenticate: Authenticator = async () => null, includeWorkflows = true, includeStorage = true, corsOrigins?: string[], includeDataflows = true) {
+   // API-key requests are resolved after the configured session authenticator has
+   // had a chance to accept the request, so key auth is additive and never weakens
+   // the project's existing authentication.
+   const authenticateRequest = authenticate;
    const configuredOrigins = [] as string[];
    const environmentOrigins = Bun.env.QIY_CORS_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean) ?? [];
    const allowedOrigins = normalizeCorsOrigins(corsOrigins ?? (environmentOrigins.length > 0 ? environmentOrigins : configuredOrigins));
-   const guard = createAuthorizationGuard(authenticate, [{"path":"users","query":"users"},{"path":"customers","query":"customers"},{"path":"warehouses","query":"warehouses"},{"path":"products","query":"products"},{"path":"inventory_items","query":"inventoryItems"},{"path":"orders","query":"orders"},{"path":"order_items","query":"orderItems"},{"path":"files","query":"files"}]);
+   const guard = createAuthorizationGuard(authenticateRequest, [{"path":"users","query":"users"},{"path":"customers","query":"customers"},{"path":"warehouses","query":"warehouses"},{"path":"products","query":"products"},{"path":"inventory_items","query":"inventoryItems"},{"path":"orders","query":"orders"},{"path":"order_items","query":"orderItems"},{"path":"files","query":"files"}], {}, [], []);
   const routes = (new Elysia({ prefix: "/api/v1" }) as any)
     .get("/health", () => ({ ok: true }))
-    .get("/auth/me", async ({ request }: { request: Request }) => authenticate(request))
-     .use(UsersRoutes(repositories.users, authenticate))
-    .use(CustomersRoutes(repositories.customers, authenticate))
-    .use(WarehousesRoutes(repositories.warehouses, authenticate))
-    .use(ProductsRoutes(repositories.products, authenticate))
-    .use(InventoryItemsRoutes(repositories.inventoryItems, authenticate))
-    .use(OrdersRoutes(repositories.orders, authenticate))
-    .use(OrderItemsRoutes(repositories.orderItems, authenticate));
-    const workflow = includeWorkflows ? (await import("./workflows/order")).createOrderWorkflowRoutes(authenticate) : undefined;
-    const storage = includeStorage ? (await import("./storage/routes")).createStorageRoutes(authenticate) : undefined;
-    const localAuth = (await import("./auth/local")).createLocalAuthRoutes();
-    const application = new Elysia().use(allowedOrigins.length > 0 ? cors({ origin: allowedOrigins, credentials: false, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key"] }) : new Elysia()).onRequest(({ request }) => guard(request)).use(openapi({ path: "/api/v1/openapi", documentation: { info: { title: "Qiy Admin API", version: "1.0.0" } } })).use(routes).use(createGraphQLRoutes(repositories, authenticate));
+    .get("/auth/me", async ({ request }: { request: Request }) => {
+      const principal = await authenticateRequest(request);
+      if (!principal) return null;
+    })
+     .use(UsersRoutes(repositories.users, authenticateRequest))
+    .use(CustomersRoutes(repositories.customers, authenticateRequest))
+    .use(WarehousesRoutes(repositories.warehouses, authenticateRequest))
+    .use(ProductsRoutes(repositories.products, authenticateRequest))
+    .use(InventoryItemsRoutes(repositories.inventoryItems, authenticateRequest))
+    .use(OrdersRoutes(repositories.orders, authenticateRequest))
+    .use(OrderItemsRoutes(repositories.orderItems, authenticateRequest));
+    const workflow = includeWorkflows ? (await import("./workflows/order")).createOrderWorkflowRoutes(authenticateRequest) : undefined;
+ 
+    
+    const storage = includeStorage ? (await import("./storage/routes")).createStorageRoutes(authenticateRequest) : undefined;
+    
+    const authRoutes = (await import("./auth/local")).createLocalAuthRoutes();
+    const accountRoutes = (await import("./auth/account")).createAccountRoutes(authenticateRequest);
+    
+    
+    
+    
+    const application = new Elysia().use(allowedOrigins.length > 0 ? cors({ origin: allowedOrigins, credentials: false, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key", "X-API-Key"] }) : new Elysia()).onRequest(({ request }) => guard(request)).use(openapi({ path: "/api/v1/openapi", documentation: { info: { title: "Qiy Admin API", version: "1.0.0" } } })).use(routes).use(createGraphQLRoutes(repositories, authenticateRequest));
     let composed = application;
-    composed = composed.use(localAuth);
+    composed = composed.use(authRoutes);
+    composed = composed.use(accountRoutes);
+    
+    
+    
+    
     composed = workflow ? composed.use(workflow) : composed;
+    
+    
     composed = storage ? composed.use(storage) : composed;
-    return registerPlugins(composed, { repositories, authenticate });
+    composed = composed.use((await import("./saved-views")).createSavedViewsRoutes(authenticateRequest));
+    composed = composed.use((await import("./audit/routes")).createAuditRoutes(authenticateRequest));
+    return registerPlugins(composed, { repositories, authenticate: authenticateRequest });
 }

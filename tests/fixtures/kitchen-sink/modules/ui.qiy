@@ -1,0 +1,52 @@
+menu {
+  group support @label("Support") @icon(CustomerServiceOutlined) @comment(t("kitchen.menu.support")) {
+    resource tickets;
+    resource ticket_comments;
+    resource announcements;
+    resource contracts;
+  }
+  group administration @label("Administration") @icon(SettingOutlined) {}
+  group directory @label("Directory") @icon(TeamOutlined) @parent(administration) {
+    resource users;
+    resource organizations;
+  }
+}
+
+chart const TicketCount { icon = "CustomerServiceOutlined"; title = "Tickets"; data = count tickets; }
+chart const BudgetTotal { title = "Budget"; data = sum tickets.budget; }
+chart const PriorityAverage { title = "Average priority"; data = avg tickets.priority; }
+chart const PriorityMin { title = "Lowest priority"; data = min tickets.priority; }
+chart const PriorityMax { title = "Highest priority"; data = max tickets.priority; }
+chart pie TicketStatus { icon = "PieChartOutlined"; title = "By status"; data = count tickets group by status; labels = status; }
+chart bar TicketStatus {
+  title = "By status";
+  color = "#722ed1";
+  data = count tickets group by status;
+  labels {
+    open "Open";
+    pending "Pending";
+    closed "Closed";
+  }
+}
+chart line TicketTrend { title = "Opened (30 days)"; legend = false; data = trend tickets.openedAt days 30; }
+chart area TicketTrend { title = "Opened (30 days)"; data = trend tickets.openedAt days 30; }
+chart scatter PriorityEstimate { title = "Priority vs estimate"; data = list tickets columns priority, estimate; }
+chart stacked QueueLoad { title = "Queue load"; data = list tickets columns queue, status, priority; }
+chart table RecentTickets { title = "Recent"; data = list tickets columns code, title, status; }
+
+chart panels Overview {
+  title = "Overview";
+  grid 24 24;
+  TicketCount {
+    larger 0 0 8 2;
+    medium 0 0 12 2;
+    small 0 0 24 2;
+  }
+  TicketStatus {
+    larger 8 0 16 4;
+    small 0 2 24 4;
+  }
+  RecentTickets {
+    larger 0 4 24 6;
+  }
+}

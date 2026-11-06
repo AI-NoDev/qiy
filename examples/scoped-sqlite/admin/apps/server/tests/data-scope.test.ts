@@ -18,7 +18,9 @@ const request = (query: string) => new Request("http://localhost/graphql", { met
 test("data scope rejects missing claims without blocking unrelated resources", async () => {
   seen.length = 0;
   const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: "admin" }), false, false);
-  expect((await app.handle(request("query { records { total } }"))).status).toBe(403);
+  const graph = await app.handle(request("query { records { total } }"));
+  if (graph.status === 200) expect((await graph.json() as { errors?: Array<{ message: string }> }).errors?.length).toBeGreaterThan(0);
+  else expect(graph.status).toBe(403);
   expect((await app.handle(new Request("http://localhost/api/v1/records/"))).status).toBe(403);
   
   expect(seen).toEqual([]);

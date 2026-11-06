@@ -10,6 +10,22 @@ Releases before `0.2.0` are listed on the
 
 ## [Unreleased]
 
+### Added
+
+- Kitchen-sink fixture (`tests/fixtures/kitchen-sink/`): PostgreSQL, MySQL and SQLite entries share one set of modules that exercise every construct the grammar accepts. `tests/kitchen-sink.test.ts` keys its coverage maps on the IR types, so a new `QiyProject`/entity/field/index/relation/enum/dataflow/action/chart property fails typecheck until the fixture uses it, and every field type, filter mode, index method, `@onDelete` mode, chart kind, chart operation and dataflow statement must appear.
+- CI generates the fixture for each dialect, migrates it against PostgreSQL 17 and MySQL 8.4, and runs the generated server and web type-checks and tests (`tools/verify-kitchen-sink.ts`).
+- `bun run examples:check` fails when a committed `examples/*/admin` snapshot differs from the current generator; `bun run examples:sync` rewrites them. CI runs the check.
+
+### Changed
+
+- `auth { usernameField }` accepts an `Email` field as well as `Text`.
+
+### Fixed
+
+- The `examples/catalog`, `erpadmin` and `scoped-sqlite` snapshots are regenerated with the current generator, and `examples/self` no longer carries the realtime environment keys removed in 0.37.0. `examples/erpadmin` maps its `tenant.customerId` scope claim to a users column, which current validation requires.
+- Docs and the Agent Skill no longer claim that `Boolean`, `Email`, `URL` and `JSON` are unsupported field types, no longer list the removed dashboard metric annotations, and the application block-order table now includes `view`.
+- The standalone release check no longer expects the realtime monitoring artifacts removed in 0.37.0.
+
 ## [0.37.0] - 2026-11-06
 
 One way to do each thing: superseded syntax and transports are removed outright.

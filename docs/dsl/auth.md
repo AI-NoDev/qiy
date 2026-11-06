@@ -77,7 +77,7 @@ auth {
 | `user` | 是 | — | 用户实体名；必须是已声明实体，否则 `Auth: unknown user entity` |
 | `subjectField` | OAuth 家族必填 | `""` | 外部身份列：必须是**非空 + 唯一 + Text**；单 Provider 模式写入 `<iss>`\|`<sub>`，映射模式写入该 Provider 的映射列（见下） |
 | `roleField` | 是 | — | 必须是枚举，且枚举值集合**恰好**是 `admin`/`operator`/`viewer`（多一个少一个都报错） |
-| `usernameField` | `local` 必填；`otp` 必填 | `""` | 登录标识列：必须非空 + 唯一 + Text；不能与 `passwordField` 同名列 |
+| `usernameField` | `local` 必填；`otp` 必填 | `""` | 登录标识列：必须非空 + 唯一 + `Text` 或 `Email`；不能与 `passwordField` 同名列 |
 | `passwordField` | `local` 必填 | `""` | 密码哈希列：必须 `@nullable` + Text，且不会出现在 API schema（`@listVisible(false)` 之类由生成器隐式隐藏） |
 | `profileField` | 否 | `""` | `@nullable` Text，存 `{ "<provider>": { email, name, sub } }` JSON；只有声明了 OAuth Provider 才允许 |
 | `provider <id> { subjectField ... }` | 混合模式必需 | — | 该 Provider 的身份列：必须存在、Text、`@nullable`、`@unique` |
@@ -122,7 +122,7 @@ entity users table users @label("用户") {
 
 | 字段角色 | 要求 | 校验错误（节选） |
 | --- | --- | --- |
-| `usernameField` | 非空、唯一、Text | `Auth: usernameField must be a required unique Text field` |
+| `usernameField` | 非空、唯一、`Text` 或 `Email` | `Auth: usernameField must be a required unique Text or Email field` |
 | `passwordField` | `@nullable` Text | `Auth: passwordField must be a nullable Text field storing the password hash` |
 | 两者不同列 | — | `Auth: usernameField and passwordField must be different fields` |
 | `subjectField` | 非空、唯一、Text（有 OAuth 时） | `Auth: subjectField must be a required unique Text field` |
@@ -437,7 +437,7 @@ QIY_OIDC_JWKS_CACHE_MAX_AGE_MS=600000
 | `Auth provider <p> does not accept usernameField or passwordField` | 纯 OAuth 模式多写了本地列 |
 | `Auth profileField requires at least one OAuth/OIDC provider` | 无 OAuth 却声明 `profileField` |
 | `Auth: unknown user entity` | `user` 不存在 |
-| `Auth: usernameField must be a required unique Text field` | 列契约 |
+| `Auth: usernameField must be a required unique Text or Email field` | 列契约 |
 | `Auth: passwordField must be a nullable Text field storing the password hash` | 列契约 |
 | `Auth: usernameField and passwordField must be different fields` | 同列 |
 | `Auth: subjectField must be a required unique Text field` | 列契约 |

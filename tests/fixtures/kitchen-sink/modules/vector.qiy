@@ -1,0 +1,9 @@
+# PostgreSQL + pgvector only: Vector fields and vector indexes.
+
+entity knowledgeArticles table knowledge_articles @label("Knowledge") @icon(BookOutlined) {
+  field id UUID @id;
+  field title Text;
+  field embedding Vector @nullable @dimension(3) @extension(pgvector);
+  index knowledge_embedding_hnsw hnsw(embedding vector_cosine_ops);
+  index knowledge_embedding_ivfflat ivfflat(embedding vector_l2_ops) @concurrently;
+}

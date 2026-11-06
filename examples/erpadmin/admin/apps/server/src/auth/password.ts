@@ -33,10 +33,10 @@ export async function signAccessToken(user: { id: string; role: Role }, secret: 
     .sign(new TextEncoder().encode(secret));
 }
 
-export async function verifyAccessToken(token: string, secret: string, issuer: string): Promise<{ id: string; role: Role } | null> {
+export async function verifyAccessToken(token: string, secret: string, issuer: string): Promise<{ id: string; role: Role; issuedAt: number } | null> {
   try {
     const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), { issuer, audience: issuer, algorithms: ["HS256"] });
     if (typeof payload.sub !== "string" || !isRole(payload.role)) return null;
-    return { id: payload.sub, role: payload.role };
+    return { id: payload.sub, role: payload.role, issuedAt: typeof payload.iat === "number" ? payload.iat : 0 };
   } catch { return null; }
 }

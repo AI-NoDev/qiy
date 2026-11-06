@@ -1,16 +1,37 @@
 import "antd/dist/reset.css";
 import "./styles.css";
-import { ConfigProvider, Select, Space, Typography } from "antd";
-import { Refine, useTranslation } from "@refinedev/core";
-import { ThemedLayout, ThemedTitle, useNotificationProvider } from "@refinedev/antd";
+import { Select, Space, Typography, theme } from "antd";
+import { Refine, useTranslation, type I18nProvider } from "@refinedev/core";
+import { RefineKbar, RefineKbarProvider } from "@refinedev/kbar";
 import routerProvider from "@refinedev/react-router";
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useMemo, useState } from "react";
+import { useRouteError } from "react-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { qiyIcons } from "./icons";
 import { dataProvider } from "./data-provider";
 
 import { resources, menuGroups } from "./resources";
-import { antdLocales, createI18nProvider, type QiyLocale } from "./i18n";
+import { getAntdLocale, languageOptions, createI18nProvider, readStoredLocale, resolveLocale, storeLocale, t, type QiyLocale } from "./i18n";
+import { QiyThemeControls, QiyThemedLayout, QiyThemedTitle, QiyUiProvider, useQiyNotificationProvider } from "./ui";
+
+/**
+ * React Router route-module fallbacks. Without them a render error (or a slow
+ * client-side module load) blanks the page; the boundary keeps a readable
+ * message and a reload action instead, and the fallback covers hydration.
+ */
+export function HydrateFallback() {
+  return <div style={{ padding: 24, fontFamily: "system-ui, sans-serif", color: "#888" }}>Loading… / 加载中…</div>;
+}
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "Something went wrong / 页面渲染失败";
+  return <div style={{ padding: 24, fontFamily: "system-ui, sans-serif", maxWidth: 720 }}>
+    <h1 style={{ fontSize: 18, marginBottom: 8 }}>页面渲染失败 / Something went wrong</h1>
+    <p style={{ color: "#888", whiteSpace: "pre-wrap", marginBottom: 16 }}>{message}</p>
+    <button type="button" style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #ddd", cursor: "pointer" }} onClick={() => window.location.reload()}>重新加载 / Reload</button>
+  </div>;
+}
 
 function resolveResourceIcon(name: string) { const Icon = qiyIcons[name as keyof typeof qiyIcons] ?? qiyIcons.TableOutlined; return <Icon />; }
 
@@ -20,38 +41,62 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function Root() {
+  const [locale, setLocale] = useState<QiyLocale>(() => readStoredLocale());
+  const direction = ["ar", "fa", "he", "ur"].includes(locale.split("-")[0]!) ? "rtl" : "ltr";
+  // Persist the choice so a reload keeps the language the user picked; the stored
+  // value wins over the model default and unknown values fall back to it.
+  const applyLocale = useCallback((next: QiyLocale) => { setLocale(next); storeLocale(next); }, []);
+  useEffect(() => { document.documentElement.lang = locale; document.documentElement.dir = direction; }, [locale, direction]);
+  const i18nProvider = useMemo(() => createI18nProvider(locale, applyLocale), [locale, applyLocale]);
+  return <QiyUiProvider direction={direction} locale={getAntdLocale(locale)}><RefineApplication i18nProvider={i18nProvider} /></QiyUiProvider>;
+}
+
+function RefineApplication({ i18nProvider }: { i18nProvider: I18nProvider }) {
   
-  const [locale, setLocale] = useState<QiyLocale>("zh-CN");
-  const notificationProvider = useNotificationProvider();
-  const i18nProvider = useMemo(() => createI18nProvider(locale, setLocale), [locale]);
-  return <ConfigProvider locale={antdLocales[locale]} theme={{ token: { colorPrimary: "#1677ff", borderRadius: 6 } }}><Refine
+  const notificationProvider = useQiyNotificationProvider();
+  const locale = resolveLocale(i18nProvider.getLocale());
+  // Model labels are looked up through their stable keys at render time, so
+  // switching the language re-renders the menu, titles and breadcrumbs.
+  const modelLabel = (labelKey: string | undefined, fallback: string): string => labelKey ? i18nProvider.translate(labelKey, {}, fallback) : fallback;
+  return <RefineKbarProvider><Refine
     dataProvider={dataProvider}
     
     routerProvider={routerProvider}
     notificationProvider={notificationProvider}
     i18nProvider={i18nProvider}
-    resources={[...menuGroups.map((group) => ({
+    resources={[{
+      name: "qiy-overview",
+      list: "/",
+      meta: { label: t(locale, "overview"), icon: resolveResourceIcon("DashboardOutlined") },
+    }, ...menuGroups.map((group) => ({
       name: group.name,
-      meta: { label: group.label, icon: resolveResourceIcon(group.icon), ...("parent" in group ? { parent: group.parent } : {}) },
-    })), ...resources.map((resource) => ({
+      meta: { label: modelLabel(group.labelKey, group.label), icon: resolveResourceIcon(group.icon), ...("parent" in group ? { parent: group.parent } : {}) },
+    })), ...resources.map((resource) => resource.readOnly ? ({
       name: resource.name,
-      meta: { label: resource.label, icon: resolveResourceIcon(resource.icon), ...(resource.menuParent && { parent: resource.menuParent }) },
+      meta: { label: modelLabel(resource.pluralKey, modelLabel(resource.labelKey, resource.label)), icon: resolveResourceIcon(resource.icon), ...(resource.menuParent && { parent: resource.menuParent }) },
+      list: `/${resource.name}`,
+      ...(resource.hasDetail ? { show: `/${resource.name}/:id` } : {}),
+    }) : ({
+      name: resource.name,
+      meta: { label: modelLabel(resource.pluralKey, modelLabel(resource.labelKey, resource.label)), icon: resolveResourceIcon(resource.icon), ...(resource.menuParent && { parent: resource.menuParent }) },
       list: `/${resource.name}`,
       create: `/${resource.name}/new`,
       show: `/${resource.name}/:id`,
       edit: `/${resource.name}/:id/edit`,
     }))]}
     options={{ syncWithLocation: true, warnWhenUnsavedChanges: true, mutationMode: "pessimistic" }}
-  ><ThemedLayout
-    Title={({ collapsed }: { collapsed?: boolean }) => <ThemedTitle collapsed={collapsed ?? false} text="Qiy Admin" />}
+  ><QiyThemedLayout
+    Title={({ collapsed }: { collapsed?: boolean }) => <QiyThemedTitle collapsed={collapsed ?? false} text="Qiy Admin" />}
     Header={() => <AdminHeader />}
-  ><Outlet /></ThemedLayout></Refine></ConfigProvider>;
+  ><Outlet /></QiyThemedLayout><RefineKbar /></Refine></RefineKbarProvider>;
 }
 
 function AdminHeader() {
-  const { getLocale, changeLocale } = useTranslation();
-  return <div className="qiy-header"><Space style={{ width: "100%", justifyContent: "flex-end", paddingRight: 16 }}>
+  const { getLocale, changeLocale, translate } = useTranslation();
+  const { token } = theme.useToken();
+  return <header className="qiy-header" style={{ background: token.colorBgElevated, color: token.colorText, borderBottom: `1px solid ${token.colorBorderSecondary}` }}><Space wrap style={{ width: "100%", justifyContent: "flex-end" }}>
     <Typography.Text type="secondary">Qiy Admin</Typography.Text>
-    <Select aria-label="Language" value={getLocale()} onChange={(value) => void changeLocale(value)} options={[{ value: "zh-CN", label: "中文" }, { value: "en-US", label: "English" }]} />
-  </Space></div>;
+    <QiyThemeControls />
+    <Select aria-label={translate("qiy.language", {}, "Language")} value={getLocale()} onChange={(value) => void changeLocale(value)} options={languageOptions} />
+  </Space></header>;
 }

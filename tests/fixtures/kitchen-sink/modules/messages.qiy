@@ -1,0 +1,35 @@
+messages {
+  default "zh-CN";
+  locale "zh-CN" {
+    "kitchen.application" "全语法夹具";
+    "kitchen.database" "主业务库";
+    "kitchen.ticket" "工单";
+    "kitchen.ticket.title" "工单标题";
+    "kitchen.status.open" "处理中";
+    "kitchen.menu.support" "客服";
+    "kitchen.enum.role" "登录角色";
+    "kitchen.index.code" "业务编码索引";
+    "kitchen.relation.comment" "评论属于一个工单";
+    "kitchen.flow.close" "关闭工单";
+    "kitchen.flow.closeConfirm" "确认关闭所选工单？";
+    "kitchen.flow.closeHelp" "关闭一个工单并记录原因";
+    "kitchen.action.close" "关闭";
+    "qiy.new" "新建";
+  }
+  locale "en-US" {
+    "kitchen.application" "Kitchen-sink fixture";
+    "kitchen.database" "Primary database";
+    "kitchen.ticket" "Ticket";
+    "kitchen.ticket.title" "Ticket title";
+    "kitchen.status.open" "Open";
+    "kitchen.menu.support" "Support";
+    "kitchen.enum.role" "Login roles";
+    "kitchen.index.code" "Business code lookup";
+    "kitchen.relation.comment" "Comments belong to one ticket";
+    "kitchen.flow.close" "Close ticket";
+    "kitchen.flow.closeConfirm" "Close the selected ticket?";
+    "kitchen.flow.closeHelp" "Close one ticket and record why";
+    "kitchen.action.close" "Close";
+    "qiy.new" "New";
+  }
+}

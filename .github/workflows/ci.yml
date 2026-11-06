@@ -30,6 +30,8 @@ jobs:
         run: bun run lint
       - name: Test
         run: bun test
+      - name: Generated examples match the generator
+        run: bun run examples:check
       - name: Coverage gate
         run: bun run coverage:check
       - name: SBOM

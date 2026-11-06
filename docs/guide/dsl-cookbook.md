@@ -273,7 +273,7 @@ entity users @label("Users") @icon(UserOutlined) {
 **坑**
 
 - `user` 要写**实体名**；实体叫 `User table users` 时必须写 `user User`，但 `features apiKeys` 等仍以表名解析——最省心的做法是让实体名等于表名（如本配方 `entity users`）。
-- `usernameField` 必须是必填唯一 Text；`passwordField` 必须可空 Text；`subjectField` 必须必填唯一 Text；`roleField` 必须是含 admin/operator/viewer 的枚举。
+- `usernameField` 必须是必填唯一的 `Text` 或 `Email`；`passwordField` 必须可空 Text；`subjectField` 必须必填唯一 Text；`roleField` 必须是含 admin/operator/viewer 的枚举。
 - 只用 OAuth（不含 local）时没有密码表单与个人中心密码区；`providers` 列表永远不含 `local`/`otp`。
 - OAuth 首次登录必须允许开通（onboarding），否则用户没有可用的本地账号行。
 - provider 的 `subjectField` 映射必须指向该实体真实存在的字段。

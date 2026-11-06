@@ -3,5 +3,8 @@ node_modules
 **/build
 .git
 .env
+apps/server/.env
+apps/server/.env.development
+apps/server/.env.production
 *.log
 storage

@@ -4783,7 +4783,7 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
     if (!user) errors.push(`Auth: unknown user entity ${auth.userEntity}`);
     if (hasLocalAuth) {
       const username = user?.fields.find((field) => field.name === auth.usernameField);
-      if (!username || username.type !== "Text" || username.nullable || !username.unique) errors.push("Auth: usernameField must be a required unique Text field");
+      if (!username || (username.type !== "Text" && username.type !== "Email") || username.nullable || !username.unique) errors.push("Auth: usernameField must be a required unique Text or Email field");
       const password = user?.fields.find((field) => field.name === auth.passwordField);
       if (!password || !["Text"].includes(password.type) || !password.nullable) errors.push("Auth: passwordField must be a nullable Text field storing the password hash");
       if (username && password && username.name === password.name) errors.push("Auth: usernameField and passwordField must be different fields");

@@ -1,0 +1,88 @@
+enum userRole @comment(t("kitchen.enum.role")) {
+  value admin label "Administrator" color red icon SafetyOutlined;
+  value operator label "Operator" color blue icon UserOutlined;
+  value viewer label "Viewer" color default icon EyeOutlined;
+}
+
+enum ticketStatus {
+  value open label "Open" color blue icon ClockCircleOutlined @comment(t("kitchen.status.open"));
+  value pending label "Pending" color orange icon PauseCircleOutlined;
+  value closed label "Closed" color green icon CheckCircleOutlined;
+}
+
+entity users table users @label("Users") @icon(TeamOutlined) {
+  field id UUID @id;
+  field email Email @unique;
+  field displayName Text;
+  field passwordHash Text @nullable @listVisible(false) @showVisible(false) @formVisible(false);
+  field subject Text @unique @listVisible(false);
+  field oktaSubject Text @nullable @unique @visible(false);
+  field corpSubject Text @nullable @unique @visible(false);
+  field oauthProfiles Text @nullable @visible(false);
+  field permissions Text @nullable @listVisible(false);
+  field tenantId UUID @nullable;
+  field orgId UUID @nullable;
+  field queueCode Text @nullable;
+  field role userRole @label("Role") @filterable(true);
+}
+
+entity organizations table organizations @label("Organizations") @icon(ApartmentOutlined) @display("{$.name}") {
+  field id UUID @id;
+  field name Text;
+  field parentId UUID @nullable;
+}
+
+entity tickets table tickets @label("Tickets") @singular("Ticket") @plural("Tickets") @icon(CustomerServiceOutlined) @comment(t("kitchen.ticket")) @display("{$.code} {$.title}") @tableDisplay("{$.code}") @relationDetail("<b>{$.title}</b>") {
+  field id UUID @id;
+  field code Text @code("TCK-{YYYYMM}-{seq:4}");
+  field publicRef UUID @generated(uuid);
+  field title Text @label("Title") @comment(t("kitchen.ticket.title")) @column("ticket_title") @filter(contains, startsWith, endsWith, eq);
+  field contactEmail Email @nullable;
+  field website URL @nullable;
+  field metadata JSON @nullable;
+  field tags Text[] @nullable;
+  field scores Integer[] @nullable;
+  field urgent Boolean;
+  field priority Integer @icon(FireOutlined) @filter(eq, gt, gte, lt, lte, between, in);
+  field estimate Decimal(10, 2) @nullable;
+  field budget Money @precision(12) @scale(2) @nullable;
+  field dueDate Date @nullable;
+  field slotTime Time @nullable;
+  field openedAt DateTime;
+  field closedAt DateTime @nullable @sortable(false);
+  field attachment File @nullable @upload(both) @maxBytes(10485760) @mime("application/pdf", "image/png") @maxFiles(1);
+  field gallery Files @nullable @maxFiles(3) @mime("image/*");
+  field status ticketStatus;
+  field queue Text;
+  field orgId UUID;
+  field assigneeId UUID @nullable;
+  field ownerId UUID;
+  field internalNote Text @nullable @listVisible(false) @filterable(false);
+  field summary Text @computed("{code}: {title}");
+  field deletedAt DateTime @nullable @softDelete;
+  index tickets_code_idx btree(code) @unique @comment(t("kitchen.index.code"));
+  index tickets_queue_status_idx btree(queue, status);
+}
+
+entity contracts table contracts @label("Contracts") @icon(FileProtectOutlined) {
+  field id UUID @id;
+  field title Text;
+  field orgId UUID;
+  field ownerId UUID;
+  field status ticketStatus;
+  field amount Money(12, 2);
+  field internalNote Text @nullable;
+}
+
+entity announcements table announcements @label("Announcements") @icon(NotificationOutlined) {
+  field id UUID @id;
+  field title Text;
+  field queue Text;
+}
+
+entity ticketComments table ticket_comments @label("Comments") @icon(CommentOutlined) {
+  field id UUID @id;
+  field ticketId UUID;
+  field body Text;
+  field tenantId UUID @tenant("tenant.id");
+}

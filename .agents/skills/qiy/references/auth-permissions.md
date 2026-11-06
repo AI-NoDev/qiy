@@ -93,7 +93,7 @@ Every external login is OpenID Connect; vendors differ only in endpoint shape, b
 | `user` | yes | - | Declared user entity (`Auth: unknown user entity X`) |
 | `subjectField` | required for OAuth family | empty | Required + unique + Text column |
 | `roleField` | yes | - | Enum whose values are **exactly** `admin`, `operator`, `viewer` |
-| `usernameField` | required for `local`/`otp` | empty | Required + unique + Text; must differ from `passwordField` |
+| `usernameField` | required for `local`/`otp` | empty | Required + unique + Text or Email; must differ from `passwordField` |
 | `passwordField` | required for `local` | empty | Nullable Text; never appears in the API schema |
 | `profileField` | no | empty | Nullable Text JSON; only with at least one OAuth provider |
 | block `subjectField` | required in hybrid | - | Existing nullable + unique Text column |
@@ -126,7 +126,7 @@ entity users table users @label("Users") {
 
 | Field role | Requirement | Error (excerpt) |
 | --- | --- | --- |
-| `usernameField` | required, unique, Text | `Auth: usernameField must be a required unique Text field` |
+| `usernameField` | required, unique, Text or Email | `Auth: usernameField must be a required unique Text or Email field` |
 | `passwordField` | nullable Text | `Auth: passwordField must be a nullable Text field storing the password hash` |
 | distinct columns | - | `Auth: usernameField and passwordField must be different fields` |
 | `subjectField` | required, unique, Text (with OAuth) | `Auth: subjectField must be a required unique Text field` |

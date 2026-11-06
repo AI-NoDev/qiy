@@ -32,7 +32,8 @@ bun test               # 根仓测试
 bun run template:build # 修改 templates/admin 或 .agents/skills 后重建打包数据
 bun run docs:assets    # 重建 llms*.txt、静态 Skill 与 OG 图
 bun run docs:dev       # 本地预览文档站
-bun run qiy generate examples/self/app.qiy examples/self/admin --sync
+bun run examples:check # 提交的 examples/*/admin 快照是否与生成器一致
+bun run examples:sync  # 生成器改动后重写这些快照
 ```
 
 `tools/verify-*.ts` 会生成真实工作区并在里面安装依赖、跑测试；它们比 `bun test` 慢，按改动范围挑选运行。
@@ -45,8 +46,9 @@ bun run qiy generate examples/self/app.qiy examples/self/admin --sync
 | `examples/erpadmin/` | ERP 压力样例：订单库存事务（`workflow orderInventory`）、图表概览 |
 | `examples/warehouse-admin/` | 多文件模块化最佳实践（文档 [best-practice-warehouse](../docs/guide/best-practice-warehouse.md) 逐段引用） |
 | `examples/dataflow/`、`resource-policy/`、`scoped-sqlite/`、`realtime/`、`auth-providers/`、`filters/`、`themes/`、`multilingual/`、`plugin-matrix/` | 单一主题的回归模型 |
+| `tests/fixtures/kitchen-sink/` | 全语法夹具：三方言入口共享模块，`tests/kitchen-sink.test.ts` 要求每个 IR 属性与闭集取值都被用到；CI 在 SQLite/PostgreSQL/MySQL 上生成、迁移、类型检查并运行生成测试（`tools/verify-kitchen-sink.ts`） |
 
-`examples/catalog/admin`、`erpadmin/admin`、`scoped-sqlite/admin` 是早期提交的生成快照，没有随生成器更新；以重新生成的结果为准。
+`examples/catalog`、`erpadmin`、`scoped-sqlite`、`self` 的 `admin/` 是提交的生成快照，CI 用 `examples:check` 保证它们与生成器一致。
 
 ## 从哪里开始改
 
@@ -111,6 +113,6 @@ Refine Resource
 
 1. 语法变化同时更新解析、序列化、错误信息、`docs/dsl/`、Skill references 与测试；删除语法时解析器要给出带迁移提示的错误。
 2. 服务端是最终权威；新增能力先考虑权限、数据范围与审计，再考虑界面。
-3. 三方言都要能生成；方言不支持时在生成前报错。
-4. 提交前运行 `check`、`lint`、`bun test`；改了模板或 Skill 要先 `template:build`，改了文档要 `docs:assets`。
+3. 三方言都要能生成；方言不支持时在生成前报错。新增语法要写进 `tests/fixtures/kitchen-sink/`，否则 `kitchen-sink.test.ts` 的类型或覆盖断言会失败。
+4. 提交前运行 `check`、`lint`、`bun test`、`examples:check`；改了模板或 Skill 要先 `template:build`，改了文档要 `docs:assets`，改了生成器要 `examples:sync`。
 5. 发版按 [RELEASING](../RELEASING.md)，并同步 CHANGELOG、ROADMAP、AUDIT 与本目录。

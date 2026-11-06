@@ -7,6 +7,7 @@ on:
       - "tools/**"
       - "templates/admin/**"
       - "examples/dataflow/**"
+      - "tests/fixtures/kitchen-sink/**"
       - "package.json"
       - "bun.lock"
       - ".github/workflows/database-smoke.yml"
@@ -15,6 +16,7 @@ on:
       - "tools/**"
       - "templates/admin/**"
       - "examples/dataflow/**"
+      - "tests/fixtures/kitchen-sink/**"
       - "package.json"
       - "bun.lock"
       - ".github/workflows/database-smoke.yml"
@@ -24,6 +26,56 @@ permissions:
   contents: read
 
 jobs:
+  kitchen-sink:
+    name: kitchen-sink (${{ matrix.dialect }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dialect: sqlite
+            url: ""
+          - dialect: postgresql
+            url: postgres://qiy:isolated-ci-test-only@127.0.0.1:5432/qiy_kitchen
+          - dialect: mysql
+            url: mysql://root:isolated-ci-test-only@127.0.0.1:3306/qiy_kitchen
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: qiy
+          POSTGRES_PASSWORD: isolated-ci-test-only
+          POSTGRES_DB: qiy_kitchen
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U qiy -d qiy_kitchen"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: isolated-ci-test-only
+          MYSQL_DATABASE: qiy_kitchen
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - name: Install generator dependencies
+        run: bun install --frozen-lockfile
+      - name: Generate, migrate, type-check and test the kitchen-sink fixture
+        run: bun tools/verify-kitchen-sink.ts ${{ matrix.dialect }} ${{ matrix.url }}
+
   postgres-dataflow:
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -32,6 +32,8 @@
     "skill:build": "bun run tools/build-skill.ts",
     "build:exe": "bun run tools/build-exe.ts",
     "docs:assets": "bun run tools/build-docs-assets.ts",
+    "examples:check": "bun run tools/check-examples.ts",
+    "examples:sync": "bun run tools/check-examples.ts --write",
     "docs:dev": "bun run docs:assets && vitepress dev docs",
     "docs:build": "bun run docs:assets && vitepress build docs && bun run tools/build-docs-version.ts",
     "docs:version": "bun run tools/build-docs-version.ts",

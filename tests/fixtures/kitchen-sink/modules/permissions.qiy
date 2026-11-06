@@ -1,0 +1,17 @@
+permission field TicketReadPermission "tickets:read" @label("Read tickets");
+permission field TicketClosePermission "tickets:close" @label("Close tickets") @comment("Close a ticket through the closeTicket command");
+permission group Support { TicketReadPermission, TicketClosePermission }
+permission group Reader { TicketReadPermission }
+permission group SupportLead = Support & Reader;
+permission group admin { SupportLead }
+permission group operator { Support }
+permission group viewer { Reader }
+permission from database field users.permissions;
+permission from claim corp "roles";
+permission verification CanCloseTickets {
+  return self.role = "admin" || self.role = "operator";
+}
+permission verification CanUseTicketApi {
+  input { field permission Array<String>; }
+  return input.permission all included in self.permissions || input.permission some included in self.groups;
+}

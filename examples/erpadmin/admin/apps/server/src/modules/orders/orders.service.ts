@@ -1,10 +1,13 @@
 import type { OrdersRepository, ListQuery } from "./orders.contract";
+ 
 const dateFields = ["createdAt"] as string[];
 function normalizeDates(values: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(values).map(([field, value]) => [field, dateFields.includes(field) && typeof value === "string" ? new Date(value) : value]));
 }
+ 
 export function createOrdersService(repository: OrdersRepository) {
   return {
+  aggregate: (field: string, operator: string, scope?: { field: string; value: string }) => repository.aggregate ? repository.aggregate(field, operator, scope) : Promise.resolve({ value: null, operator }),
     distribution: (field: string, scope?: { field: string; value: string }) => repository.distribution(field, scope),
     trend: (field: string, days: number, scope?: { field: string; value: string }) => repository.trend(field, days, scope),
     list: (page: number, pageSize: number, options?: ListQuery) => repository.list(page, pageSize, options),

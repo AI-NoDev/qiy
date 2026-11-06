@@ -4,7 +4,7 @@ application qiy-erp-admin {
   database postgresql {
   }
   storage { provider local; }
-  auth { provider local; user users; roleField role; usernameField email; passwordField passwordHash; }
+  auth { provider local; user users; roleField role; usernameField email; passwordField passwordHash; claim tenant.customerId customerId; }
   workflow orderInventory;
 
   enum userRole {
@@ -28,6 +28,7 @@ application qiy-erp-admin {
     field passwordHash Text @nullable @listVisible(false) @showVisible(false) @formVisible(false);
     field externalSubject Text @nullable @unique @listVisible(false) @showVisible(false);
     field role userRole @label("角色") @filterable(true);
+    field customerId UUID @nullable @label("所属客户");
     index users_email_idx btree(email) @unique;
   }
 
