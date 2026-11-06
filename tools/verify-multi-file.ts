@@ -159,7 +159,7 @@ async function accept(client: "rest" | "graphql", testSource: string): Promise<v
   await must(["bun", "run", "db:generate"], server, { DATABASE_URL: databaseUrl });
   await must(["bun", "run", "db:migrate"], server, { DATABASE_URL: databaseUrl });
   console.log(await must(["bun", "run", "typecheck"], server, { DATABASE_URL: databaseUrl }));
-  console.log(await must(["bun", "test", "--preload", "./tests/setup.ts", `${client}.acceptance.test.ts`], server, { DATABASE_URL: databaseUrl }));
+  console.log(await must(["bun", "test", "--preload", "./tests/setup.ts", `${client}.acceptance.test.ts`], server, { DATABASE_URL: databaseUrl, QIY_TEST_DATABASE_URL: databaseUrl }));
 }
 
 console.log(`workspace ${root}`);

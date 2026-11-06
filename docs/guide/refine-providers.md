@@ -204,7 +204,7 @@ export function qiyApiError(payload, statusCode, locale = document.documentEleme
 | `getMany` | id 分块 + 30 秒合并缓存 | id 分块，无合并缓存 |
 | 过滤器 | 受字段白名单约束 | 所有操作符透传，由服务端 GraphQL schema 校验 |
 | 错误 | `qiyApiError`，带 `statusCode` + `errorKey` | `Error`，只带 `statusCode`（响应含 `errors` 时固定 400），**没有 `errorKey` 本地化** |
-| 实时 | Ably `LiveProvider` | 仍是 Ably `LiveProvider`；额外可选 SSE / `graphql-ws` 订阅客户端 |
+| 实时 | SSE `LiveProvider`（`/api/v1/realtime/stream`） | 同一个 SSE `LiveProvider`；额外有 GraphQL SSE 订阅客户端 |
 
 GraphQL 列表的 `filters` 变量形如 `[{ field, operator, value }]`（生成版会把非 `eq` 操作符一起传出）。`deleteMany` 在 GraphQL 里是 `delete{Name}Many(ids: [ID!]!)`，与 REST 的 `?ids=` 语义一致。
 
@@ -244,7 +244,7 @@ const { result, query } = useOne({ resource: name ?? "", id: id ?? "", liveMode:
 | --- | --- | --- | --- |
 | 本地密码 | `provider local` | `AuthPage`（关闭注册/忘记密码/记住我） | `POST /api/v1/auth/login` |
 | OTP | `provider otp` | 两阶段（标识 → 验证码） | `POST /api/v1/auth/otp/request`、`POST /api/v1/auth/otp/verify` |
-| 单一 OIDC | 无 local 且 provider ∈ `oidc/oauth2/sso/okta/auth0/azure-ad-b2c/keycloak/google/kinde` | 单按钮 + 一次性静默续期 | `auth/oidc-client.ts`：浏览器 PKCE 直达 `VITE_QIY_TOKEN_URL` |
+| 单一 OIDC | 无 local 且 `provider oidc`（任意 preset） | 单按钮 + 一次性静默续期 | `auth/oidc-client.ts`：浏览器 PKCE 直达 `VITE_QIY_TOKEN_URL` |
 | 多 Provider | `providers` 多个且不含 `local` | `GET /api/v1/auth/providers` 渲染按钮列表 | `auth/oidc-multi.ts`：回调经服务端 `POST /api/v1/auth/exchange` |
 | 混合 | `providers` 含 `local` 且有 OAuth | 一张页：密码表单 + Provider 按钮 | 表单走本地登录；按钮走 `oidc-multi`，回调经 `/auth/exchange`，新身份进 onboarding |
 | 宿主集成 | `mode integration` 且 `integration.authTransport` 不是 `none` | `app/extensions/host-login.tsx` | `authProvider={qiyIntegrationAuthProvider}` 委托 `window.qiyHostAuth` |
@@ -356,7 +356,7 @@ const { result, query } = useOne({ resource: name ?? "", id: id ?? "", liveMode:
 
 - `check()` 在无 `window` 时恒返回 `{ authenticated: false, redirectTo: "/auth/login" }`。
 - DataProvider 的 `authHeaders()` 在无 `window` 时返回空对象（不会发 Bearer）。
-- `createQiyLiveProvider()` 在无 `window` 且未注入 Ably 客户端时返回 `undefined`。
+- `createQiyLiveProvider()` 在无 `window` 且未注入 `fetcher` 时返回 `undefined`。
 - 路由模块里的 loader/action 不要假设能拿到 auth hook；需要在非 hook 位置读身份时用 `fetchCurrentIdentity()`。
 
 ### 角色与权限如何浮现
@@ -438,15 +438,15 @@ options: {
 
 | 项 | 行为 |
 | --- | --- |
-| 传输 | Ably Realtime JS SDK 2.x；`QIY_ABLY_API_KEY` 只在服务端 |
-| 授权 | `POST /api/v1/realtime/token`（Bearer 会话）→ Ably TokenRequest，subscribe-only、按角色 capability |
+| 传输 | 自托管 SSE：`GET /api/v1/realtime/stream`，用 `fetch` 读取并带 `Authorization: Bearer`（不用 `EventSource`），无第三方依赖 |
+| 连接 | 所有 Refine 订阅共享一条连接：首个订阅时打开，最后一个取消时关闭；断开后按 1s→30s 指数退避重连，401/403 时保持空闲 |
 | 通道 | `qiy:{table}`；声明了 `when {field} claim {claim}` 的资源是分段通道 `qiy:{table}:{claimValue}` |
-| 通道解析 | 客户端不假设通道名：从 token 的 `capability` 里找 `qiy:{table}` 或 `qiy:{table}:*`，找不到才退回基础名 |
-| 事件类型 | `subscribe({ types })` 对应资源声明的 `created`/`updated`/`deleted`；回调里的 `type` 取消息名，消息无名时为 `*` |
-| 记录级裁剪 | `params.id` / `params.ids` 存在时，只有 `payload.id` 或 `payload.data.id` 命中才回调 |
-| 负载 | `message.data` 是对象时原样给 Refine，否则包成 `{ data }`；`date` 取消息时间戳 |
-| 取消 | `unsubscribe(subscription)` 调 `channel.unsubscribe(types, listener)` |
-| SSR | 无 `window` 且未注入客户端时 `createQiyLiveProvider()` 返回 `undefined` |
+| 通道匹配 | 服务端只发送调用者被授予的 channel；客户端按资源前缀匹配（`qiy:{table}` 或 `qiy:{table}:*`），因此无需知道 claim 值 |
+| 事件类型 | `subscribe({ types })` 对应资源声明的 `created`/`updated`/`deleted`；`*` 接收全部 |
+| 记录级裁剪 | `params.id` / `params.ids` 存在时，只有 `record.id` 或 `record.data.id` 命中才回调 |
+| 负载 | 回调 `payload` 是已脱敏的记录对象 |
+| 取消 | `unsubscribe(subscription)` 移除订阅；没有订阅时断开连接 |
+| SSR | 无 `window` 且未注入 `fetcher` 时 `createQiyLiveProvider()` 返回 `undefined` |
 
 `resources[].liveMode` 来自 `realtime` 块的 `mode`：`auto` 让 Refine 自动失效相关查询，`manual` 只把事件交给 `onLiveEvent`（生成代码没有接 `onLiveEvent`，所以 `manual` 需要你自己在页面里处理）。如上一节所述，生成路由只给详情页传了 `liveMode`：
 
@@ -455,7 +455,7 @@ options: {
 const { tableProps } = useTable({ resource: name ?? "", liveMode: resource?.liveMode ?? "off", pagination: { currentPage: 1, pageSize: 10 } });
 ```
 
-`/api/v1/realtime/token` 的失败语义：未认证 401、无任何 channel 权限 403（`Realtime subscription is not permitted`）、`QIY_REALTIME_DISABLED=1` 时 503。dataflow 的 `emit` 不走这条通道，而是发到 `qiy:event:{event}`，需要单独订阅。投递语义（at-least-once、死信、重放、脱敏时机）见 [realtime](/dsl/realtime)。
+`/api/v1/realtime/stream` 的失败语义：未认证 401、无任何 channel 权限 403（`Realtime subscription is not permitted`）、`QIY_REALTIME_DISABLED=1` 时 503。dataflow 的 `emit` 发到 `qiy:event:{event}`，同一条流里也会出现（前提是角色在该 dataflow 的 `allow roles` 里）。投递语义（尽力实时、跨副本尾随、脱敏时机）见 [realtime](/dsl/realtime)。
 
 ## AuditLogProvider
 
@@ -578,7 +578,7 @@ const dataProvider = createDataProvider(async (input, init) => {
 
 - `createDataProvider(fetcher)` / `createGraphQLDataProvider(fetcher)`：`fetcher` 默认为 `fetch`，替换它就能统一加日志、埋点、重试或把请求转发到别的 origin。
 - `createAuditLogProvider(fetcher)`：同上，方便在宿主里换成带自有审计端点的 fetch。
-- `createQiyLiveProvider(fetcher, injected)`：`injected` 可传一个已建好的 Ably 客户端（测试里用假客户端，SSR 时返回 `undefined`）。
+- `createQiyLiveProvider({ fetcher, reconnectDelayMs, maxReconnectDelayMs })`：测试里注入返回 SSE 响应的假 `fetcher`；SSR 时返回 `undefined`。
 - `getMany` 的 30 秒缓存是**实例内**状态：`createDataProvider()` 返回新实例即新缓存；`dataProvider` 单例的缓存跟随模块生命周期。
 
 ### 宿主集成模式
@@ -689,8 +689,8 @@ app/resources.ts          # resourceNames / resources[].{name,apiName,fields}
 | 审计面板 403 | 非 admin；或该资源声明了 `scope` | 用 admin 查看；租户审计需要持久化 scope 元数据 |
 | 审计面板 400 `Unknown audit resource` | 传了实体名而不是表名 | 用 `resource.name`（tableName） |
 | 列表不实时刷新 | 列表 `useTable` 没传 `liveMode` | 显式传 `liveMode: resource.liveMode` |
-| 详情页收不到事件 | 角色不在 `realtime.roles`；分段通道 claim 缺失 | 看 `/api/v1/realtime/token` 的 capability；补角色/claim |
-| `/api/v1/realtime/token` 503 | `QIY_REALTIME_DISABLED=1` | 取消该变量 |
+| 详情页收不到事件 | 角色不在 `realtime.roles`；分段通道 claim 缺失；反向代理缓冲 SSE | 看 `/api/v1/realtime/stream` 首帧 `ready` 列出的 channel；补角色/claim；关闭代理缓冲 |
+| `/api/v1/realtime/stream` 503 | `QIY_REALTIME_DISABLED=1` | 取消该变量 |
 | 命令按钮报 `Unknown workflow command` | 调了未声明的命令 URL，或 method 不是 `post` | 命令必须走 `dataflow`/`actions` 声明 |
 | GraphQL 错误没有中文文案 | GraphQL 错误不带 `errorKey` | 已知差异；需要本地化就用 REST 客户端或自己映射 |
 | 退出登录后仍残留 `qiy.id_token` | 多 Provider 模式的 `logout` 只删 access token | 自己清或改用混合模式 |
@@ -742,7 +742,7 @@ curl -s -o /dev/null -w '%{http_code}\n' "$API/api/v1/audit-logs/?resource=produ
 
 # 8) Provider 列表与实时 token
 curl -s $API/api/v1/auth/providers
-curl -s -X POST $API/api/v1/realtime/token -H "Authorization: Bearer $TOKEN"                                                        # 期望 TokenRequest
+curl -s -N $API/api/v1/realtime/stream -H "Authorization: Bearer $TOKEN"                                                            # 期望 event: ready
 
 # 9) 命令（命令名取模型里声明的 dataflow，例如 receiveInventory；body 形状由该 flow 的 inputs 决定）
 curl -s -X POST "$API/api/v1/commands/receiveInventory" \

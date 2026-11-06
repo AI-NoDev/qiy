@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { DatabaseIR } from "./database-ir";
 import type { QiyEnvironmentVariable, QiyProject } from "./qiy-project";
-import { authHasLocal, authIsHybrid, authOAuthProviders, authUsesProviderChooser, type QiyAuthProvider } from "./qiy-project";
+import { authHasLocal, authIsHybrid, authOAuthProviders, authProviderPreset, authUsesProviderChooser, type QiyAuthProvider, type QiyOidcPreset } from "./qiy-project";
 
 type Mode = "development" | "production" | "example";
 type EnvOptions = Pick<QiyProject, "apiClient" | "corsOrigins" | "elysiaPlugins" | "realtime" | "storageProvider" | "auth" | "environment">;
@@ -14,8 +14,8 @@ export function providerEnvSuffix(provider: string): string {
   return provider.toUpperCase().replace(/[^A-Z0-9]/g, "_");
 }
 
-function providerOidcExample(provider: QiyAuthProvider): { issuer: string; jwksUrl: string; authorizationUrl: string; tokenUrl: string } {
-  const sample = oidcExample(provider);
+function providerOidcExample(auth: NonNullable<QiyProject["auth"]>, provider: QiyAuthProvider): { issuer: string; jwksUrl: string; authorizationUrl: string; tokenUrl: string } {
+  const sample = oidcExample(authProviderPreset(auth, provider));
   return {
     issuer: `https://${provider}.example.com/`,
     jwksUrl: `https://${provider}.example.com/.well-known/jwks.json`,
@@ -24,7 +24,7 @@ function providerOidcExample(provider: QiyAuthProvider): { issuer: string; jwksU
   };
 }
 
-function oidcExample(provider: NonNullable<QiyProject["auth"]>["provider"]): { authorizationUrl: string; tokenUrl: string; logoutUrl: string } {
+function oidcExample(provider: QiyOidcPreset): { authorizationUrl: string; tokenUrl: string; logoutUrl: string } {
   if (provider === "google") return { authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth", tokenUrl: "https://oauth2.googleapis.com/token", logoutUrl: "" };
   if (provider === "auth0") return { authorizationUrl: "https://YOUR_TENANT.auth0.com/authorize", tokenUrl: "https://YOUR_TENANT.auth0.com/oauth/token", logoutUrl: "https://YOUR_TENANT.auth0.com/v2/logout" };
   if (provider === "okta") return { authorizationUrl: "https://YOUR_OKTA_DOMAIN/oauth2/default/v1/authorize", tokenUrl: "https://YOUR_OKTA_DOMAIN/oauth2/default/v1/token", logoutUrl: "https://YOUR_OKTA_DOMAIN/oauth2/default/v1/logout" };
@@ -75,7 +75,7 @@ function defaults(database: DatabaseIR, options: EnvOptions, mode: Mode): Map<st
     // configured provider; the public login page lists only blocks that are set.
     for (const provider of oauthProviders) {
       const suffix = providerEnvSuffix(provider);
-      const sample = providerOidcExample(provider);
+      const sample = providerOidcExample(auth, provider);
       values.set(`QIY_OIDC_${suffix}_ISSUER`, example ? sample.issuer : "");
       values.set(`QIY_OIDC_${suffix}_AUDIENCE`, example ? "qiy-admin" : "");
       values.set(`QIY_OIDC_${suffix}_JWKS_URL`, example ? sample.jwksUrl : "");
@@ -95,19 +95,10 @@ function defaults(database: DatabaseIR, options: EnvOptions, mode: Mode): Map<st
   if (options.elysiaPlugins?.jwt) values.set(options.elysiaPlugins.jwt.secretEnv, development ? generatedSecret : "");
   if (options.elysiaPlugins?.cron?.length) values.set("QIY_CRON_ENABLED", "0");
   if (options.realtime) {
-    values.set("QIY_ABLY_API_KEY", "");
     values.set("QIY_REALTIME_DISABLED", "0");
-    values.set("QIY_REALTIME_POLL_MS", "5000");
-    values.set("QIY_REALTIME_LEASE_MS", "30000");
-    values.set("QIY_REALTIME_MAX_ATTEMPTS", "10");
-    values.set("QIY_REALTIME_RETENTION_DAYS", "7");
-    values.set("QIY_REALTIME_CLEANUP_MS", "86400000");
-    values.set("QIY_REALTIME_ADMIN_URL", development ? "http://127.0.0.1:3000/api/v1/realtime/outbox" : example ? "https://admin.example.com/api/v1/realtime/outbox" : "");
-    values.set("QIY_REALTIME_ADMIN_TOKEN", "");
-    values.set("QIY_REALTIME_METRICS_TOKEN", "");
-    values.set("QIY_REALTIME_ALERT_MAX_PENDING", "1000");
-    values.set("QIY_REALTIME_ALERT_MAX_DEAD_LETTERED", "0");
-    values.set("QIY_REALTIME_ALERT_MAX_OLDEST_PENDING_MS", "300000");
+    values.set("QIY_REALTIME_POLL_MS", "1000");
+    values.set("QIY_REALTIME_RETENTION_DAYS", "1");
+    values.set("QIY_REALTIME_CLEANUP_MS", "3600000");
   }
   if (options.storageProvider === "s3") {
     values.set("QIY_S3_BUCKET", "");
@@ -154,7 +145,6 @@ function serverEnvironment(database: DatabaseIR, options: EnvOptions, mode: Mode
   if (options.auth?.provider === "otp") lines.push("", "# OTP uses QIY_AUTH_SECRET to sign challenges and access tokens. Configure an HTTPS delivery adapter in production; QIY_OTP_DEV_CODE is development-only.");
   if (options.elysiaPlugins?.jwt) lines.push("", `# ${options.elysiaPlugins.jwt.secretEnv} is required by the configured Elysia JWT plugin.`);
   if (options.storageProvider === "s3") lines.push("", "# Set the QIY_S3_* values above for Bun's S3-compatible storage adapter.");
-  if (options.realtime) lines.push("", "# QIY_ABLY_API_KEY remains server-only. The browser obtains a role-scoped, subscribe-only token request from /api/v1/realtime/token.", "# QIY_REALTIME_ADMIN_TOKEN is an administrator access token used only by the realtime:admin HTTP client; never commit it.", "# QIY_REALTIME_METRICS_TOKEN is a separate read-only bearer token for Prometheus scraping; rotate it through the deployment secret.");
   for (const variable of options.environment ?? []) {
     if (variable.secret) lines.push(`# ${variable.name} is secret; supply it through a secret manager in production.`);
     if (variable.production?.kind === "required") lines.push(`# ${variable.name} must be configured before production startup.`);
@@ -169,7 +159,7 @@ function webEnvironment(options: EnvOptions, mode: Mode): string {
   // so only the legacy single-provider client needs VITE_QIY_* settings.
   const singleOidc = options.auth && isOidcAuth(options.auth.provider) && !authUsesProviderChooser(options.auth);
   if (singleOidc && options.auth) {
-    const sample = oidcExample(options.auth.provider);
+    const sample = oidcExample(authProviderPreset(options.auth, options.auth.provider));
     const useSample = mode === "example";
     values.set("VITE_QIY_AUTHORIZATION_URL", useSample ? sample.authorizationUrl : "");
     values.set("VITE_QIY_TOKEN_URL", useSample ? sample.tokenUrl : "");

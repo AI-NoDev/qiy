@@ -14,13 +14,13 @@ describe("ERP Admin project", () => {
     ]);
     expect(project.database.entities.find((entity) => entity.name === "orders")?.indexes).toHaveLength(2);
     expect(project.workflows).toEqual(["orderInventory"]);
-    expect(project.dashboardMetrics).toHaveLength(6);
-    expect(project.dashboardMetrics?.find((metric) => metric.name === "orderTrend")).toMatchObject({ type: "trend", groupBy: "createdAt", days: 30 });
+    expect(project.charts).toHaveLength(6);
+    expect(project.charts?.find((chart) => chart.name === "OrderTrend")?.views[0]).toMatchObject({ kind: "line", data: { operation: "trend", entity: "orders", field: "createdAt", days: 30 } });
   });
 
   test("generates independent modules for ERP resources", () => {
     const project = parseQiyProject(source);
-    const files = generateProject(project.database, project.name, { dashboardMetrics: project.dashboardMetrics, scopes: project.scopes, workflows: project.workflows });
+    const files = generateProject(project.database, project.name, { charts: project.charts, scopes: project.scopes, workflows: project.workflows });
     for (const resource of ["users", "customers", "inventoryItems", "orders", "orderItems"]) {
       expect(files[`apps/server/src/modules/${resource}/${resource}.contract.ts`]).toBeTruthy();
       expect(files[`apps/server/src/modules/${resource}/${resource}.repository.ts`]).toBeTruthy();
@@ -80,8 +80,8 @@ describe("ERP Admin project", () => {
     expect(files["apps/web/app/components/resource-form.tsx"]).toContain('<FileInput field={field} resource={resource.name} resourceId={id} />');
     expect(files["apps/web/app/components/resource-form.tsx"]).toContain('resourceId={id}');
     expect(files["apps/web/app/resources.ts"]).toContain('"orders"');
-    expect(files["apps/web/app/dashboard.ts"]).toContain('"name": "orderCount"');
-    expect(files["apps/web/app/routes/home.tsx"]).toContain("useCustom");
+    expect(files["apps/web/app/dashboard.ts"]).toBeUndefined();
+    expect(files["apps/web/app/charts.ts"]).toContain('"name": "OrderCount"');
     expect(files["apps/server/src/modules/orders/orders.repository.ts"]).toContain("groupBy(column)");
     expect(files["apps/server/src/modules/orders/orders.routes.ts"]).toContain('"claim":"tenant.customerId"');
     expect(files["apps/server/src/modules/orders/orders.repository.ts"]).toContain('"customerId": orders.customerId');
@@ -95,7 +95,7 @@ describe("ERP Admin project", () => {
 
   test("uses Bun's SQLite migrator for SQLite packages", () => {
     const project = parseQiyProject(source.replace("database postgresql {", "database sqlite {").replace("  workflow orderInventory;", ""));
-    const files = generateProject(project.database, project.name, { dashboardMetrics: project.dashboardMetrics, scopes: project.scopes, workflows: project.workflows });
+    const files = generateProject(project.database, project.name, { charts: project.charts, scopes: project.scopes, workflows: project.workflows });
     const serverPackage = JSON.parse(files["apps/server/package.json"]!) as { scripts: Record<string, string> };
     expect(serverPackage.scripts["db:migrate"]).toBe("bun --env-file=.env.development src/db-migrate.ts");
     expect(files["apps/server/src/db-migrate.ts"]).toContain('from "drizzle-orm/bun-sqlite/migrator"');

@@ -1,12 +1,12 @@
 import type { InventoryRepository, ListQuery } from "./inventory.contract";
- import { dispatchRealtimeOutbox } from "../../realtime";
+ import { pollRealtimeOutbox } from "../../realtime";
 const dateFields = ["updatedAt"] as string[];
 function normalizeDates(values: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(values).map(([field, value]) => [field, dateFields.includes(field) && typeof value === "string" ? new Date(value) : value]));
 }
  async function dispatchCommitted(): Promise<void> {
-   try { await dispatchRealtimeOutbox(); }
-   catch (error) { console.error("Realtime outbox dispatch failed after committed mutation", { resource: "inventory", error }); }
+   try { await pollRealtimeOutbox(); }
+   catch (error) { console.error("Realtime outbox read failed after committed mutation", { resource: "inventory", error }); }
 }
 export function createInventoryService(repository: InventoryRepository) {
   return {

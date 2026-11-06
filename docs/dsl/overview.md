@@ -107,14 +107,14 @@ theme blue
 | 13 | `messages { … }` | 多语言词典 | [多语言](/dsl/i18n) |
 | 14 | `permission …` | 原子权限/组/来源/校验 | [权限](/dsl/permissions) |
 | 15 | `workflow orderInventory;` | 业务流程 | [application · workflow](/dsl/application#workflow) |
-| 16 | `enum … { value …; }` | 枚举 | [enum/menu/dashboard](/dsl/enum-menu-dashboard#enum) |
+| 16 | `enum … { value …; }` | 枚举 | [enum/menu](/dsl/enum-menu-dashboard#enum) |
 | 17 | `entity … { field …; index …; }` | 实体与字段/索引 | [entity 与 field](/dsl/entity) |
 | 18 | `relation …;` | 外键与关联 | [relation 与 index](/dsl/relation-index) |
 | 19 | `scope …;` | 数据范围 | [application · scope](/dsl/application#scope) |
 | 20 | `restrict … { … }` | 行级/字段级策略 | [application · restrict](/dsl/application#restrict) |
 | 21 | `pages … { … }` | 页面级角色规则 | [application · pages](/dsl/application#pages) |
-| 22 | `menu { group … { resource …; } }` | 侧边栏 | [enum/menu/dashboard · menu](/dsl/enum-menu-dashboard#menu) |
-| 23 | `dashboard { metric …; }` / `chart …` / `chart panels …` | 概览页 | [dashboard](/dsl/enum-menu-dashboard#dashboard)、[chart](/dsl/charts) |
+| 22 | `menu { group … { resource …; } }` | 侧边栏 | [enum/menu · menu](/dsl/enum-menu-dashboard#menu) |
+| 23 | `chart …` / `chart panels …` | 概览页 | [chart](/dsl/charts) |
 | 24 | `dataflow … { … }` | 事务型命令 | [dataflow](/dsl/dataflow) |
 | 25 | `action … { … }` | 命令按钮/手写页 | [action](/dsl/actions) |
 
@@ -195,7 +195,6 @@ Qiy 有三类翻译来源，按优先级合并：
 | `qiy.resources.<resource>.fields.<field>.label` | 列头、详情字段名、表单 label、筛选占位符 | `field` 名 |
 | `qiy.enums.<enum>.label` / `.values.<value>` | 枚举名与枚举值 Tag/选项 | `enum` 名与值名 |
 | `qiy.menu.<group>.label` | 菜单分组 | `menu group` 名 |
-| `qiy.dashboard.<metric>.label` | 概览指标卡 | `metric` 名 |
 | `qiy.charts.<chart>.label` / `.views.<kind>.label` / `.labels.<value>` | 图表面板/视图/分布文案 | `chart` 名、视图 kind、值 |
 | `qiy.actions.<action>.label` / `.confirm` / `.inputs.<input>.label` | 业务命令按钮、确认文案、输入表单 | `action` 名与输入名 |
 
@@ -262,7 +261,7 @@ application reviews-admin @comment(t("application.reviews")) {
 ## 版本与兼容
 
 - 文件必须以 `qiy v0;` 作为第一个声明（前面只能有空白与注释），版本 token 目前**只有 `v0`**；其它写法在解析期就失败（`Expected v0 near token N`）。
-- 序列化器（`serializeQiyProject`）输出标准 `qiy v0;` 形式：块顺序固定、注解顺序固定、`entity … table …` 显式写出。它是**规范化**而非逐字保留：显式写的默认值可能被省略（例如 `mode standalone;` 不会回写），语义不变；`@code` 字段、权限与图表会重新渲染成等价文本（用于往返测试与 MPS 导出）。
+- 序列化器（`serializeQiyProject`）输出标准 `qiy v0;` 形式：块顺序固定、注解顺序固定、`entity … table …` 显式写出。它是**规范化**而非逐字保留：显式写的默认值可能被省略（例如 `mode standalone;` 不会回写），语义不变；`@code` 字段、权限与图表会重新渲染成等价文本（用于往返测试）。
 - `.qiy-generated.json` 记录 `schemaVersion: 1` 与生成它的 `qiyVersion`；manifest schema 变更会让旧的 `--sync` 明确失败，而不是猜测。
 - 语法本身**没有向前兼容**：未知构造/注解直接报错。升级 CLI 后请用 `qiy generate … --sync` 或 `qiy init --sync` 重新生成，并检查生成的迁移。
 - `--sync` 只重写 manifest 登记的文件并删除不再生成的登记文件；未登记文件不会被触碰。

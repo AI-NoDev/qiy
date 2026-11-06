@@ -1,4 +1,4 @@
-﻿# 注解总览（@annotations）
+# 注解总览（@annotations）
 
 本页是 Qiy DSL 中**全部** `@annotation` 的单一索引：可用位置、参数形态、默认值、i18n 行为、生成效果与校验错误。各构造的完整语法见对应章节，本页只做横向对照。
 
@@ -22,7 +22,7 @@
 | 注解 | 可用位置 | 参数 | 默认 | i18n | 生成效果 | 校验错误 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `@comment(…)` | `application`、`database`、`enum`、枚举值、`entity`、`field`、`index`、`relation`、`menu group`、`dashboard metric`、`permission field/group/verification`、`dataflow`、dataflow `input`/`context`/`step`、`action … page manual` | `documentation` | 无 | 保留 `commentKey`；schema JSDoc 写 `i18n: key`；枚举值/指标说明按当前语言渲染 | 见各构造 | `Missing default locale message for <purpose>: <key>`；`duplicate @comment annotation`（enum/menu/metric/dataflow 等定义处） |
-| `@label(…)` | `entity`、`field`、`menu group`、`dashboard metric`、`permission field/group/verification`、`dataflow` | `documentation`（支持 `t("key")`） | 实体名 / 字段名 / 分组名 / 指标名 | `qiy.resources.<table>.label`、`qiy.resources.<table>.fields.<field>.label`、`qiy.menu.<group>.label`、`qiy.dashboard.<metric>.label`；dataflow 的 `t()` 键被 action 继承 | 显示文本 | 位置错误：`Unsupported <construct> attribute @label` |
+| `@label(…)` | `entity`、`field`、`menu group`、`permission field/group/verification`、`dataflow` | `documentation`（支持 `t("key")`） | 实体名 / 字段名 / 分组名 | `qiy.resources.<table>.label`、`qiy.resources.<table>.fields.<field>.label`、`qiy.menu.<group>.label`；dataflow 的 `t()` 键被 action 继承 | 显示文本 | 位置错误：`Unsupported <construct> attribute @label` |
 | `@icon(…)` | `entity`、`field`、`menu group`、`dashboard metric` | `string` | 实体按名字启发（`user`/`order`/`warehouse`/其他）；菜单 `AppstoreOutlined`；其他无 | 无 | 图标渲染/元数据 | 必须匹配 `^[A-Z][a-zA-Z0-9]*Outlined$`，否则 `Invalid Ant Design icon X` |
 | `@confirm(…)` | `dataflow` | `documentation` | 无 | `t()` 键会被 action 继承为 `confirmKey` | 生成命令按钮的二次确认文案 | `duplicate @confirm annotation`；action 上的 `confirm` 只对 dataflow 目标有效 |
 | `@error(…)` | dataflow `step` 内的 `require … @error(…)` | `documentation` | 必填 | `t()` 键用于业务错误翻译 | 校验失败时返回的错误文案 | 缺失或写错位置都会在语法阶段失败（`Expected @ near token N`） |
@@ -78,20 +78,16 @@
 | `@comment(…)` | `index` / `relation` | `documentation` | 无 | schema JSDoc | `t()` key 缺失 |
 | `@onDelete(…)` | `relation` | `restrict` / `cascade` / `setNull`；`@onDelete("")` 表示不生成 | 数据库默认 | 外键 `ON DELETE` 行为 | `Unsupported onDelete action X`；`setNull requires a nullable source field` |
 
-## menu / metric 注解
+## menu 注解
 
 | 注解 | 位置 | 参数 | 默认 | 生成效果 | 校验错误 |
 | --- | --- | --- | --- | --- | --- |
-| `@label(…)` | `menu group` / `dashboard metric` | `documentation` | 分组名 / 指标名 | 标题 | 位置错误报错 |
-| `@icon(…)` | `menu group` / `dashboard metric` | `string` | 菜单 `AppstoreOutlined`；指标无 | 图标 | 图标正则 |
+| `@label(…)` | `menu group` | `documentation` | 分组名 | 标题 | 位置错误报错 |
+| `@icon(…)` | `menu group` | `string` | `AppstoreOutlined` | 图标 | 图标正则 |
 | `@parent(…)` | `menu group` | 分组名 | 无 | 嵌套子菜单 | `unknown parent` / `cyclic parent` |
-| `@span(n)` | `dashboard metric` | `8` / `12` / `24` | `8` | 卡片宽度 | `span must be 8, 12 or 24` |
-| `@type(…)` | `dashboard metric` | `count` / `distribution` / `trend` / `aggregate` | `count` | 指标类型 | `type must be count, distribution, trend or aggregate` |
-| `@groupBy(…)` | `dashboard metric` | 字段名 | 无 | 分组字段 | `distribution requires an enum groupBy field` / `trend requires a DateTime groupBy field` |
-| `@field(…)` | `dashboard metric` | 字段名 | 无 | 聚合字段 | `aggregate requires a numeric field`；非 aggregate 使用 → `field and agg require aggregate type` |
-| `@agg(…)` | `dashboard metric` | `sum` / `avg` / `min` / `max` | 无 | 聚合方式 | `agg must be sum, avg, min or max` |
-| `@days(n)` | `dashboard metric` | 1…365 | 无 | 趋势窗口 | `days requires trend type` / `days must be between 1 and 365` |
-| `@comment(…)` | `menu group` / `dashboard metric` | `documentation` | 无 | 分组/卡片说明 | `duplicate @comment annotation` |
+| `@comment(…)` | `menu group` | `documentation` | 无 | 分组说明 | `duplicate @comment annotation` |
+
+概览页卡片用 `chart` 的属性（`title`、`icon`、`data`）声明，不使用注解，见 [chart](/dsl/charts)。
 
 ## permission / dataflow / action 注解
 
@@ -130,7 +126,6 @@
 | 枚举值 `label` | `qiy.enums.<enum>.values.<value>` | label → 值名 |
 | `@comment(t("key"))` | 不派生；直接使用给定键 | key 必须存在于默认语言 |
 | `menu group @label` | `qiy.menu.<group>.label` | label → 分组名 |
-| `dashboard metric @label` | `qiy.dashboard.<metric>.label` | label → 指标名 |
 | `dataflow @label(t("key"))` 被 action 继承 | `qiy.actions.<action>.label`（action 自身 label 优先） | action label → dataflow label |
 
 ## 覆盖清单

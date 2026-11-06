@@ -84,7 +84,7 @@ find .agents/skills/qiy -type f             # macOS/Linux
 | 全部参考文件 | `/skills/qiy/references/` |
 | 可运行示例 | `/skills/qiy/examples/warehouse-admin/README.md` |
 | LLM 文档索引 | `/llms.txt` |
-| LLM 全文 | `/llms-full.txt` |
+| LLM 全文 | `/llms-dsl.txt`（DSL 参考）、`/llms-guides.txt`（指南） |
 
 本地部署时地址为 `http://localhost:5173/...`；生产站点为 `https://ai-nodev.github.io/qiy/...`。解压到 Agent 的 skills 目录：
 
@@ -136,7 +136,7 @@ qiy/
 3. 生成后必须运行 typecheck、测试、build，再声称完成；`preview` 只用于本地验证。
 4. `.qiy` 中不写任何密码/密钥；认证、存储、数据库凭据只通过环境变量与部署 secret 注入。
 5. 修改已有生成项目时优先 `--sync`，尊重 `.qiy-generated.json` 的所有权边界；自定义逻辑放到不受管理目录（如 `extensions/`）。
-6. 需要发现更多 Qiy 文档时，优先请求文档站的 [llms.txt](/llms.txt)（精选索引）或 [llms-full.txt](/llms-full.txt)（全文），而不是逐页爬取。
+6. 需要发现更多 Qiy 文档时，优先请求文档站的 [llms.txt](/llms.txt)（精选索引），需要全文时按主题请求 [llms-dsl.txt](/llms-dsl.txt) 或 [llms-guides.txt](/llms-guides.txt)，而不是逐页爬取。
 7. 不确定的错误先查 `references/troubleshooting.md`；它按校验/认证/命令/存储/CLI/部署分组给出精确错误串与修复方式。
 
 ## 更新与版本

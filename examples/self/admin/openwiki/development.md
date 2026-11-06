@@ -20,7 +20,6 @@ Run `bun install` at the workspace root. Available generated package commands:
 - `db:backup`: `bun --env-file=.env.production src/db-backup.ts`
 - `db:restore`: `bun --env-file=.env.production src/db-restore.ts`
 - `db:check`: `bun --env-file=.env.development src/db-check.ts`
-- `realtime:admin`: `bun --env-file=.env.production src/realtime-admin.ts`
 
 ### apps/web (qiy-generated-web)
 

@@ -90,7 +90,7 @@ try {
 application kinde-real {
   database sqlite {}
   api { client rest; }
-  auth { provider kinde; user users; subjectField subject; roleField role; }
+  auth { provider oidc { preset kinde; } user users; subjectField subject; roleField role; }
   enum userRole { value admin; value operator; value viewer; }
   entity users {
     field id UUID @id;

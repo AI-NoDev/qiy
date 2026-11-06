@@ -128,7 +128,7 @@ shipments
       if (!record) throw new Error("Insert returned no record");
       
       tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "shipments.created", resource: "shipments", resourceId: record.id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
-       tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:shipments", type: "created", payload: JSON.stringify(record), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }).run();
+       tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:shipments", type: "created", payload: JSON.stringify(record), createdAt: new Date() }).run();
       return record;
     });
   },
@@ -139,7 +139,7 @@ shipments
       
       const record = tx.update(shipments).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(notDeleted, eq(shipments.id, id), scopeCondition)).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "shipments.updated", resource: "shipments", resourceId: id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
-       if (record) tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:shipments", type: "updated", payload: JSON.stringify(record), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }).run();
+       if (record) tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:shipments", type: "updated", payload: JSON.stringify(record), createdAt: new Date() }).run();
       return record;
     });
   },

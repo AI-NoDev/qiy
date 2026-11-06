@@ -1,81 +1,81 @@
 import { expect, test } from "bun:test";
 import { createQiyLiveProvider } from "../app/providers/live-provider";
 
-function fakeClient() {
-  const listeners: Array<(message: unknown) => void> = [];
-  const channels: string[] = [];
-  const unsubscribed: number[] = [];
-  const client = {
-    channels: {
-      get: (name: string) => {
-        channels.push(name);
-        return {
-          subscribe: (types: string[], listener: (message: unknown) => void) => { listeners.push(listener); return Promise.resolve(); },
-          unsubscribe: () => { unsubscribed.push(1); },
-        };
-      },
-    },
-  };
-  return { client, listeners, channels, unsubscribed };
-}
-
-function event(id: string | undefined, name = "updated") {
-  return { name, data: id === undefined ? { title: "no id" } : { id, title: "row " + id }, timestamp: 1 };
+function streamingFetcher() {
+  const encoder = new TextEncoder();
+  let push: (frame: string) => void = () => {};
+  const requests: string[] = [];
+  let aborted = 0;
+  const fetcher = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    requests.push(String(url));
+    init?.signal?.addEventListener("abort", () => { aborted += 1; });
+    return new Response(new ReadableStream({ start(controller) { push = (frame) => controller.enqueue(encoder.encode(frame)); } }), { headers: { "Content-Type": "text/event-stream" } });
+  }) as unknown as typeof fetch;
+  const send = (channel: string, event: string, record: Record<string, unknown>) => push("event: " + event + "\ndata: " + JSON.stringify({ id: crypto.randomUUID(), channel, event, record }) + "\n\n");
+  return { fetcher, send, push: (frame: string) => push(frame), requests, aborted: () => aborted };
 }
 
 test("realtime provider stays browser-only during SSR", () => {
   expect(createQiyLiveProvider()).toBeUndefined();
 });
 
-test("scopes record subscriptions to the requested ids", async () => {
-  const { client, listeners, channels } = fakeClient();
-  const tokenFetcher = (async () => Response.json({ capability: JSON.stringify({ "qiy:orders": ["subscribe"] }) })) as unknown as typeof fetch;
-  const provider = createQiyLiveProvider(tokenFetcher, client as never)!;
-  const received: Array<Record<string, unknown>> = [];
-  provider.subscribe({ channel: "orders", types: ["updated"], callback: (live) => received.push(live.payload as Record<string, unknown>), params: { subscriptionType: "useOne", id: "one" } });
+test("shares one stream and scopes record subscriptions to the requested ids", async () => {
+  const stream = streamingFetcher();
+  const provider = createQiyLiveProvider({ fetcher: stream.fetcher })!;
+  const one: Array<Record<string, unknown>> = [];
   const many: Array<Record<string, unknown>> = [];
-  provider.subscribe({ channel: "orders", types: ["updated"], callback: (live) => many.push(live.payload as Record<string, unknown>), params: { subscriptionType: "useMany", ids: ["a", "b"] } });
   const list: Array<Record<string, unknown>> = [];
-  provider.subscribe({ channel: "orders", types: ["created"], callback: (live) => list.push(live.payload as Record<string, unknown>), params: { subscriptionType: "useList" } });
   const wrapped: Array<Record<string, unknown>> = [];
+  provider.subscribe({ channel: "orders", types: ["updated"], callback: (live) => one.push(live.payload as Record<string, unknown>), params: { subscriptionType: "useOne", id: "one" } });
+  provider.subscribe({ channel: "orders", types: ["updated"], callback: (live) => many.push(live.payload as Record<string, unknown>), params: { subscriptionType: "useMany", ids: ["a", "b"] } });
+  provider.subscribe({ channel: "resources/orders", types: ["*"], callback: (live) => list.push(live.payload as Record<string, unknown>), params: { subscriptionType: "useList" } });
   provider.subscribe({ channel: "orders", types: ["updated"], callback: (live) => wrapped.push(live.payload as Record<string, unknown>), params: { id: "nested" } });
-  await Bun.sleep(20);
-
-  expect(channels[0]).toBe("qiy:orders");
-  listeners[0]!(event("two"));
-  expect(received).toHaveLength(0);
-  listeners[0]!(event("one"));
-  expect(received).toHaveLength(1);
-  expect(received[0]?.id).toBe("one");
-
-  // useMany pages scope to a list of ids, and events without an id never match.
-  listeners[1]!(event("c"));
-  listeners[1]!(event(undefined));
-  listeners[1]!(event("b"));
+  await Bun.sleep(10);
+  expect(stream.requests).toEqual(["/api/v1/realtime/stream"]);
+  stream.push("event: ready\ndata: {\"channels\":[\"qiy:orders\"]}\n\n");
+  stream.send("qiy:orders", "updated", { id: "two" });
+  stream.send("qiy:orders", "updated", { id: "one" });
+  stream.send("qiy:orders", "updated", { id: "b" });
+  stream.send("qiy:orders", "updated", { title: "no id" });
+  stream.send("qiy:orders", "updated", { data: { id: "nested" } });
+  stream.send("qiy:customers", "updated", { id: "one" });
+  await Bun.sleep(10);
+  expect(one.map((payload) => payload.id)).toEqual(["one"]);
   expect(many.map((payload) => payload.id)).toEqual(["b"]);
-
-  // List pages stay unscoped and receive every event.
-  listeners[2]!(event("anyone"));
-  expect(list).toHaveLength(1);
-  // A payload wrapped in data.id is still matched when scoped.
-  listeners[3]!({ name: "updated", data: { data: { id: "nested" } }, timestamp: 1 });
+  expect(list).toHaveLength(5);
   expect(wrapped).toHaveLength(1);
 });
 
-test("resolves a claim-scoped channel from the token capability", async () => {
-  const { client, channels } = fakeClient();
-  const tokenFetcher = (async () => Response.json({ capability: JSON.stringify({ "qiy:orders:eu": ["subscribe"] }) })) as unknown as typeof fetch;
-  const provider = createQiyLiveProvider(tokenFetcher, client as never)!;
-  provider.subscribe({ channel: "orders", types: ["updated"], callback: () => {} });
-  await Bun.sleep(20);
-  expect(channels[0]).toBe("qiy:orders:eu");
+test("matches claim-scoped channels and filters event types", async () => {
+  const stream = streamingFetcher();
+  const provider = createQiyLiveProvider({ fetcher: stream.fetcher })!;
+  const received: string[] = [];
+  provider.subscribe({ channel: "orders", types: ["created"], callback: (live) => received.push(live.type) });
+  await Bun.sleep(10);
+  stream.send("qiy:orders:eu", "created", { id: "1" });
+  stream.send("qiy:orders:eu", "deleted", { id: "1" });
+  stream.send("qiy:orders-archive", "created", { id: "2" });
+  await Bun.sleep(10);
+  expect(received).toEqual(["created"]);
 });
 
-test("unsubscribes through the Ably channel", async () => {
-  const { client, unsubscribed } = fakeClient();
-  const provider = createQiyLiveProvider(fetch, client as never)!;
-  const subscription = provider.subscribe({ channel: "orders", types: ["updated"], callback: () => {} });
+test("closes the stream after the last unsubscribe", async () => {
+  const stream = streamingFetcher();
+  const provider = createQiyLiveProvider({ fetcher: stream.fetcher })!;
+  const first = provider.subscribe({ channel: "orders", types: ["*"], callback: () => {} });
+  const second = provider.subscribe({ channel: "orders", types: ["*"], callback: () => {} });
   await Bun.sleep(10);
-  provider.unsubscribe(subscription);
-  expect(unsubscribed).toHaveLength(1);
+  provider.unsubscribe(first);
+  expect(stream.aborted()).toBe(0);
+  provider.unsubscribe(second);
+  expect(stream.aborted()).toBe(1);
+});
+
+test("stays idle without a realtime grant", async () => {
+  let calls = 0;
+  const fetcher = (async () => { calls += 1; return Response.json({ error: "Realtime subscription is not permitted" }, { status: 403 }); }) as unknown as typeof fetch;
+  const provider = createQiyLiveProvider({ fetcher, reconnectDelayMs: 1 })!;
+  provider.subscribe({ channel: "orders", types: ["*"], callback: () => {} });
+  await Bun.sleep(20);
+  expect(calls).toBe(1);
 });

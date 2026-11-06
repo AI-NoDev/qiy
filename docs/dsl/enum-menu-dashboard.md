@@ -146,96 +146,9 @@ menu {
 | `Menu group X: cyclic parent` | 去掉环（A→B→A） |
 | 分组没显示 | 组内资源都被当前角色过滤掉了，检查 `restrict`/`pages` |
 
-## dashboard
+## 概览页
 
-### 语法
-
-```text
-dashboard {
-  metric <name> <resource>
-    [@label("…")] [@icon(IconName)] [@span(8|12|24)]
-    [@type(<count|distribution|trend|aggregate>)]
-    [@groupBy(<field>)] [@days(<1..365>)]
-    [@field(<field>)] [@agg(<sum|avg|min|max>)]
-    [@comment("…" | t("key"))]
-    ;
-}
-```
-
-### 参数
-
-| 参数 | 取值 | 默认 | 说明 |
-| --- | --- | --- | --- |
-| `<name>` | 标识符，唯一 | 必填 | 指标名与 `qiy.dashboard.<name>.label` |
-| `<resource>` | 实体表名 | 必填 | 数据来源（`unknown resource` 报错） |
-| `@label("…")` | 字符串或裸值 | 指标名 | 卡片标题 |
-| `@icon(...)` | `*Outlined` | 无 | 卡片图标 |
-| `@span(n)` | `8` / `12` / `24` | `8` | 卡片宽度（24 = 整行） |
-| `@type(...)` | `count`/`distribution`/`trend`/`aggregate` | `count` | 指标类型 |
-| `@groupBy(field)` | 字段名 | 无 | `distribution` 要枚举字段；`trend` 要 `DateTime` 字段 |
-| `@days(n)` | 1…365 | 无 | 仅 `trend` 使用 |
-| `@field(field)` | 字段名 | 无 | 仅 `aggregate`：数值字段（Integer/Decimal/Money） |
-| `@agg(op)` | `sum`/`avg`/`min`/`max` | 无 | 仅 `aggregate` |
-| `@comment(...)` | 字面量或 `t("key")` | 无 | 卡片副标题说明（按当前语言翻译） |
-
-### 默认值与校验
-
-| 类型 | 生成内容 | 校验 |
-| --- | --- | --- |
-| `count` | 资源总数（点击进入列表） | — |
-| `distribution` | 按枚举分组的分布条，显示值 label/注释 | 缺 `@groupBy` 或字段不是枚举：`distribution requires an enum groupBy field`；`@groupBy` 只在 `distribution`/`trend` 下参与计算，其他类型忽略且不报错 |
-| `trend` | 按天趋势（`@days` 天） | `@groupBy` 必须是 `DateTime`（`trend requires a DateTime groupBy field`）；`days` 越界报 `days must be between 1 and 365` |
-| `aggregate` | 数值聚合（`Statistic`） | 缺 `@field` 或字段非数值：`aggregate requires a numeric field`；缺 `@agg`：`aggregate requires agg sum, avg, min or max` |
-
-其他校验：
-
-- 指标名必须合法且唯一（`Dashboard metric X: invalid or duplicate name`）。
-- `@span` 只接受 8/12/24（解析期即报 `span must be 8, 12 or 24`）。
-- `field`/`agg` 只允许出现在 `aggregate`（`field and agg require aggregate type`）；`days` 只允许 `trend`（`days requires trend type`）。
-- `@comment` 重复报 `duplicate @comment annotation`；其他属性报 `Unsupported dashboard metric attribute @X`。
-- `dashboard` 可以与 `chart` 混排（共享同一位置），但概览页优先渲染图表。
-
-### 生成结果
-
-- 概览页（`/`）的指标卡：`count` 统计总数并链接到列表；`distribution` 渲染百分比进度条并复用枚举 label/comment；`trend` 按天渲染；`aggregate` 显示数值 + `sum/avg/min/max` 标签。
-- 每张卡片都包在 `CanAccess` 里，无权限资源不显示。
-- 卡片标题使用 `qiy.dashboard.<name>.label`，说明文字使用 `@comment`/`commentKey`。
-
-**首页回退行为**：
-
-| 模型情况 | 概览页 |
-| --- | --- |
-| 有 `dashboard` 块 | 渲染声明的指标卡 |
-| 无 `dashboard` 且无 `chart` | 自动为每个实体生成一个 `count` 指标（`span 8`，label/icon 取实体） |
-| 无 `dashboard` 但有 `chart` | 指标为空，渲染图表面板 |
-| 同时有 `dashboard` 与 `chart` | 图表面板优先，`dashboard` 指标不渲染 |
-
-### 示例
-
-```qiy
-dashboard {
-  metric orderCount orders @label("订单总数") @span(8) @comment(t("dashboard.orders"));
-  metric orderStatus orders @label("订单状态分布") @span(8) @type(distribution) @groupBy(status);
-  metric orderTrend orders @label("近 30 天订单") @span(24) @type(trend) @groupBy(createdAt) @days(30);
-  metric orderAmount orders @label("订单金额") @span(8) @type(aggregate) @field(amount) @agg(sum);
-}
-```
-
-### 进阶用法
-
-- **与 chart 共存**：新项目建议直接用 [chart（多视图图表）](/dsl/charts)（饼/柱/折线/表格 + 响应式面板）；旧的 `dashboard { metric … }` 继续可用，适合少量单卡指标。
-- **分组说明**：`distribution` 的每个值会显示枚举 `@comment`，适合把“状态含义”直接放到卡片上。
-- **时间窗**：`trend` 的 `@days(n)` 控制窗口，数据点按天聚合；需要更长窗口时最大 365。
-
-### 常见错误
-
-| 错误 | 修复 |
-| --- | --- |
-| `distribution requires an enum groupBy field` | `@groupBy` 指向枚举字段 |
-| `trend requires a DateTime groupBy field` | 用 `DateTime` 字段（不是 `Date`） |
-| `aggregate requires a numeric field` | `@field` 指向 Integer/Decimal/Money |
-| `days requires trend type` | `@days` 只配合 `@type(trend)` |
-| `Dashboard metric X: unknown resource` | 用表名并确认实体存在 |
+旧的 `dashboard { metric ... }` 块已在 0.37.0 删除，概览页统一由 [chart（多视图图表）](/dsl/charts) 声明；没有 `chart` 时每个可写资源自动生成一张计数卡。逐条改写见 [菜单与概览页 · 迁移](/guide/menu-dashboard#从-dashboard-metric-迁移) 与 [0.37 迁移指南](/guide/migration-0.37)。
 
 ## 相关
 

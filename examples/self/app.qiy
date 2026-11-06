@@ -12,14 +12,14 @@ qiy v0;
 #   modules/permissions.qiy       permission fields, groups, provider sources and verifications
 #   modules/pages.qiy             page-level role rules (after scope/restrict)
 #   modules/menu.qiy              sidebar groups (after pages, before charts)
-#   modules/charts.qiy            multi-view chart dashboard (dashboard position)
+#   modules/charts.qiy            multi-view chart dashboard
 #   modules/dataflows.qiy         transactional business commands
 #   modules/actions.qiy           list/show action buttons bound to those dataflows
 #
 # `include` only inserts application fragments: included files have no `qiy v0;`
 # or `application {}` header, and the expanded model must keep the V0 section
 # order (database -> config -> messages -> enums -> entities -> relations ->
-# scope/restrict -> pages -> menu -> dashboard -> dataflows -> actions).
+# scope/restrict -> pages -> menu -> chart -> dataflows -> actions).
 #
 # One login page offers password login plus every configured OIDC provider. The
 # first OAuth sign-in of an unknown identity lands on an onboarding form that
@@ -89,7 +89,7 @@ application qiy-supply-chain-erp-wms @comment("供应链 + ERP + WMS 演示应�
     mask unitCost roles operator, viewer mode redact replacement "***";
   }
 
-  # UI configuration comes after scope/restrict. `menu` precedes charts/dashboard.
+  # UI configuration comes after scope/restrict. `menu` precedes charts.
   include "modules/pages.qiy";
   include "modules/menu.qiy";
   include "modules/charts.qiy";

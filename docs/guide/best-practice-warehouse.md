@@ -106,7 +106,7 @@ relation stockMovementWarehouse stockMovements warehouseId warehouses id one @on
 relation stockMovementProduct stockMovements productId products id one @onDelete(restrict);
 ```
 
-## 菜单与 Dashboard
+## 菜单与概览页
 
 界面组织也是独立模块。模型更大时，可以继续按领域拆成 `sales/navigation.qiy`、`purchasing/navigation.qiy` 等片段。
 
@@ -123,8 +123,10 @@ menu {
   }
 }
 
-dashboard {
-  metric movementCount stockMovements @label("Movements") @icon(SwapOutlined) @span(8);
+chart const MovementCount {
+  icon = "SwapOutlined";
+  title = "Movements";
+  data = count stockMovements;
 }
 ```
 

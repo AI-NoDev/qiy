@@ -97,7 +97,7 @@ CSV import accepts `text/csv` with a header row and writes each row through the 
 
 Saved views (server-side, cross-device): `GET /api/v1/saved-views?resource=` returns own + shared views with `mine`; `POST /api/v1/saved-views` upserts by name (name <= 80, filters <= 50, sorters <= 10, columns <= 100); `DELETE /api/v1/saved-views/:id` allows the owner or an admin for shared views (`403 views.forbidden` otherwise). Persisted in `qiy_saved_views`; per-user limit 100 distinct names per resource (`400 views.limit`).
 
-GraphQL subscriptions: SSE at `/api/v1/graphql/subscribe`, or graphql-ws at `/graphql/ws` with `connection_init` token auth, subscribe/next/error/complete frames, ping/pong and exponential reconnect. Both respect realtime capability channels; see [storage-realtime.md](storage-realtime.md).
+GraphQL subscriptions: SSE at `/graphql/subscribe` with exponential reconnect; they respect realtime channel grants. See [storage-realtime.md](storage-realtime.md).
 
 ## OpenAPI filtering
 

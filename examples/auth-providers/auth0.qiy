@@ -4,7 +4,7 @@ application qiy-auth0-admin {
   database sqlite {}
 
   auth {
-    provider auth0;
+    provider oidc { preset auth0; }
     user users;
     subjectField externalSubject;
     roleField role;

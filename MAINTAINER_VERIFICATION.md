@@ -1,4 +1,4 @@
-# 真实外部服务验收（Ably / 厂商 IdP）
+# 真实外部服务验收（厂商 IdP / Realtime）
 
 本地开发默认用生成器内置的本地认证与实时实现。要证明"接真实外部服务也能跑"，Qiy 提供了三个可执行的验收路径；前两个**不需要任何外部凭据**，第三个需要在服务商侧创建应用。
 
@@ -290,23 +290,14 @@ QIY_OIDC_GOOGLE_CLIENT_SECRET=...
 
 本地快速验收：`bun run tmp/verify-permissions.ts`（仓库 tmp 脚本，不提交）会用 Dex 密码流签发真实 id_token，验证生成服务端仍能验签、映射身份、接受 OAuth 会话并返回 `/auth/permissions`；claim 展开本身由 `tests/permissions.test.ts` 与生成应用的 `apps/server/tests/permissions.test.ts` 覆盖。
 
-## 4. 真实 Ably（需要 API Key）
+## 4. Realtime（SSE，无外部依赖）
 
-Ably 没有本地服务器，必须用真实账号：
-
-1. 在 <https://ably.com> 创建免费 app，复制 API key（`<appId>.<keyId>:<secret>`）；
-2. 运行：
+Realtime 是自托管 SSE，不需要第三方账号。真实数据库上的端到端验收：
 
 ```powershell
-$env:QIY_ABLY_API_KEY="<your key>"
-bun run tools/verify-ably.ts
+bun run tools/verify-graphql-subscription.ts   # REST 事件流（含 mask 与 viewer 403）+ GraphQL 订阅 + 跨副本 outbox 尾随
+bun run tools/verify-realtime-claim.ts         # claim 分段通道只投递调用者所在租户
+bun run tools/verify-realtime-policy.ts        # 行谓词拒绝 + mask 裁剪
 ```
 
-没有设置 key 时脚本会打印同样的说明并以 0 退出（明确 skip，不会假装通过）。**已用真实 Ably 账号跑通**：publish 写入后 REST history 能读到消息；token 端点签发的 capability 只有 `{ "qiy:orders": ["subscribe"] }`，用该 token publish 被 Ably 拒绝（40160 `Unauthorized to publish to channel`）；`viewer` 请求 token 得 403；错误 key 被拒。设置了 key 后它会验证：
-
-- 生成器 publisher 通过真实 Ably REST 写入 `qiy:orders` channel，REST 读取 history 能看到该消息；
-- 生成器 `/api/v1/realtime/token` 用真实 Ably `createTokenRequest` 签发 **subscribe-only** capability：能读 history，但 publish 会被 Ably 拒绝（40160）；
-- `viewer` 角色请求 token 得到 403；
-- 错误 key 会被 Ably 拒绝。
-
-浏览器端重连：生成 Web 使用 Ably JS SDK 2.x，SDK 自带断线重连；GraphQL Subscription 的 SSE / graphql-ws 客户端有 Qiy 自己的指数退避重连（见 `docs/guide/api.md`）。
+浏览器端重连：生成的 LiveProvider 与 `subscribeGraphql()` 都有指数退避重连（1s→30s，见 `docs/dsl/realtime.md` 与 `docs/guide/api.md`）。

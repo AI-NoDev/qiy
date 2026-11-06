@@ -1,14 +1,13 @@
-# 菜单与 Dashboard
+# 菜单与概览页
 
-概览页与侧边栏由三组 DSL 决定：
+侧边栏与概览页由两组 DSL 决定：
 
 | DSL | 位置 | 生成物 |
 | --- | --- | --- |
-| `menu { group ... }` | `pages` 之后、`dashboard`/`chart` 之前 | `app/resources.ts` 的 `menuGroups` + `QiySider` 树 |
-| `dashboard { metric ... }` | 与 `chart` 同位置（`menu` 之后、`dataflow` 之前） | `app/dashboard.ts` + 概览页指标卡 |
-| `chart` / `chart panels` | 同上，与 `dashboard` 可交错 | `app/charts.ts` + `ChartDashboard` |
+| `menu { group ... }` | `pages` 之后、`chart` 之前 | `app/resources.ts` 的 `menuGroups` + `QiySider` 树 |
+| `chart` / `chart panels` | `menu` 之后、`dataflow` 之前 | `app/charts.ts` + `ChartDashboard` |
 
-三者都只描述界面结构；权限、数据范围仍由服务端接口与 Refine access control 决定。图表的完整语法见 [chart（多视图图表）](/dsl/charts)。
+两者都只描述界面结构；权限、数据范围仍由服务端接口与 Refine access control 决定。图表的完整语法见 [chart（多视图图表）](/dsl/charts)。
 
 ## 菜单
 
@@ -48,7 +47,7 @@ menu {
 - `@label`、`@icon`、`@parent`、`@comment` 顺序任意、可省略；每个最多一次。
 - `@comment` 支持字面量或 `t("key")`，进入生成元数据供二次开发使用，不渲染在侧边栏。
 - `resource` 的值是**资源名（表名）**，不是实体名；`entity Order table orders` 应写 `resource orders;`。
-- 解析器按固定顺序读取：`menu` 必须在 `pages`（若有）之后、`dashboard`/`chart`（若有）之前。
+- 解析器按固定顺序读取：`menu` 必须在 `pages`（若有）之后、`chart`（若有）之前。
 
 ### 参数表
 
@@ -151,136 +150,40 @@ apps/web/tests/menu-tree.test.ts       # 排序/嵌套/未分组/隐藏资源断
 - `lg` 以下使用抽屉（Drawer）：点击遮罩或菜单项关闭；方向跟随 RTL。
 - 侧边栏标题组件默认 `ThemedTitle`（显示 "Qiy Admin"），可从 `QiyThemedLayout` 的 `Title` prop 覆盖。
 
-## Dashboard 指标（旧语法）
+## 概览页
 
-### 语法
+概览页（`/`）的主体只由 `chart` 决定：
 
-```qiy
-dashboard {
-  metric orderCount orders @label("订单总数") @icon(ShoppingOutlined) @span(8);
-  metric orderStatus orders @label("订单状态") @span(12)
-    @type(distribution) @groupBy(status);
-  metric orderTrend orders @label("近 30 天订单") @span(24)
-    @type(trend) @groupBy(createdAt) @days(30);
-  metric orderAmount orders @label("订单金额") @span(12)
-    @type(aggregate) @field(total) @agg(sum);
-}
-```
-
-```text
-dashboard {
-  metric <MetricName> <resource> @label(...) @icon(...) @span(8|12|24) @type(...) @groupBy(...) @field(...) @agg(...) @days(...) @comment(...);
-  ...
-}
-```
-
-`dashboard` 与 `chart` 共用同一位置，可以写多个 `dashboard` 块（指标累积），也可以交错 `chart` 块。
-
-### 参数表
-
-| 注解 | 必填 | 取值 | 默认 | 说明 |
-| --- | --- | --- | --- | --- |
-| `metric <name>` | **是** | 标识符，全模型唯一 | 无 | 指标 key；同时用于 `qiy.dashboard.<name>.label` |
-| `metric <name> <resource>` | **是** | **表名** | 无 | 必须是资源表名（实体名不是表名时不能用） |
-| `@label(...)` | 否 | 字符串 | 指标名 | 卡片标题 |
-| `@icon(...)` | 否 | `*Outlined` | 资源图标 → `TableOutlined` | 卡片图标 |
-| `@span(...)` | 否 | `8` / `12` / `24` | `8` | 栅格宽度（`lg` 列宽） |
-| `@type(...)` | 否 | `count` / `distribution` / `trend` / `aggregate` | `count` | 指标类型 |
-| `@groupBy(...)` | distribution/trend 必填 | 字段名 | 无 | distribution 需枚举字段；trend 需 `DateTime` 字段 |
-| `@field(...)` | aggregate 必填 | 数字字段名 | 无 | `Integer`/`Decimal`/`Money` |
-| `@agg(...)` | aggregate 必填 | `sum` / `avg` / `min` / `max` | 无 | 聚合操作 |
-| `@days(...)` | trend **必填** | 1..365 的整数 | 无 | 趋势窗口；缺失或越界在生成阶段报错 |
-| `@comment(...)` | 否 | 字面量 / `t("key")` | 无 | 卡片说明；按当前语言显示 |
-
-### 默认值与校验
-
-解析阶段：
-
-- `@span` 只接受 8/12/24：`Dashboard metric <name>: span must be 8, 12 or 24`。
-- `@type` 只接受 count/distribution/trend/aggregate：`type must be count, distribution, trend or aggregate`。
-- `@agg` 只接受 sum/avg/min/max：`agg must be sum, avg, min or max`。
-- 未知注解：`Unsupported dashboard metric attribute @<x>`；重复 `@comment`、重复注解也会报错。
-- `@days(0)` 会被解析成"未设置"（`days = metricDays > 0 ? metricDays : undefined`）。
-
-生成阶段（`generate-web.ts`，通常与菜单/图标错误合并输出）：
-
-- 指标名非法或重复：`Dashboard metric <name>: invalid or duplicate name`。
-- 资源不存在（必须是表名）：`Dashboard metric <name>: unknown resource <r>`。
-- `span` 越界：`span must be 8, 12 or 24`。
-- `distribution` 的 `@groupBy` 不是枚举字段：`distribution requires an enum groupBy field`。
-- `trend` 的 `@groupBy` 不是 `DateTime` 或 `@days` 缺失/越界：`trend requires a DateTime groupBy field` / `days must be between 1 and 365`。
-- `aggregate` 缺数字字段或 `@agg`：`aggregate requires a numeric field` / `aggregate requires agg sum, avg, min or max`。
-- 非 aggregate 写了 `@field`/`@agg`：`field and agg require aggregate type`。
-- 非 trend 写了 `@days`：`days requires trend type`。
-
-### 生成结果
-
-- `app/dashboard.ts` 导出 `dashboardMetrics`（含 `labelKey`）。
-- 概览页（`app/routes/home.tsx`）在**没有 chart** 时渲染指标卡：
-
-| type | 组件 | 数据 | 交互 |
-| --- | --- | --- | --- |
-| `count` | `CountSummary` + `Statistic` | 列表 `page=1&pageSize=1` 的 `total` | 整卡链接到资源列表，`hoverable` |
-| `distribution` | `DistributionSummary` | `/api/v1/<resource>/distribution?field=<groupBy>` | 每行 label + count + `Progress` 百分比；label 用枚举 label（可被 `qiy.enums...` 覆盖） |
-| `trend` | `TrendSummary` | `/api/v1/<resource>/trend?field=<groupBy>&days=<days>` | 每天一行 + `Progress` 百分比（相对最大值） |
-| `aggregate` | `AggregateSummary` | `/api/v1/<resource>/aggregate?field=<field>&op=<agg>` | `Statistic` + `precision`（Money/Decimal 两位）+ `操作 · 字段` 后缀 |
-
-- 布局：`Col xs=24 sm=12 lg=<span>`；`span=24` 时独占整行。
-- 每个指标卡包在 `CanAccess resource=<resource> action="list"` 中。
-- 加载中：卡片 `loading`（count 的 `Statistic` 显示 `—`）；错误：卡内红色 `String(error)`；空：`—` 或 `qiy.noData`。
-
-### i18n
-
-| key | 用途 |
+| 模型情况 | 概览页主体 |
 | --- | --- |
-| `qiy.dashboard.<metric>.label` | 指标卡标题 |
-| `qiy.enums.<enum>.values.<value>` | distribution 行 label（通过字段元数据） |
-| `qiy.resources.<resource>.fields.<field>.label` | aggregate 后缀里的字段名 |
-| `qiy.aggSum` / `qiy.aggAvg` / `qiy.aggMin` / `qiy.aggMax` | aggregate 后缀的操作名 |
-| `qiy.noData` | 空状态 |
-| `@comment(t("key"))` 的 key | 卡片说明文案 |
+| 声明了 `chart` | `ChartDashboard`：多视图卡片 + `chart panels` 响应式栅格 |
+| 没有 `chart` | 每个可写资源一张计数卡（`ResourceSummary`）：资源图标、复数名、总数，整卡链接到列表；只读资源（如 `view`）不出卡 |
 
-`@comment("...")` 是默认语言字面量，不会随界面语言切换；需要翻译时使用 `t("key")`。
-
-### 概览页选择（chart 优先）
-
-生成器在 `generate-web.ts` 里这样决定概览页内容：
-
-```text
-dashboardMetrics = 显式 dashboard 指标
-                  ? 显式指标
-                  : charts 存在 ? [] : 每个实体一个默认 count 指标
-```
-
-概览页渲染：
-
-```text
-charts.length > 0 ? <ChartDashboard charts panels /> : <指标卡 Row />
-```
-
-因此：
-
-1. **有 chart 时概览页只渲染图表**，即使同时写了 `dashboard { metric ... }`，旧指标也不会显示（元数据仍会生成，属于死配置）。
-2. **没有 chart 且没有 dashboard**：自动为每个实体生成一个 `count` 指标（`@span(8)`、label=实体 label、icon=实体 icon），即"每资源一张计数卡"。
-3. **有 dashboard 且没有 chart**：渲染声明的指标卡。
-4. 图表与指标卡不会混排。
+计数卡用 `useList` 取 `page=1&pageSize=1` 的 `total`，包在 `CanAccess resource=<resource> action="list"` 中；标题走 `qiy.resources.<table>.plural` → `.label` → 实体 `@label`。
 
 概览页固定结构：
 
 - 标题：`qiy.overview`；说明：`qiy.overviewDescription`（内置中文"概览"/"从数据资源快速进入业务管理。"）。
-- 主体：`ChartDashboard` 或指标卡 `Row`。
+- 主体：`ChartDashboard` 或计数卡 `Row`。
 - 底部"快速访问"卡片：`qiy.quickAccess`，列出**前 4 个资源**的列表链接（`resources.slice(0, 4)`），每个包 `CanAccess list`。
 
-### 图表概览页
+图表的完整语法、校验、端点和 i18n 见 [chart（多视图图表）](/dsl/charts)。与菜单的衔接只有两点：chart 与 panel 的名称在全模型唯一且与菜单分组无关；面板选择存 `qiy.charts.panel`，视图选择不持久化。
 
-`chart` / `chart panels` 是推荐的概览页写法：多视图卡片、响应式栅格、面板切换、分布/趋势/表格预览。完整语法、校验、端点和 i18n 见 [chart（多视图图表）](/dsl/charts)。这里只保留与菜单/概览页的衔接：
+### 从 `dashboard { metric }` 迁移
 
-- chart 与 panel 的名称在全模型唯一，且与菜单分组无关；
-- 面板选择存 `qiy.charts.panel`，视图选择不持久化；
-- 图表卡片同样受 `CanAccess list` 约束；
-- 有 chart 时旧指标卡不渲染（见上）。
+0.37.0 删除了旧的 `dashboard { metric ... }` 块，解析器遇到它会报错并指向 [0.37 迁移指南](/guide/migration-0.37)。逐条改写：
 
-## 示例：最小菜单 + 指标模型
+| 0.36 `metric` 写法 | 0.37 `chart` 写法 |
+| --- | --- |
+| `metric orderCount orders @label("订单总数") @icon(ShoppingOutlined);` | `chart const OrderCount { title = "订单总数"; icon = "ShoppingOutlined"; data = count orders; }` |
+| `@type(distribution) @groupBy(status)` | `chart pie OrderStatus { data = count orders group by status; labels = status; }` |
+| `@type(trend) @groupBy(createdAt) @days(30)` | `chart line OrderTrend { data = trend orders.createdAt days 30; }` |
+| `@type(aggregate) @field(amount) @agg(sum)` | `chart const OrderAmount { data = sum orders.amount; }` |
+| `@span(8\|12\|24)` | `chart panels` 的 `grid 24 <rows>` 与每个变体的 `x y w h` |
+| `@comment(...)` | 无对应属性；说明文字写进 `title` 或 `qiy.charts.<Chart>.label` |
+| `qiy.dashboard.<metric>.label` | `qiy.charts.<Chart>.label` |
+
+## 示例：最小菜单 + 图表模型
 
 ```qiy
 qiy v0;
@@ -305,15 +208,12 @@ application menu-demo {
     }
   }
 
-  dashboard {
-    metric productCount products @label("产品数") @icon(TableOutlined) @span(8);
-    metric productActive products @label("启用分布") @span(12)
-      @type(distribution) @groupBy(active);
-  }
+  chart const ProductCount { title = "产品数"; icon = "TableOutlined"; data = count products; }
+  chart pie ProductActive { title = "启用分布"; data = count products group by active; labels = active; }
 }
 ```
 
-生成结果：侧边栏只有一个"主数据 → Products"分组；概览页是"产品数"计数卡 + "启用分布"进度条卡。把 `dashboard` 换成 `chart` 即切换到图表页。
+生成结果：侧边栏只有一个"主数据 → Products"分组；概览页是"产品数"统计卡 + "启用分布"饼图。删掉两个 `chart` 则回到每资源一张计数卡。
 
 ## 进阶用法
 
@@ -371,20 +271,14 @@ menu {
 | `Unsupported menu group attribute @x` | 未知注解 | 只用 label/icon/parent/comment |
 | 分组不显示 | 组内资源都被角色过滤 | 检查 `restrict`/`pages`/角色 |
 | 菜单项是原文而非译文 | 只写了 `.label`，没写 `.plural` | 同时声明 `.plural` |
-| `Dashboard metric <m>: unknown resource <r>` | 指标用了实体名 | 改用表名 |
-| `distribution requires an enum groupBy field` | `@groupBy` 非枚举 | 换枚举字段或用 chart |
-| `trend requires a DateTime groupBy field` | `@groupBy` 非 DateTime | 换 DateTime 字段 |
-| `aggregate requires a numeric field` | `@field` 非 Integer/Decimal/Money | 换数字字段 |
-| `field and agg require aggregate type` | count/distribution/trend 写了 `@field`/`@agg` | 删除或改 `@type(aggregate)` |
-| `days requires trend type` | 非 trend 写了 `@days` | 删除或改 `@type(trend)` |
-| 写了 dashboard 但概览页显示图表 | 模型同时有 `chart` | 删除 chart，或把指标迁移到 chart |
+| `The dashboard { metric ... } block was removed in Qiy 0.37.0` | 模型还在用旧指标块 | 按[上表](#从-dashboard-metric-迁移)改写成 `chart` |
 
 ## 相关
 
 - [chart（多视图图表）](/dsl/charts)：图表语法、面板栅格、视图切换、i18n。
-- [enum / menu / dashboard](/dsl/enum-menu-dashboard)：`menu` / `dashboard` 的精简语法卡。
+- [enum / menu](/dsl/enum-menu-dashboard)：`enum` / `menu` 的精简语法卡。
 - [多语言（messages / i18n）](/dsl/i18n)：`qiy.menu.*`、`qiy.resources.*.plural`、chrome 键与回退链。
 - [UI 与主题](/guide/ui-theming)：侧边栏折叠、主题与色彩模式持久化。
 - [features](/dsl/features)：系统管理页面与菜单链接生成规则。
-- [Refine Providers](/guide/refine-providers)：access control 如何过滤菜单、指标/图表请求如何走 DataProvider。
+- [Refine Providers](/guide/refine-providers)：access control 如何过滤菜单、图表请求如何走 DataProvider。
 - 示例：[`examples/self/modules/menu.qiy`](https://github.com/AI-NoDev/qiy/blob/main/examples/self/modules/menu.qiy)、[`examples/self/modules/charts.qiy`](https://github.com/AI-NoDev/qiy/blob/main/examples/self/modules/charts.qiy)。

@@ -25,7 +25,7 @@ describe("Refine SPA generation", () => {
     expect(files["web/app/routes/list.tsx"]).toContain("translate(field.labelKey");
     expect(files["web/app/components/record-details.tsx"]).toContain("translate(field.labelKey");
     expect(files["web/app/routes/show.tsx"]).toContain("RecordDetails");
-    expect(files["web/app/routes/home.tsx"]).toContain("translate(metric.labelKey");
+    expect(files["web/app/routes/home.tsx"]).toContain("<ResourceSummary resource={resource} />");
     expect(files["web/app/root.tsx"]).toContain("readStoredLocale()");
     expect(files["web/app/i18n.ts"]).toContain("localeStorageKey");
     expect(files["web/app/i18n.ts"]).toContain("storeLocale");

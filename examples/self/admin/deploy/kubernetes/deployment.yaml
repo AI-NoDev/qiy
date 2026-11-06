@@ -38,16 +38,6 @@ spec:
               value: "/var/lib/qiy/storage"
             - name: QIY_DEV_MODE
               value: "0"
-            - name: QIY_ABLY_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: qiy-supply-chain-erp-wms
-                  key: QIY_ABLY_API_KEY
-            - name: QIY_REALTIME_METRICS_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: qiy-supply-chain-erp-wms
-                  key: QIY_REALTIME_METRICS_TOKEN
             - name: QIY_AUTH_SECRET
               valueFrom:
                 secretKeyRef:

@@ -130,46 +130,26 @@ Rules: at most one `menu` in the application; only `group` inside; a resource ap
 
 Sidebar behavior: expanded width 248px, collapsed shows icons with tooltips, collapsed state persisted, the active route's group opens by default, and mobile uses a drawer.
 
-## Legacy dashboard metrics
-
-```text
-dashboard {
-  metric <name> <resource>
-    [@label("...")] [@icon(IconName)] [@span(8|12|24)]
-    [@type(<count|distribution|trend|aggregate>)]
-    [@groupBy(<field>)] [@days(<1..365>)]
-    [@field(<field>)] [@agg(<sum|avg|min|max>)]
-    [@comment("..." | t("key"))]
-    ;
-}
-```
-
-```qiy
-dashboard {
-  metric orderCount orders @label("Orders") @span(8) @comment(t("dashboard.orders"));
-  metric orderStatus orders @label("Status") @span(8) @type(distribution) @groupBy(status);
-  metric orderTrend orders @label("Last 30 days") @span(24) @type(trend) @groupBy(createdAt) @days(30);
-  metric orderAmount orders @label("Amount") @span(8) @type(aggregate) @field(amount) @agg(sum);
-}
-```
-
-| Type | Generated content | Validation |
-| --- | --- | --- |
-| `count` | Total count card, links to the list | - |
-| `distribution` | Enum distribution bars using value labels/comments | `distribution requires an enum groupBy field` |
-| `trend` | Daily trend for `@days` (1..365) | `trend requires a DateTime groupBy field`; `days must be between 1 and 365` |
-| `aggregate` | Numeric statistic | `aggregate requires a numeric field`; `aggregate requires agg sum, avg, min or max` |
-
-`@span` is only 8/12/24; `@field`/`@agg` are only valid on `aggregate`; `@days` only on `trend`; `@groupBy` is ignored on other types. Cards are wrapped in `CanAccess`, so resources the user cannot list are hidden. Prefer `chart` for new models.
-
-Home page fallback:
+## Overview page and migrating from dashboard metrics
 
 | Model | Overview page |
 | --- | --- |
-| `dashboard` block | Declared metric cards |
-| No `dashboard` and no `chart` | One `count` metric per entity (`span 8`, entity label/icon) |
-| No `dashboard`, has `chart` | No metrics; chart panels render |
-| Both | Charts render; dashboard metrics do not |
+| Has `chart` | `ChartDashboard` with `chart panels` layout |
+| No `chart` | One count card per writable resource (`ResourceSummary`: icon, plural label, total, links to the list); read-only resources such as views get no card |
+
+### Migrating from dashboard metrics
+
+`dashboard { metric ... }` was removed in 0.37.0; the parser rejects it with a pointer to `docs/guide/migration-0.37.md`.
+
+| 0.36 metric | 0.37 chart |
+| --- | --- |
+| `metric orderCount orders @label("Orders") @icon(ShoppingOutlined);` | `chart const OrderCount { title = "Orders"; icon = "ShoppingOutlined"; data = count orders; }` |
+| `@type(distribution) @groupBy(status)` | `chart pie OrderStatus { data = count orders group by status; labels = status; }` |
+| `@type(trend) @groupBy(createdAt) @days(30)` | `chart line OrderTrend { data = trend orders.createdAt days 30; }` |
+| `@type(aggregate) @field(amount) @agg(sum)` | `chart const OrderAmount { data = sum orders.amount; }` |
+| `@span(8\|12\|24)` | `chart panels` grid coordinates |
+| `@comment(...)` | No equivalent; put the text in `title` or `qiy.charts.<Chart>.label` |
+| `qiy.dashboard.<metric>.label` | `qiy.charts.<Chart>.label` |
 
 ## chart grammar
 
@@ -283,7 +263,7 @@ Data views are wrapped in `CanAccess resource=<entity> action="list"`; in panels
 
 Theme: cards, tables, text and controls follow Ant Design tokens, but **chart graphics do not**: the pie palette (`#1677ff`, `#52c41a`, `#faad14`, `#eb2f96`, `#722ed1`, `#13c2c2`, `#fa541c`, `#8c8c8c`) and the line color are hardcoded light values. They stay visible in dark mode but do not adapt.
 
-Chart icons: use an Ant Design `*Outlined` name. Chart-level and per-view icons are collected into `qiyIcons` together with entity/field/enum/menu/metric icons. Generation validates only the `*Outlined` name shape (`Invalid Ant Design icon`); a name Ant Design does not export passes generation and then fails the generated project's typecheck/build. Theme colors are not applied to chart graphics.
+Chart icons: use an Ant Design `*Outlined` name. Chart-level and per-view icons are collected into `qiyIcons` together with entity/field/enum/menu icons. Generation validates only the `*Outlined` name shape (`Invalid Ant Design icon`); a name Ant Design does not export passes generation and then fails the generated project's typecheck/build. Theme colors are not applied to chart graphics.
 
 Known chart limits to state explicitly: `labels` silently ignored on non-pie/bar; alias variants beyond the first are dead code; overlapping placements are not detected; `table` view titles are not displayed; charts do not theme their graphics; only the five view kinds exist.
 
@@ -345,7 +325,6 @@ Keys are derived from identifiers, never from label text. Renaming an identifier
 | `qiy.enums.<enum>.label` | Enum description | enum name |
 | `qiy.enums.<enum>.values.<value>` | Enum Tag, select options, distribution legend | enum value label -> value name |
 | `qiy.menu.<group>.label` | Sidebar group | group `@label` -> group name |
-| `qiy.dashboard.<metric>.label` | Legacy metric card title | `@label` -> metric name |
 | `qiy.charts.<chart>.label` | Chart card title | chart `title` -> chart name |
 | `qiy.charts.<chart>.views.<kind>.label` | View-internal title | view `title` -> chart `title` -> chart name |
 | `qiy.charts.<chart>.labels.<value>` | Distribution labels (shared by views) | explicit mapping/enum label -> raw value |

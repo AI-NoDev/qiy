@@ -128,7 +128,7 @@ stock_movements
       if (!record) throw new Error("Insert returned no record");
       
       tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "stock_movements.created", resource: "stock_movements", resourceId: record.id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
-       tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:stock_movements", type: "created", payload: JSON.stringify(record), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }).run();
+       tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:stock_movements", type: "created", payload: JSON.stringify(record), createdAt: new Date() }).run();
       return record;
     });
   },

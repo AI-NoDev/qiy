@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { generateProject } from "../tools/generate-project";
 import { parseQiyProject, serializeQiyProject } from "../tools/qiy-project";
 
-const providers = ["oidc", "oauth2", "sso", "okta", "auth0", "azure-ad-b2c", "keycloak", "google", "kinde"] as const;
+const presets = ["generic", "okta", "auth0", "azure-ad-b2c", "keycloak", "google", "kinde"] as const;
 
-function model(provider: typeof providers[number]): string {
-  return `qiy v0; application qiy-${provider} {
+function model(preset: typeof presets[number]): string {
+  return `qiy v0; application qiy-${preset} {
     database sqlite {}
-    auth { provider ${provider}; user users; subjectField externalSubject; roleField role; }
+    auth { provider oidc { preset ${preset}; } user users; subjectField externalSubject; roleField role; }
     enum role { value admin; value operator; value viewer; }
     entity users { field id UUID @id; field externalSubject Text @unique; field role role; }
   }`;
@@ -15,16 +15,24 @@ function model(provider: typeof providers[number]): string {
 
 describe("Refine command palette and identity providers", () => {
   test("ships kbar in the default generated web package", () => {
-    const project = parseQiyProject(model("oidc"));
+    const project = parseQiyProject(model("generic"));
     const files = generateProject(project.database, project.name, { auth: project.auth });
     expect(JSON.parse(files["apps/web/package.json"]!).dependencies["@refinedev/kbar"]).toBe("2.0.1");
     expect(files["apps/web/app/root.tsx"]).toContain("RefineKbarProvider");
     expect(files["apps/web/app/root.tsx"]).toContain("<RefineKbar />");
   });
 
-  for (const provider of providers) test(`round-trips and generates ${provider} through the shared PKCE adapter`, () => {
-    const project = parseQiyProject(model(provider));
-    expect(project.auth?.provider).toBe(provider);
+  test("rejects vendor names as single providers and points at the preset form", () => {
+    for (const legacy of ["oauth2", "sso", "okta", "auth0", "azure-ad-b2c", "keycloak", "google", "kinde"]) {
+      expect(() => parseQiyProject(model("generic").replace("provider oidc { preset generic; }", `provider ${legacy};`))).toThrow("use provider local, otp or oidc");
+    }
+    expect(() => parseQiyProject(model("generic").replace("preset generic", "preset github"))).toThrow("Unsupported OIDC preset github");
+  });
+
+  for (const preset of presets) test(`round-trips and generates the ${preset} preset through the shared PKCE adapter`, () => {
+    const project = parseQiyProject(model(preset));
+    expect(project.auth?.provider).toBe("oidc");
+    expect(project.auth?.providerMappings).toEqual([{ provider: "oidc", preset }]);
     expect(parseQiyProject(serializeQiyProject(project)).auth).toEqual(project.auth);
     const files = generateProject(project.database, project.name, { auth: project.auth });
     expect(files["apps/server/src/auth/oidc.ts"]).toContain("createRemoteJWKSet");
@@ -152,9 +160,21 @@ describe("multi-provider authentication", () => {
   });
 
   test("rejects unknown providers, duplicates and otp in a provider list", () => {
-    expect(() => parseQiyProject(multiModel.replace("providers oidc, google", "providers oidc, unknown"))).toThrow("Unsupported auth provider unknown");
+    expect(() => parseQiyProject(multiModel.replace("providers oidc, google", "providers oidc, Corp_IdP"))).toThrow("Invalid auth provider name Corp_IdP");
     expect(() => parseQiyProject(multiModel.replace("providers oidc, google", "providers oidc, google, oidc"))).toThrow("must be unique");
     expect(() => parseQiyProject(multiModel.replace("providers oidc, google", "providers oidc, otp"))).toThrow("cannot include otp");
+  });
+
+  test("names providers freely and takes the label and endpoints from the preset", () => {
+    const project = parseQiyProject(multiModel
+      .replace("providers oidc, google, okta,", "providers oidc, google, corp, okta,")
+      .replace("provider google { subjectField googleSubject; }", "provider google { subjectField googleSubject; }\n      provider corp { preset okta; label \"Corp SSO\"; }"));
+    expect(project.auth?.providerMappings).toContainEqual({ provider: "corp", preset: "okta", label: "Corp SSO" });
+    expect(parseQiyProject(serializeQiyProject(project)).auth).toEqual(project.auth);
+    const files = generateProject(project.database, project.name, { auth: project.auth });
+    expect(files["apps/server/src/auth/oidc.ts"]).toContain('"corp":"Corp SSO"');
+    expect(files["apps/server/src/auth/oidc.ts"]).toContain('"okta":"Okta"');
+    expect(files["apps/server/.env.example"]).toContain("QIY_OIDC_CORP_AUTHORIZATION_URL=https://YOUR_OKTA_DOMAIN/oauth2/default/v1/authorize");
   });
 
   test("generates a per-provider verifier and a public provider list endpoint", () => {

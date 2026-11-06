@@ -156,7 +156,7 @@ test("public provider list drives the multi-select login page", () => {
 }, 20_000);
 `);
 
-  const output = await must(["bun", "test", "--preload", "./tests/setup.ts", "multi.acceptance.test.ts"], { cwd: server, env: { DATABASE_URL: databaseUrl } });
+  const output = await must(["bun", "test", "--preload", "./tests/setup.ts", "multi.acceptance.test.ts"], { cwd: server, env: { DATABASE_URL: databaseUrl, QIY_TEST_DATABASE_URL: databaseUrl } });
   console.log(output);
   check("generated multi-provider server passed the offline acceptance", output.includes("0 fail"));
 } finally {

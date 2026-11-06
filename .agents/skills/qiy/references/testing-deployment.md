@@ -45,7 +45,7 @@ Root scripts (exact names from a generated project):
 | `db:generate` / `db:migrate` | Drizzle generate + generated migration runner | Local schema/migration |
 | `db:migrate:production` | generated runner with `.env.production` | Production migration with locking |
 
-Server-package scripts: `dev`, `start`, `preview`, `test`, `typecheck`, `db:generate`, `db:migrate`, `db:migrate:production`, `db:rollback`, `db:backup`, `db:restore`, `db:check`, `attachments:cleanup`, `attachments:orphans`, `auth:bootstrap-admin`, `auth:set-password`, `realtime:admin`. Web-package scripts: `dev`, `build`, `typecheck`, `test`.
+Server-package scripts: `dev`, `start`, `preview`, `test`, `typecheck`, `db:generate`, `db:migrate`, `db:migrate:production`, `db:rollback`, `db:backup`, `db:restore`, `db:check`, `attachments:cleanup`, `attachments:orphans`, `auth:bootstrap-admin`, `auth:set-password`. Web-package scripts: `dev`, `build`, `typecheck`, `test`.
 
 `preview` binds only to loopback and keeps data in memory. It is a local demo, never a deployment target.
 
@@ -77,10 +77,10 @@ Then, before any deployment claim: apply migrations to a real database, start th
 
 The generated `apps/server/tests/` and `apps/web/tests/` suites scale with the model and enabled features. Typical coverage (file names vary by model):
 
-- Server: per-resource CRUD/contract tests, pagination, filtering, distribution/trend/aggregate, GraphQL schema and queries, `dataflow.test.ts` (success, permission denial, idempotent replay/conflict, rollback, audit, outbox), `generated-values.test.ts`, `data-scope.test.ts`, `permissions.test.ts`, `auth.test.ts`, `local-auth.test.ts`, `hybrid-auth.test.ts`, `api-keys.test.ts`, `storage.test.ts`, `storage-metadata.test.ts`, `realtime.test.ts`, `realtime-admin.test.ts`, `realtime-outbox-transaction.test.ts`, `saved-views.test.ts`, `docs.test.ts`, `schema-drift.test.ts`, `backup-codec.test.ts`, `bins.test.ts`.
+- Server: per-resource CRUD/contract tests, pagination, filtering, distribution/trend/aggregate, GraphQL schema and queries, `dataflow.test.ts` (success, permission denial, idempotent replay/conflict, rollback, audit, outbox), `generated-values.test.ts`, `data-scope.test.ts`, `permissions.test.ts`, `auth.test.ts`, `local-auth.test.ts`, `hybrid-auth.test.ts`, `api-keys.test.ts`, `storage.test.ts`, `storage-metadata.test.ts`, `realtime.test.ts`, `realtime-outbox-transaction.test.ts`, `saved-views.test.ts`, `docs.test.ts`, `schema-drift.test.ts`, `backup-codec.test.ts`, `bins.test.ts`.
 - Web: `data-provider.test.ts`, `auth.test.ts`, `menu-tree.test.ts`, `column-visibility.test.ts`, `field-rules.test.ts`, `display-template.test.ts`, `relation-batch.test.ts`, `relation-options.test.ts`, `download-file.test.ts`, `export.test.ts`, `views.test.ts`, `i18n.test.ts`, `model-i18n.test.ts`, `chrome-i18n.test.ts`, `project-messages.test.ts`, `charts.test.ts`, `charts-render.test.tsx`, `features.test.ts`, `api-docs.test.ts`, `api-docs-render.test.tsx`, `api-keys.test.ts`, `api-keys-render.test.tsx`, `audit-provider.test.ts`, `tree.test.ts`, `date-fields.test.ts`, `generated-fields.test.ts`, `live-provider.test.ts`, `sider-state.test.ts`, `record-details.test.tsx`, `relation-cell.test.tsx`, `actions.test.ts`.
 - `app.test.qiy` scenarios compile into `apps/server/tests/qiy-scenarios.test.ts`; run them in the server package. See [dataflows-actions.md](dataflows-actions.md) for grammar, database requirements and isolation rules.
-- Realtime tests force `QIY_REALTIME_DISABLED=1` so they do not depend on Ably; they are not real-provider acceptance.
+- Server tests force `QIY_REALTIME_DISABLED=1` by default; the realtime tests enable it explicitly and drive the real SSE route in-process.
 - Hybrid/OIDC tests inject principals and tokens; they do not perform a real browser login.
 
 ## Migrations, drift and rollback
@@ -152,12 +152,11 @@ Other targets: `deploy/vercel.json` for Vercel; AWS via the Dockerfile + ECR/ECS
 | `QIY_AUTH_SECRET` (>= 32 chars) | Sessions, OTP challenges, onboarding tokens, API-key pepper; rotation invalidates all sessions and keys |
 | `QIY_STORAGE_METADATA=database` | In-memory attachment metadata loses ownership across restarts/replicas and fails the production startup check |
 | `QIY_S3_*` (when `provider s3`) | Bucket, region, endpoint, credentials; server only |
-| `QIY_ABLY_API_KEY` (when realtime) | Server only; the browser receives short-lived subscribe-only tokens |
 | `QIY_CORS_ORIGINS` (when cross-origin) | Exact origins including ports; wildcards are rejected |
 | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | Bun `fetch` proxy for IdP token endpoints in restricted networks |
 | Reverse-proxy TLS, SPA fallback, API forwarding | Browser routing and secure cookies/headers |
 
-Never put secrets in `.qiy`; they belong in generated `.env` files, secret managers and deployment manifests. Do not expose `QIY_S3_*`, `QIY_ABLY_API_KEY`, `QIY_AUTH_SECRET` or `QIY_OIDC_<ID>_CLIENT_SECRET` to the browser.
+Never put secrets in `.qiy`; they belong in generated `.env` files, secret managers and deployment manifests. Do not expose `QIY_S3_*`, `QIY_AUTH_SECRET` or `QIY_OIDC_<ID>_CLIENT_SECRET` to the browser.
 
 ## Real-service acceptance
 
@@ -169,13 +168,12 @@ These repository scripts prove protocol shape and, in some cases, real tenants. 
 | Dex (real IdP, local) | `bun run tools/verify-dex.ts` | Real issuer/JWKS; wrong audience and unmapped subject rejected |
 | Keycloak | `bun run tools/verify-keycloak.ts` | Realm import, audience mapper, flattened tenant claim. Keycloak nests dotted claims (`tenant.customerId` -> object) while Qiy projects scalar claims only - use flat claim names |
 | Vendor tenants | `verify-okta.ts`, `verify-auth0.ts`, `verify-google.ts`, `verify-kinde.ts`, `verify-azure-b2c.ts`, `verify-azure-b2c-browser.ts` | Phase A discovery/JWKS/PKCE; Phase B needs tenant credentials or a browser |
-| Ably | `bun run tools/verify-ably.ts` | Real publish/history, subscribe-only capability, viewer 403; skips (exit 0) without `QIY_ABLY_API_KEY` |
 | S3 storage | `bun run tools/verify-s3-storage.ts`, `tools/verify-s3-acceptance.ts` | Real bucket upload/download/presign/ownership |
 | Resumable uploads | `bun run tools/verify-resumable-upload.ts` | Offset rules, complete, failure recovery |
 | Attachment cleanup | `bun run tools/verify-orphan-cleanup.ts` | Orphan and missing-object directions |
 | PostgreSQL/MySQL dataflow | `bun run tools/verify-postgres-dataflow.ts`, `tools/verify-mysql-dataflow.ts` | Real transactions, locking, rollback |
 | orderInventory workflow | `bun run tools/verify-postgres-erp.ts qiy-erp-pg` | Reservation/release/deduction, idempotency, tenant denial |
-| Realtime outbox | `bun run tools/verify-realtime-outbox.ts <dialect>`, `verify-realtime-claim.ts`, `verify-realtime-policy.ts` | Lease/SKIP LOCKED/backoff/dead letter, claim channels, mask trimming |
+| Realtime | `bun run tools/verify-graphql-subscription.ts`, `verify-realtime-claim.ts`, `verify-realtime-policy.ts` | REST stream + GraphQL SSE over a real database, cross-replica tail, claim channels, mask trimming |
 | Multi-replica | `bun run tools/verify-multi-replica.ts` | Import/export job claiming across replicas |
 | Saved views / scope / policies | `verify-saved-views.ts`, `verify-scope-policy.ts`, `verify-org-scope.ts`, `verify-policy-expression.ts`, `verify-policy-or.ts`, `verify-resource-policy.ts` | Cross-tenant and expression semantics |
 | Container/Kubernetes deploy | `bun run tools/verify-docker-deploy.ts`, `tools/verify-k8s-deploy.ts` | Build image, migrate, health probe, 401 probe, PVC/service |
@@ -191,9 +189,9 @@ Before saying "ready to deploy", verify in the target environment:
 2. **Identity**: the real issuer/audience/JWKS, redirect/logout allowlists, JWKS rotation, claim mapping, session lifetime, role change propagation, tenant scope, onboarding/bind/unbind, and for OTP the delivery adapter, its rate limits, replay resistance and failure behavior.
 3. **Policy**: effective permissions per role (`/api/v1/auth/permissions`), verification boundaries, `restrict` row/mask behavior on list/detail/export/realtime, `pages` 403s, `allow` denials, and that command resources have no `restrict` block.
 4. **Storage**: bucket/permissions, upload size/MIME modes, signed URL TTL, ownership 404s, orphan/missing-object cleanup, retention, failure recovery.
-5. **Realtime**: real Ably capability is subscribe-only, claim channels segment tenants, masked fields are absent, dead letters/health/metrics alerting wired, replay audited.
+5. **Realtime**: only granted channels reach each role, claim channels segment tenants, masked fields are absent, the reverse proxy does not buffer SSE.
 6. **API contract**: generated endpoints against the real web build, host adapters (integration mode), CORS, CSV import/export limits, saved views.
-7. **Operations**: TLS, SPA fallback, health checks, secrets injection/rotation, logging without secrets, metrics/alerts, backups, rollback runbook, multi-replica safety (storage metadata database, migration lock, realtime lease, import/export job claiming).
+7. **Operations**: TLS, SPA fallback, health checks, secrets injection/rotation, logging without secrets, metrics/alerts, backups, rollback runbook, multi-replica safety (storage metadata database, migration lock, import/export job claiming).
 
 Anything outside CRUD (connector authorization, queues, token encryption, revocation, audit policy, synchronization) belongs in domain services and must be tested independently. CRUD generation does not implement it.
 
@@ -210,7 +208,6 @@ Anything outside CRUD (connector authorization, queues, token encryption, revoca
 | Restore refuses | Dialect/table-set mismatch or missing `--confirm` | Restore into a matching schema; pass both flags |
 | Export returns 400 `export.tooLarge` | Row cap (default 1000, `QIY_EXPORT_MAX_ROWS` 1..100000) | Narrow filters or raise the cap deliberately |
 | Import partially applied | Per-row writes with compensating delete; a failure returns 4xx | Inspect `import.*` error and the reported line; no partial rows remain |
-| Health 503 / dead letters grow | Ably or DB unavailable, retry cap exceeded | Check realtime health/dead endpoints, fix, replay |
 | Browser deep link 404 | Reverse proxy has no SPA fallback | `try_files $uri $uri/ /index.html` |
 | 401 on every cross-origin request | Missing exact CORS origin or token header | Configure `api { cors { ... } }`; allow `Authorization`, `Content-Type`, `Idempotency-Key`, `X-API-Key` |
 | IdP token exchange fails behind a proxy | Bun `fetch` cannot reach the token endpoint | Set `HTTPS_PROXY`/`HTTP_PROXY` |

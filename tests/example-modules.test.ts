@@ -28,7 +28,6 @@ describe("modular demo model", () => {
     expect(project.database.relations).toHaveLength(23);
     expect(project.pages).toHaveLength(4);
     expect(project.menuGroups).toHaveLength(6);
-    expect(project.dashboardMetrics).toBeUndefined();
     expect(project.charts).toHaveLength(4);
     expect(project.charts?.reduce((sum, chart) => sum + chart.views.length, 0)).toBe(5);
     expect(project.chartPanels).toHaveLength(2);
@@ -71,7 +70,7 @@ describe("modular demo model", () => {
     expect(moduleEntities(moduleText("wms/entities.qiy"))).toEqual(["warehouses", "bins", "inventory", "stock_movements", "work_orders"]);
     // Enums come from the platform module, everything else stays domain-specific.
     for (const path of ["scm/entities.qiy", "erp/entities.qiy", "wms/entities.qiy"]) {
-      expect(moduleText(path)).not.toMatch(/^\s*(enum|relation|scope|restrict|pages|menu|dashboard|dataflow|action)\s/m);
+      expect(moduleText(path)).not.toMatch(/^\s*(enum|relation|scope|restrict|pages|menu|chart|dataflow|action)\s/m);
     }
     expect(moduleText("relations.qiy").match(/^relation\s/gm)).toHaveLength(23);
     expect(moduleText("platform.qiy").match(/^enum\s/gm)).toHaveLength(8);
@@ -120,7 +119,6 @@ describe("modular demo model", () => {
       for (const value of enumeration.values) add(qiyModelKeys.enumValueLabel(enumeration.name, value.name));
     }
     for (const group of project.menuGroups ?? []) add(qiyModelKeys.menuLabel(group.name));
-    for (const metric of project.dashboardMetrics ?? []) add(qiyModelKeys.dashboardLabel(metric.name));
     for (const chart of project.charts ?? []) {
       add(qiyModelKeys.chartLabel(chart.name));
       for (const view of chart.views) {
@@ -247,7 +245,7 @@ describe("modular demo model", () => {
     expect(files["apps/web/app/components/charts.tsx"]).toContain("matchMedia");
     expect(files["apps/web/app/routes/home.tsx"]).toContain("ChartDashboard");
     expect(files["apps/web/app/routes/home.tsx"]).toContain("charts.length > 0");
-    expect(files["apps/web/app/dashboard.ts"]).toContain("export const dashboardMetrics: DashboardMetric[] = []");
+    expect(files["apps/web/app/dashboard.ts"]).toBeUndefined();
     expect(files["apps/web/tests/charts.test.ts"]).toContain("variant selection shrinks larger -> medium -> small");
     expect(files["apps/web/tests/charts-render.test.tsx"]).toContain("renders every chart kind with grid placements and selectors");
     // System administration: three feature-gated developer pages (overview / API docs / keys).

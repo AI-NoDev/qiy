@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "qiyVersion": "0.36.0",
+  "qiyVersion": "0.37.0",
   "projectName": "qiy-supply-chain-erp-wms",
   "mode": "standalone",
   "files": [
@@ -40,8 +40,6 @@
     "apps/server/src/graphql-adapter.ts",
     "apps/server/src/realtime-bus.ts",
     "apps/server/src/realtime.ts",
-    "apps/server/src/realtime-admin.ts",
-    "apps/server/tests/realtime-admin.test.ts",
     "apps/server/tests/realtime.test.ts",
     "apps/server/tests/pagination.test.ts",
     "apps/server/tests/app.test.ts",
@@ -237,7 +235,6 @@
     "apps/web/app/components/business-actions.tsx",
     "apps/web/app/icons.tsx",
     "apps/web/app/api-error.ts",
-    "apps/web/app/dashboard.ts",
     "apps/web/app/charts.ts",
     "apps/web/app/auth.ts",
     "apps/web/tests/auth.test.ts",
@@ -322,9 +319,6 @@
     "package.json",
     "README.md",
     "turbo.json",
-    "deploy/kubernetes/realtime-servicemonitor.yaml",
-    "deploy/kubernetes/realtime-prometheusrule.yaml",
-    "deploy/observability/grafana/qiy-realtime-outbox.json",
     "openwiki/quickstart.md",
     "openwiki/architecture.md",
     "openwiki/development.md"

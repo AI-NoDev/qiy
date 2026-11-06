@@ -164,7 +164,6 @@ export async function initApp(options: InitAppOptions): Promise<string> {
     elysiaPlugins: project.elysiaPlugins,
     corsOrigins: project.corsOrigins,
     menuGroups: project.menuGroups,
-    dashboardMetrics: project.dashboardMetrics,
     charts: project.charts,
     chartPanels: project.chartPanels,
     realtime: project.realtime,

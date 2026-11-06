@@ -152,9 +152,8 @@ Canonical reference: https://ai-nodev.github.io/qiy/dsl/overview
 | `Realtime X: restrict row predicates cannot be enforced on a shared channel` | Row predicate + realtime | Remove the predicate or realtime |
 | `a claim-scoped channel already isolates rows; remove the restrict row predicates` | Both isolation styles | Keep the claim channel |
 | `claim field X must be non-nullable` | `when` field nullable | Make it non-null |
-| `/api/v1/realtime/token` 403 | Missing claim for a segmented channel | Add the claim or drop `when` |
+| `/api/v1/realtime/stream` 403 | Role not in `roles`, or missing claim for a segmented channel | Check roles; add the claim or drop `when` |
 | `/token` 503 `Realtime is disabled` | `QIY_REALTIME_DISABLED=1` | Unset it |
-| Dead letters grow | Ably unreachable/wrong key/retry cap | Check health/dead, fix, replay |
 | Page receives no events | Role not allowed or capability/channel mismatch | Check `roles`, claims, token capability |
 | Events miss fields | A `mask` applies to a subscribable role | Adjust mask/roles |
 
@@ -184,7 +183,6 @@ Canonical reference: https://ai-nodev.github.io/qiy/dsl/overview
 | `bun test` scenario tests refuse to run | PostgreSQL/MySQL without `QIY_TEST_DATABASE_URL` (or not `qiy_test_*`) | Create/migrate a dedicated test DB and set both variables |
 | Scenario test wipes data | Tests clear model tables | Never point them at a business database |
 | Scenario test fails on FK cleanup | Cyclic foreign keys | Remove the cycle; generation rejects it too |
-| Realtime tests fail without Ably | They should force `QIY_REALTIME_DISABLED=1` | Do not set a real key in unit tests |
 | Snapshot/SSR tests fail without `window` | Code assumes browser APIs | Use the generated `useQiyUiOptional()`/SSR-safe helpers |
 | `preview` works, CI build fails | Preview uses an in-memory repository and dev env | Build with the production env requirements |
 | Docs/skill assets stale in CI | `bun run docs:assets`/`skill:build` not run | Run them and commit generated assets |
@@ -203,7 +201,7 @@ Canonical reference: https://ai-nodev.github.io/qiy/dsl/overview
 | Cross-origin 401 | CORS origin mismatch or auth headers not allowed | Exact origins including ports |
 | Exports 400 `export.tooLarge` | Row cap (`QIY_EXPORT_MAX_ROWS`) | Narrow filters or raise the cap deliberately |
 | Imports partially applied | Compensating delete on failure | Fix the reported line; no partial rows remain |
-| Health 503 after deploy | DB/Ably unavailable or realtime thresholds exceeded | Check DB connectivity, realtime health/dead endpoints |
+| Health 503 after deploy | Database unavailable | Check DB connectivity and credentials |
 | S3 upload works locally, fails in cluster | Local storage on one replica | Use `s3` or a shared volume; `QIY_STORAGE_METADATA=database` |
 
 ## Related references

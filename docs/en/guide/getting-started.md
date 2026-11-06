@@ -89,6 +89,5 @@ qiy preview      # loopback-only in-memory preview; not a deployment target
 ## Next steps
 
 - [CLI reference](/en/guide/cli)
-- [v1 friendly syntax](/guide/syntax-v1)
 - [DSL overview](/dsl/overview)
 - [Agent Skill](/guide/agent-skill)

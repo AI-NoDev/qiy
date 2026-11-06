@@ -8,6 +8,8 @@ menu {
   }
 }
 
-dashboard {
-  metric movementCount movements @label("Movements") @icon(SwapOutlined) @span(8);
+chart const MovementCount {
+  icon = "SwapOutlined";
+  title = "Movements";
+  data = count movements;
 }

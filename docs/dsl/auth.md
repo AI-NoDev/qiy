@@ -7,8 +7,8 @@
 | 方式 | 写法 | 生成结果 |
 | --- | --- | --- |
 | 本地密码 | `provider local;` | Argon2id 校验 + HS256 会话 JWT + `/auth/login` + Refine `AuthPage` |
-| 单一 OIDC/OAuth2/SSO | `provider oidc;`（或 `oauth2` / `sso` / `okta` / `auth0` / `azure-ad-b2c` / `keycloak` / `google` / `kinde`） | 浏览器 PKCE + 服务端 JWKS 验签；用 `QIY_OIDC_ISSUER/AUDIENCE/JWKS_URL` 单块配置 |
-| 多 Provider | `providers okta, keycloak, google;` | 登录页按 `GET /api/v1/auth/providers` 渲染按钮；每 Provider 一段 `QIY_OIDC_<ID>_*` |
+| 单一 OpenID Connect | `provider oidc;`，可加 `provider oidc { preset okta; }` 选厂商预设 | 浏览器 PKCE + 服务端 JWKS 验签；用 `QIY_OIDC_ISSUER/AUDIENCE/JWKS_URL` 单块配置 |
+| 多 Provider | `providers okta, corp, google;`（名字自由，见 [Provider 命名与 preset](#provider-命名与-preset)） | 登录页按 `GET /api/v1/auth/providers` 渲染按钮；每 Provider 一段 `QIY_OIDC_<ID>_*` |
 | 混合（密码 + OAuth） | `providers local, okta, google;` + `usernameField`/`passwordField` | 一张登录页同时有密码表单与 Provider 按钮；额外生成首次登录 onboarding、账号绑定/解绑、个人中心 |
 | 一次性密码 | `provider otp;` | `/auth/otp/request` + `/auth/otp/verify`，5 分钟签名 challenge + 12 小时会话令牌 |
 
@@ -30,15 +30,15 @@ auth {
   profileField oauthProfiles;           // 可选：每 Provider 的 profile 元数据
   claim tenant.id organizationId;       // 可选：scope/@tenant claim 由哪个 users 列解析
 
-  // 每 Provider 身份列映射（混合/多 Provider 常用）
+  // 每 Provider 配置块：厂商预设、按钮文案、身份列映射
   provider okta { subjectField oktaSubject; }
-  provider keycloak { subjectField keycloakSubject; claim sub; }
+  provider corp { preset keycloak; label "企业 SSO"; subjectField corpSubject; claim sub; }
 }
 ```
 
 ```text
 auth {
-  ( "provider" <id> [ "{" ( "subjectField" <field> ";" | "claim" <name> ";" )* "}" | ";" ] )
+  ( "provider" <id> [ "{" ( "preset" <preset> ";" | "label" <string> ";" | "subjectField" <field> ";" | "claim" <name> ";" )* "}" | ";" ] )
 | "providers" <id> ( "," <id> )* ";"
 | "user" <entity> ";"
 | "subjectField" <field> ";"
@@ -50,13 +50,29 @@ auth {
 }
 ```
 
-`provider <id> { ... }` 是**映射块**，不是第二个登录方式；它必须与 `provider`/`providers` 中已配置的 Provider 同名。`provider` 与 `providers` 互斥。
+`provider <id> { ... }` 是**配置块**，不是第二个登录方式；它必须与 `provider`/`providers` 中已配置的 Provider 同名（只写一个 `provider oidc { ... }` 块时等价于同时声明 `provider oidc;`）。`local`、`otp` 不接受配置块。`provider` 与 `providers` 互斥。
+
+### Provider 命名与 preset
+
+所有外部登录都是 OpenID Connect，厂商之间只差端点形态、按钮文案和 claim 约定，所以 Qiy 只有一种外部 Provider，用 `preset` 选厂商：
+
+| 写法 | 含义 |
+| --- | --- |
+| `provider oidc;` | 单个外部 Provider，名字固定为 `oidc`，preset 为 `generic` |
+| `provider oidc { preset okta; }` | 单个外部 Provider，使用 Okta 预设（按钮文案、示例端点） |
+| `providers local, okta, google;` | 名字与预设同名时自动套用该预设 |
+| `providers local, corp;` + `provider corp { preset keycloak; label "企业 SSO"; }` | 自由命名；预设与文案显式指定 |
+
+- 可用 preset：`generic`、`okta`、`auth0`、`azure-ad-b2c`、`keycloak`、`google`、`kinde`；其他值报 `Unsupported OIDC preset <x>`。
+- Provider 名只能是小写字母、数字和 `-`；它决定回调路径与 `QIY_OIDC_<NAME>_*` 环境变量名，preset 不影响环境变量。
+- 按钮文案优先级：`label` → preset 的厂商名 → Provider 名。
+- 单 Provider 写 `provider okta;`、`provider sso;` 这类厂商名会报错并给出改写提示：`use provider local, otp or oidc (for example provider oidc { preset okta; })`。
 
 ## 属性表
 
 | 属性 | 必填 | 默认 | 语义与校验 |
 | --- | --- | --- | --- |
-| `provider` | 二选一 | — | 单个 Provider：`local`/`otp`/`oidc`/`oauth2`/`sso`/`okta`/`auth0`/`azure-ad-b2c`/`keycloak`/`google`/`kinde` |
+| `provider` | 二选一 | — | 单个 Provider：`local` / `otp` / `oidc` |
 | `providers` | 二选一 | — | Provider 列表；不能重复，**不能含 `otp`**，可含 `local`（表示同时开密码登录）；只有一个 OAuth Provider 且不含 `local` 时等价于 `provider` |
 | `user` | 是 | — | 用户实体名；必须是已声明实体，否则 `Auth: unknown user entity` |
 | `subjectField` | OAuth 家族必填 | `""` | 外部身份列：必须是**非空 + 唯一 + Text**；单 Provider 模式写入 `<iss>`\|`<sub>`，映射模式写入该 Provider 的映射列（见下） |
@@ -65,6 +81,8 @@ auth {
 | `passwordField` | `local` 必填 | `""` | 密码哈希列：必须 `@nullable` + Text，且不会出现在 API schema（`@listVisible(false)` 之类由生成器隐式隐藏） |
 | `profileField` | 否 | `""` | `@nullable` Text，存 `{ "<provider>": { email, name, sub } }` JSON；只有声明了 OAuth Provider 才允许 |
 | `provider <id> { subjectField ... }` | 混合模式必需 | — | 该 Provider 的身份列：必须存在、Text、`@nullable`、`@unique` |
+| `provider <id> { preset ... }` | 否 | 与 Provider 同名的预设，否则 `generic` | 厂商预设，见 [Provider 命名与 preset](#provider-命名与-preset) |
+| `provider <id> { label ... }` | 否 | preset 厂商名 → Provider 名 | 登录按钮文案（字符串） |
 | `provider <id> { claim ... }` | 否 | `sub` | 用哪个 claim 作为该 Provider 的外部身份；必须是纯 claim 名 `[A-Za-z_][A-Za-z0-9_]*` |
 | `claim <claim> <field>` | 否 | 按命名推导（`org.id` → `orgId`） | 本地密码、OTP 与 API Key 会话的 claim 从 users 行读取；该语句指定 claim 来自哪一列。claim 可带点号或写成引号字符串；同一 claim 只能映射一次，列必须是 users 实体的已声明字段（`Auth claim <c>: unknown field users.<f>`） |
 
@@ -245,7 +263,7 @@ auth { provider otp; user users; usernameField email; roleField role; }
 
 `QIY_OIDC_<PROVIDER>_*` 的 `<PROVIDER>` 是 Provider 名**大写、非字母数字换成 `_`**：`okta` → `OKTA`，`azure-ad-b2c` → `AZURE_AD_B2C`。
 
-| Provider id | issuer | audience | JWKS URL | 授权/令牌端点（示例） | 身份 claim | 备注 |
+| preset | issuer | audience | JWKS URL | 授权/令牌端点（示例） | 身份 claim | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `okta` | `https://<domain>/oauth2/default` | `api://default`（或自定义 AS 的 audience） | `https://<domain>/oauth2/default/v1/keys` | `/v1/authorize`、`/v1/token`、`/v1/logout` | `sub` | 需把用户 Assign 到该 OIDC 应用；自定义 AS 用自己的 issuer |
 | `keycloak` | `https://<host>/realms/<realm>` | `account` 或 client id | `https://<host>/realms/<realm>/protocol/openid-connect/certs` | `/protocol/openid-connect/auth`、`…/token`、`…/logout` | `sub` | 角色常见于 `realm_access.roles`（嵌套，扁平化后为 `realm_access.roles`）；也可加 mapper 输出 `roles` |
@@ -253,8 +271,8 @@ auth { provider otp; user users; usernameField email; roleField role; }
 | `kinde` | `https://<subdomain>.kinde.com` | client id | `https://<subdomain>.kinde.com/.well-known/jwks.json` | `/oauth2/auth`、`/oauth2/token`、`/logout` | `sub` | 支持 device code flow（Qiy 不内置该流程） |
 | `azure-ad-b2c` | `https://<tenant>.b2clogin.com/<tenantId>/<policy>/v2.0/` | 应用 client id | `https://<tenant>.b2clogin.com/<tenant>.onmicrosoft.com/<policy>/discovery/v2.0/keys` | `/<policy>/oauth2/v2.0/authorize`、`…/token`、`…/logout` | `sub` | 自定义策略常签发 `roles`；tenant/policy 必须与 issuer 一致 |
 | `auth0` | `https://<tenant>.<region>.auth0.com/` | API identifier（自定义 API） | `https://<tenant>.<region>.auth0.com/.well-known/jwks.json` | `/authorize`、`/oauth/token`、`/v2/logout` | `sub` | audience 必须是 API 标识，不是 client id（client id 也被接受） |
-| `oidc` / `oauth2` / `sso` | 你的 IdP issuer | 你的 audience | 你的 JWKS | discovery 里的 authorize/token | `sub` | 通用容器；单 Provider 模式用 `QIY_OIDC_ISSUER/AUDIENCE/JWKS_URL` |
-| Dex（用 `keycloak` 或 `oidc` 承载） | `https://<dex-host>/dex` | `qiy-admin` 或自建 client | `https://<dex-host>/dex/keys` | `/dex/auth`、`/dex/token` | `sub` | **默认不签发 `roles`/`groups`**：`permission from claim` 需要 tenant 侧加 mapper，否则该来源为空 |
+| `generic` | 你的 IdP issuer | 你的 audience | 你的 JWKS | discovery 里的 authorize/token | `sub` | 通用 OIDC；单 Provider 模式用 `QIY_OIDC_ISSUER/AUDIENCE/JWKS_URL` |
+| Dex（`generic`，自由命名如 `dex`） | `https://<dex-host>/dex` | `qiy-admin` 或自建 client | `https://<dex-host>/dex/keys` | `/dex/auth`、`/dex/token` | `sub` | **默认不签发 `roles`/`groups`**：`permission from claim` 需要 tenant 侧加 mapper，否则该来源为空 |
 
 ::: warning 这些是配置起点，不是验收声明
 上面是生成器/示例使用的端点形态。真实租户（Okta/Auth0/Azure/Keycloak/Google/Kinde/Dex）的 issuer、audience、JWKS、claim 设计、退出登录与第三方 Cookie 策略必须逐个环境验证；仓库提供 `tools/verify-*.ts` 的离线/真实租户验收脚本，它们存在不等于你的环境已验收。
@@ -270,7 +288,7 @@ application ops-admin {
   features { overview true; apiDocs true; apiKeys true; }
 
   auth {
-    providers local, okta, keycloak;      // keycloak 用来承载自建 Dex 租户
+    providers local, okta, dex;           // dex 是自由命名的 generic Provider
     user users;
     subjectField subject;
     roleField role;
@@ -278,7 +296,7 @@ application ops-admin {
     passwordField passwordHash;
     profileField oauthProfiles;
     provider okta { subjectField oktaSubject; }
-    provider keycloak { subjectField dexSubject; claim sub; }
+    provider dex { label "Dex"; subjectField dexSubject; claim sub; }
   }
 
   enum userRole { value admin; value operator; value viewer; }
@@ -316,14 +334,14 @@ QIY_OIDC_OKTA_CLIENT_ID=<spa client id>
 QIY_OIDC_OKTA_SCOPE=openid profile email
 QIY_OIDC_OKTA_REDIRECT_URI=https://admin.example.com/auth/callback
 
-# 自建 Dex（以 keycloak Provider 承载）
-QIY_OIDC_KEYCLOAK_ISSUER=https://dex.example.com/dex
-QIY_OIDC_KEYCLOAK_AUDIENCE=ops-admin
-QIY_OIDC_KEYCLOAK_JWKS_URL=https://dex.example.com/dex/keys
-QIY_OIDC_KEYCLOAK_AUTHORIZATION_URL=https://dex.example.com/dex/auth
-QIY_OIDC_KEYCLOAK_TOKEN_URL=https://dex.example.com/dex/token
-QIY_OIDC_KEYCLOAK_CLIENT_ID=ops-admin
-QIY_OIDC_KEYCLOAK_REDIRECT_URI=https://admin.example.com/auth/callback
+# 自建 Dex（Provider 名 dex）
+QIY_OIDC_DEX_ISSUER=https://dex.example.com/dex
+QIY_OIDC_DEX_AUDIENCE=ops-admin
+QIY_OIDC_DEX_JWKS_URL=https://dex.example.com/dex/keys
+QIY_OIDC_DEX_AUTHORIZATION_URL=https://dex.example.com/dex/auth
+QIY_OIDC_DEX_TOKEN_URL=https://dex.example.com/dex/token
+QIY_OIDC_DEX_CLIENT_ID=ops-admin
+QIY_OIDC_DEX_REDIRECT_URI=https://admin.example.com/auth/callback
 
 # 混合认证新增账号的默认角色
 QIY_OIDC_DEFAULT_ROLE=viewer
@@ -405,7 +423,9 @@ QIY_OIDC_JWKS_CACHE_MAX_AGE_MS=600000
 | `Auth accepts either provider or providers, not both` | 两种写法同时出现 |
 | `Auth providers cannot include otp; use provider otp for one-time-password login` | `providers` 里写了 `otp` |
 | `Auth providers must be unique` | `providers` 重复 |
-| `Unsupported auth provider <id>` | 未知 Provider 名 |
+| `Unsupported auth provider <id>; use provider local, otp or oidc …` | 单 Provider 写了厂商名（0.37 起改用 `provider oidc { preset <id>; }`） |
+| `Unsupported OIDC preset <x>` | `preset` 不在预设列表 |
+| `Invalid auth provider name <x>` | `providers` 里的名字不是小写字母/数字/`-` |
 | `Provider mapping requires subjectField` | `provider X { }` 没写 `subjectField` |
 | `Provider mapping claim must be a plain claim name: <c>` | claim 含点号（映射 claim 只接受纯名） |
 | `Provider mapping <p> is not part of the configured providers` | 映射块与 `providers` 不一致 |
@@ -464,7 +484,7 @@ QIY_OIDC_JWKS_CACHE_MAX_AGE_MS=600000
 | --- | --- |
 | `provider` / `providers` / `local` 推导 / 模式矩阵 | 语法总览、属性表 |
 | `user` / `subjectField` / `roleField` / `usernameField` / `passwordField` / `profileField` | 属性表、用户模型契约 |
-| `provider <id> { subjectField; claim; }` | 属性表、用户模型契约、Provider 配置表 |
+| `provider <id> { preset; label; subjectField; claim; }` | Provider 命名与 preset、属性表、Provider 配置表 |
 | 五种模式的生成结果 | 登录页与会话行为、端点矩阵、生成文件 |
 | 会话/令牌/onboarding/challenge | 会话与令牌模型 |
 | 密码策略、bootstrap、set-password | 密码策略与账号运维 |

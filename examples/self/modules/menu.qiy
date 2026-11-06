@@ -1,5 +1,5 @@
-# Sidebar menu groups. Included after `pages` and before `dashboard`, matching the
-# parser order: relations -> scope -> restrict -> pages -> menu -> dashboard.
+# Sidebar menu groups. Included after `pages` and before `chart`, matching the
+# parser order: relations -> scope -> restrict -> pages -> menu -> chart.
 #
 # Each group becomes a collapsible submenu in the generated sidebar; resources are
 # listed in the order they should appear. Group labels are translated through the

@@ -9,6 +9,12 @@ test("warehouse best-practice modules expand into a valid application", async ()
   expect(project.database.entities.map((entity) => entity.name)).toEqual(["warehouses", "products", "stockMovements"]);
   expect(project.database.relations?.map((relation) => relation.name)).toEqual(["stockMovementWarehouse", "stockMovementProduct"]);
   expect(project.menuGroups?.map((group) => group.name)).toEqual(["operations", "masterData"]);
+  expect(project.charts?.map((chart) => chart.name)).toEqual(["MovementCount"]);
+});
+
+test("the offline skill copy of the warehouse example parses with the current grammar", async () => {
+  const project = parseQiyProject(await loadQiyProjectSource(".agents/skills/qiy/examples/warehouse-admin/app.qiy"));
+  expect(project.charts?.map((chart) => chart.name)).toEqual(["MovementCount"]);
 });
 
 test("labels every documentation code block with its relative example path", () => {

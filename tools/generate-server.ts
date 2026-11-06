@@ -1,7 +1,7 @@
 import type { DatabaseIR, EntityIR, FieldIR, FilterMode } from "./database-ir";
 import { renderViewRoutes } from "./generate-view-routes";
 import type { QiyProject, DataflowIR, QiyPolicyExpression, QiyResourceRestriction, QiyRowPredicate, QiyFieldMask } from "./qiy-project";
-import { authHasLocal, authIsHybrid, authOAuthProviders, authProviderSubjectField, authUsesProviderChooser } from "./qiy-project";
+import { authHasLocal, authIsHybrid, authOAuthProviders, authProviderLabel, authProviderSubjectField, authUsesProviderChooser } from "./qiy-project";
 import {
   declaredPermissionValues,
   evaluatePermissionVerification as evaluateDeclaredVerification,
@@ -474,68 +474,12 @@ function renderGraphQL(database: DatabaseIR, hiddenFields: Record<string, string
             try { controller.close(); } catch { /* already closed */ }
           }
         },
+        cancel() { void iterator.return?.(); },
       });
       return new Response(body, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-store", "X-Accel-Buffering": "no" } });
     }, { query: t.Object({ query: t.String({ minLength: 1, maxLength: 20000 }), variables: t.Optional(t.String({ maxLength: 20000 })), operationName: t.Optional(t.String({ maxLength: 200 })) }) })`
     : "";
 
-  // graphql-ws (WebSocket) transport: the same subscriptions as SSE, so browsers can
-  // use the standard protocol without a separate server. Auth rides connection_init.
-  const websocketRoute = realtimeEntities.length
-    ? `
-    .ws("/ws", {
-      async message(socket, raw) {
-        const ws = socket as any;
-        let frame: { type?: string; id?: string; payload?: { token?: string; query?: string; variables?: Record<string, unknown>; operationName?: string } };
-        try {
-          // Elysia may hand the message over parsed, as text, or as a binary frame.
-          frame = typeof raw === "object" && raw !== null && !(raw instanceof Uint8Array)
-            ? raw as typeof frame
-            : JSON.parse(typeof raw === "string" ? raw : new TextDecoder().decode(raw as Uint8Array));
-        } catch { return ws.send(JSON.stringify({ type: "error", payload: [{ message: "Invalid message" }] })); }
-        if (frame.type === "connection_init") {
-          const token = frame.payload?.token ?? "";
-          const headers: Record<string, string> = token ? { Authorization: /^Bearer\s/.test(token) ? token : "Bearer " + token } : {};
-          const principal = await authenticate(new Request("http://realtime/ws", { headers }));
-          if (!principal) { ws.close(4401, "Unauthorized"); return; }
-          ws.data.principal = principal;
-          ws.data.requestHeaders = headers;
-          return ws.send(JSON.stringify({ type: "connection_ack" }));
-        }
-        if (frame.type === "ping") return ws.send(JSON.stringify({ type: "pong" }));
-        if (frame.type === "connection_terminate") return ws.close(1000, "Terminated");
-        const principal = ws.data.principal as Principal | undefined;
-        if (!principal) { ws.close(4401, "Unauthorized"); return; }
-        if (frame.type === "complete") { const iterator = ws.data.subscriptions?.get(frame.id); if (iterator) { void iterator.return?.(); ws.data.subscriptions.delete(frame.id); ws.send(JSON.stringify({ id: frame.id, type: "complete" })); } return; }
-        if (frame.type !== "subscribe" || !frame.id) return ws.send(JSON.stringify({ type: "error", id: frame.id, payload: [{ message: "Unsupported message" }] }));
-        let document;
-        try { document = parse(frame.payload?.query ?? ""); } catch { return ws.send(JSON.stringify({ id: frame.id, type: "error", payload: [{ message: "Invalid GraphQL document" }] })); }
-        const capabilities = realtimeCapabilities(principal);
-        const contextValue = {
-          request: new Request("http://realtime/ws", { headers: ws.data.requestHeaders ?? {} }),
-          actorId: principal.id,
-          channelFor: (prefix: string) => Object.keys(capabilities).find((channel) => (channel === prefix || channel.startsWith(prefix + ":")) && capabilities[channel]?.includes("subscribe")),
-          scopeFor: () => undefined,
-        };
-        let result: any;
-        try { result = await subscribe({ schema, document, rootValue: resolvers(services${commandArgument}, { channelFor: contextValue.channelFor }), contextValue, variableValues: frame.payload?.variables, operationName: frame.payload?.operationName }); }
-        catch (error) { return ws.send(JSON.stringify({ id: frame.id, type: "error", payload: [{ message: error instanceof Error ? error.message : "Unsupported subscription" }] })); }
-        if (!result || !(Symbol.asyncIterator in result)) {
-          const failures = (result as { errors?: Array<{ message: string }> } | undefined)?.errors ?? [{ message: "Unsupported subscription" }];
-          return ws.send(JSON.stringify({ id: frame.id, type: "error", payload: failures }));
-        }
-        const iterator = result as AsyncIterableIterator<Record<string, unknown>>;
-        ws.data.subscriptions = ws.data.subscriptions ?? new Map();
-        ws.data.subscriptions.set(frame.id, iterator);
-        void (async () => {
-          try { for await (const payload of iterator) { if (ws.readyState !== 1) break; ws.send(JSON.stringify({ id: frame.id, type: "next", payload })); } }
-          catch (error) { if (ws.readyState === 1) ws.send(JSON.stringify({ id: frame.id, type: "error", payload: [{ message: error instanceof Error ? error.message : String(error) }] })); }
-          finally { if (ws.readyState === 1) ws.send(JSON.stringify({ id: frame.id, type: "complete" })); ws.data.subscriptions?.delete(frame.id); }
-        })();
-      },
-      close(socket) { const ws = socket as any; for (const iterator of ws.data.subscriptions?.values?.() ?? []) void iterator.return?.(); ws.data.subscriptions?.clear?.(); },
-    })`
-    : "";
   const commandParameter = dataflows.length ? ", commandRoutes: ReturnType<typeof createDataflowRoutes>" : "";
   // Subscription roots are lazy top-level getters: graphql-js reads rootValue[field]
   // when the operation is executed, so queries never evaluate them. The emitted value
@@ -613,7 +557,7 @@ ${commandSetup}  return new Elysia({ prefix: "/graphql" })
       try { fields = requestedFields(operation.query, operation.operationName); } catch { fields = new Set(); }
       if (scopeDefinitions.some(({ resource }) => [resource, resource + "ById", resource + "Distribution", resource + "Trend", "create" + resource[0]!.toUpperCase() + resource.slice(1), "update" + resource[0]!.toUpperCase() + resource.slice(1), "delete" + resource[0]!.toUpperCase() + resource.slice(1), "delete" + resource[0]!.toUpperCase() + resource.slice(1) + "Many"].some((name) => fields.has(name)) && !scopes[resource]?.value)) return status(403, { error: "Missing required data scope claim" });
       return graphql({ schema, rootValue: resolvers(services${commandArgument}), contextValue: { request, principal, actorId: principal?.id, scopeFor: (resource: string) => { const scope = scopes[resource]; if (scope && !scope.value) throw new Error("Missing required data scope claim"); return scope; }${policyContext} }, source: operation.query, variableValues: operation.variables, operationName: operation.operationName });
-    }, { body: t.Object({ query: t.String({ minLength: 1 }), variables: t.Optional(t.Record(t.String(), t.Any())), operationName: t.Optional(t.String()) }) })${subscriptionRoute}${websocketRoute};
+    }, { body: t.Object({ query: t.String({ minLength: 1 }), variables: t.Optional(t.Record(t.String(), t.Any())), operationName: t.Optional(t.String()) }) })${subscriptionRoute};
 }
 
 function resolvers(services: {
@@ -1868,13 +1812,13 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
     ? `"qiy:${entity.tableName}:" + String((${record} as Record<string, unknown>)[${JSON.stringify(realtimeClaim.field)}])`
     : JSON.stringify(`qiy:${entity.tableName}`);
   const realtimeWrite = (type: "created" | "updated" | "deleted", payload: string) => realtimeEvents.has(type)
-    ? `${database.dialect === "sqlite" ? "" : "await "}tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: ${realtimeChannelExpression(payload)}, type: ${JSON.stringify(type)}, payload: JSON.stringify(${realtimePayload(payload)}), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() })${database.dialect === "sqlite" ? ".run()" : ""};`
+    ? `${database.dialect === "sqlite" ? "" : "await "}tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: ${realtimeChannelExpression(payload)}, type: ${JSON.stringify(type)}, payload: JSON.stringify(${realtimePayload(payload)}), createdAt: new Date() })${database.dialect === "sqlite" ? ".run()" : ""};`
     : "";
   const softDeleteField = entity.fields.find((field) => field.softDelete)?.name;
   // Soft-deleted resources stamp the marker column instead of removing the row.
   const removeFrom = softDeleteField ? `update(${entity.name}).set({ ${softDeleteField}: new Date() } as Partial<typeof ${entity.name}.$inferInsert>)` : `delete(${entity.name})`;
   const realtimeDeleteManyWrite = realtimeEvents.has("deleted")
-    ? `${database.dialect === "sqlite" ? "" : "await "}tx.insert(realtimeOutbox).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), channel: ${realtimeChannelExpression("record")}, type: "deleted", payload: JSON.stringify(${realtimePayload("record")}), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() })))${database.dialect === "sqlite" ? ".run()" : ""};`
+    ? `${database.dialect === "sqlite" ? "" : "await "}tx.insert(realtimeOutbox).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), channel: ${realtimeChannelExpression("record")}, type: "deleted", payload: JSON.stringify(${realtimePayload("record")}), createdAt: new Date() })))${database.dialect === "sqlite" ? ".run()" : ""};`
     : "";
   const auditedMutationMethods = database.dialect === "sqlite" ? `  async create(values, actorId, scope${restricted ? ", policy" : ""}) {
     return db.transaction((tx) => {
@@ -2535,11 +2479,11 @@ function renderDataflowOutboxSchema(dialect: DatabaseIR["dialect"]): string {
   return `\n\nexport const dataflowOutbox = ${table}("dataflow_outbox", {\n  id: ${dialect === "mysql" ? 'varchar("id", { length: 36 })' : 'text("id")'}.primaryKey(),\n  actorId: ${dialect === "mysql" ? 'varchar("actorId", { length: 128 })' : 'text("actorId")'},\n  event: ${dialect === "mysql" ? 'varchar("event", { length: 190 })' : 'text("event")'}.notNull(),\n  payload: text("payload").notNull(),\n  createdAt: ${dialect === "postgresql" ? 'timestamp("createdAt", { withTimezone: true })' : dialect === "sqlite" ? 'integer("createdAt", { mode: "timestamp" })' : 'datetime("createdAt", { mode: "date", fsp: 3 })'}.notNull(),\n});\n`;
 }
 
-function renderRealtimeOutboxSchema(dialect: DatabaseIR["dialect"]): string {  const table = dialect === "postgresql" ? "pgTable" : dialect === "sqlite" ? "sqliteTable" : "mysqlTable";
+function renderRealtimeOutboxSchema(dialect: DatabaseIR["dialect"]): string {
+  const table = dialect === "postgresql" ? "pgTable" : dialect === "sqlite" ? "sqliteTable" : "mysqlTable";
   const string = dialect === "mysql" ? (name: string, length: number) => `varchar(${JSON.stringify(name)}, { length: ${length} })` : (name: string) => `text(${JSON.stringify(name)})`;
-  const integer = dialect === "mysql" ? "int" : "integer";
   const date = (name: string) => dialect === "postgresql" ? `timestamp(${JSON.stringify(name)}, { withTimezone: true })` : dialect === "sqlite" ? `integer(${JSON.stringify(name)}, { mode: "timestamp_ms" })` : `datetime(${JSON.stringify(name)}, { mode: "date", fsp: 3 })`;
-  return `\n\nexport const realtimeOutbox = ${table}("qiy_realtime_outbox", {\n  id: ${string("id", 36)}.primaryKey(),\n  channel: ${string("channel", 190)}.notNull(),\n  type: ${string("type", 80)}.notNull(),\n  payload: text("payload").notNull(),\n  attempts: ${integer}("attempts").notNull(),\n  availableAt: ${date("availableAt")}.notNull(),\n  deliveredAt: ${date("deliveredAt")},\n  deadLetteredAt: ${date("deadLetteredAt")},\n  lastError: text("lastError"),\n  leaseOwner: ${string("leaseOwner", 80)},\n  leaseUntil: ${date("leaseUntil")},\n  createdAt: ${date("createdAt")}.notNull(),\n}, (table) => [index("qiy_realtime_outbox_pending_idx").on(table.deliveredAt, table.deadLetteredAt, table.availableAt, table.leaseUntil, table.createdAt)]);\n`;
+  return `\n\nexport const realtimeOutbox = ${table}("qiy_realtime_outbox", {\n  id: ${string("id", 36)}.primaryKey(),\n  channel: ${string("channel", 190)}.notNull(),\n  type: ${string("type", 80)}.notNull(),\n  payload: text("payload").notNull(),\n  createdAt: ${date("createdAt")}.notNull(),\n}, (table) => [index("qiy_realtime_outbox_created_idx").on(table.createdAt)]);\n`;
 }
 
 /**
@@ -3015,7 +2959,7 @@ export async function releaseStaleImportJobs(now: Date = new Date()): Promise<nu
 `;
 }
 
-function renderRealtime(config: NonNullable<QiyProject["realtime"]>, dialect: DatabaseIR["dialect"], dataflows: NonNullable<QiyProject["dataflows"]> = []): string {
+function renderRealtime(config: NonNullable<QiyProject["realtime"]>, dataflows: NonNullable<QiyProject["dataflows"]> = []): string {
   const subscriptions = JSON.stringify(config.resources);
   const eventRoles = new Map<string, Set<string>>();
   for (const flow of dataflows) {
@@ -3027,31 +2971,11 @@ function renderRealtime(config: NonNullable<QiyProject["realtime"]>, dialect: Da
     }
   }
   const eventSubscriptions = JSON.stringify([...eventRoles].map(([event, roles]) => ({ event, roles: [...roles] })));
-  const metricsQuery = dialect === "sqlite"
-    ? `const pendingCondition = and(isNull(realtimeOutbox.deliveredAt), isNull(realtimeOutbox.deadLetteredAt));
-    const pending = db.select({ value: count() }).from(realtimeOutbox).where(pendingCondition).get()?.value ?? 0;
-    const leased = db.select({ value: count() }).from(realtimeOutbox).where(and(pendingCondition, isNotNull(realtimeOutbox.leaseUntil), gt(realtimeOutbox.leaseUntil, now))).get()?.value ?? 0;
-    const deadLettered = db.select({ value: count() }).from(realtimeOutbox).where(isNotNull(realtimeOutbox.deadLetteredAt)).get()?.value ?? 0;
-    const delivered = db.select({ value: count() }).from(realtimeOutbox).where(isNotNull(realtimeOutbox.deliveredAt)).get()?.value ?? 0;
-    const oldestPendingAt = db.select({ createdAt: realtimeOutbox.createdAt }).from(realtimeOutbox).where(pendingCondition).orderBy(asc(realtimeOutbox.createdAt)).limit(1).get()?.createdAt ?? null;
-    return { pending, leased, deadLettered, delivered, oldestPendingAt };`
-    : `const pendingCondition = and(isNull(realtimeOutbox.deliveredAt), isNull(realtimeOutbox.deadLetteredAt));
-    const [pendingRows, leasedRows, deadRows, deliveredRows, oldestRows] = await Promise.all([
-      db.select({ value: count() }).from(realtimeOutbox).where(pendingCondition),
-      db.select({ value: count() }).from(realtimeOutbox).where(and(pendingCondition, isNotNull(realtimeOutbox.leaseUntil), gt(realtimeOutbox.leaseUntil, now))),
-      db.select({ value: count() }).from(realtimeOutbox).where(isNotNull(realtimeOutbox.deadLetteredAt)),
-      db.select({ value: count() }).from(realtimeOutbox).where(isNotNull(realtimeOutbox.deliveredAt)),
-      db.select({ createdAt: realtimeOutbox.createdAt }).from(realtimeOutbox).where(pendingCondition).orderBy(asc(realtimeOutbox.createdAt)).limit(1),
-    ]);
-    return { pending: Number(pendingRows[0]?.value ?? 0), leased: Number(leasedRows[0]?.value ?? 0), deadLettered: Number(deadRows[0]?.value ?? 0), delivered: Number(deliveredRows[0]?.value ?? 0), oldestPendingAt: oldestRows[0]?.createdAt ?? null };`;
-  const auditValue = (action: string, resourceId: string, metadata: string) => `{ id: crypto.randomUUID(), actorId, action: ${JSON.stringify(action)}, resource: "qiy_realtime_outbox", resourceId: ${resourceId}, metadata: ${dialect === "sqlite" ? `JSON.stringify(${metadata})` : metadata}, createdAt: ${dialect === "mysql" ? "Date.now()" : "new Date()"} }`;
-  return `import { Rest } from "ably";
-import { timingSafeEqual } from "node:crypto";
-import { Elysia, t } from "elysia";
-import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, or } from "drizzle-orm";
+  return `import { Elysia } from "elysia";
+import { asc, count, gte, lt } from "drizzle-orm";
 import { db } from "./db";
-import { auditEvents, realtimeOutbox } from "./schema";
-import { publishRealtimeEvent, subscribeRealtimeEvents, type QiyRealtimeRecordEvent } from "./realtime-bus";
+import { realtimeOutbox } from "./schema";
+import { publishRealtimeEvent, subscribeRealtimeEvents, type QiyRealtimeBusEvent } from "./realtime-bus";
 import type { Authenticator, Principal } from "./auth/guard";
 
 export type QiyRealtimeEvent = "created" | "updated" | "deleted";
@@ -3062,130 +2986,10 @@ export interface QiyRealtimeEventSubscription { event: string; roles: string[] }
 export const qiyRealtimeSubscriptions: readonly QiyRealtimeSubscription[] = ${subscriptions};
 export const qiyRealtimeEventSubscriptions: readonly QiyRealtimeEventSubscription[] = ${eventSubscriptions};
 
-type AblyClient = Pick<Rest, "auth" | "channels">;
-type AblyClientFactory = () => AblyClient;
-export interface RealtimeOutboxRecord { id: string; channel: string; type: string; payload: string; attempts: number; }
-export interface RealtimeOutboxMetrics { pending: number; leased: number; deadLettered: number; delivered: number; oldestPendingAt: Date | null; }
-export interface RealtimeOutboxStore {
-  claim(limit: number, now: Date, leaseOwner: string, leaseUntil: Date): Promise<RealtimeOutboxRecord[]>;
-  delivered(id: string, leaseOwner: string, deliveredAt: Date): Promise<void>;
-  failed(id: string, leaseOwner: string, attempts: number, lastError: string, availableAt: Date): Promise<void>;
-  dead(id: string, leaseOwner: string, attempts: number, lastError: string, deadLetteredAt: Date): Promise<void>;
-  deadLetters(limit: number): Promise<RealtimeOutboxRecord[]>;
-  replay(id: string, now: Date, actorId?: string): Promise<boolean>;
-  replayMany(ids: string[], now: Date, actorId?: string): Promise<string[]>;
-  cleanupDelivered(before: Date, audit?: { actorId: string; retentionDays: number }): Promise<number>;
-  metrics(now: Date): Promise<RealtimeOutboxMetrics>;
-}
-
-const realtimeWorkerId: string = crypto.randomUUID();
-
-function realtimeLeaseMs(): number {
-  const leaseMs = Number(Bun.env.QIY_REALTIME_LEASE_MS ?? 30000);
-  if (!Number.isSafeInteger(leaseMs) || leaseMs < 1000) throw new Error("QIY_REALTIME_LEASE_MS must be an integer of at least 1000ms");
-  return leaseMs;
-}
-
-function realtimeMaxAttempts(): number {
-  const attempts = Number(Bun.env.QIY_REALTIME_MAX_ATTEMPTS ?? 10);
-  if (!Number.isSafeInteger(attempts) || attempts < 1 || attempts > 1000) throw new Error("QIY_REALTIME_MAX_ATTEMPTS must be an integer from 1 to 1000");
-  return attempts;
-}
-
-function realtimeRetentionDays(): number {
-  const days = Number(Bun.env.QIY_REALTIME_RETENTION_DAYS ?? 7);
-  if (!Number.isSafeInteger(days) || days < 1 || days > 3650) throw new Error("QIY_REALTIME_RETENTION_DAYS must be an integer from 1 to 3650");
-  return days;
-}
-
-function realtimeCleanupMs(): number {
-  const cleanupMs = Number(Bun.env.QIY_REALTIME_CLEANUP_MS ?? 86400000);
-  if (!Number.isSafeInteger(cleanupMs) || cleanupMs < 60000) throw new Error("QIY_REALTIME_CLEANUP_MS must be an integer of at least 60000ms");
-  return cleanupMs;
-}
-
-function realtimeAlertInteger(name: "QIY_REALTIME_ALERT_MAX_PENDING" | "QIY_REALTIME_ALERT_MAX_DEAD_LETTERED" | "QIY_REALTIME_ALERT_MAX_OLDEST_PENDING_MS", fallback: number): number {
+function realtimeInteger(name: "QIY_REALTIME_POLL_MS" | "QIY_REALTIME_RETENTION_DAYS" | "QIY_REALTIME_CLEANUP_MS", fallback: number, minimum: number, maximum = Number.MAX_SAFE_INTEGER): number {
   const value = Number(Bun.env[name] ?? fallback);
-  if (!Number.isSafeInteger(value) || value < 0) throw new Error(name + " must be a non-negative integer");
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) throw new Error(name + " must be an integer from " + minimum + " to " + maximum);
   return value;
-}
-
-export interface RealtimeOutboxAlertThresholds {
-  maxPending: number;
-  maxDeadLettered: number;
-  maxOldestPendingMs: number;
-}
-
-export interface RealtimeOutboxHealth {
-  status: "ok" | "degraded";
-  alerts: string[];
-  metrics: Omit<RealtimeOutboxMetrics, "oldestPendingAt"> & { oldestPendingAt: string | null; oldestPendingAgeMs: number };
-  thresholds: RealtimeOutboxAlertThresholds;
-}
-
-export function realtimeAlertThresholds(): RealtimeOutboxAlertThresholds {
-  return {
-    maxPending: realtimeAlertInteger("QIY_REALTIME_ALERT_MAX_PENDING", 1000),
-    maxDeadLettered: realtimeAlertInteger("QIY_REALTIME_ALERT_MAX_DEAD_LETTERED", 0),
-    maxOldestPendingMs: realtimeAlertInteger("QIY_REALTIME_ALERT_MAX_OLDEST_PENDING_MS", 300000),
-  };
-}
-
-export function evaluateRealtimeOutboxHealth(metrics: RealtimeOutboxMetrics, now = new Date(), thresholds = realtimeAlertThresholds()): RealtimeOutboxHealth {
-  const oldestPendingAt = metrics.oldestPendingAt ? new Date(metrics.oldestPendingAt) : null;
-  const oldestPendingAgeMs = oldestPendingAt ? Math.max(0, now.getTime() - oldestPendingAt.getTime()) : 0;
-  const alerts: string[] = [];
-  if (metrics.pending > thresholds.maxPending) alerts.push("pending");
-  if (metrics.deadLettered > thresholds.maxDeadLettered) alerts.push("deadLettered");
-  if (oldestPendingAgeMs > thresholds.maxOldestPendingMs) alerts.push("oldestPendingAgeMs");
-  return {
-    status: alerts.length ? "degraded" : "ok",
-    alerts,
-    metrics: { ...metrics, oldestPendingAt: oldestPendingAt?.toISOString() ?? null, oldestPendingAgeMs },
-    thresholds,
-  };
-}
-
-export function renderRealtimePrometheus(metrics: RealtimeOutboxMetrics, now = new Date()): string {
-  const health = evaluateRealtimeOutboxHealth(metrics, now);
-  const lines = [
-    "# HELP qiy_realtime_outbox_pending Pending outbox events awaiting delivery.",
-    "# TYPE qiy_realtime_outbox_pending gauge",
-    "qiy_realtime_outbox_pending " + metrics.pending,
-    "# HELP qiy_realtime_outbox_leased Pending events currently leased by workers.",
-    "# TYPE qiy_realtime_outbox_leased gauge",
-    "qiy_realtime_outbox_leased " + metrics.leased,
-    "# HELP qiy_realtime_outbox_dead_lettered Events that exhausted delivery attempts.",
-    "# TYPE qiy_realtime_outbox_dead_lettered gauge",
-    "qiy_realtime_outbox_dead_lettered " + metrics.deadLettered,
-    "# HELP qiy_realtime_outbox_delivered Delivered events retained for operations.",
-    "# TYPE qiy_realtime_outbox_delivered gauge",
-    "qiy_realtime_outbox_delivered " + metrics.delivered,
-    "# HELP qiy_realtime_outbox_oldest_pending_age_seconds Age of the oldest pending event.",
-    "# TYPE qiy_realtime_outbox_oldest_pending_age_seconds gauge",
-    "qiy_realtime_outbox_oldest_pending_age_seconds " + (health.metrics.oldestPendingAgeMs / 1000),
-    "# HELP qiy_realtime_outbox_health Whether configured outbox alert thresholds are healthy.",
-    "# TYPE qiy_realtime_outbox_health gauge",
-    "qiy_realtime_outbox_health " + (health.status === "ok" ? 1 : 0),
-  ];
-  return lines.join("\\n") + "\\n";
-}
-
-function hasRealtimeMetricsToken(request: Request): boolean {
-  const expected = Bun.env.QIY_REALTIME_METRICS_TOKEN?.trim();
-  if (!expected) return false;
-  const authorization = request.headers.get("authorization");
-  if (!authorization?.startsWith("Bearer ")) return false;
-  const actual = authorization.slice("Bearer ".length);
-  const expectedBytes = Buffer.from(expected);
-  const actualBytes = Buffer.from(actual);
-  return expectedBytes.length === actualBytes.length && timingSafeEqual(expectedBytes, actualBytes);
-}
-
-function createAblyClient(): AblyClient {
-  const key = Bun.env.QIY_ABLY_API_KEY;
-  if (!key) throw new Error("QIY_ABLY_API_KEY is required when realtime is enabled");
-  return new Rest({ key });
 }
 
 /** Row-scoped channels append the subscriber's claim value: qiy:orders:eu. */
@@ -3210,398 +3014,170 @@ export function realtimeCapabilities(principal: Principal): Record<string, strin
   ]);
 }
 
-export async function publishRealtime(resource: string, type: QiyRealtimeEvent, payload: Record<string, unknown>, clientFactory: AblyClientFactory = createAblyClient): Promise<void> {
-  if (Bun.env.QIY_REALTIME_DISABLED === "1") return;
-  const subscription = qiyRealtimeSubscriptions.find((candidate) => candidate.resource === resource);
-  if (!subscription || !(subscription.events as readonly string[]).includes(type)) return;
-  const claimValue = subscription.claim ? payload[subscription.claim.field] as string | number | null | undefined : undefined;
-  // Without the claim value there is no channel to publish to, so the event stays undelivered by design.
-  if (subscription.claim && (claimValue === undefined || claimValue === null || claimValue === "")) return;
-  await clientFactory().channels.get(realtimeChannel(resource, claimValue)).publish(type, payload);
-}
+// Rows stay in the read window this long, so a transaction that commits after a
+// newer one (or on a replica with a slightly skewed clock) is still delivered.
+const lookbackMs = 5000;
+let cursor = new Date();
+// Rows written before the poller started belong to no current subscriber.
+let startedAt = cursor.getTime();
+const seen = new Map<string, number>();
+let subscribers = 0;
+let pollTimer: ReturnType<typeof setInterval> | undefined;
+let polling: Promise<void> | undefined;
+let pollAgain = false;
 
-export const databaseOutboxStore: RealtimeOutboxStore = {
-  async claim(limit, now, leaseOwner, leaseUntil) {
-    ${dialect === "sqlite"
-      ? "const records = db.select().from(realtimeOutbox).where(and(isNull(realtimeOutbox.deliveredAt), isNull(realtimeOutbox.deadLetteredAt), lte(realtimeOutbox.availableAt, now), or(isNull(realtimeOutbox.leaseUntil), lte(realtimeOutbox.leaseUntil, now)))).orderBy(asc(realtimeOutbox.createdAt)).limit(limit).all(); if (records.length) db.update(realtimeOutbox).set({ leaseOwner, leaseUntil }).where(inArray(realtimeOutbox.id, records.map((record) => record.id))).run(); return records;"
-      : "return await db.transaction(async (tx) => { const records = await tx.select().from(realtimeOutbox).where(and(isNull(realtimeOutbox.deliveredAt), isNull(realtimeOutbox.deadLetteredAt), lte(realtimeOutbox.availableAt, now), or(isNull(realtimeOutbox.leaseUntil), lte(realtimeOutbox.leaseUntil, now)))).orderBy(asc(realtimeOutbox.createdAt)).limit(limit).for(\"update\", { skipLocked: true }); if (records.length) await tx.update(realtimeOutbox).set({ leaseOwner, leaseUntil }).where(inArray(realtimeOutbox.id, records.map((record) => record.id))); return records; });"}
-  },
-  async delivered(id, leaseOwner, deliveredAt) {
-    ${dialect === "sqlite" ? "db.update(realtimeOutbox).set({ deliveredAt, lastError: null, leaseOwner: null, leaseUntil: null }).where(and(eq(realtimeOutbox.id, id), eq(realtimeOutbox.leaseOwner, leaseOwner))).run();" : "await db.update(realtimeOutbox).set({ deliveredAt, lastError: null, leaseOwner: null, leaseUntil: null }).where(and(eq(realtimeOutbox.id, id), eq(realtimeOutbox.leaseOwner, leaseOwner)));"}
-  },
-  async failed(id, leaseOwner, attempts, lastError, availableAt) {
-    ${dialect === "sqlite" ? "db.update(realtimeOutbox).set({ attempts, lastError, availableAt, leaseOwner: null, leaseUntil: null }).where(and(eq(realtimeOutbox.id, id), eq(realtimeOutbox.leaseOwner, leaseOwner))).run();" : "await db.update(realtimeOutbox).set({ attempts, lastError, availableAt, leaseOwner: null, leaseUntil: null }).where(and(eq(realtimeOutbox.id, id), eq(realtimeOutbox.leaseOwner, leaseOwner)));"}
-  },
-  async dead(id, leaseOwner, attempts, lastError, deadLetteredAt) {
-    ${dialect === "sqlite" ? "db.update(realtimeOutbox).set({ attempts, lastError, deadLetteredAt, leaseOwner: null, leaseUntil: null }).where(and(eq(realtimeOutbox.id, id), eq(realtimeOutbox.leaseOwner, leaseOwner))).run();" : "await db.update(realtimeOutbox).set({ attempts, lastError, deadLetteredAt, leaseOwner: null, leaseUntil: null }).where(and(eq(realtimeOutbox.id, id), eq(realtimeOutbox.leaseOwner, leaseOwner)));"}
-  },
-  async deadLetters(limit) {
-    ${dialect === "sqlite" ? "return db.select().from(realtimeOutbox).where(isNotNull(realtimeOutbox.deadLetteredAt)).orderBy(desc(realtimeOutbox.deadLetteredAt)).limit(limit).all();" : "return await db.select().from(realtimeOutbox).where(isNotNull(realtimeOutbox.deadLetteredAt)).orderBy(desc(realtimeOutbox.deadLetteredAt)).limit(limit);"}
-  },
-  async replay(id, now, actorId) {
-    ${dialect === "sqlite"
-      ? `return db.transaction((tx) => { const record = tx.select({ id: realtimeOutbox.id }).from(realtimeOutbox).where(and(eq(realtimeOutbox.id, id), isNotNull(realtimeOutbox.deadLetteredAt))).get(); if (!record) return false; tx.update(realtimeOutbox).set({ attempts: 0, availableAt: now, deadLetteredAt: null, lastError: null, leaseOwner: null, leaseUntil: null }).where(eq(realtimeOutbox.id, id)).run(); if (actorId) tx.insert(auditEvents).values(${auditValue("realtime.outbox.replayed", "id", "{ operation: \"single\" }")}).run(); return true; });`
-      : `return await db.transaction(async (tx) => { const records = await tx.select({ id: realtimeOutbox.id }).from(realtimeOutbox).where(and(eq(realtimeOutbox.id, id), isNotNull(realtimeOutbox.deadLetteredAt))).limit(1).for("update"); if (!records.length) return false; await tx.update(realtimeOutbox).set({ attempts: 0, availableAt: now, deadLetteredAt: null, lastError: null, leaseOwner: null, leaseUntil: null }).where(eq(realtimeOutbox.id, id)); if (actorId) await tx.insert(auditEvents).values(${auditValue("realtime.outbox.replayed", "id", "{ operation: \"single\" }")}); return true; });`}
-  },
-  async replayMany(ids, now, actorId) {
-    ${dialect === "sqlite"
-      ? `return db.transaction((tx) => { const records = tx.select({ id: realtimeOutbox.id }).from(realtimeOutbox).where(and(inArray(realtimeOutbox.id, ids), isNotNull(realtimeOutbox.deadLetteredAt))).all(); const replayed = records.map((record) => record.id); if (replayed.length) tx.update(realtimeOutbox).set({ attempts: 0, availableAt: now, deadLetteredAt: null, lastError: null, leaseOwner: null, leaseUntil: null }).where(inArray(realtimeOutbox.id, replayed)).run(); if (actorId) tx.insert(auditEvents).values(${auditValue("realtime.outbox.bulk_replayed", "null", "{ requested: ids.length, replayed: replayed.length }")}).run(); return replayed; });`
-      : `return await db.transaction(async (tx) => { const records = await tx.select({ id: realtimeOutbox.id }).from(realtimeOutbox).where(and(inArray(realtimeOutbox.id, ids), isNotNull(realtimeOutbox.deadLetteredAt))).for("update", { skipLocked: true }); const replayed = records.map((record) => record.id); if (replayed.length) await tx.update(realtimeOutbox).set({ attempts: 0, availableAt: now, deadLetteredAt: null, lastError: null, leaseOwner: null, leaseUntil: null }).where(inArray(realtimeOutbox.id, replayed)); if (actorId) await tx.insert(auditEvents).values(${auditValue("realtime.outbox.bulk_replayed", "null", "{ requested: ids.length, replayed: replayed.length }")}); return replayed; });`}
-  },
-  async cleanupDelivered(before, audit) {
-    ${dialect === "sqlite"
-      ? `return db.transaction((tx) => { const records = tx.select({ id: realtimeOutbox.id }).from(realtimeOutbox).where(and(isNotNull(realtimeOutbox.deliveredAt), lt(realtimeOutbox.deliveredAt, before))).all(); if (records.length) tx.delete(realtimeOutbox).where(inArray(realtimeOutbox.id, records.map((record) => record.id))).run(); if (audit) { const actorId = audit.actorId; tx.insert(auditEvents).values(${auditValue("realtime.outbox.cleaned", "null", "{ retentionDays: audit.retentionDays, deleted: records.length }")}).run(); } return records.length; });`
-      : `return await db.transaction(async (tx) => { const records = await tx.select({ id: realtimeOutbox.id }).from(realtimeOutbox).where(and(isNotNull(realtimeOutbox.deliveredAt), lt(realtimeOutbox.deliveredAt, before))); if (records.length) await tx.delete(realtimeOutbox).where(inArray(realtimeOutbox.id, records.map((record) => record.id))); if (audit) { const actorId = audit.actorId; await tx.insert(auditEvents).values(${auditValue("realtime.outbox.cleaned", "null", "{ retentionDays: audit.retentionDays, deleted: records.length }")}); } return records.length; });`}
-  },
-  async metrics(now) {
-    ${metricsQuery}
-  },
-};
-
-export async function dispatchRealtimeOutbox(limit = 100, clientFactory: AblyClientFactory = createAblyClient, store: RealtimeOutboxStore = databaseOutboxStore, leaseOwner: string = realtimeWorkerId): Promise<{ delivered: number; failed: number; deadLettered: number }> {
-  if (Bun.env.QIY_REALTIME_DISABLED === "1") return { delivered: 0, failed: 0, deadLettered: 0 };
-  const now = new Date();
-  const records = await store.claim(limit, now, leaseOwner, new Date(now.getTime() + realtimeLeaseMs()));
-  let delivered = 0;
-  let failed = 0;
-  let deadLettered = 0;
-  const client = records.length ? clientFactory() : undefined;
-  for (const record of records) {
-    try {
-      const payload = JSON.parse(record.payload) as Record<string, unknown>;
-      await client!.channels.get(record.channel).publish(record.type, payload);
-      await store.delivered(record.id, leaseOwner, new Date());
-      // Subscribers on the same instance receive the delivered, already-redacted payload.
-      publishRealtimeEvent({ id: record.id, channel: record.channel, event: record.type, record: payload });
-      delivered++;
-    } catch (error) {
-      const attempts = record.attempts + 1;
-      const message = String(error).slice(0, 2000);
-      if (attempts >= realtimeMaxAttempts()) {
-        await store.dead(record.id, leaseOwner, attempts, message, new Date());
-        deadLettered++;
-      } else {
-        const delay = Math.min(60_000, 1000 * 2 ** Math.min(attempts - 1, 6));
-        await store.failed(record.id, leaseOwner, attempts, message, new Date(Date.now() + delay));
-        failed++;
-      }
+async function readOutbox(): Promise<void> {
+  try {
+    const rows = await db.select().from(realtimeOutbox)
+      .where(gte(realtimeOutbox.createdAt, new Date(cursor.getTime() - lookbackMs)))
+      .orderBy(asc(realtimeOutbox.createdAt), asc(realtimeOutbox.id))
+      .limit(1000);
+    for (const row of rows) {
+      const createdAt = new Date(row.createdAt).getTime();
+      if (createdAt > cursor.getTime()) cursor = new Date(createdAt);
+      if (seen.has(row.id)) continue;
+      seen.set(row.id, createdAt);
+      if (createdAt < startedAt) continue;
+      let record: Record<string, unknown> = {};
+      try { record = JSON.parse(row.payload) as Record<string, unknown>; } catch { record = {}; }
+      publishRealtimeEvent({ id: row.id, channel: row.channel, event: row.type, record });
     }
+    const horizon = cursor.getTime() - lookbackMs;
+    for (const [id, createdAt] of seen) if (createdAt < horizon) seen.delete(id);
+  } catch (error) {
+    console.error("Realtime outbox poll failed", error);
   }
-  return { delivered, failed, deadLettered };
-}
-
-export async function cleanupRealtimeOutbox(retentionDays = realtimeRetentionDays(), store: RealtimeOutboxStore = databaseOutboxStore, now = new Date(), actorId?: string): Promise<number> {
-  if (!Number.isSafeInteger(retentionDays) || retentionDays < 1 || retentionDays > 3650) throw new Error("Realtime retention days must be an integer from 1 to 3650");
-  return store.cleanupDelivered(new Date(now.getTime() - retentionDays * 86400000), actorId ? { actorId, retentionDays } : undefined);
-}
-
-export interface RealtimeOutboxWorkerHandle {
-  dispatchTimer: ReturnType<typeof setInterval>;
-  cleanupTimer: ReturnType<typeof setInterval>;
-  stop(): void;
-}
-
-export function startRealtimeOutboxWorker(): RealtimeOutboxWorkerHandle | undefined {
-  if (Bun.env.QIY_REALTIME_DISABLED === "1") return undefined;
-  const pollMs = Number(Bun.env.QIY_REALTIME_POLL_MS ?? 5000);
-  if (!Number.isSafeInteger(pollMs) || pollMs < 250) throw new Error("QIY_REALTIME_POLL_MS must be an integer of at least 250ms");
-  const cleanupMs = realtimeCleanupMs();
-  const dispatch = () => void dispatchRealtimeOutbox().catch((error) => console.error("Realtime outbox dispatch failed", error));
-  const cleanup = () => void cleanupRealtimeOutbox()
-    .then((deleted) => { if (deleted > 0) console.info("Realtime outbox cleanup removed " + deleted + " delivered record(s)"); })
-    .catch((error) => console.error("Realtime outbox cleanup failed", error));
-  dispatch();
-  cleanup();
-  const dispatchTimer = setInterval(dispatch, pollMs);
-  const cleanupTimer = setInterval(cleanup, cleanupMs);
-  dispatchTimer.unref();
-  cleanupTimer.unref();
-  return {
-    dispatchTimer,
-    cleanupTimer,
-    stop() {
-      clearInterval(dispatchTimer);
-      clearInterval(cleanupTimer);
-    },
-  };
-}
-
-export function createRealtimeRoutes(authenticate: Authenticator, clientFactory: AblyClientFactory = createAblyClient, store: RealtimeOutboxStore = databaseOutboxStore) {
-  return new Elysia({ prefix: "/api/v1/realtime" }).post("/token", async ({ request, status }) => {
-    const principal = await authenticate(request);
-    if (!principal) return status(401, { error: "Authentication required" });
-    const capability = realtimeCapabilities(principal);
-    if (!Object.keys(capability).length) return status(403, { error: "Realtime subscription is not permitted" });
-    if (Bun.env.QIY_REALTIME_DISABLED === "1") return status(503, { error: "Realtime is disabled" });
-    return clientFactory().auth.createTokenRequest({ clientId: principal.id, capability: JSON.stringify(capability) });
-  }).get("/outbox/dead", async ({ request, status }) => {
-    const principal = await authenticate(request);
-    if (!principal) return status(401, { error: "Authentication required" });
-    if (principal.role !== "admin") return status(403, { error: "Realtime outbox administration is not permitted" });
-    return { data: await store.deadLetters(100) };
-  }).get("/outbox/metrics", async ({ request, status }) => {
-    const principal = await authenticate(request);
-    if (!principal) return status(401, { error: "Authentication required" });
-    if (principal.role !== "admin") return status(403, { error: "Realtime outbox administration is not permitted" });
-    return await store.metrics(new Date());
-  }).get("/outbox/metrics/prometheus", async ({ request, status }) => {
-    if (!hasRealtimeMetricsToken(request)) {
-      const principal = await authenticate(request);
-      if (!principal) return status(401, { error: "Authentication required" });
-      if (principal.role !== "admin") return status(403, { error: "Realtime outbox administration is not permitted" });
-    }
-    const now = new Date();
-    return new Response(renderRealtimePrometheus(await store.metrics(now), now), { headers: { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" } });
-  }).get("/outbox/health", async ({ request, status }) => {
-    const principal = await authenticate(request);
-    if (!principal) return status(401, { error: "Authentication required" });
-    if (principal.role !== "admin") return status(403, { error: "Realtime outbox administration is not permitted" });
-    const now = new Date();
-    const health = evaluateRealtimeOutboxHealth(await store.metrics(now), now);
-    return status(health.status === "ok" ? 200 : 503, health);
-  }).post("/outbox/replay", async ({ request, body, status }) => {
-    const principal = await authenticate(request);
-    if (!principal) return status(401, { error: "Authentication required" });
-    if (principal.role !== "admin") return status(403, { error: "Realtime outbox administration is not permitted" });
-    if (new Set(body.ids).size !== body.ids.length) return status(400, { error: "Realtime replay ids must be unique" });
-    const replayedIds = new Set(await store.replayMany(body.ids, new Date(), principal.id));
-    return { replayed: body.ids.filter((id) => replayedIds.has(id)), notFound: body.ids.filter((id) => !replayedIds.has(id)) };
-  }, { body: t.Object({ ids: t.Array(t.String({ format: "uuid" }), { minItems: 1, maxItems: 100 }) })
-  }).post("/outbox/:id/replay", async ({ request, params, status }) => {
-    const principal = await authenticate(request);
-    if (!principal) return status(401, { error: "Authentication required" });
-    if (principal.role !== "admin") return status(403, { error: "Realtime outbox administration is not permitted" });
-    if (!await store.replay(params.id, new Date(), principal.id)) return status(404, { error: "Dead-letter event was not found" });
-    return { replayed: true, id: params.id };
-  }, { params: t.Object({ id: t.String({ format: "uuid" }) }) }).delete("/outbox/delivered", async ({ request, query, status }) => {
-    const principal = await authenticate(request);
-    if (!principal) return status(401, { error: "Authentication required" });
-    if (principal.role !== "admin") return status(403, { error: "Realtime outbox administration is not permitted" });
-    const retentionDays = query.retentionDays ?? realtimeRetentionDays();
-    return { deleted: await cleanupRealtimeOutbox(retentionDays, store, new Date(), principal.id), retentionDays };
-  }, { query: t.Object({ retentionDays: t.Optional(t.Numeric({ minimum: 1, maximum: 3650 })) }) });
 }
 
 /**
- * Subscription source for GraphQL. The in-process bus keeps latency low on the
- * instance that delivered the event, and the outbox tail makes events delivered by
- * any other replica visible too, so subscriptions work with several API instances.
+ * Fans committed outbox rows out to this instance's subscribers. Every replica
+ * tails the same table, so an event written by any instance reaches every
+ * connected browser; services call this right after a commit for low latency.
  */
-export function realtimeChannelIterator(channel: string): AsyncIterableIterator<QiyRealtimeRecordEvent> & { close: () => void } {
-  const queue: QiyRealtimeRecordEvent[] = [];
-  const seen = new Set<string>();
-  let pending: ((result: IteratorResult<QiyRealtimeRecordEvent>) => void) | undefined;
+export function pollRealtimeOutbox(): Promise<void> {
+  if (Bun.env.QIY_REALTIME_DISABLED === "1" || subscribers === 0) return Promise.resolve();
+  if (polling) { pollAgain = true; return polling; }
+  polling = (async () => {
+    try { do { pollAgain = false; await readOutbox(); } while (pollAgain); }
+    finally { polling = undefined; }
+  })();
+  return polling;
+}
+
+function retainPoller(): () => void {
+  subscribers += 1;
+  if (!pollTimer && Bun.env.QIY_REALTIME_DISABLED !== "1") {
+    cursor = new Date();
+    startedAt = cursor.getTime();
+    seen.clear();
+    pollTimer = setInterval(() => { void pollRealtimeOutbox(); }, realtimeInteger("QIY_REALTIME_POLL_MS", 1000, 100));
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    subscribers -= 1;
+    if (subscribers === 0 && pollTimer) { clearInterval(pollTimer); pollTimer = undefined; }
+  };
+}
+
+export type QiyRealtimeIterator = AsyncIterableIterator<QiyRealtimeBusEvent> & { close: () => void };
+
+/** Events on the given channels as an async iterator; closing it releases the shared poller. */
+export function realtimeChannelIterator(channels: string | readonly string[]): QiyRealtimeIterator {
+  const accepted = new Set<string>(typeof channels === "string" ? [channels] : channels);
+  const queue: QiyRealtimeBusEvent[] = [];
+  let pending: ((result: IteratorResult<QiyRealtimeBusEvent>) => void) | undefined;
   let closed = false;
-  let timer: ReturnType<typeof setInterval> | undefined;
-  let cursor: { createdAt: Date; id: string } | undefined;
-  const pollMs = Math.max(100, Number(Bun.env.QIY_REALTIME_SUBSCRIBE_POLL_MS ?? 1000));
-  const emit = (event: QiyRealtimeRecordEvent) => {
-    if (closed || seen.has(event.id)) return;
-    seen.add(event.id);
-    if (seen.size > 5000) seen.clear();
+  const release = retainPoller();
+  const unsubscribe = subscribeRealtimeEvents((event) => {
+    if (closed || !accepted.has(event.channel)) return;
     const resolve = pending;
     if (resolve) { pending = undefined; resolve({ value: event, done: false }); }
-    else queue.push(event);
-  };
-  const unsubscribe = subscribeRealtimeEvents((event) => {
-    if (event.channel === channel) emit({ id: event.id, channel: event.channel, event: event.event, record: event.record });
+    else if (queue.length < 1000) queue.push(event);
   });
   const stop = () => {
     if (closed) return;
     closed = true;
-    if (timer) clearInterval(timer);
     unsubscribe();
+    release();
     const resolve = pending;
     pending = undefined;
     resolve?.({ value: undefined as never, done: true });
   };
-  const advance = (row: { id: string; createdAt: Date | number }) => { cursor = { createdAt: new Date(row.createdAt), id: row.id }; };
-  const tail = async () => {
-    if (closed) return;
-    try {
-      const after = cursor
-        ? or(gt(realtimeOutbox.createdAt, cursor.createdAt), and(eq(realtimeOutbox.createdAt, cursor.createdAt), gt(realtimeOutbox.id, cursor.id)))
-        : undefined;
-      const rows = await db.select().from(realtimeOutbox)
-        .where(and(eq(realtimeOutbox.channel, channel), isNotNull(realtimeOutbox.deliveredAt), after))
-        .orderBy(asc(realtimeOutbox.createdAt), asc(realtimeOutbox.id))
-        .limit(100);
-      for (const row of rows) {
-        advance(row);
-        let payload: Record<string, unknown> = {};
-        try { payload = JSON.parse(row.payload) as Record<string, unknown>; } catch { payload = {}; }
-        emit({ id: row.id, channel: row.channel, event: row.type, record: payload });
-      }
-    } catch { /* a transient read must not kill an active subscription */ }
-  };
-  const start = async () => {
-    try {
-      const latest = await db.select({ id: realtimeOutbox.id, createdAt: realtimeOutbox.createdAt }).from(realtimeOutbox)
-        .where(and(eq(realtimeOutbox.channel, channel), isNotNull(realtimeOutbox.deliveredAt)))
-        .orderBy(desc(realtimeOutbox.createdAt), desc(realtimeOutbox.id))
-        .limit(1);
-      if (latest[0]) advance(latest[0]);
-    } catch { /* start from the beginning of the outbox */ }
-    if (closed) return;
-    timer = setInterval(() => { void tail(); }, pollMs);
-    await tail();
-  };
-  void start();
-  const iterator = {
+  const iterator: QiyRealtimeIterator = {
     close: stop,
     [Symbol.asyncIterator]() { return iterator; },
     next() {
       if (closed) return Promise.resolve({ value: undefined as never, done: true });
       const queued = queue.shift();
       if (queued) return Promise.resolve({ value: queued, done: false });
-      return new Promise<IteratorResult<QiyRealtimeRecordEvent>>((resolve) => { pending = resolve; });
+      return new Promise<IteratorResult<QiyRealtimeBusEvent>>((resolve) => { pending = resolve; });
     },
     return() { stop(); return Promise.resolve({ value: undefined as never, done: true }); },
   };
   return iterator;
 }
-`;
+
+export function realtimeCleanupCutoff(retentionDays: number, now = new Date()): Date {
+  if (!Number.isSafeInteger(retentionDays) || retentionDays < 1 || retentionDays > 3650) throw new Error("Realtime retention days must be an integer from 1 to 3650");
+  return new Date(now.getTime() - retentionDays * 86400000);
 }
 
-function renderRealtimeAdminCli(): string {
-  return `type RealtimeAdminEnvironment = {
-  QIY_REALTIME_ADMIN_URL?: string;
-  QIY_REALTIME_ADMIN_TOKEN?: string;
-  PORT?: string;
-};
-
-type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-
-function usage(): string {
-  return "Usage: bun src/realtime-admin.ts <metrics|prometheus|health|dead|replay|cleanup> [ids...|retentionDays]";
+/** Outbox rows only need to outlive the read window; older rows are removed. */
+export async function cleanupRealtimeOutbox(retentionDays = realtimeInteger("QIY_REALTIME_RETENTION_DAYS", 1, 1, 3650), now = new Date()): Promise<number> {
+  const cutoff = realtimeCleanupCutoff(retentionDays, now);
+  const [row] = await db.select({ value: count() }).from(realtimeOutbox).where(lt(realtimeOutbox.createdAt, cutoff));
+  const total = Number(row?.value ?? 0);
+  if (total > 0) await db.delete(realtimeOutbox).where(lt(realtimeOutbox.createdAt, cutoff));
+  return total;
 }
 
-function baseUrl(environment: RealtimeAdminEnvironment): string {
-  const configured = environment.QIY_REALTIME_ADMIN_URL ?? \`http://127.0.0.1:\${environment.PORT ?? "3000"}/api/v1/realtime/outbox\`;
-  const parsed = new URL(configured);
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("QIY_REALTIME_ADMIN_URL must use http or https");
-  parsed.pathname = parsed.pathname.replace(/\\/+$/, "");
-  parsed.search = "";
-  parsed.hash = "";
-  return parsed.toString().replace(/\\/$/, "");
+export function startRealtimeOutboxCleanup(): ReturnType<typeof setInterval> | undefined {
+  if (Bun.env.QIY_REALTIME_DISABLED === "1") return undefined;
+  const cleanup = () => void cleanupRealtimeOutbox()
+    .then((deleted) => { if (deleted > 0) console.info("Realtime outbox cleanup removed " + deleted + " record(s)"); })
+    .catch((error) => console.error("Realtime outbox cleanup failed", error));
+  cleanup();
+  const timer = setInterval(cleanup, realtimeInteger("QIY_REALTIME_CLEANUP_MS", 3600000, 60000));
+  timer.unref?.();
+  return timer;
 }
 
-function parseRetentionDays(value: string | undefined): number | undefined {
-  if (value === undefined) return undefined;
-  const days = Number(value);
-  if (!Number.isInteger(days) || days < 1 || days > 3650) throw new Error("retentionDays must be an integer between 1 and 3650");
-  return days;
-}
-
-export async function runRealtimeAdmin(
-  argv: string[],
-  environment: RealtimeAdminEnvironment = Bun.env as RealtimeAdminEnvironment,
-  fetcher: Fetcher = fetch,
-): Promise<unknown> {
-  const token = environment.QIY_REALTIME_ADMIN_TOKEN?.trim();
-  if (!token) throw new Error("QIY_REALTIME_ADMIN_TOKEN is required");
-  const [command, ...arguments_] = argv;
-  const root = baseUrl(environment);
-  let url = root;
-  let method = "GET";
-  let body: string | undefined;
-  if (command === "metrics") url += "/metrics";
-  else if (command === "prometheus") url += "/metrics/prometheus";
-  else if (command === "health") url += "/health";
-  else if (command === "dead") url += "/dead";
-  else if (command === "replay") {
-    if (arguments_.length < 1 || arguments_.length > 100 || new Set(arguments_).size !== arguments_.length) throw new Error("replay requires 1-100 unique event UUIDs");
-    method = "POST";
-    url += "/replay";
-    body = JSON.stringify({ ids: arguments_ });
-  } else if (command === "cleanup") {
-    if (arguments_.length > 1) throw new Error(usage());
-    method = "DELETE";
-    const retentionDays = parseRetentionDays(arguments_[0]);
-    url += \`/delivered\${retentionDays === undefined ? "" : \`?retentionDays=\${retentionDays}\`}\`;
-  } else throw new Error(usage());
-  const response = await fetcher(url, {
-    method,
-    headers: { Authorization: \`Bearer \${token}\`, ...(body ? { "Content-Type": "application/json" } : {}) },
-    body,
-  });
-  const text = await response.text();
-  let payload: unknown = null;
-  if (text && response.headers.get("content-type")?.startsWith("text/plain")) payload = text;
-  else if (text) {
-    try { payload = JSON.parse(text); } catch { payload = { error: text }; }
-  }
-  if (!response.ok) {
-    const message = payload && typeof payload === "object" && "error" in payload ? String((payload as { error: unknown }).error) : \`Realtime administration failed with HTTP \${response.status}\`;
-    throw Object.assign(new Error(message), { statusCode: response.status, payload });
-  }
-  return payload;
-}
-
-if (import.meta.main) {
-  runRealtimeAdmin(Bun.argv.slice(2)).then((payload) => console.log(typeof payload === "string" ? payload.trimEnd() : JSON.stringify(payload))).catch((error) => {
-    console.error(JSON.stringify({ error: error instanceof Error ? error.message : String(error), statusCode: (error as { statusCode?: number }).statusCode }));
-    process.exitCode = 1;
+/**
+ * GET /api/v1/realtime/stream: one authenticated text/event-stream carrying every
+ * channel the caller is granted. The first frame (event: ready) lists them.
+ */
+export function createRealtimeRoutes(authenticate: Authenticator) {
+  return new Elysia({ prefix: "/api/v1/realtime" }).get("/stream", async ({ request, status }) => {
+    const principal = await authenticate(request);
+    if (!principal) return status(401, { error: "Authentication required" });
+    const channels = Object.keys(realtimeCapabilities(principal));
+    if (!channels.length) return status(403, { error: "Realtime subscription is not permitted" });
+    if (Bun.env.QIY_REALTIME_DISABLED === "1") return status(503, { error: "Realtime is disabled" });
+    const events = realtimeChannelIterator(channels);
+    const encoder = new TextEncoder();
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
+    request.signal?.addEventListener("abort", () => events.close());
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(encoder.encode("event: ready\\ndata: " + JSON.stringify({ channels }) + "\\n\\n"));
+        heartbeat = setInterval(() => { try { controller.enqueue(encoder.encode(": keep-alive\\n\\n")); } catch { /* stream closed */ } }, 25000);
+        try {
+          for await (const event of events) controller.enqueue(encoder.encode("event: " + event.event + "\\ndata: " + JSON.stringify(event) + "\\n\\n"));
+        } catch { /* the client went away */ } finally {
+          if (heartbeat) clearInterval(heartbeat);
+          try { controller.close(); } catch { /* already closed */ }
+        }
+      },
+      cancel() {
+        if (heartbeat) clearInterval(heartbeat);
+        events.close();
+      },
+    });
+    return new Response(body, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-store", "X-Accel-Buffering": "no" } });
   });
 }
-`;
-}
-
-function renderRealtimeAdminCliTest(): string {
-  return `import { expect, test } from "bun:test";
-import { runRealtimeAdmin } from "../src/realtime-admin";
-
-test("uses an administrator bearer token and returns machine-readable metrics", async () => {
-  const requests: Array<{ url: string; init?: RequestInit }> = [];
-  const result = await runRealtimeAdmin(["metrics"], {
-    QIY_REALTIME_ADMIN_URL: "https://admin.example/api/v1/realtime/outbox/",
-    QIY_REALTIME_ADMIN_TOKEN: "secret-admin-token",
-  }, async (input, init) => {
-    requests.push({ url: String(input), init });
-    return Response.json({ pending: 2, leased: 1, deadLettered: 0, delivered: 5, oldestPendingAt: null });
-  });
-  expect(result).toEqual({ pending: 2, leased: 1, deadLettered: 0, delivered: 5, oldestPendingAt: null });
-  expect(requests[0]?.url).toBe("https://admin.example/api/v1/realtime/outbox/metrics");
-  expect(new Headers(requests[0]?.init?.headers).get("authorization")).toBe("Bearer secret-admin-token");
-});
-
-test("routes replay and cleanup through authenticated audited HTTP endpoints", async () => {
-  const requests: Array<{ url: string; init?: RequestInit }> = [];
-  const fetcher = async (input: string | URL | Request, init?: RequestInit) => {
-    requests.push({ url: String(input), init });
-    return Response.json({ ok: true });
-  };
-  const environment = { QIY_REALTIME_ADMIN_TOKEN: "admin", PORT: "3100" };
-  await runRealtimeAdmin(["replay", "00000000-0000-4000-8000-000000000001"], environment, fetcher);
-  await runRealtimeAdmin(["cleanup", "30"], environment, fetcher);
-  expect(requests[0]?.url).toBe("http://127.0.0.1:3100/api/v1/realtime/outbox/replay");
-  expect(requests[0]?.init?.method).toBe("POST");
-  expect(requests[0]?.init?.body).toBe('{"ids":["00000000-0000-4000-8000-000000000001"]}');
-  expect(requests[1]?.url).toBe("http://127.0.0.1:3100/api/v1/realtime/outbox/delivered?retentionDays=30");
-  expect(requests[1]?.init?.method).toBe("DELETE");
-});
-
-test("reads health JSON and Prometheus text through the same authenticated API", async () => {
-  const requests: string[] = [];
-  const fetcher = async (input: string | URL | Request) => {
-    requests.push(String(input));
-    if (String(input).endsWith("/metrics/prometheus")) return new Response("qiy_realtime_outbox_pending 2\\n", { headers: { "content-type": "text/plain; version=0.0.4" } });
-    return Response.json({ status: "ok", alerts: [] });
-  };
-  const environment = { QIY_REALTIME_ADMIN_TOKEN: "admin" };
-  expect(await runRealtimeAdmin(["health"], environment, fetcher)).toEqual({ status: "ok", alerts: [] });
-  expect(await runRealtimeAdmin(["prometheus"], environment, fetcher)).toBe("qiy_realtime_outbox_pending 2\\n");
-  expect(requests).toEqual([
-    "http://127.0.0.1:3000/api/v1/realtime/outbox/health",
-    "http://127.0.0.1:3000/api/v1/realtime/outbox/metrics/prometheus",
-  ]);
-});
-
-test("fails closed without credentials or with ambiguous arguments", async () => {
-  await expect(runRealtimeAdmin(["metrics"], {})).rejects.toThrow("QIY_REALTIME_ADMIN_TOKEN is required");
-  await expect(runRealtimeAdmin(["replay", "same", "same"], { QIY_REALTIME_ADMIN_TOKEN: "admin" })).rejects.toThrow("unique event UUIDs");
-  await expect(runRealtimeAdmin(["cleanup", "0"], { QIY_REALTIME_ADMIN_TOKEN: "admin" })).rejects.toThrow("between 1 and 3650");
-});
 `;
 }
 
@@ -3742,7 +3318,7 @@ function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullable<QiyPr
         });
         const payload = `JSON.stringify({ flow: ${JSON.stringify(flow.name)}${payloadFields.length ? `, ${payloadFields.join(", ")}` : ""} })`;
         const insert = `tx.insert(dataflowOutbox).values({ id: crypto.randomUUID(), actorId: principal?.id ?? null, event: ${JSON.stringify(action.event)}, payload: ${payload}, createdAt: new Date() })`;
-        const realtimeInsert = `tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: ${JSON.stringify(`qiy:event:${action.event}`)}, type: ${JSON.stringify(action.event)}, payload: ${payload}, attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() })`;
+        const realtimeInsert = `tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: ${JSON.stringify(`qiy:event:${action.event}`)}, type: ${JSON.stringify(action.event)}, payload: ${payload}, createdAt: new Date() })`;
         return `        ${database.dialect === "sqlite" ? `${insert}.run();${realtimeEnabled ? `\n        ${realtimeInsert}.run();` : ""}` : `await ${insert};${realtimeEnabled ? `\n        await ${realtimeInsert};` : ""}`}`;
       }
       if (action.kind === "call") {
@@ -3978,7 +3554,7 @@ import { client } from "../src/db";
 import { ${repositoryName} } from "../src/modules/${entity.name}/${entity.name}.repository";
 
 test("commits CRUD records and realtime outbox rows atomically", async () => {
-  client.exec(${JSON.stringify(`DROP TABLE IF EXISTS "${entity.tableName}"; DROP TABLE IF EXISTS audit_events; DROP TABLE IF EXISTS qiy_realtime_outbox; CREATE TABLE "${entity.tableName}" (${columns}); CREATE TABLE audit_events (id text primary key, actorId text, action text not null, resource text not null, resourceId text, metadata text, createdAt integer not null); CREATE TABLE qiy_realtime_outbox (id text primary key, channel text not null, type text not null, payload text not null, attempts integer not null, availableAt integer not null, deliveredAt integer, deadLetteredAt integer, lastError text, leaseOwner text, leaseUntil integer, createdAt integer not null);`)});
+  client.exec(${JSON.stringify(`DROP TABLE IF EXISTS "${entity.tableName}"; DROP TABLE IF EXISTS audit_events; DROP TABLE IF EXISTS qiy_realtime_outbox; CREATE TABLE "${entity.tableName}" (${columns}); CREATE TABLE audit_events (id text primary key, actorId text, action text not null, resource text not null, resourceId text, metadata text, createdAt integer not null); CREATE TABLE qiy_realtime_outbox (id text primary key, channel text not null, type text not null, payload text not null, createdAt integer not null);`)});
   const first = await ${repositoryName}.create({ ${fixture(1)} }, "actor-1");
   expect(first.id).toBeTruthy();
   expect(client.query<{ total: number }, []>("select count(*) as total from qiy_realtime_outbox").get()?.total).toBe(1);
@@ -4050,7 +3626,7 @@ function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<Q
     `client.exec("CREATE TABLE IF NOT EXISTS audit_events (id text primary key, actorId text, action text not null, resource text not null, resourceId text, metadata text, createdAt integer not null)");`,
     ...(dataflows.some((flow) => flow.idempotency?.required) ? [`client.exec("CREATE TABLE IF NOT EXISTS dataflow_idempotency (id text primary key, actorId text not null, flow text not null, requestKeyHash text not null, requestHash text not null, response text not null, UNIQUE(actorId, flow, requestKeyHash))");`] : []),
     ...(dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) ? [`client.exec("CREATE TABLE IF NOT EXISTS dataflow_outbox (id text primary key, actorId text, event text not null, payload text not null, createdAt integer not null)");`] : []),
-    ...(realtimeEnabled && dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) ? [`client.exec("CREATE TABLE IF NOT EXISTS qiy_realtime_outbox (id text primary key, channel text not null, type text not null, payload text not null, attempts integer not null, availableAt integer not null, deliveredAt integer, deadLetteredAt integer, lastError text, leaseOwner text, leaseUntil integer, createdAt integer not null)");`] : []),
+    ...(realtimeEnabled && dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) ? [`client.exec("CREATE TABLE IF NOT EXISTS qiy_realtime_outbox (id text primary key, channel text not null, type text not null, payload text not null, createdAt integer not null)");`] : []),
   ].join("\n");
   const cleanup = [
     ...usedEntities.map((entity) => `client.exec(${JSON.stringify(`DELETE FROM ${entity.tableName}`)});`),
@@ -5220,7 +4796,7 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
     // mapped columns must be nullable and unique.
     if (hybridAuth) {
       for (const provider of oidcProviders) {
-        if (authProviderSubjectField(auth, provider) === auth.subjectField && !auth.providerMappings?.some((mapping) => mapping.provider === provider)) {
+        if (authProviderSubjectField(auth, provider) === auth.subjectField) {
           errors.push(`Auth: provider ${provider} needs its own nullable subjectField mapping when local password login is combined with OAuth`);
           continue;
         }
@@ -5307,7 +4883,6 @@ export const orderIdempotency = pgTable("order_idempotency", {
     pluginDependencies["@apollo/server"] = "5.0.0";
   }
   if (options.elysiaPlugins?.drizzle) pluginDependencies["drizzle-typebox"] = "0.3.3";
-  if (options.realtime) pluginDependencies.ably = "2.29.0";
   const files: Record<string, string> = {
     ...renderAppTemplate("server", "api"),
     ...(normalizedRestrictions.length ? { "api/src/security/policy.ts": renderPolicyModule(normalizedRestrictions, database, options.scopes ?? []) } : {}),
@@ -5987,15 +5562,13 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     ...(options.realtime ? {
       "api/src/realtime-bus.ts": `export interface QiyRealtimeBusEvent { id: string; channel: string; event: string; record: Record<string, unknown> }
 
-export type QiyRealtimeRecordEvent = { id: string; channel: string; event: string; record: Record<string, unknown> };
-
 type Listener = (event: QiyRealtimeBusEvent) => void;
 const listeners = new Set<Listener>();
 
-/** In-process fan-out for delivered realtime events. Cross-replica delivery still uses Ably. */
+/** In-process fan-out of outbox events to this instance's SSE and GraphQL subscribers. */
 export function publishRealtimeEvent(event: QiyRealtimeBusEvent): void {
   for (const listener of [...listeners]) {
-    try { listener(event); } catch { /* one slow subscriber must not break delivery */ }
+    try { listener(event); } catch { /* one failing subscriber must not break delivery */ }
   }
 }
 
@@ -6003,296 +5576,63 @@ export function subscribeRealtimeEvents(listener: Listener): () => void {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
 }
-
-export type QiyRealtimeIterator = AsyncIterableIterator<QiyRealtimeBusEvent> & { close: () => void };
-
-/** Bridges the bus into the async iterator graphql-js subscriptions consume. */
-export function realtimeEventIterator(channel: string): QiyRealtimeIterator {
-  const queue: QiyRealtimeBusEvent[] = [];
-  let pending: ((result: IteratorResult<QiyRealtimeBusEvent>) => void) | undefined;
-  let closed = false;
-  const stop = () => {
-    if (closed) return;
-    closed = true;
-    unsubscribe();
-    const resolve = pending;
-    pending = undefined;
-    resolve?.({ value: undefined as never, done: true });
-  };
-  const unsubscribe = subscribeRealtimeEvents((event) => {
-    if (closed || event.channel !== channel) return;
-    const resolve = pending;
-    if (resolve) { pending = undefined; resolve({ value: event, done: false }); }
-    else queue.push(event);
-  });
-  const iterator: QiyRealtimeIterator = {
-    close: stop,
-    [Symbol.asyncIterator]() { return iterator; },
-    next() {
-      if (closed) return Promise.resolve({ value: undefined as never, done: true });
-      const queued = queue.shift();
-      if (queued) return Promise.resolve({ value: queued, done: false });
-      return new Promise<IteratorResult<QiyRealtimeBusEvent>>((resolve) => { pending = resolve; });
-    },
-    return() { stop(); return Promise.resolve({ value: undefined as never, done: true }); },
-  };
-  return iterator;
-}
 `,
-      "api/src/realtime.ts": renderRealtime(options.realtime, database.dialect, options.dataflows ?? []),
-      "api/src/realtime-admin.ts": renderRealtimeAdminCli(),
-      "api/tests/realtime-admin.test.ts": renderRealtimeAdminCliTest(),
+      "api/src/realtime.ts": renderRealtime(options.realtime, options.dataflows ?? []),
       "api/tests/realtime.test.ts": `import { afterEach, expect, test } from "bun:test";
 import { Elysia } from "elysia";
-${database.dialect === "sqlite" ? 'import { inArray } from "drizzle-orm";\nimport { client, db } from "../src/db";\nimport { auditEvents, realtimeOutbox } from "../src/schema";\n' : ""}import { cleanupRealtimeOutbox, createRealtimeRoutes, dispatchRealtimeOutbox, publishRealtime, realtimeCapabilities, type RealtimeOutboxRecord, type RealtimeOutboxStore } from "../src/realtime";
+import type { Principal } from "../src/auth/guard";
+import { publishRealtimeEvent } from "../src/realtime-bus";
+import { createRealtimeRoutes, realtimeCapabilities, realtimeChannelIterator, realtimeCleanupCutoff } from "../src/realtime";
 
 afterEach(() => { Bun.env.QIY_REALTIME_DISABLED = "1"; });
 
-test("isolates and rotates read-only metrics credentials without granting administrator access", async () => {
-  const previousToken = Bun.env.QIY_REALTIME_METRICS_TOKEN;
-  let reads = 0;
-  const store = { metrics: async () => { reads++; return { pending: 2, leased: 0, deadLettered: 0, delivered: 3, oldestPendingAt: null }; } } as unknown as RealtimeOutboxStore;
-  const app = new Elysia().use(createRealtimeRoutes(async () => null, undefined, store));
-  const request = (path: string, token?: string, method = "GET", body?: string) => app.handle(new Request("http://localhost/api/v1/realtime" + path, {
-    method, headers: { ...(token ? { authorization: "Bearer " + token } : {}), ...(body ? { "content-type": "application/json" } : {}) }, body,
-  }));
-  try {
-    delete Bun.env.QIY_REALTIME_METRICS_TOKEN;
-    expect((await request("/outbox/metrics/prometheus", "scrape-token-a")).status).toBe(401);
-    Bun.env.QIY_REALTIME_METRICS_TOKEN = "scrape-token-a";
-    expect((await request("/outbox/metrics/prometheus")).status).toBe(401);
-    expect((await request("/outbox/metrics/prometheus", "wrong")).status).toBe(401);
-    expect((await request("/outbox/metrics/prometheus", "scrape-token-b")).status).toBe(401);
-    expect(reads).toBe(0);
-    const accepted = await request("/outbox/metrics/prometheus", "scrape-token-a");
-    expect(accepted.status).toBe(200);
-    expect(await accepted.text()).toContain("qiy_realtime_outbox_pending 2");
-    for (const path of ["/outbox/metrics", "/outbox/health", "/outbox/dead"]) expect((await request(path, "scrape-token-a")).status).toBe(401);
-    expect((await request("/token", "scrape-token-a", "POST")).status).toBe(401);
-    expect((await request("/outbox/replay", "scrape-token-a", "POST", JSON.stringify({ ids: ["11111111-1111-4111-8111-111111111111"] }))).status).toBe(401);
-    expect((await request("/outbox/delivered", "scrape-token-a", "DELETE")).status).toBe(401);
-    Bun.env.QIY_REALTIME_METRICS_TOKEN = "scrape-token-b";
-    expect((await request("/outbox/metrics/prometheus", "scrape-token-a")).status).toBe(401);
-    expect((await request("/outbox/metrics/prometheus", "scrape-token-b")).status).toBe(200);
-    expect(reads).toBe(2);
-  } finally {
-    if (previousToken === undefined) delete Bun.env.QIY_REALTIME_METRICS_TOKEN;
-    else Bun.env.QIY_REALTIME_METRICS_TOKEN = previousToken;
+const subscription = ${JSON.stringify(options.realtime.resources[0])} as { resource: string; roles: string[]; claim?: { field: string; claim: string } };
+const principal = { id: "user-1", name: "User", role: subscription.roles[0], claims: subscription.claim ? { [subscription.claim.claim]: "eu" } : {} } as unknown as Principal;
+const stream = (app: { handle: (request: Request) => Promise<Response> }) => app.handle(new Request("http://localhost/api/v1/realtime/stream"));
+
+test("rejects anonymous callers, roles without channels and a disabled transport", async () => {
+  Bun.env.QIY_REALTIME_DISABLED = "0";
+  expect((await stream(new Elysia().use(createRealtimeRoutes(async () => null)))).status).toBe(401);
+  const denied = (["admin", "operator", "viewer"] as const).find((role) => Object.keys(realtimeCapabilities({ id: "u", name: "U", role } as Principal)).length === 0);
+  if (denied) {
+    const response = await stream(new Elysia().use(createRealtimeRoutes(async () => ({ id: "u", name: "U", role: denied } as Principal))));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "Realtime subscription is not permitted" });
   }
+  Bun.env.QIY_REALTIME_DISABLED = "1";
+  expect((await stream(new Elysia().use(createRealtimeRoutes(async () => principal)))).status).toBe(503);
 });
 
-test("issues role-scoped subscribe-only Ably token requests", async () => {
-  const requests: Array<Record<string, unknown>> = [];
-  const client = { auth: { createTokenRequest: async (request: Record<string, unknown>) => { requests.push(request); return { keyName: "test", nonce: "nonce", mac: "mac", timestamp: 1, capability: request.capability, clientId: request.clientId }; } }, channels: { get: () => ({ publish: async () => {} }) } } as any;
+test("streams only the channels granted to the caller", async () => {
   Bun.env.QIY_REALTIME_DISABLED = "0";
-  const app = new Elysia().use(createRealtimeRoutes(async () => ({ id: "operator-1", name: "Operator", role: "operator" }), () => client));
-  const response = await app.handle(new Request("http://localhost/api/v1/realtime/token", { method: "POST" }));
+  const channel = Object.keys(realtimeCapabilities(principal))[0]!;
+  const response = await stream(new Elysia().use(createRealtimeRoutes(async () => principal)));
   expect(response.status).toBe(200);
-  expect(requests).toHaveLength(1);
-  expect(JSON.parse(String(requests[0]!.capability))).toEqual(realtimeCapabilities({ id: "operator-1", name: "Operator", role: "operator" }));
-  const operations = Object.values(JSON.parse(String(requests[0]!.capability)) as Record<string, string[]>).flat();
-  expect(operations.length).toBeGreaterThan(0);
-  expect(operations.every((operation) => operation === "subscribe")).toBe(true);
+  expect(response.headers.get("content-type")).toContain("text/event-stream");
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  const read = async () => decoder.decode((await reader.read()).value);
+  expect(await read()).toContain("event: ready");
+  publishRealtimeEvent({ id: "event-1", channel: "qiy:not-granted", event: "created", record: { id: "x" } });
+  publishRealtimeEvent({ id: "event-2", channel, event: "updated", record: { id: "record-1" } });
+  const frame = await read();
+  expect(frame).toContain('"id":"event-2"');
+  expect(frame).not.toContain("qiy:not-granted");
+  await reader.cancel();
 });
 
-test("rejects anonymous principals and roles without subscribed channels", async () => {
-  Bun.env.QIY_REALTIME_DISABLED = "0";
-  const client = { auth: { createTokenRequest: async () => { throw new Error("token request must not be issued"); } }, channels: { get: () => ({ publish: async () => {} }) } } as any;
-  const anonymous = new Elysia().use(createRealtimeRoutes(async () => null, () => client));
-  const anonymousResponse = await anonymous.handle(new Request("http://localhost/api/v1/realtime/token", { method: "POST" }));
-  expect(anonymousResponse.status).toBe(401);
-  expect(await anonymousResponse.json()).toEqual({ error: "Authentication required" });
-
-  const unauthorized = new Elysia().use(createRealtimeRoutes(async () => ({ id: "viewer-1", name: "Viewer", role: "viewer" }), () => client));
-  const unauthorizedResponse = await unauthorized.handle(new Request("http://localhost/api/v1/realtime/token", { method: "POST" }));
-  expect(unauthorizedResponse.status).toBe(403);
-  expect(await unauthorizedResponse.json()).toEqual({ error: "Realtime subscription is not permitted" });
+test("iterates events per channel and stops after close", async () => {
+  const iterator = realtimeChannelIterator("qiy:" + subscription.resource);
+  publishRealtimeEvent({ id: "event-3", channel: "qiy:other", event: "created", record: {} });
+  publishRealtimeEvent({ id: "event-4", channel: "qiy:" + subscription.resource, event: "created", record: { id: "record-4" } });
+  expect((await iterator.next()).value?.id).toBe("event-4");
+  iterator.close();
+  expect((await iterator.next()).done).toBe(true);
 });
 
-test("publishes only declared resource events after callers commit", async () => {
-  const published: unknown[] = [];
-  Bun.env.QIY_REALTIME_DISABLED = "0";
-  const client = { auth: { createTokenRequest: async () => ({}) }, channels: { get: (channel: string) => ({ publish: async (type: string, payload: unknown) => published.push({ channel, type, payload }) }) } } as any;
-  const subscription = ${JSON.stringify(options.realtime.resources[0])};
-  await publishRealtime(subscription.resource, subscription.events[0] as "created" | "updated" | "deleted", { id: "record-1" }, () => client);
-  await publishRealtime("unknown", "created", { id: "record-2" }, () => client);
-  expect(published).toEqual([{ channel: "qiy:" + subscription.resource, type: subscription.events[0], payload: { id: "record-1" } }]);
-});
-
-test("keeps failed outbox records pending and retries them", async () => {
-  Bun.env.QIY_REALTIME_DISABLED = "0";
-  const record: RealtimeOutboxRecord = { id: "event-1", channel: "qiy:orders", type: "updated", payload: JSON.stringify({ id: "order-1" }), attempts: 0 };
-  const delivered: string[] = [];
-  const failures: Array<{ id: string; attempts: number; error: string; availableAt: Date }> = [];
-  const store: RealtimeOutboxStore = {
-    claim: async () => [record],
-    delivered: async (id) => { delivered.push(id); },
-    failed: async (id, _leaseOwner, attempts, error, availableAt) => { failures.push({ id, attempts, error, availableAt }); record.attempts = attempts; },
-    dead: async () => {},
-    deadLetters: async () => [],
-    replay: async () => false,
-    replayMany: async () => [],
-    cleanupDelivered: async () => 0,
-    metrics: async () => ({ pending: 0, leased: 0, deadLettered: 0, delivered: 0, oldestPendingAt: null }),
-  };
-  const failedClient = { auth: { createTokenRequest: async () => ({}) }, channels: { get: () => ({ publish: async () => { throw new Error("provider unavailable"); } }) } } as any;
-  expect(await dispatchRealtimeOutbox(10, () => failedClient, store)).toEqual({ delivered: 0, failed: 1, deadLettered: 0 });
-  expect(failures[0]?.id).toBe("event-1");
-  expect(failures[0]?.attempts).toBe(1);
-  expect(failures[0]?.availableAt.getTime()).toBeGreaterThan(Date.now());
-  const workingClient = { auth: { createTokenRequest: async () => ({}) }, channels: { get: () => ({ publish: async () => {} }) } } as any;
-  expect(await dispatchRealtimeOutbox(10, () => workingClient, store)).toEqual({ delivered: 1, failed: 0, deadLettered: 0 });
-  expect(delivered).toEqual(["event-1"]);
-});
-
-test("claims an outbox record only once across concurrent workers", async () => {
-  Bun.env.QIY_REALTIME_DISABLED = "0";
-  Bun.env.QIY_REALTIME_LEASE_MS = "30000";
-  const record: RealtimeOutboxRecord = { id: "event-1", channel: "qiy:orders", type: "updated", payload: JSON.stringify({ id: "order-1" }), attempts: 0 };
-  let claimed = false;
-  const delivered: string[] = [];
-  const store: RealtimeOutboxStore = {
-    claim: async () => claimed ? [] : (claimed = true, [record]),
-    delivered: async (id, leaseOwner) => { delivered.push(leaseOwner + ":" + id); },
-    failed: async () => {},
-    dead: async () => {},
-    deadLetters: async () => [],
-    replay: async () => false,
-    replayMany: async () => [],
-    cleanupDelivered: async () => 0,
-    metrics: async () => ({ pending: 0, leased: 0, deadLettered: 0, delivered: 0, oldestPendingAt: null }),
-  };
-  const published: string[] = [];
-  const client = { auth: { createTokenRequest: async () => ({}) }, channels: { get: () => ({ publish: async () => { published.push("event-1"); } }) } } as any;
-  expect(await Promise.all([
-    dispatchRealtimeOutbox(10, () => client, store, "worker-a"),
-    dispatchRealtimeOutbox(10, () => client, store, "worker-b"),
-  ])).toEqual(expect.arrayContaining([{ delivered: 1, failed: 0, deadLettered: 0 }, { delivered: 0, failed: 0, deadLettered: 0 }]));
-  expect(published).toEqual(["event-1"]);
-  expect(delivered).toHaveLength(1);
-});
-
-test("dead-letters exhausted events and restricts replay and cleanup to admins", async () => {
-  Bun.env.QIY_REALTIME_DISABLED = "0";
-  Bun.env.QIY_REALTIME_MAX_ATTEMPTS = "1";
-  const eventId = "00000000-0000-4000-8000-000000000099";
-  const missingId = "00000000-0000-4000-8000-000000000100";
-  const record: RealtimeOutboxRecord = { id: eventId, channel: "qiy:orders", type: "updated", payload: JSON.stringify({ id: "order-1" }), attempts: 0 };
-  const dead: RealtimeOutboxRecord[] = [];
-  const replayed: string[] = [];
-  const store: RealtimeOutboxStore = {
-    claim: async () => dead.length ? [] : [record],
-    delivered: async () => {},
-    failed: async () => {},
-    dead: async (_id, _leaseOwner, attempts, lastError) => { record.attempts = attempts; Object.assign(record, { lastError }); dead.push(record); },
-    deadLetters: async () => dead,
-    replay: async (id) => { if (id !== eventId) return false; replayed.push(id); return true; },
-    replayMany: async (ids) => { const found = ids.filter((id) => id === eventId); replayed.push(...found); return found; },
-    cleanupDelivered: async () => 2,
-    metrics: async () => ({ pending: 4, leased: 1, deadLettered: dead.length, delivered: 9, oldestPendingAt: new Date("2026-10-01T00:00:00.000Z") }),
-  };
-  const unavailable = { auth: { createTokenRequest: async () => ({}) }, channels: { get: () => ({ publish: async () => { throw new Error("provider unavailable"); } }) } } as any;
-  expect(await dispatchRealtimeOutbox(10, () => unavailable, store, "worker-a")).toEqual({ delivered: 0, failed: 0, deadLettered: 1 });
-  expect(dead).toHaveLength(1);
-  const authenticate = async (request: Request) => ({ id: "user-1", name: "User", role: request.headers.get("x-role") === "admin" ? "admin" as const : "operator" as const });
-  const app = new Elysia().use(createRealtimeRoutes(authenticate, () => unavailable, store));
-  expect((await app.handle(new Request("http://localhost/api/v1/realtime/outbox/dead", { headers: { "x-role": "operator" } }))).status).toBe(403);
-  expect((await app.handle(new Request("http://localhost/api/v1/realtime/outbox/metrics", { headers: { "x-role": "operator" } }))).status).toBe(403);
-  expect((await app.handle(new Request("http://localhost/api/v1/realtime/outbox/metrics/prometheus", { headers: { "x-role": "operator" } }))).status).toBe(403);
-  expect((await app.handle(new Request("http://localhost/api/v1/realtime/outbox/health", { headers: { "x-role": "operator" } }))).status).toBe(403);
-  Bun.env.QIY_REALTIME_METRICS_TOKEN = "metrics-only-token";
-  const scrape = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/metrics/prometheus", { headers: { authorization: "Bearer metrics-only-token" } }));
-  expect(scrape.status).toBe(200);
-  expect(await scrape.text()).toContain("qiy_realtime_outbox_pending 4");
-  expect((await app.handle(new Request("http://localhost/api/v1/realtime/outbox/dead", { headers: { authorization: "Bearer metrics-only-token" } }))).status).toBe(403);
-  delete Bun.env.QIY_REALTIME_METRICS_TOKEN;
-  expect((await app.handle(new Request("http://localhost/api/v1/realtime/outbox/replay", { method: "POST", headers: { "content-type": "application/json", "x-role": "operator" }, body: JSON.stringify({ ids: [eventId] }) }))).status).toBe(403);
-  const listed = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/dead", { headers: { "x-role": "admin" } }));
-  expect(listed.status).toBe(200);
-  expect((await listed.json() as { data: unknown[] }).data).toHaveLength(1);
-  const metrics = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/metrics", { headers: { "x-role": "admin" } }));
-  expect(metrics.status).toBe(200);
-  expect(await metrics.json()).toEqual({ pending: 4, leased: 1, deadLettered: 1, delivered: 9, oldestPendingAt: "2026-10-01T00:00:00.000Z" });
-  Bun.env.QIY_REALTIME_ALERT_MAX_PENDING = "3";
-  Bun.env.QIY_REALTIME_ALERT_MAX_DEAD_LETTERED = "0";
-  Bun.env.QIY_REALTIME_ALERT_MAX_OLDEST_PENDING_MS = "1000";
-  const health = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/health", { headers: { "x-role": "admin" } }));
-  expect(health.status).toBe(503);
-  const healthPayload = await health.json() as { status: string; alerts: string[]; metrics: { oldestPendingAgeMs: number } };
-  expect(healthPayload.status).toBe("degraded");
-  expect(healthPayload.alerts).toEqual(["pending", "deadLettered", "oldestPendingAgeMs"]);
-  expect(healthPayload.metrics.oldestPendingAgeMs).toBeGreaterThan(1000);
-  const prometheus = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/metrics/prometheus", { headers: { "x-role": "admin" } }));
-  expect(prometheus.status).toBe(200);
-  expect(prometheus.headers.get("content-type")).toContain("text/plain");
-  const prometheusText = await prometheus.text();
-  expect(prometheusText).toContain("qiy_realtime_outbox_pending 4");
-  expect(prometheusText).toContain("qiy_realtime_outbox_dead_lettered 1");
-  expect(prometheusText).toContain("qiy_realtime_outbox_health 0");
-  delete Bun.env.QIY_REALTIME_ALERT_MAX_PENDING;
-  delete Bun.env.QIY_REALTIME_ALERT_MAX_DEAD_LETTERED;
-  delete Bun.env.QIY_REALTIME_ALERT_MAX_OLDEST_PENDING_MS;
-  const duplicateReplay = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/replay", { method: "POST", headers: { "content-type": "application/json", "x-role": "admin" }, body: JSON.stringify({ ids: [eventId, eventId] }) }));
-  expect(duplicateReplay.status).toBe(400);
-  const bulkReplay = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/replay", { method: "POST", headers: { "content-type": "application/json", "x-role": "admin" }, body: JSON.stringify({ ids: [eventId, missingId] }) }));
-  expect(bulkReplay.status).toBe(200);
-  expect(await bulkReplay.json()).toEqual({ replayed: [eventId], notFound: [missingId] });
-  const replay = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/" + eventId + "/replay", { method: "POST", headers: { "x-role": "admin" } }));
-  expect(replay.status).toBe(200);
-  expect(replayed).toEqual([eventId, eventId]);
-  const cleanup = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/delivered?retentionDays=30", { method: "DELETE", headers: { "x-role": "admin" } }));
-  expect(cleanup.status).toBe(200);
-  expect(await cleanup.json()).toEqual({ deleted: 2, retentionDays: 30 });
-});
-
-${database.dialect === "sqlite" ? `test("audits bulk replay and cleanup in the same SQLite transactions", async () => {
-  const actorId = "00000000-0000-4000-8000-000000000201";
-  const firstId = "00000000-0000-4000-8000-000000000202";
-  const secondId = "00000000-0000-4000-8000-000000000203";
-  const deliveredId = "00000000-0000-4000-8000-000000000204";
-  const eventIds = [firstId, secondId, deliveredId];
-  const actions = ["realtime.outbox.bulk_replayed", "realtime.outbox.cleaned"];
-  client.exec("CREATE TABLE IF NOT EXISTS qiy_realtime_outbox (id text primary key, channel text not null, type text not null, payload text not null, attempts integer not null, availableAt integer not null, deliveredAt integer, deadLetteredAt integer, lastError text, leaseOwner text, leaseUntil integer, createdAt integer not null)");
-  client.exec("CREATE TABLE IF NOT EXISTS audit_events (id text primary key, actorId text, action text not null, resource text not null, resourceId text, metadata text, createdAt integer not null)");
-  db.insert(realtimeOutbox).values([
-    { id: firstId, channel: "qiy:event:test", type: "test.failed", payload: "{}", attempts: 1, availableAt: new Date(0), deadLetteredAt: new Date(0), createdAt: new Date(0) },
-    { id: secondId, channel: "qiy:event:test", type: "test.failed", payload: "{}", attempts: 1, availableAt: new Date(0), deadLetteredAt: new Date(0), createdAt: new Date(0) },
-    { id: deliveredId, channel: "qiy:event:test", type: "test.delivered", payload: "{}", attempts: 0, availableAt: new Date(0), deliveredAt: new Date(0), createdAt: new Date(0) },
-  ]).run();
-  const app = new Elysia().use(createRealtimeRoutes(async () => ({ id: actorId, name: "Admin", role: "admin" })));
-  try {
-    const replay = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/replay", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: [firstId, secondId] }) }));
-    expect(replay.status).toBe(200);
-    expect(await replay.json()).toEqual({ replayed: [firstId, secondId], notFound: [] });
-    const cleanup = await app.handle(new Request("http://localhost/api/v1/realtime/outbox/delivered?retentionDays=1", { method: "DELETE" }));
-    expect(cleanup.status).toBe(200);
-    expect(await cleanup.json()).toEqual({ deleted: 1, retentionDays: 1 });
-    const audits = db.select().from(auditEvents).where(inArray(auditEvents.action, actions)).all();
-    expect(audits.map((audit) => audit.action).sort()).toEqual([...actions].sort());
-    expect(audits.every((audit) => audit.actorId === actorId)).toBe(true);
-  } finally {
-    db.delete(realtimeOutbox).where(inArray(realtimeOutbox.id, eventIds)).run();
-    db.delete(auditEvents).where(inArray(auditEvents.action, actions)).run();
-    client.exec("DROP TABLE qiy_realtime_outbox");
-  }
-});
-
-` : ""}test("calculates automatic cleanup cutoff from an explicit maintenance time", async () => {
-  const cutoffs: Date[] = [];
-  const store: RealtimeOutboxStore = {
-    claim: async () => [],
-    delivered: async () => {},
-    failed: async () => {},
-    dead: async () => {},
-    deadLetters: async () => [],
-    replay: async () => false,
-    replayMany: async () => [],
-    cleanupDelivered: async (before) => { cutoffs.push(before); return 3; },
-    metrics: async () => ({ pending: 0, leased: 0, deadLettered: 0, delivered: 0, oldestPendingAt: null }),
-  };
-  const now = new Date("2026-10-12T12:00:00.000Z");
-  expect(await cleanupRealtimeOutbox(7, store, now)).toBe(3);
-  expect(cutoffs).toEqual([new Date("2026-10-05T12:00:00.000Z")]);
+test("computes the outbox cleanup cutoff from the retention window", () => {
+  expect(realtimeCleanupCutoff(7, new Date("2026-10-12T12:00:00.000Z"))).toEqual(new Date("2026-10-05T12:00:00.000Z"));
+  expect(() => realtimeCleanupCutoff(0)).toThrow("retention days");
 });
 `,
     } : {}),
@@ -6637,7 +5977,7 @@ test("reports cleanup failures without a silent cron callback", async () => {
 import { createApp } from "./app";
 import { createHandler } from "./http";
 ${auth ? `import { createProductionAuthenticator } from ${hybridAuth ? '"./auth/hybrid"' : hasLocalAuth ? '"./auth/local"' : auth.provider === "otp" ? '"./auth/otp"' : '"./auth/oidc"'};` : ''}
-${options.realtime ? 'import { startRealtimeOutboxWorker } from "./realtime";' : ''}
+${options.realtime ? 'import { startRealtimeOutboxCleanup } from "./realtime";' : ''}
 ${repositoryImports}
 
 ${auth ? '' : 'if (Bun.env.QIY_DEV_MODE !== "1") {'}
@@ -6646,7 +5986,7 @@ ${auth ? '' : '}'}
 
 if (Bun.env.QIY_STORAGE_METADATA !== "database") throw new Error("QIY_STORAGE_METADATA=database is required for production file metadata");
 const app = await createApp({ ${database.entities.map((entity) => `${entity.name}: ${modelName(entity)}Repository`).join(", ")} }, ${auth ? 'createProductionAuthenticator()' : 'async () => ({ id: "dev", name: "Local Admin", role: "admin" })'});
-${options.realtime ? 'startRealtimeOutboxWorker();' : ''}
+${options.realtime ? 'startRealtimeOutboxCleanup();' : ''}
 const clientRoot = resolve(import.meta.dir, "../../web/build/client");
 const server = Bun.serve({ hostname: Bun.env.HOST ?? "127.0.0.1", port: Number(Bun.env.PORT ?? 3000), fetch: createHandler((request) => app.handle(request), clientRoot) });
 console.log(\`Qiy app listening on http://localhost:\${server.port}\`);
@@ -7359,14 +6699,14 @@ ${entityRestricted ? "  policy?: QiyPolicy;" : ""}
       return repository.update(id, prepared, actorId, ${scopedArgs});
     }`;
     files[`${moduleRoot}/${entity.name}.service.ts`] = `${temporalImport}${entityRestricted ? 'import type { QiyPolicy } from "../../security/policy";\n' : ""}${generatedServiceImport}import type { ${modelName(entity)}Repository, ListQuery } from "./${entity.name}.contract";
- ${realtimeSubscription ? 'import { dispatchRealtimeOutbox } from "../../realtime";' : ""}
+ ${realtimeSubscription ? 'import { pollRealtimeOutbox } from "../../realtime";' : ""}
 ${temporalDeclaration}${generatedServiceDeclaration}const dateFields = ${JSON.stringify(entity.fields.filter((field) => field.type === "DateTime").map((field) => field.name))} as string[];
 function normalizeDates(values: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(values).map(([field, value]) => [field, dateFields.includes(field) && typeof value === "string" ? new Date(value) : value]));
 }
  ${realtimeSubscription ? `async function dispatchCommitted(): Promise<void> {
-   try { await dispatchRealtimeOutbox(); }
-   catch (error) { console.error("Realtime outbox dispatch failed after committed mutation", { resource: ${JSON.stringify(entity.tableName)}, error }); }
+   try { await pollRealtimeOutbox(); }
+   catch (error) { console.error("Realtime outbox read failed after committed mutation", { resource: ${JSON.stringify(entity.tableName)}, error }); }
 }` : ""}
 ${generatedDocumentation(entity)}export function create${modelName(entity)}Service(repository: ${modelName(entity)}Repository) {
   return {
@@ -7742,11 +7082,8 @@ test("publishes model descriptions in the actual OpenAPI request schemas", async
 
 function renderMultiProviderOidcModule(auth: NonNullable<QiyProject["auth"]>): string {
   const providerIds = JSON.stringify(auth.providers ?? [auth.provider]);
-  const labels = JSON.stringify({
-    oidc: "OpenID Connect", oauth2: "OAuth2", sso: "SSO", okta: "Okta", auth0: "Auth0",
-    "azure-ad-b2c": "Azure AD B2C", keycloak: "Keycloak", google: "Google", kinde: "Kinde",
-  });
-  const mappings = JSON.stringify(Object.fromEntries((auth.providerMappings ?? []).map((mapping) => [mapping.provider, { subjectField: mapping.subjectField, ...(mapping.claim ? { claim: mapping.claim } : {}) }])));
+  const labels = JSON.stringify(Object.fromEntries((auth.providers ?? [auth.provider]).map((provider) => [provider, authProviderLabel(auth, provider)])));
+  const mappings = JSON.stringify(Object.fromEntries((auth.providerMappings ?? []).filter((mapping) => mapping.subjectField).map((mapping) => [mapping.provider, { subjectField: mapping.subjectField, ...(mapping.claim ? { claim: mapping.claim } : {}) }])));
   const roleField = JSON.stringify(auth.roleField);
   const defaultSubjectField = JSON.stringify(auth.subjectField);
   const userEntity = auth.userEntity;
@@ -7895,7 +7232,7 @@ export function createProductionAuthenticator(): Authenticator {
  */
 function renderAccountModule(auth: NonNullable<QiyProject["auth"]>, database: DatabaseIR): string {
   const user = database.entities.find((entity) => entity.name === auth.userEntity)!;
-  const providerIdentities = (auth.providers ?? []).map((provider) => ({ id: provider, label: providerLabel(provider), subjectField: authProviderSubjectField(auth, provider) }));
+  const providerIdentities = (auth.providers ?? []).map((provider) => ({ id: provider, label: authProviderLabel(auth, provider), subjectField: authProviderSubjectField(auth, provider) }));
   const emailField = user.fields.some((field) => field.name === "email") && auth.usernameField !== "email" ? "email" : null;
   const displayNameField = ["displayName", "name"].find((name) => user.fields.some((field) => field.name === name)) ?? null;
   return `import { eq } from "drizzle-orm";
@@ -7989,14 +7326,6 @@ test("rejects a tampered, expired or foreign onboarding token", async () => {
 `;
 }
 
-function providerLabel(provider: string): string {
-  const labels: Record<string, string> = {
-    oidc: "OpenID Connect", oauth2: "OAuth2", sso: "SSO", okta: "Okta", auth0: "Auth0",
-    "azure-ad-b2c": "Azure AD B2C", keycloak: "Keycloak", google: "Google", kinde: "Kinde",
-  };
-  return labels[provider] ?? provider;
-}
-
 /**
  * Hybrid auth server module (`auth/oidc.ts` for a project that combines password
  * login with OAuth providers). It keeps the multi-provider configuration and
@@ -8012,13 +7341,13 @@ function renderHybridAuthModule(auth: NonNullable<QiyProject["auth"]>, database:
   const user = database.entities.find((entity) => entity.name === auth.userEntity)!;
   const providerIds = auth.providers ?? [];
   const mappings = Object.fromEntries((auth.providerMappings ?? [])
-    .filter((mapping) => providerIds.includes(mapping.provider))
+    .filter((mapping) => providerIds.includes(mapping.provider) && mapping.subjectField)
     .map((mapping) => [mapping.provider, { subjectField: mapping.subjectField, ...(mapping.claim ? { claim: mapping.claim } : {}) }]));
   const roleValues = database.enums?.find((item) => item.name === user.fields.find((field) => field.name === auth.roleField)?.enumName)?.values.map((item) => item.name);
   const emailField = user.fields.some((field) => field.name === "email") && auth.usernameField !== "email" ? "email" : null;
   const displayNameField = ["displayName", "name"].find((name) => user.fields.some((field) => field.name === name)) ?? null;
   const nameExpression = principalNameExpression(user, displayNameField ?? undefined, auth.usernameField);
-  const labels = Object.fromEntries(providerIds.map((provider) => [provider, providerLabel(provider)]));
+  const labels = Object.fromEntries(providerIds.map((provider) => [provider, authProviderLabel(auth, provider)]));
   return `import { createRemoteJWKSet, jwtVerify, SignJWT, type JWTVerifyGetKey } from "jose";
 import { eq } from "drizzle-orm";
 import { Elysia } from "elysia";

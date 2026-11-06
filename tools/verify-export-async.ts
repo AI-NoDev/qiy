@@ -152,7 +152,7 @@ try {
   await must(["bun", "run", "db:generate"], server, { DATABASE_URL: databaseUrl });
   await must(["bun", "run", "db:migrate"], server, { DATABASE_URL: databaseUrl });
   console.log(await must(["bun", "run", "typecheck"], server, { DATABASE_URL: databaseUrl }));
-  console.log(await must(["bun", "test", "--preload", "./tests/setup.ts", "export-async.acceptance.test.ts"], server, { DATABASE_URL: databaseUrl }));
+  console.log(await must(["bun", "test", "--preload", "./tests/setup.ts", "export-async.acceptance.test.ts"], server, { DATABASE_URL: databaseUrl, QIY_TEST_DATABASE_URL: databaseUrl }));
   console.log(`async export acceptance passed: ${root}`);
 } finally {
   console.log(`workspace kept for review: ${root}`);

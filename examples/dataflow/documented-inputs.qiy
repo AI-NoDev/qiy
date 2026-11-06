@@ -13,7 +13,6 @@ application documented-reviews {
       "enum.reviewState" "Review workflow states";
       "enum.reviewState.pending" "Waiting for a reviewer";
       "menu.reviews" "Review operations";
-      "dashboard.reviews" "Current review requests";
     }
     locale "zh-CN" {
       "entity.reviews" "审核申请";
@@ -25,7 +24,6 @@ application documented-reviews {
       "enum.reviewState" "审核流程状态";
       "enum.reviewState.pending" "等待审核人处理";
       "menu.reviews" "审核业务入口";
-      "dashboard.reviews" "当前审核申请";
     }
   }
   enum reviewState @comment(t("enum.reviewState")) {
@@ -43,8 +41,9 @@ application documented-reviews {
       resource reviews;
     }
   }
-  dashboard {
-    metric reviewCount reviews @label("Reviews") @span(8) @comment(t("dashboard.reviews"));
+  chart const ReviewCount {
+    title = "Reviews";
+    data = count reviews;
   }
   dataflow explainReview @label(t("review.action")) @confirm(t("review.confirm")) @comment(t("review.context")) {
     idempotency required;

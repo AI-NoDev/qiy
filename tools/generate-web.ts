@@ -2,24 +2,11 @@ import type { DatabaseIR, EnumIR, EnumValueIR, FieldIR } from "./database-ir";
 import { renderAppTemplate } from "./admin-template";
 import { generatedFieldKind, generatedFieldsOf, validateDatabaseIR } from "./database-ir";
 import type { QiyChart, QiyChartView, QiyProject } from "./qiy-project";
-import { authHasLocal, authIsHybrid, authOAuthProviders, authUsesProviderChooser, qiyChartVariants } from "./qiy-project";
+import { authHasLocal, authIsHybrid, authOAuthProviders, authProviderLabel as providerLabel, authUsesProviderChooser, qiyChartVariants } from "./qiy-project";
 import { evaluatePermissionExpression, requiredPermissionValues, type QiyPermissionExpressionIR } from "./permissions";
 
-const oidcAuthProviders = new Set(["oidc", "oauth2", "sso", "okta", "auth0", "azure-ad-b2c", "keycloak", "google", "kinde"]);
-const authProviderLabels: Record<string, string> = {
-  oidc: "OpenID Connect",
-  oauth2: "OAuth 2.0",
-  sso: "Enterprise SSO",
-  okta: "Okta",
-  auth0: "Auth0",
-  "azure-ad-b2c": "Azure AD B2C",
-  keycloak: "Keycloak",
-  google: "Google",
-  kinde: "Kinde",
-  otp: "One-time password",
-};
 
-type WebOptions = Pick<QiyProject, "mode" | "integration" | "ui" | "messages" | "apiClient" | "menuGroups" | "dashboardMetrics" | "charts" | "chartPanels" | "realtime" | "auth" | "permissions" | "workflows" | "dataflows" | "actions" | "restrictions" | "pages" | "scopes" | "features" | "comment"> & { readOnly?: boolean };
+type WebOptions = Pick<QiyProject, "mode" | "integration" | "ui" | "messages" | "apiClient" | "menuGroups" | "charts" | "chartPanels" | "realtime" | "auth" | "permissions" | "workflows" | "dataflows" | "actions" | "restrictions" | "pages" | "scopes" | "features" | "comment"> & { readOnly?: boolean };
 type GeneratedAction = {
   name: string;
   roles?: string[];
@@ -51,7 +38,6 @@ export const qiyModelKeys = {
   enumLabel: (enumeration: string) => `qiy.enums.${enumeration}.label`,
   enumValueLabel: (enumeration: string, value: string) => `qiy.enums.${enumeration}.values.${value}`,
   menuLabel: (group: string) => `qiy.menu.${group}.label`,
-  dashboardLabel: (metric: string) => `qiy.dashboard.${metric}.label`,
   chartLabel: (chart: string) => `qiy.charts.${chart}.label`,
   chartViewLabel: (chart: string, kind: string) => `qiy.charts.${chart}.views.${kind}.label`,
   chartLabelValue: (chart: string, value: string) => `qiy.charts.${chart}.labels.${value}`,
@@ -299,9 +285,9 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
   const hybridAuth = Boolean(options.auth && authIsHybrid(options.auth));
   const providerChooserAuth = Boolean(options.auth && authUsesProviderChooser(options.auth));
   const multiProviderAuth = Boolean(options.auth && providerChooserAuth && !hybridAuth);
-  const usesOidcAuth = Boolean(options.auth && !hasLocalAuth && authOAuthProviderIds.length > 0 && oidcAuthProviders.has(options.auth.provider));
+  const usesOidcAuth = Boolean(options.auth && !hasLocalAuth && authOAuthProviderIds.length > 0 && options.auth.provider !== "local" && options.auth.provider !== "otp");
   const usesOtpAuth = options.auth?.provider === "otp";
-  const authProviderLabel = options.auth ? authProviderLabels[options.auth.provider] ?? options.auth.provider : "";
+  const authProviderLabel = options.auth ? (options.auth.provider === "otp" ? "One-time password" : options.auth.provider === "local" ? "local" : providerLabel(options.auth, options.auth.provider)) : "";
   const userEntity = options.auth ? database.entities.find((entity) => entity.name === options.auth!.userEntity) : undefined;
   // The generated profile page renders the signed-in role; when the role field is
   // a declared enum, its localized value label comes from the model dictionary.
@@ -346,8 +332,7 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
   const pageRuleCheck = pageRuleEntries.length ? `const pageRule = pageRules.find((rule) => rule.resource === resource && rule.action === action); if (pageRule) return pageRule.roles.includes(identity.role ?? "") ? { can: true, reason: "Page access is allowed" } : { can: false, reason: "Page access is restricted" }; ` : "";
   const requiresAuthShell = usesAuth;
   const usesRealtime = Boolean(options.realtime);
-  // GraphQL apps keep Ably for live updates and add the SSE subscription transport
-  // on the server, so realtime no longer requires the REST data provider.
+  // Realtime always streams over SSE; GraphQL apps additionally get subscription roots.
   const usesGraphqlSubscriptions = usesRealtime && (options.apiClient ?? "rest") === "graphql";
   const errors = validateDatabaseIR(database);
   const menuGroups = options.menuGroups ?? [];
@@ -355,39 +340,15 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
   const assignedResources = new Set<string>();
   const resourceNames = [...database.entities.map((entity) => entity.tableName), ...(database.views ?? []).map((view) => view.name)];
   const actionNames = new Set<string>();
-  const dashboardNames = new Set<string>();
   const iconNames = [...new Set([
     "AppstoreOutlined", "DashboardOutlined", "DatabaseOutlined", "ShoppingOutlined", "TableOutlined", "UserOutlined", "FileTextOutlined", "KeyOutlined",
     ...database.entities.map((entity) => entity.icon).filter((icon): icon is string => Boolean(icon)),
     ...database.entities.flatMap((entity) => entity.fields.map((field) => field.icon)).filter((icon): icon is string => Boolean(icon)),
     ...(database.enums ?? []).flatMap((enumeration) => enumeration.values.map((item) => item.icon)).filter((icon): icon is string => Boolean(icon)),
     ...menuGroups.map((group) => group.icon).filter((icon): icon is string => Boolean(icon)),
-    ...(options.dashboardMetrics ?? []).map((metric) => metric.icon).filter((icon): icon is string => Boolean(icon)),
     ...(options.charts ?? []).flatMap((chart) => [chart.icon, ...chart.views.map((view) => view.icon)]).filter((icon): icon is string => Boolean(icon)),
   ])].sort();
   for (const icon of iconNames) if (!/^[A-Z][a-zA-Z0-9]*Outlined$/.test(icon)) errors.push(`Invalid Ant Design icon ${icon}`);
-  for (const metric of options.dashboardMetrics ?? []) {
-    if (!/^[a-zA-Z_][a-zA-Z_0-9-]*$/.test(metric.name) || dashboardNames.has(metric.name)) errors.push(`Dashboard metric ${metric.name}: invalid or duplicate name`);
-    dashboardNames.add(metric.name);
-    if (!resourceNames.includes(metric.resource)) errors.push(`Dashboard metric ${metric.name}: unknown resource ${metric.resource}`);
-    if (![8, 12, 24].includes(metric.span)) errors.push(`Dashboard metric ${metric.name}: span must be 8, 12 or 24`);
-    if (metric.type === "distribution") {
-      const entity = database.entities.find((item) => item.tableName === metric.resource);
-      if (!metric.groupBy || !entity?.fields.some((field) => field.name === metric.groupBy && field.enumName)) errors.push(`Dashboard metric ${metric.name}: distribution requires an enum groupBy field`);
-    }
-    if (metric.type === "trend") {
-      const entity = database.entities.find((item) => item.tableName === metric.resource);
-      if (!metric.groupBy || !entity?.fields.some((field) => field.name === metric.groupBy && field.type === "DateTime")) errors.push(`Dashboard metric ${metric.name}: trend requires a DateTime groupBy field`);
-      if (!Number.isInteger(metric.days) || metric.days! < 1 || metric.days! > 365) errors.push(`Dashboard metric ${metric.name}: days must be between 1 and 365`);
-    }
-    if (metric.type === "aggregate") {
-      const entity = database.entities.find((item) => item.tableName === metric.resource);
-      if (!metric.field || !entity?.fields.some((field) => field.name === metric.field && ["Integer", "Decimal", "Money"].includes(field.type))) errors.push(`Dashboard metric ${metric.name}: aggregate requires a numeric field`);
-      if (!metric.agg || !["sum", "avg", "min", "max"].includes(metric.agg)) errors.push(`Dashboard metric ${metric.name}: aggregate requires agg sum, avg, min or max`);
-    }
-    if (metric.type !== "aggregate" && (metric.field !== undefined || metric.agg !== undefined)) errors.push(`Dashboard metric ${metric.name}: field and agg require aggregate type`);
-    if (metric.type !== "trend" && metric.days !== undefined) errors.push(`Dashboard metric ${metric.name}: days requires trend type`);
-  }
   for (const group of menuGroups) {
     if (!/^[a-zA-Z_][a-zA-Z_0-9-]*$/.test(group.name) || groupNames.has(group.name)) errors.push(`Menu group ${group.name}: invalid or duplicate name`);
     groupNames.add(group.name);
@@ -438,8 +399,6 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
   const hasRelatedResources = (database.relations ?? []).some((relation) => database.entities.some((entity) => entity.name === relation.toEntity));
   const hasOrderWorkflow = options.workflows?.includes("orderInventory") ?? false;
   if (hasOrderWorkflow && (database.dialect !== "postgresql" || !["orders", "orderItems", "inventoryItems"].every((name) => database.entities.some((entity) => entity.name === name)))) throw new Error("orderInventory workflow requires PostgreSQL and orders, orderItems, and inventoryItems entities");
-  const dashboardMetrics = options.dashboardMetrics?.length ? options.dashboardMetrics : options.charts?.length ? [] : database.entities.map((entity) => ({ name: entity.name, resource: entity.tableName, label: entity.label ?? entity.name, icon: entity.icon, span: 8 as const }));
-  const localizedDashboardMetrics = dashboardMetrics.map((metric) => ({ ...metric, labelKey: qiyModelKeys.dashboardLabel(metric.name) }));
   // Chart pages: declarations with the same name are the views of one chart;
   // view labels are keyed by kind, distribution labels by enum value.
   const chartEntity = (entityName: string) => database.entities.find((entity) => entity.tableName === entityName || entity.name === entityName);
@@ -809,9 +768,6 @@ export function qiyApiError(payload: unknown, statusCode: number, locale = typeo
   const message = errorKey ? projectMessage(locale, errorKey) ?? fallback : fallback;
   return Object.assign(new Error(message), { statusCode, ...(errorKey ? { errorKey } : {}) });
 }
-`,
-    "web/app/dashboard.ts": `export interface DashboardMetric { name: string; resource: string; label: string; labelKey: string; icon?: string; comment?: string; commentKey?: string; span: 8 | 12 | 24; type?: "count" | "distribution" | "trend" | "aggregate"; groupBy?: string; days?: number; field?: string; agg?: "sum" | "avg" | "min" | "max" }
-export const dashboardMetrics: DashboardMetric[] = ${JSON.stringify(localizedDashboardMetrics, null, 2)};
 `,
     "web/app/charts.ts": `export type ChartViewKind = "const" | "pie" | "bar" | "line" | "area" | "scatter" | "stacked" | "table";
 export type ChartAggregate = "sum" | "avg" | "min" | "max";
@@ -1671,74 +1627,25 @@ export default function ResourceTree() {
 }
 `,
     } : {}),
-    "web/app/routes/home.tsx": `import { CanAccess, useCustom, useList, useTranslation } from "@refinedev/core";
-import { Card, Col, Progress, Row, Space, Statistic, Typography, theme } from "antd";
+    "web/app/routes/home.tsx": `import { CanAccess, useList, useTranslation } from "@refinedev/core";
+import { Card, Col, Row, Space, Statistic, Typography, theme } from "antd";
 import { Link } from "react-router";
-import { resources } from "../resources";
- import { dashboardMetrics, type DashboardMetric } from "../dashboard";
- import { chartPanels, charts } from "../charts";
- import { ChartDashboard } from "../components/charts";
- import { qiyIcons } from "../icons";
- import { projectMessage } from "../messages";
+import { resources, type ResourceDefinition } from "../resources";
+import { chartPanels, charts } from "../charts";
+import { ChartDashboard } from "../components/charts";
+import { qiyIcons } from "../icons";
 import { t, resolveLocale, type QiyLocale } from "../i18n";
 
- function MetricDescription({ metric }: { metric: DashboardMetric }) {
-   const { getLocale } = useTranslation();
-   const description = metric.commentKey ? projectMessage(getLocale(), metric.commentKey) ?? metric.comment : metric.comment;
-   return description ? <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>{description}</Typography.Paragraph> : null;
- }
-
- function DistributionSummary({ metric }: { metric: DashboardMetric }) {
-   const { translate } = useTranslation();
-   const { token } = theme.useToken();
-   const { result, query } = useCustom<{ items: Array<{ value: string | null; count: number }> }>({ url: \`/api/v1/\${metric.resource}/distribution\`, method: "get", config: { query: { field: metric.groupBy } } });
-   const resource = resources.find((item) => item.name === metric.resource);
-   const field = resource?.fields.find((item) => item.name === metric.groupBy);
-   const Icon = qiyIcons[(metric.icon ?? resource?.icon ?? "TableOutlined") as keyof typeof qiyIcons] ?? qiyIcons.TableOutlined;
-   const rows = result.data?.items ?? [];
-   const total = rows.reduce((sum, row) => sum + row.count, 0);
-   return <Col xs={24} sm={12} lg={metric.span}><Card title={<Space><Icon style={{ color: token.colorPrimary }} /><span>{translate(metric.labelKey, {}, metric.label)}</span></Space>} loading={query.isLoading}><MetricDescription metric={metric} />{query.error && <Typography.Text type="danger">{String(query.error)}</Typography.Text>}{rows.map(({ value, count }) => { const item = field?.enumValues?.find((option) => option.name === value); const comment = item?.commentKey ? translate(item.commentKey, {}, item.comment) : item?.comment; return <div key={value ?? "null"}><Space style={{ width: "100%", justifyContent: "space-between" }}><Typography.Text title={comment}>{item ? translate(item.labelKey, {}, item.label ?? value ?? "—") : value ?? "—"}</Typography.Text><Typography.Text type="secondary">{count}</Typography.Text></Space><Progress percent={total ? Math.round(count / total * 100) : 0} showInfo={false} /></div>; })}{!query.isLoading && !rows.length && !query.error && <Typography.Text type="secondary">—</Typography.Text>}</Card></Col>;
- }
- function TrendSummary({ metric }: { metric: DashboardMetric }) {
-   const { translate } = useTranslation();
-   const { result, query } = useCustom<{ items: Array<{ day: string; count: number }> }>({ url: \`/api/v1/\${metric.resource}/trend\`, method: "get", config: { query: { field: metric.groupBy, days: metric.days } } });
-   const { token } = theme.useToken();
-   const resource = resources.find((item) => item.name === metric.resource);
-   const Icon = qiyIcons[(metric.icon ?? resource?.icon ?? "TableOutlined") as keyof typeof qiyIcons] ?? qiyIcons.TableOutlined;
-   const rows = result.data?.items ?? [];
-   const max = Math.max(...rows.map((row) => row.count), 0);
-   return <Col xs={24} lg={metric.span}><Card title={<Space><Icon style={{ color: token.colorPrimary }} /><span>{translate(metric.labelKey, {}, metric.label)}</span></Space>} loading={query.isLoading}><MetricDescription metric={metric} />{query.error && <Typography.Text type="danger">{String(query.error)}</Typography.Text>}{rows.map((row) => <div key={row.day}><Space style={{ width: "100%", justifyContent: "space-between" }}><Typography.Text>{row.day}</Typography.Text><Typography.Text type="secondary">{row.count}</Typography.Text></Space><Progress percent={max ? Math.round(row.count / max * 100) : 0} showInfo={false} /></div>)}{!query.isLoading && !rows.length && !query.error && <Typography.Text type="secondary">—</Typography.Text>}</Card></Col>;
- }
- function AggregateSummary({ metric }: { metric: DashboardMetric }) {
-   const { translate } = useTranslation();
-   const { result, query } = useCustom<{ value: number | null; operator: string }>({ url: \`/api/v1/\${metric.resource}/aggregate\`, method: "get", config: { query: { field: metric.field, op: metric.agg ?? "sum" } } });
-   const { token } = theme.useToken();
-   const resource = resources.find((item) => item.name === metric.resource);
-   const field = resource?.fields.find((item) => item.name === metric.field);
-   const Icon = qiyIcons[(metric.icon ?? resource?.icon ?? "TableOutlined") as keyof typeof qiyIcons] ?? qiyIcons.TableOutlined;
-   const value = result.data?.value;
-   const precision = field?.type === "Money" || field?.type === "Decimal" ? 2 : 0;
-   const label = field ? translate(field.labelKey, {}, field.label) : metric.field ?? "";
-   const aggKey = ({ sum: "qiy.aggSum", avg: "qiy.aggAvg", min: "qiy.aggMin", max: "qiy.aggMax" } as const)[metric.agg ?? "sum"];
-   return <Col xs={24} sm={12} lg={metric.span}><Card title={<Space><Icon style={{ color: token.colorPrimary }} /><span>{translate(metric.labelKey, {}, metric.label)}</span></Space>} loading={query.isLoading}><MetricDescription metric={metric} />{query.error ? <Typography.Text type="danger">{String(query.error)}</Typography.Text> : <Statistic value={value ?? 0} precision={precision} suffix={<Typography.Text type="secondary" style={{ fontSize: 12 }}>{translate(aggKey, {}, metric.agg ?? "sum") + " · " + label}</Typography.Text>} />}{value === null && !query.isLoading && !query.error && <Typography.Text type="secondary">{translate("qiy.noData", {}, "No data")}</Typography.Text>}</Card></Col>;
- }
- function ResourceSummary({ metric }: { metric: DashboardMetric }) {
-   if (metric.type === "distribution") return <DistributionSummary metric={metric} />;
-   if (metric.type === "trend") return <TrendSummary metric={metric} />;
-   if (metric.type === "aggregate") return <AggregateSummary metric={metric} />;
-   return <CountSummary metric={metric} />;
- }
- function CountSummary({ metric }: { metric: DashboardMetric }) {
-   const { translate } = useTranslation();
-   const { result, query } = useList({ resource: metric.resource, pagination: { currentPage: 1, pageSize: 1 } });
-   const { token } = theme.useToken();
-   const resource = resources.find((item) => item.name === metric.resource);
-   const Icon = qiyIcons[(metric.icon ?? resource?.icon ?? "TableOutlined") as keyof typeof qiyIcons] ?? qiyIcons.TableOutlined;
-   return <Col xs={24} sm={12} lg={metric.span}><Link to={\`/\${metric.resource}\`}><Card hoverable><Space><Icon style={{ fontSize: 24, color: token.colorPrimary }} /><div><Typography.Text type="secondary">{translate(metric.labelKey, {}, metric.label)}</Typography.Text><MetricDescription metric={metric} /><Statistic value={query.isLoading ? "—" : result.total ?? 0} /></div></Space></Card></Link></Col>;
+function ResourceSummary({ resource }: { resource: ResourceDefinition }) {
+  const { translate } = useTranslation();
+  const { result, query } = useList({ resource: resource.name, pagination: { currentPage: 1, pageSize: 1 } });
+  const { token } = theme.useToken();
+  const Icon = qiyIcons[resource.icon as keyof typeof qiyIcons] ?? qiyIcons.TableOutlined;
+  return <Col xs={24} sm={12} lg={8}><Link to={\`/\${resource.name}\`}><Card hoverable><Space><Icon style={{ fontSize: 24, color: token.colorPrimary }} /><div><Typography.Text type="secondary">{translate(resource.pluralKey, {}, translate(resource.labelKey, {}, resource.label))}</Typography.Text><Statistic value={query.isLoading ? "—" : result.total ?? 0} /></div></Space></Card></Link></Col>;
 }
 export default function Home() {
   const { getLocale, translate } = useTranslation(); const locale: QiyLocale = resolveLocale(getLocale());
-   return <Space direction="vertical" size="large" style={{ width: "100%" }}><div><Typography.Title level={2}>{t(locale, "overview")}</Typography.Title><Typography.Paragraph type="secondary">{t(locale, "overviewDescription")}</Typography.Paragraph></div>{charts.length > 0 ? <ChartDashboard charts={charts} panels={chartPanels} /> : <Row gutter={[16, 16]}>{dashboardMetrics.map((metric) => <CanAccess key={metric.name} resource={metric.resource} action="list"><ResourceSummary metric={metric} /></CanAccess>)}</Row>}<Card title={t(locale, "quickAccess")}><Space wrap>{resources.slice(0, 4).map((resource) => <CanAccess key={resource.name} resource={resource.name} action="list"><Link to={\`/\${resource.name}\`}>{translate(resource.pluralKey, {}, translate(resource.labelKey, {}, resource.label))}</Link></CanAccess>)}</Space></Card></Space>;
+   return <Space direction="vertical" size="large" style={{ width: "100%" }}><div><Typography.Title level={2}>{t(locale, "overview")}</Typography.Title><Typography.Paragraph type="secondary">{t(locale, "overviewDescription")}</Typography.Paragraph></div>{charts.length > 0 ? <ChartDashboard charts={charts} panels={chartPanels} /> : <Row gutter={[16, 16]}>{resources.filter((resource) => !resource.readOnly).map((resource) => <CanAccess key={resource.name} resource={resource.name} action="list"><ResourceSummary resource={resource} /></CanAccess>)}</Row>}<Card title={t(locale, "quickAccess")}><Space wrap>{resources.slice(0, 4).map((resource) => <CanAccess key={resource.name} resource={resource.name} action="list"><Link to={\`/\${resource.name}\`}>{translate(resource.pluralKey, {}, translate(resource.labelKey, {}, resource.label))}</Link></CanAccess>)}</Space></Card></Space>;
 }
 `,
     "web/app/messages.ts": `export const defaultMessageLocale = ${JSON.stringify(options.messages?.defaultLocale ?? "zh-CN")};\nexport const projectMessages: Record<string, Record<string, string>> = ${JSON.stringify(options.messages?.locales ?? {}, null, 2)};\nexport function projectMessage(locale: string, key: string): string | undefined { const entries = Object.hasOwn(projectMessages, locale) ? projectMessages[locale] : undefined; if (entries && Object.hasOwn(entries, key)) return entries[key]; const fallback = projectMessages[defaultMessageLocale]; return fallback && Object.hasOwn(fallback, key) ? fallback[key] : undefined; }\n`,
@@ -2294,7 +2201,6 @@ test("implements Refine translation overloads, interpolation and asynchronous lo
 import { createI18nProvider, filterModeLabel, readStoredLocale, resolveLocale, storeLocale, supportedLocales, t } from "../app/i18n";
 import { defaultMessageLocale, projectMessages } from "../app/messages";
 import { enumerations, menuGroups, resources } from "../app/resources";
-import { dashboardMetrics } from "../app/dashboard";
 import { chartPanels, charts } from "../app/charts";
 ${actionDefinitions.length ? 'import { qiyActions } from "../app/actions";\n' : ""}
 interface LabelEntry { key: string; fallback: string }
@@ -2305,7 +2211,6 @@ const labels: LabelEntry[] = [
   ...resources.flatMap((resource) => resource.fields.map((field) => ({ key: field.labelKey ?? "", fallback: field.label }))),
   ...resources.flatMap((resource) => (resource.relatedResources ?? []).map((relation) => ({ key: relation.labelKey ?? "", fallback: relation.label }))),
   ...menuGroups.map((group) => ({ key: group.labelKey, fallback: group.label })),
-  ...dashboardMetrics.map((metric) => ({ key: metric.labelKey ?? "", fallback: metric.label })),
   ...charts.map((chart) => ({ key: chart.labelKey, fallback: chart.title })),
   ...chartPanels.map((panel) => ({ key: panel.labelKey, fallback: panel.title })),
   ...charts.flatMap((chart) => chart.views.flatMap((view) => [
@@ -2324,7 +2229,7 @@ ${actionDefinitions.length ? `  ...qiyActions.flatMap((action) => [
 test("every model-derived label has a stable key and resolves through project messages", () => {
   const providers = Object.fromEntries(supportedLocales.map((locale) => [locale, createI18nProvider(locale)]));
   for (const { key, fallback } of labels) {
-    expect(key).toMatch(/^qiy\\.(resources|enums|menu|dashboard|charts|actions)\\./);
+    expect(key).toMatch(/^qiy\\.(resources|enums|menu|charts|actions)\\./);
     for (const locale of supportedLocales) {
       const expected = projectMessages[locale]?.[key] ?? projectMessages[defaultMessageLocale]?.[key] ?? fallback;
       expect(providers[locale]!.translate(key, {}, fallback)).toBe(expected);
@@ -2334,7 +2239,7 @@ test("every model-derived label has a stable key and resolves through project me
   expect(createI18nProvider(defaultMessageLocale).translate("qiy.resources.__missing__.label", {}, "Fallback label")).toBe("Fallback label");
 });
 
-test("enum values, menu groups and dashboard metrics carry translation keys", () => {
+test("enum values, menu groups and charts carry translation keys", () => {
   for (const enumeration of enumerations) {
     expect(enumeration.labelKey).toBe("qiy.enums." + enumeration.name + ".label");
     for (const value of enumeration.values) expect(value.labelKey).toBe("qiy.enums." + enumeration.name + ".values." + value.name);
@@ -2345,7 +2250,6 @@ test("enum values, menu groups and dashboard metrics carry translation keys", ()
     expect(resource.pluralKey).toBe("qiy.resources." + resource.name + ".plural");
     for (const field of resource.fields) expect(field.labelKey).toBe("qiy.resources." + resource.name + ".fields." + field.name + ".label");
   }
-  for (const metric of dashboardMetrics) expect(metric.labelKey).toBe("qiy.dashboard." + metric.name + ".label");
   for (const chart of charts) {
     expect(chart.labelKey).toBe("qiy.charts." + chart.name + ".label");
     expect(chart.views.length).toBeGreaterThan(0);
@@ -2878,82 +2782,109 @@ export function AuditHistory({ resource, recordId }: { resource: string; recordI
 `;
   }
   if (usesRealtime) {
-    const webPackage = JSON.parse(generated["web/package.json"]!) as { dependencies: Record<string, string> };
-    webPackage.dependencies.ably = "2.29.0";
-    generated["web/package.json"] = `${JSON.stringify(webPackage, null, 2)}\n`;
-    generated["web/app/providers/live-provider.ts"] = `import * as Ably from "ably";
-import type { LiveEvent, LiveProvider } from "@refinedev/core";
+    generated["web/app/providers/live-provider.ts"] = `import type { LiveEvent, LiveProvider } from "@refinedev/core";
 
-type QiySubscription = {
-  channel?: Ably.RealtimeChannel;
-  types: string[];
-  listener: (message: Ably.InboundMessage) => void;
-};
+type QiyStreamEvent = { id: string; channel: string; event: string; record: Record<string, unknown> };
+type QiySubscription = { resource: string; prefix: string; types: string[]; ids: string[]; callback: (event: LiveEvent) => void; meta?: unknown };
 
-type QiyCapabilityMap = Record<string, string[]>;
-
-/**
- * Claim-scoped resources publish to a segmented channel (qiy:orders:eu), so the
- * client resolves the channel it was actually granted from the token capability
- * instead of assuming the base resource name.
- */
-function grantedChannel(capabilities: QiyCapabilityMap, resource: string): string {
-  const base = "qiy:" + resource;
-  if (Array.isArray(capabilities[base])) return base;
-  return Object.keys(capabilities).find((channel) => channel.startsWith(base + ":")) ?? base;
+export interface QiyLiveProviderOptions {
+  fetcher?: typeof fetch;
+  reconnectDelayMs?: number;
+  maxReconnectDelayMs?: number;
 }
 
-export function createQiyLiveProvider(fetcher: typeof fetch = fetch, injected?: Ably.Realtime): LiveProvider | undefined {
-  if (typeof window === "undefined" && !injected) return undefined;
-  const client = injected ?? new Ably.Realtime({
-    authCallback: async (_params, callback) => {
-      try {
-        const token = window.localStorage.getItem("qiy.access_token");
-        const response = await fetcher("/api/v1/realtime/token", { method: "POST", headers: token ? { Authorization: "Bearer " + token } : {} });
-        const body = await response.json() as any;
-        if (!response.ok) throw new Error(body.error ?? "Realtime authorization failed");
-        callback(null, body);
-      } catch (error) { callback(error as any, null); }
-    },
-  });
-  let capabilityPromise: Promise<QiyCapabilityMap> | undefined;
-  const capabilities = () => capabilityPromise ??= (async (): Promise<QiyCapabilityMap> => {
+/**
+ * One authenticated text/event-stream connection to /api/v1/realtime/stream
+ * carries every channel the caller is granted. Claim-scoped resources arrive on
+ * segmented channels (qiy:orders:eu), so events match by resource prefix.
+ */
+export function createQiyLiveProvider(options: QiyLiveProviderOptions = {}): LiveProvider | undefined {
+  if (typeof window === "undefined" && !options.fetcher) return undefined;
+  const fetcher = options.fetcher ?? fetch;
+  const subscriptions = new Set<QiySubscription>();
+  let controller: AbortController | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let attempt = 0;
+
+  const dispatch = (event: QiyStreamEvent) => {
+    for (const subscription of subscriptions) {
+      if (event.channel !== subscription.prefix && !event.channel.startsWith(subscription.prefix + ":")) continue;
+      if (!subscription.types.includes("*") && !subscription.types.includes(event.event)) continue;
+      if (subscription.ids.length) {
+        const nested = event.record.data && typeof event.record.data === "object" ? event.record.data as Record<string, unknown> : undefined;
+        const recordId = event.record.id ?? nested?.id;
+        if (recordId === undefined || !subscription.ids.includes(String(recordId))) continue;
+      }
+      subscription.callback({ channel: subscription.resource, type: event.event, payload: event.record, date: new Date(), meta: subscription.meta } as LiveEvent);
+    }
+  };
+
+  const stop = () => {
+    controller?.abort();
+    controller = undefined;
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+  };
+
+  const connect = async (): Promise<void> => {
+    const current = new AbortController();
+    controller = current;
     try {
-      const token = typeof window === "undefined" ? undefined : window.localStorage.getItem("qiy.access_token");
-      const response = await fetcher("/api/v1/realtime/token", { method: "POST", headers: token ? { Authorization: "Bearer " + token } : {} });
-      if (!response.ok) return {};
-      const body = await response.json() as { capability?: unknown };
-      const parsed = typeof body.capability === "string" ? JSON.parse(body.capability) as QiyCapabilityMap : body.capability as QiyCapabilityMap;
-      return parsed && typeof parsed === "object" ? parsed : {};
-    } catch { return {}; }
-  })();
+      const token = typeof window === "undefined" ? null : window.localStorage.getItem("qiy.access_token");
+      const response = await fetcher("/api/v1/realtime/stream", { headers: token ? { Authorization: "Bearer " + token } : {}, signal: current.signal });
+      // Without a grant there is nothing to stream; the next subscribe tries again.
+      if (response.status === 401 || response.status === 403) { if (controller === current) controller = undefined; return; }
+      if (!response.ok || !response.body) throw new Error("Realtime stream failed: " + response.status);
+      const reader = response.body.getReader();
+      current.signal.addEventListener("abort", () => { void reader.cancel().catch(() => undefined); });
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done || current.signal.aborted) break;
+        buffer += decoder.decode(value, { stream: true });
+        let boundary = buffer.indexOf("\\n\\n");
+        while (boundary >= 0) {
+          const frame = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          const data = frame.split("\\n").find((line) => line.startsWith("data: "));
+          if (data) {
+            attempt = 0;
+            try {
+              const event = JSON.parse(data.slice(6)) as Partial<QiyStreamEvent>;
+              if (typeof event.channel === "string" && typeof event.event === "string") dispatch({ id: String(event.id), channel: event.channel, event: event.event, record: event.record ?? {} });
+            } catch { /* ignore a malformed frame */ }
+          }
+          boundary = buffer.indexOf("\\n\\n");
+        }
+      }
+    } catch (error) {
+      if (current.signal.aborted) return;
+      console.warn("Realtime stream interrupted", error);
+    }
+    if (current.signal.aborted || controller !== current || !subscriptions.size) return;
+    const delay = Math.min((options.reconnectDelayMs ?? 1000) * 2 ** Math.min(attempt, 5), options.maxReconnectDelayMs ?? 30000);
+    attempt += 1;
+    timer = setTimeout(() => { void connect(); }, delay);
+  };
+
   return {
     subscribe: ({ channel, types, callback, params, meta }) => {
-      // Show and many pages only care about specific records, so they get the same
-      // channel but are scoped to their ids instead of every event for the resource.
-      const scopedIds = [params?.id, ...(Array.isArray(params?.ids) ? params.ids : [])]
+      // Show and many pages only care about specific records, so they share the
+      // stream but are scoped to their ids instead of every event for the resource.
+      const ids = [params?.id, ...(Array.isArray(params?.ids) ? params.ids : [])]
         .filter((value) => value !== undefined && value !== null && value !== "")
         .map((value) => String(value));
-      const listener = (message: Ably.InboundMessage) => {
-        const payload = message.data && typeof message.data === "object" && !Array.isArray(message.data) ? message.data : { data: message.data };
-        if (scopedIds.length) {
-          const record = payload as Record<string, unknown>;
-          const nested = record.data && typeof record.data === "object" ? record.data as Record<string, unknown> : undefined;
-          const recordId = record.id ?? nested?.id;
-          if (recordId === undefined || !scopedIds.includes(String(recordId))) return;
-        }
-        callback({ channel, type: message.name ?? "*", payload, date: new Date(message.timestamp ?? Date.now()), meta } satisfies LiveEvent);
-      };
-      const subscription: QiySubscription = { types, listener };
-      void (async () => {
-        const target = grantedChannel(await capabilities(), channel);
-        const ablyChannel = client.channels.get(target);
-        subscription.channel = ablyChannel;
-        await ablyChannel.subscribe(types, listener).catch((error) => console.error("Realtime subscription failed", { channel: target, error }));
-      })();
+      const resource = channel.replace(/^resources\\//, "");
+      const subscription: QiySubscription = { resource: channel, prefix: "qiy:" + resource, types, ids, callback, meta };
+      subscriptions.add(subscription);
+      if (!controller) void connect();
       return subscription;
     },
-    unsubscribe: (subscription: QiySubscription) => subscription.channel?.unsubscribe(subscription.types, subscription.listener),
+    unsubscribe: (subscription: QiySubscription) => {
+      subscriptions.delete(subscription);
+      if (!subscriptions.size) stop();
+    },
   };
 }
 
@@ -2963,83 +2894,83 @@ export const qiyLiveProvider = createQiyLiveProvider();
     generated["web/tests/live-provider.test.ts"] = `import { expect, test } from "bun:test";
 import { createQiyLiveProvider } from "../app/providers/live-provider";
 
-function fakeClient() {
-  const listeners: Array<(message: unknown) => void> = [];
-  const channels: string[] = [];
-  const unsubscribed: number[] = [];
-  const client = {
-    channels: {
-      get: (name: string) => {
-        channels.push(name);
-        return {
-          subscribe: (types: string[], listener: (message: unknown) => void) => { listeners.push(listener); return Promise.resolve(); },
-          unsubscribe: () => { unsubscribed.push(1); },
-        };
-      },
-    },
-  };
-  return { client, listeners, channels, unsubscribed };
-}
-
-function event(id: string | undefined, name = "updated") {
-  return { name, data: id === undefined ? { title: "no id" } : { id, title: "row " + id }, timestamp: 1 };
+function streamingFetcher() {
+  const encoder = new TextEncoder();
+  let push: (frame: string) => void = () => {};
+  const requests: string[] = [];
+  let aborted = 0;
+  const fetcher = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    requests.push(String(url));
+    init?.signal?.addEventListener("abort", () => { aborted += 1; });
+    return new Response(new ReadableStream({ start(controller) { push = (frame) => controller.enqueue(encoder.encode(frame)); } }), { headers: { "Content-Type": "text/event-stream" } });
+  }) as unknown as typeof fetch;
+  const send = (channel: string, event: string, record: Record<string, unknown>) => push("event: " + event + "\\ndata: " + JSON.stringify({ id: crypto.randomUUID(), channel, event, record }) + "\\n\\n");
+  return { fetcher, send, push: (frame: string) => push(frame), requests, aborted: () => aborted };
 }
 
 test("realtime provider stays browser-only during SSR", () => {
   expect(createQiyLiveProvider()).toBeUndefined();
 });
 
-test("scopes record subscriptions to the requested ids", async () => {
-  const { client, listeners, channels } = fakeClient();
-  const tokenFetcher = (async () => Response.json({ capability: JSON.stringify({ "qiy:orders": ["subscribe"] }) })) as unknown as typeof fetch;
-  const provider = createQiyLiveProvider(tokenFetcher, client as never)!;
-  const received: Array<Record<string, unknown>> = [];
-  provider.subscribe({ channel: "orders", types: ["updated"], callback: (live) => received.push(live.payload as Record<string, unknown>), params: { subscriptionType: "useOne", id: "one" } });
+test("shares one stream and scopes record subscriptions to the requested ids", async () => {
+  const stream = streamingFetcher();
+  const provider = createQiyLiveProvider({ fetcher: stream.fetcher })!;
+  const one: Array<Record<string, unknown>> = [];
   const many: Array<Record<string, unknown>> = [];
-  provider.subscribe({ channel: "orders", types: ["updated"], callback: (live) => many.push(live.payload as Record<string, unknown>), params: { subscriptionType: "useMany", ids: ["a", "b"] } });
   const list: Array<Record<string, unknown>> = [];
-  provider.subscribe({ channel: "orders", types: ["created"], callback: (live) => list.push(live.payload as Record<string, unknown>), params: { subscriptionType: "useList" } });
   const wrapped: Array<Record<string, unknown>> = [];
+  provider.subscribe({ channel: "orders", types: ["updated"], callback: (live) => one.push(live.payload as Record<string, unknown>), params: { subscriptionType: "useOne", id: "one" } });
+  provider.subscribe({ channel: "orders", types: ["updated"], callback: (live) => many.push(live.payload as Record<string, unknown>), params: { subscriptionType: "useMany", ids: ["a", "b"] } });
+  provider.subscribe({ channel: "resources/orders", types: ["*"], callback: (live) => list.push(live.payload as Record<string, unknown>), params: { subscriptionType: "useList" } });
   provider.subscribe({ channel: "orders", types: ["updated"], callback: (live) => wrapped.push(live.payload as Record<string, unknown>), params: { id: "nested" } });
-  await Bun.sleep(20);
-
-  expect(channels[0]).toBe("qiy:orders");
-  listeners[0]!(event("two"));
-  expect(received).toHaveLength(0);
-  listeners[0]!(event("one"));
-  expect(received).toHaveLength(1);
-  expect(received[0]?.id).toBe("one");
-
-  // useMany pages scope to a list of ids, and events without an id never match.
-  listeners[1]!(event("c"));
-  listeners[1]!(event(undefined));
-  listeners[1]!(event("b"));
+  await Bun.sleep(10);
+  expect(stream.requests).toEqual(["/api/v1/realtime/stream"]);
+  stream.push("event: ready\\ndata: {\\"channels\\":[\\"qiy:orders\\"]}\\n\\n");
+  stream.send("qiy:orders", "updated", { id: "two" });
+  stream.send("qiy:orders", "updated", { id: "one" });
+  stream.send("qiy:orders", "updated", { id: "b" });
+  stream.send("qiy:orders", "updated", { title: "no id" });
+  stream.send("qiy:orders", "updated", { data: { id: "nested" } });
+  stream.send("qiy:customers", "updated", { id: "one" });
+  await Bun.sleep(10);
+  expect(one.map((payload) => payload.id)).toEqual(["one"]);
   expect(many.map((payload) => payload.id)).toEqual(["b"]);
-
-  // List pages stay unscoped and receive every event.
-  listeners[2]!(event("anyone"));
-  expect(list).toHaveLength(1);
-  // A payload wrapped in data.id is still matched when scoped.
-  listeners[3]!({ name: "updated", data: { data: { id: "nested" } }, timestamp: 1 });
+  expect(list).toHaveLength(5);
   expect(wrapped).toHaveLength(1);
 });
 
-test("resolves a claim-scoped channel from the token capability", async () => {
-  const { client, channels } = fakeClient();
-  const tokenFetcher = (async () => Response.json({ capability: JSON.stringify({ "qiy:orders:eu": ["subscribe"] }) })) as unknown as typeof fetch;
-  const provider = createQiyLiveProvider(tokenFetcher, client as never)!;
-  provider.subscribe({ channel: "orders", types: ["updated"], callback: () => {} });
-  await Bun.sleep(20);
-  expect(channels[0]).toBe("qiy:orders:eu");
+test("matches claim-scoped channels and filters event types", async () => {
+  const stream = streamingFetcher();
+  const provider = createQiyLiveProvider({ fetcher: stream.fetcher })!;
+  const received: string[] = [];
+  provider.subscribe({ channel: "orders", types: ["created"], callback: (live) => received.push(live.type) });
+  await Bun.sleep(10);
+  stream.send("qiy:orders:eu", "created", { id: "1" });
+  stream.send("qiy:orders:eu", "deleted", { id: "1" });
+  stream.send("qiy:orders-archive", "created", { id: "2" });
+  await Bun.sleep(10);
+  expect(received).toEqual(["created"]);
 });
 
-test("unsubscribes through the Ably channel", async () => {
-  const { client, unsubscribed } = fakeClient();
-  const provider = createQiyLiveProvider(fetch, client as never)!;
-  const subscription = provider.subscribe({ channel: "orders", types: ["updated"], callback: () => {} });
+test("closes the stream after the last unsubscribe", async () => {
+  const stream = streamingFetcher();
+  const provider = createQiyLiveProvider({ fetcher: stream.fetcher })!;
+  const first = provider.subscribe({ channel: "orders", types: ["*"], callback: () => {} });
+  const second = provider.subscribe({ channel: "orders", types: ["*"], callback: () => {} });
   await Bun.sleep(10);
-  provider.unsubscribe(subscription);
-  expect(unsubscribed).toHaveLength(1);
+  provider.unsubscribe(first);
+  expect(stream.aborted()).toBe(0);
+  provider.unsubscribe(second);
+  expect(stream.aborted()).toBe(1);
+});
+
+test("stays idle without a realtime grant", async () => {
+  let calls = 0;
+  const fetcher = (async () => { calls += 1; return Response.json({ error: "Realtime subscription is not permitted" }, { status: 403 }); }) as unknown as typeof fetch;
+  const provider = createQiyLiveProvider({ fetcher, reconnectDelayMs: 1 })!;
+  provider.subscribe({ channel: "orders", types: ["*"], callback: () => {} });
+  await Bun.sleep(20);
+  expect(calls).toBe(1);
 });
 `;
     if (usesGraphqlSubscriptions) {
@@ -3126,94 +3057,10 @@ export function subscribeGraphql(options: QiySubscriptionOptions): () => void {
   };
 }
 
-export interface QiyGraphqlWsOptions {
-  url?: string;
-  token?: string;
-  variables?: Record<string, unknown>;
-  operationName?: string;
-  onData: (data: Record<string, unknown>) => void;
-  onError?: (error: Error) => void;
-  onComplete?: () => void;
-  socketFactory?: (url: string) => WebSocket;
-  /** Called before each reconnect attempt; backoff doubles up to maxReconnectDelayMs. */
-  onReconnect?: (info: { attempt: number; delayMs: number }) => void;
-  reconnectDelayMs?: number;
-  maxReconnectDelayMs?: number;
-}
-
-/** Converts the configured HTTP(S) origin into the graphql-ws URL. */
-export function graphqlWsUrl(path = "/graphql/ws"): string {
-  if (/^wss?:/.test(path)) return path;
-  if (typeof window === "undefined") return path;
-  return (window.location.protocol === "https:" ? "wss:" : "ws:") + "//" + window.location.host + path;
-}
-
-export function encodeGraphqlWsFrame(frame: Record<string, unknown>): string { return JSON.stringify(frame); }
-export function decodeGraphqlWsFrame(raw: unknown): Record<string, unknown> | undefined {
-  try { return JSON.parse(typeof raw === "string" ? raw : String(raw)) as Record<string, unknown>; } catch { return undefined; }
-}
-
-/**
- * graphql-ws client over a native WebSocket: init, subscribe, stream next frames
- * and stop cleanly. Authentication rides the connection_init payload token.
- */
-export function subscribeGraphqlWs(query: string, options: QiyGraphqlWsOptions): () => void {
-  const token = options.token ?? (typeof window === "undefined" ? undefined : window.localStorage.getItem("qiy.access_token") ?? undefined);
-  const createSocket = options.socketFactory ?? ((url: string) => new WebSocket(url));
-  const id = "qiy-" + Math.random().toString(36).slice(2);
-  let stopped = false;
-  let socket: WebSocket | null = null;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let attempt = 0;
-  const connect = () => {
-    socket = createSocket(graphqlWsUrl(options.url));
-    const current = socket;
-    current.addEventListener("message", (event) => {
-      const frame = decodeGraphqlWsFrame(event.data);
-      if (!frame?.type) return;
-      if (frame.type === "connection_ack") {
-        attempt = 0;
-        current.send(encodeGraphqlWsFrame({ id, type: "subscribe", payload: { query, variables: options.variables, operationName: options.operationName } }));
-        return;
-      }
-      if (frame.type === "next" && frame.id === id) {
-        const payload = frame.payload as { data?: Record<string, unknown>; errors?: Array<{ message: string }> } | undefined;
-        if (payload?.errors?.length) options.onError?.(new Error(payload.errors[0]!.message));
-        else if (payload?.data) options.onData(payload.data);
-        return;
-      }
-      if (frame.type === "error" && frame.id === id) {
-        const payload = frame.payload as Array<{ message?: string }> | undefined;
-        options.onError?.(new Error(payload?.[0]?.message ?? "Subscription failed"));
-        return;
-      }
-      if (frame.type === "complete" && frame.id === id) options.onComplete?.();
-    });
-    const init = () => { if (current.readyState === 1) current.send(encodeGraphqlWsFrame({ type: "connection_init", payload: token ? { token } : {} })); };
-    if (current.readyState === 1) init(); else current.addEventListener("open", init);
-    current.addEventListener("error", () => options.onError?.(new Error("Subscription socket failed")));
-    // Reconnect with capped exponential backoff until the caller stops the subscription.
-    current.addEventListener("close", () => {
-      if (stopped) return;
-      const delay = Math.min(options.reconnectDelayMs ?? 1000, options.maxReconnectDelayMs ?? 30000) * Math.pow(2, Math.min(attempt, 5));
-      attempt += 1;
-      options.onReconnect?.({ attempt, delayMs: delay });
-      timer = setTimeout(connect, delay);
-    });
-  };
-  connect();
-  return () => {
-    if (stopped) return;
-    stopped = true;
-    if (timer) clearTimeout(timer);
-    if (socket && socket.readyState === 1) socket.send(encodeGraphqlWsFrame({ id, type: "complete" }));
-    socket?.close();
-  };
-}
 
 `;
       generated["web/tests/subscriptions.test.ts"] = `import { expect, test } from "bun:test";
-import { decodeGraphqlWsFrame, encodeGraphqlWsFrame, graphqlWsUrl, subscribeGraphql, subscribeGraphqlWs } from "../app/subscriptions";
+import { subscribeGraphql } from "../app/subscriptions";
 
 function streamResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();
@@ -3263,119 +3110,6 @@ test("aborting stops further callbacks", async () => {
   await Bun.sleep(10);
   expect(received).toEqual([{ a: 1 }]);
 });
-test("graphql-ws client initializes, subscribes and streams frames", () => {
-  const sent: Array<Record<string, unknown>> = [];
-  const listeners = new Map<string, Array<(event: { data?: unknown }) => void>>();
-  let closed = false;
-  const socket = {
-    readyState: 1,
-    send: (frame: string) => sent.push(JSON.parse(frame) as Record<string, unknown>),
-    close: () => { closed = true; },
-    addEventListener: (type: string, listener: (event: { data?: unknown }) => void) => {
-      const list = listeners.get(type) ?? [];
-      list.push(listener);
-      listeners.set(type, list);
-    },
-  } as unknown as WebSocket;
-  const emit = (frame: Record<string, unknown>) => { for (const listener of listeners.get("message") ?? []) listener({ data: JSON.stringify(frame) }); };
-  const received: Array<Record<string, unknown>> = [];
-  const errors: Error[] = [];
-  let completed = 0;
-  const stop = subscribeGraphqlWs("subscription { ordersChanged { event } }", {
-    token: "token-1",
-    socketFactory: () => socket,
-    onData: (data) => received.push(data),
-    onError: (error) => errors.push(error),
-    onComplete: () => { completed += 1; },
-  });
-  // connection_init carries the bearer token from the caller.
-  expect(sent[0]).toEqual({ type: "connection_init", payload: { token: "token-1" } });
-  emit({ type: "connection_ack" });
-  const subscribe = sent[1] as { id: string; type: string; payload: { query: string } };
-  expect(subscribe.type).toBe("subscribe");
-  expect(subscribe.payload.query).toContain("ordersChanged");
-  emit({ id: subscribe.id, type: "next", payload: { data: { ordersChanged: { event: "created" } } } });
-  expect(received).toHaveLength(1);
-  expect(received[0]).toEqual({ ordersChanged: { event: "created" } });
-  emit({ id: subscribe.id, type: "error", payload: [{ message: "Realtime subscription is not permitted" }] });
-  expect(errors[0]?.message).toContain("not permitted");
-  emit({ id: subscribe.id, type: "complete" });
-  expect(completed).toBe(1);
-  // Stopping acknowledges the subscription and closes the socket.
-  stop();
-  expect(sent.some((frame) => frame.type === "complete" && frame.id === subscribe.id)).toBe(true);
-  expect(closed).toBe(true);
-});
-
-test("graphql-ws helpers build the URL and tolerate bad frames", () => {
-  expect(graphqlWsUrl("ws://example.test/graphql/ws")).toBe("ws://example.test/graphql/ws");
-  expect(decodeGraphqlWsFrame("not json")).toBeUndefined();
-  expect(decodeGraphqlWsFrame(JSON.stringify({ type: "pong" }))).toEqual({ type: "pong" });
-  expect(encodeGraphqlWsFrame({ type: "ping" })).toBe('{"type":"ping"}');
-});
-
-test("graphql-ws client reconnects and resubscribes after a drop", async () => {
-  type FakeSocket = {
-    sent: Array<Record<string, unknown>>;
-    listeners: Map<string, Array<(event: { data?: unknown }) => void>>;
-    readyState: number;
-    send: (frame: string) => void;
-    close: () => void;
-    addEventListener: (type: string, listener: (event: { data?: unknown }) => void) => void;
-  };
-  const sockets: FakeSocket[] = [];
-  const factory = (): WebSocket => {
-    const socket: FakeSocket = {
-      sent: [],
-      listeners: new Map(),
-      readyState: 1,
-      send: (frame) => socket.sent.push(JSON.parse(frame) as Record<string, unknown>),
-      close: () => { socket.readyState = 3; },
-      addEventListener: (type, listener) => {
-        const list = socket.listeners.get(type) ?? [];
-        list.push(listener as (event: { data?: unknown }) => void);
-        socket.listeners.set(type, list);
-      },
-    };
-    sockets.push(socket);
-    return socket as unknown as WebSocket;
-  };
-  const emit = (socket: FakeSocket, type: string, event: { data?: unknown } = {}) => {
-    for (const listener of socket.listeners.get(type) ?? []) listener(event);
-  };
-  const received: Array<Record<string, unknown>> = [];
-  const reconnects: number[] = [];
-  const stop = subscribeGraphqlWs("subscription { ordersChanged { event } }", {
-    token: "token-1",
-    socketFactory: factory,
-    reconnectDelayMs: 5,
-    onReconnect: (info) => reconnects.push(info.delayMs),
-    onData: (data) => received.push(data),
-  });
-  expect(sockets).toHaveLength(1);
-  emit(sockets[0]!, "message", { data: JSON.stringify({ type: "connection_ack" }) });
-  const first = sockets[0]!.sent[1] as { id: string };
-  emit(sockets[0]!, "message", { data: JSON.stringify({ id: first.id, type: "next", payload: { data: { ordersChanged: { event: "created" } } } }) });
-  expect(received).toHaveLength(1);
-  // Dropping the socket schedules a reconnect and a fresh connection_init.
-  emit(sockets[0]!, "close");
-  await Bun.sleep(25);
-  expect(sockets).toHaveLength(2);
-  expect(reconnects[0]).toBe(5);
-  emit(sockets[1]!, "message", { data: JSON.stringify({ type: "connection_ack" }) });
-  const second = sockets[1]!.sent[0] as { type: string };
-  expect(second.type).toBe("connection_init");
-  const resubscribe = sockets[1]!.sent[1] as { id: string; type: string };
-  expect(resubscribe.type).toBe("subscribe");
-  emit(sockets[1]!, "message", { data: JSON.stringify({ id: resubscribe.id, type: "next", payload: { data: { ordersChanged: { event: "updated" } } } }) });
-  expect(received).toHaveLength(2);
-  // Stopping clears the retry timer and closes the active socket.
-  stop();
-  emit(sockets[1]!, "close");
-  await Bun.sleep(20);
-  expect(sockets).toHaveLength(2);
-});
-
 test("SSE subscription reconnects after the stream ends", async () => {
   let calls = 0;
   const received: Array<Record<string, unknown>> = [];

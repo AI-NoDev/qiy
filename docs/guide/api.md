@@ -100,17 +100,11 @@ GET    /api/v1/graphql/subscribe   GraphQL 订阅（SSE，仅 GraphQL 客户端 
 - Web：列表页打开时通过 `web/app/views-api.ts` 的 `fetchServerViews()` 拉取并合并进 `Saved views` 下拉；本地视图标记为 **个人**，服务端私有视图标记为 **发布**，共享视图标记为 **共享**。下拉里每一项右侧有**删除图标 + Popconfirm**：本地视图删除 localStorage 行；`server:<id>` 视图调用 `deleteServerView({ resource, id })` → `DELETE /api/v1/saved-views/:id`，成功后立即重新拉取服务端列表并清除选中项，失败以通知显示。删除图标只在本地视图或 `mine: true` 的服务端视图上出现，其他用户的共享视图不提供删除入口（服务端仍对 admin 开放清理能力）。选中视图后点 **Publish view** → **Save to server**（个人/发布）或 **Share with everyone**（共享）：同名发布走 upsert，发布成功后本地副本会被服务端行取代，下拉不会出现本地 + 服务端两条同名项。
 - 保留旧 `shared` 文案键 `qiy.shared` 供旧项目覆盖；新 UI 使用 `qiy.viewMine` / `qiy.viewPublishedTag` / `qiy.viewSharedTag` / `qiy.viewDeleted` / `qiy.viewDeleteFailed` / `qiy.confirmDeleteView`。
 
-## GraphQL Subscription（SSE 与 graphql-ws）
+## GraphQL Subscription（SSE）
 
-- SSE：`GET /api/v1/graphql/subscribe?query=...`，每个事件一帧 `data: {...}`（见 realtime 文档）。
-- **graphql-ws（WebSocket）**：`ws(s)://<host>/graphql/ws`，标准 graphql-ws 帧：
-  - `connection_init` 的 `payload.token` 携带 Bearer token（也可用 `Authorization` 头），失败以 `4401` 关闭；
-  - `connection_ack` 后可发 `{ id, type: "subscribe", payload: { query, variables, operationName } }`；
-  - 每个事件返回 `{ id, type: "next", payload }`，错误 `type: "error"`，结束 `type: "complete"`（客户端 `complete` 会被立即确认）；
-  - 支持 `ping/pong` 与 `connection_terminate`；订阅权限仍走 capability（agent 分段 channel 同样生效）。
-- 浏览器端：生成的 `web/app/subscriptions.ts` 同时提供 SSE 客户端 `subscribeGraphql()` 与 graphql-ws 客户端 `subscribeGraphqlWs(query, { onData, onError, onComplete, token })`（原生 WebSocket，无新增依赖；`socketFactory` 可注入以便测试）。页面默认仍用 SSE，订阅组件可以按偏好选择 WS。
-- **断线重连**：`subscribeGraphqlWs` 在 socket 关闭时自动重连（`reconnectDelayMs` 起始 1s、最高 `maxReconnectDelayMs` 30s 的指数退避，`attempt` 封顶；`onReconnect({ attempt, delayMs })` 可观测），重连成功后重新 `connection_init` + `subscribe`；调用 `stop()` 会清掉重试定时器。
-- **SSE 断线重连**：`subscribeGraphql` 在流结束或请求失败后同样按 `reconnectDelayMs`→`maxReconnectDelayMs` 退避重连（默认开启，`reconnect: false` 可关闭），`onReconnect` 报告 attempt/delay，`stop()` 中止请求并清理定时器。
+- `GET /graphql/subscribe?query=...`，每个事件一帧 `data: {...}`；REST 资源事件走 `GET /api/v1/realtime/stream`（见 [realtime](/dsl/realtime)）。
+- 浏览器端：生成的 `web/app/subscriptions.ts` 提供 `subscribeGraphql()`。
+- **断线重连**：流结束或请求失败后按 `reconnectDelayMs`（默认 1s）→ `maxReconnectDelayMs`（默认 30s）指数退避重连（默认开启，`reconnect: false` 可关闭），`onReconnect` 报告 attempt/delay，`stop()` 中止请求并清理定时器。
 
 ## CSV 导入
 `POST /api/v1/:resources/import` 接收 `text/csv` 请求体（首行为表头），逐行调用与创建相同的一条写入路径，因此同样受 `restrict` 行谓词与脱敏规则约束：

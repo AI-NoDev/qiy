@@ -119,7 +119,7 @@ try {
   await must(["bun", "run", "db:generate"], server, { DATABASE_URL: databaseUrl });
   await must(["bun", "run", "db:migrate"], server, { DATABASE_URL: databaseUrl });
   console.log(await must(["bun", "run", "typecheck"], server, { DATABASE_URL: databaseUrl }));
-  console.log(await must(["bun", "test", "--preload", "./tests/setup.ts", "pages.acceptance.test.ts"], server, { DATABASE_URL: databaseUrl }));
+  console.log(await must(["bun", "test", "--preload", "./tests/setup.ts", "pages.acceptance.test.ts"], server, { DATABASE_URL: databaseUrl, QIY_TEST_DATABASE_URL: databaseUrl }));
   const web = join(admin, "apps/web");
   console.log(await must(["bun", "run", "typecheck"], web, { DATABASE_URL: ":memory:" }));
   console.log(await must(["bun", "test"], web, { DATABASE_URL: ":memory:" }));

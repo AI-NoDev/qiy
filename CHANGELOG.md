@@ -10,6 +10,58 @@ Releases before `0.2.0` are listed on the
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-11-06
+
+One way to do each thing: superseded syntax and transports are removed outright.
+Removed constructs fail to parse with a hint pointing to
+[the 0.37 migration guide](https://ai-nodev.github.io/qiy/guide/migration-0.37).
+
+### Removed
+
+- The v1 shorthand syntax (`qiy v1;`) and its preprocessor. Models that start
+  with `qiy v1;` are rejected; `qiy add` only writes v0.
+- The JetBrains MPS workbench (`languages/`, `.mps/`), the MPS exporter and
+  its internal commands, and the `fast-xml-parser` dependency. The published
+  CLI always accepted only `.qiy`.
+- Vendor-named single OIDC providers (`provider okta;`, `auth0`,
+  `azure-ad-b2c`, `keycloak`, `google`, `kinde`, `oauth2`, `sso`). Use
+  `provider oidc { preset okta; }`.
+- Ably realtime, graphql-ws, outbox leasing/retries/dead letters/replay, the
+  realtime admin and Prometheus endpoints, the `realtime:admin` CLI and the
+  Grafana/Prometheus manifests, together with `QIY_ABLY_API_KEY`,
+  `QIY_REALTIME_LEASE_MS`, `QIY_REALTIME_MAX_ATTEMPTS`,
+  `QIY_REALTIME_SUBSCRIBE_POLL_MS`, `QIY_REALTIME_ADMIN_URL`,
+  `QIY_REALTIME_ADMIN_TOKEN`, `QIY_REALTIME_METRICS_TOKEN` and the three
+  `QIY_REALTIME_ALERT_*` variables.
+- `dashboard { metric ... }` and the generated `apps/web/app/dashboard.ts`.
+  Declare `chart` views instead.
+- `llms-full.txt`; it duplicated `llms-dsl.txt` + `llms-guides.txt`.
+
+### Added
+
+- OIDC presets: `provider <name> { preset <vendor>; label "..."; }` with
+  presets `generic`, `okta`, `auth0`, `azure-ad-b2c`, `keycloak`,
+  `google` and `kinde`. `providers` accepts any lowercase name (for example
+  `providers local, corp, dex;`); a name equal to a preset applies it.
+- Built-in SSE realtime with no external service: REST
+  `GET /api/v1/realtime/stream` and GraphQL `GET /graphql/subscribe` share one
+  outbox poller per process, send a 25s keep-alive and only deliver events
+  written after the subscriber connected. Tunables: `QIY_REALTIME_DISABLED`,
+  `QIY_REALTIME_POLL_MS`, `QIY_REALTIME_RETENTION_DAYS`,
+  `QIY_REALTIME_CLEANUP_MS`.
+- Migration guide: `docs/guide/migration-0.37.md`.
+
+### Changed
+
+- The realtime outbox table drops its lease, retry and dead-letter columns and
+  is indexed by `createdAt`; run the database migration after regenerating.
+- Without any `chart`, the overview page shows one count card per writable
+  resource, labelled with the resource's plural i18n key.
+- Examples use `chart` instead of `dashboard`; the skill's offline warehouse
+  example is now parsed by the test suite.
+- OpenWiki keeps only the current architecture, capabilities and next steps;
+  the dated implementation log moved to git history.
+
 ## [0.36.0] - 2026-11-06
 
 ### Added

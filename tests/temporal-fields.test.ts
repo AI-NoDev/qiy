@@ -94,10 +94,8 @@ describe("Date and Time scalar fields", () => {
     // Only the DateTime field is a valid trend group-by.
     expect(graphql).toContain('["plannedAt"]');
     expect(graphql).not.toContain('["dueDate"]');
-    const trendOnDate = () => generateWeb(project.database, {
-      dashboardMetrics: [{ name: "dueTrend", resource: "work_orders", label: "Due", span: 8, type: "trend", groupBy: "dueDate", days: 30 }],
-    });
-    expect(trendOnDate).toThrow("trend requires a DateTime groupBy field");
+    const trendOnDate = () => parseQiyProject(model.replace(/\}\s*$/, "  chart line DueTrend { data = trend work_orders.dueDate days 30; }\n}"));
+    expect(trendOnDate).toThrow("trend field dueDate must be a DateTime field");
   });
 
   test("wires Date/Time pickers, formatter and generated web tests", () => {

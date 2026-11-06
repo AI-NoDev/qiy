@@ -75,7 +75,6 @@ chart panels Overview {
 describe("chart DSL", () => {
   test("groups same-name declarations into multi-view charts", () => {
     const project = parseQiyProject(model(chartBody));
-    expect(project.dashboardMetrics).toBeUndefined();
     expect(project.charts?.map((chart) => chart.name)).toEqual(["UserCount", "UserStatusCount", "OrderTrend", "OrderTable"]);
     expect(project.charts?.[0]).toMatchObject({ name: "UserCount", title: "Users", icon: "TeamOutlined", views: [{ kind: "const", data: { operation: "count", entity: "users" } }] });
     const multi = project.charts?.[1]!;
@@ -248,7 +247,7 @@ chart panels Overview {
     expect(charts).toContain("export function chartViewportCategory");
     expect(charts).toContain('export const chartPanelStorageKey = "qiy.charts.panel"');
     expect(charts).toContain("export function resolveChartPanel");
-    // Home renders the chart dashboard; the legacy metric cards stay the fallback.
+    // Home renders the chart dashboard; per-resource count cards stay the fallback.
     expect(files["web/app/routes/home.tsx"]).toContain("ChartDashboard");
     expect(files["web/app/routes/home.tsx"]).toContain("charts.length > 0");
     // Renderer: view-kind selector, panel selector, CSS grid placements, matchMedia variants.
@@ -269,17 +268,16 @@ chart panels Overview {
     expect(files["web/tests/charts.test.ts"]).toContain("panel selection persists");
     expect(files["web/tests/charts-render.test.tsx"]).toContain("renders every chart kind with grid placements and selectors");
     expect(files["web/tests/model-i18n.test.ts"]).toContain("import { chartPanels, charts }");
-    // Chart page replaces the default metric fallback metadata.
-    expect(files["web/app/dashboard.ts"]).toContain("export const dashboardMetrics: DashboardMetric[] = []");
+    expect(files["web/app/dashboard.ts"]).toBeUndefined();
   });
 
-  test("projects without charts keep the legacy metric dashboard", () => {
+  test("projects without charts show one count card per resource", () => {
     const project = parseQiyProject(model(""));
     const files = generateWeb(project.database, project);
     expect(files["web/app/charts.ts"]).toContain("export const charts: ChartDefinition[] = []");
     expect(files["web/app/charts.ts"]).toContain("export const chartPanels: ChartPanelDefinition[] = []");
-    expect(files["web/app/dashboard.ts"]).toContain('"resource": "users"');
-    expect(files["web/app/routes/home.tsx"]).toContain("dashboardMetrics.map((metric)");
+    expect(files["web/app/dashboard.ts"]).toBeUndefined();
+    expect(files["web/app/routes/home.tsx"]).toContain("resources.filter((resource) => !resource.readOnly).map((resource)");
     expect(parseQiyProject(serializeQiyProject(project)).charts).toBeUndefined();
     const generated = generateProject(project.database, project.name, project);
     expect(generated["apps/web/tests/charts-render.test.tsx"]).toContain("renderToStaticMarkup");

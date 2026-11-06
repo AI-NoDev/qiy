@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { createApp } from "./app";
 import { createHandler } from "./http";
 import { createProductionAuthenticator } from "./auth/hybrid";
-import { startRealtimeOutboxWorker } from "./realtime";
+import { startRealtimeOutboxCleanup } from "./realtime";
 import { UsersRepository } from "./modules/users/users.repository";
 import { OrgsRepository } from "./modules/orgs/orgs.repository";
 import { SuppliersRepository } from "./modules/suppliers/suppliers.repository";
@@ -27,7 +27,7 @@ import { Work_ordersRepository } from "./modules/work_orders/work_orders.reposit
 
 if (Bun.env.QIY_STORAGE_METADATA !== "database") throw new Error("QIY_STORAGE_METADATA=database is required for production file metadata");
 const app = await createApp({ users: UsersRepository, orgs: OrgsRepository, suppliers: SuppliersRepository, customers: CustomersRepository, products: ProductsRepository, boms: BomsRepository, purchase_orders: Purchase_ordersRepository, purchase_order_lines: Purchase_order_linesRepository, receipts: ReceiptsRepository, sales_orders: Sales_ordersRepository, sales_order_lines: Sales_order_linesRepository, shipments: ShipmentsRepository, warehouses: WarehousesRepository, bins: BinsRepository, inventory: InventoryRepository, stock_movements: Stock_movementsRepository, work_orders: Work_ordersRepository }, createProductionAuthenticator());
-startRealtimeOutboxWorker();
+startRealtimeOutboxCleanup();
 const clientRoot = resolve(import.meta.dir, "../../web/build/client");
 const server = Bun.serve({ hostname: Bun.env.HOST ?? "127.0.0.1", port: Number(Bun.env.PORT ?? 3000), fetch: createHandler((request) => app.handle(request), clientRoot) });
 console.log(`Qiy app listening on http://localhost:${server.port}`);

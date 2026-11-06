@@ -1,7 +1,5 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, posix, relative, resolve, win32 } from "node:path";
-import { isQiyV1Source } from "./qiy-v1";
-
 function includeError(file: string, source: string, offset: number, message: string): Error {
   const line = source.slice(0, offset).split("\n").length;
   return new Error(`${file}:${line}: ${message}`);
@@ -158,9 +156,7 @@ function expandQiyFile(file: string, state: IncludeState, fragment: boolean): st
   if (cycleStart !== -1) throw new Error(`Qiy include cycle detected: ${[...state.stack.slice(cycleStart), realFile].join(" -> ")}`);
 
   const source = readFileSync(realFile, "utf8");
-  // v1 entry files have no `application {}` wrapper, so their direct includes
-  // live at brace depth 0. v0 entries keep includes at application depth 1.
-  const includeDepth = fragment || (!fragment && isQiyV1Source(source)) ? 0 : 1;
+  const includeDepth = fragment ? 0 : 1;
   const nextState: IncludeState = { ...state, stack: [...state.stack, realFile] };
   let depth = 0;
   let index = 0;

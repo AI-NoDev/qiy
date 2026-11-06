@@ -64,7 +64,7 @@ export function createDataflowRoutes(authenticate: Authenticator) {
         context0 = updated;
         }
         tx.insert(dataflowOutbox).values({ id: crypto.randomUUID(), actorId: principal?.id ?? null, event: "inventory.received", payload: JSON.stringify({ flow: "receiveInventory", "inventoryId": context1["id"], "quantity": body["newOnHand"] }), createdAt: new Date() }).run();
-        tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:event:inventory.received", type: "inventory.received", payload: JSON.stringify({ flow: "receiveInventory", "inventoryId": context1["id"], "quantity": body["newOnHand"] }), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }).run();
+        tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:event:inventory.received", type: "inventory.received", payload: JSON.stringify({ flow: "receiveInventory", "inventoryId": context1["id"], "quantity": body["newOnHand"] }), createdAt: new Date() }).run();
         if (!(context2["id"] == "00000000-0000-4000-8000-000000000000")) throw new DataflowFailure(409, "qiy.test.lateFailure");
 
         const value = context1;
@@ -131,7 +131,7 @@ export function createDataflowRoutes(authenticate: Authenticator) {
         context0 = updated;
         }
         tx.insert(dataflowOutbox).values({ id: crypto.randomUUID(), actorId: principal?.id ?? null, event: "inventory.moved", payload: JSON.stringify({ flow: "putawayStock", "inventoryId": context0["id"], "binId": body["targetBinId"] }), createdAt: new Date() }).run();
-        tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:event:inventory.moved", type: "inventory.moved", payload: JSON.stringify({ flow: "putawayStock", "inventoryId": context0["id"], "binId": body["targetBinId"] }), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }).run();
+        tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:event:inventory.moved", type: "inventory.moved", payload: JSON.stringify({ flow: "putawayStock", "inventoryId": context0["id"], "binId": body["targetBinId"] }), createdAt: new Date() }).run();
         if (!(context1["id"] == "00000000-0000-4000-8000-000000000000")) throw new DataflowFailure(409, "qiy.test.lateFailure");
 
         const value = context0;
@@ -191,7 +191,7 @@ export function createDataflowRoutes(authenticate: Authenticator) {
         context1 = updated;
         }
         tx.insert(dataflowOutbox).values({ id: crypto.randomUUID(), actorId: principal?.id ?? null, event: "sales.allocated", payload: JSON.stringify({ flow: "reserveStock", "salesOrderId": context1["id"], "inventoryId": context0["id"], "reserved": body["reservedQuantity"] }), createdAt: new Date() }).run();
-        tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:event:sales.allocated", type: "sales.allocated", payload: JSON.stringify({ flow: "reserveStock", "salesOrderId": context1["id"], "inventoryId": context0["id"], "reserved": body["reservedQuantity"] }), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }).run();
+        tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:event:sales.allocated", type: "sales.allocated", payload: JSON.stringify({ flow: "reserveStock", "salesOrderId": context1["id"], "inventoryId": context0["id"], "reserved": body["reservedQuantity"] }), createdAt: new Date() }).run();
         if (!(context1["status"] != "allocated")) throw new DataflowFailure(409, "qiy.test.lateFailure");
 
         const value = context0;
@@ -249,7 +249,7 @@ export function createDataflowRoutes(authenticate: Authenticator) {
         context0 = updated;
         }
         tx.insert(dataflowOutbox).values({ id: crypto.randomUUID(), actorId: principal?.id ?? null, event: "inventory.adjusted", payload: JSON.stringify({ flow: "adjustStock", "inventoryId": context0["id"], "counted": body["countedQuantity"] }), createdAt: new Date() }).run();
-        tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:event:inventory.adjusted", type: "inventory.adjusted", payload: JSON.stringify({ flow: "adjustStock", "inventoryId": context0["id"], "counted": body["countedQuantity"] }), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }).run();
+        tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:event:inventory.adjusted", type: "inventory.adjusted", payload: JSON.stringify({ flow: "adjustStock", "inventoryId": context0["id"], "counted": body["countedQuantity"] }), createdAt: new Date() }).run();
         if (!(context1["id"] == "00000000-0000-4000-8000-000000000000")) throw new DataflowFailure(409, "qiy.test.lateFailure");
 
         const value = context0;
@@ -309,7 +309,7 @@ export function createDataflowRoutes(authenticate: Authenticator) {
         context0 = updated;
         }
         tx.insert(dataflowOutbox).values({ id: crypto.randomUUID(), actorId: principal?.id ?? null, event: "sales.shipped", payload: JSON.stringify({ flow: "shipSalesOrder", "salesOrderId": context0["id"] }), createdAt: new Date() }).run();
-        tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:event:sales.shipped", type: "sales.shipped", payload: JSON.stringify({ flow: "shipSalesOrder", "salesOrderId": context0["id"] }), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }).run();
+        tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:event:sales.shipped", type: "sales.shipped", payload: JSON.stringify({ flow: "shipSalesOrder", "salesOrderId": context0["id"] }), createdAt: new Date() }).run();
         if (!(context1["id"] == "00000000-0000-4000-8000-000000000000")) throw new DataflowFailure(409, "qiy.test.lateFailure");
 
         const value = context1;
@@ -363,7 +363,7 @@ export function createDataflowRoutes(authenticate: Authenticator) {
         context0 = updated;
         }
         tx.insert(dataflowOutbox).values({ id: crypto.randomUUID(), actorId: principal?.id ?? null, event: "inventory.transferred", payload: JSON.stringify({ flow: "transferInventory", "inventoryId": context0["id"], "warehouseId": body["targetWarehouseId"] }), createdAt: new Date() }).run();
-        tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:event:inventory.transferred", type: "inventory.transferred", payload: JSON.stringify({ flow: "transferInventory", "inventoryId": context0["id"], "warehouseId": body["targetWarehouseId"] }), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }).run();
+        tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:event:inventory.transferred", type: "inventory.transferred", payload: JSON.stringify({ flow: "transferInventory", "inventoryId": context0["id"], "warehouseId": body["targetWarehouseId"] }), createdAt: new Date() }).run();
         if (!(context1["id"] == "00000000-0000-4000-8000-000000000000")) throw new DataflowFailure(409, "qiy.test.lateFailure");
 
         const value = context0;
@@ -423,7 +423,7 @@ export function createDataflowRoutes(authenticate: Authenticator) {
         context0 = updated;
         }
         tx.insert(dataflowOutbox).values({ id: crypto.randomUUID(), actorId: principal?.id ?? null, event: "production.completed", payload: JSON.stringify({ flow: "completeWorkOrder", "workOrderId": context0["id"], "produced": body["outputQuantity"] }), createdAt: new Date() }).run();
-        tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:event:production.completed", type: "production.completed", payload: JSON.stringify({ flow: "completeWorkOrder", "workOrderId": context0["id"], "produced": body["outputQuantity"] }), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }).run();
+        tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:event:production.completed", type: "production.completed", payload: JSON.stringify({ flow: "completeWorkOrder", "workOrderId": context0["id"], "produced": body["outputQuantity"] }), createdAt: new Date() }).run();
         if (!(context2["id"] == "00000000-0000-4000-8000-000000000000")) throw new DataflowFailure(409, "qiy.test.lateFailure");
 
         const value = context0;
@@ -474,7 +474,7 @@ export function createDataflowRoutes(authenticate: Authenticator) {
         context0 = updated;
         }
         tx.insert(dataflowOutbox).values({ id: crypto.randomUUID(), actorId: principal?.id ?? null, event: "purchasing.approved", payload: JSON.stringify({ flow: "approvePurchaseOrder", "purchaseOrderId": context0["id"] }), createdAt: new Date() }).run();
-        tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:event:purchasing.approved", type: "purchasing.approved", payload: JSON.stringify({ flow: "approvePurchaseOrder", "purchaseOrderId": context0["id"] }), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }).run();
+        tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:event:purchasing.approved", type: "purchasing.approved", payload: JSON.stringify({ flow: "approvePurchaseOrder", "purchaseOrderId": context0["id"] }), createdAt: new Date() }).run();
         if (!(context0["status"] != "approved")) throw new DataflowFailure(409, "qiy.test.lateFailure");
 
         const value = context0;

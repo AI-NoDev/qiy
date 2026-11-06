@@ -1,6 +1,6 @@
 # Storage and realtime
 
-Use this file when you add file uploads/downloads, choose a storage provider, plan attachment cleanup, or declare realtime subscriptions and operate the outbox (transport, roles, claim channels, metrics, replay).
+Use this file when you add file uploads/downloads, choose a storage provider, plan attachment cleanup, or declare realtime subscriptions (SSE transport, roles, claim channels, masking).
 
 Canonical reference: https://ai-nodev.github.io/qiy/dsl/realtime (`/guide/storage`)
 
@@ -17,7 +17,7 @@ Canonical reference: https://ai-nodev.github.io/qiy/dsl/realtime (`/guide/storag
 - [Realtime grammar](#realtime-grammar)
 - [Modes, events and channels](#modes-events-and-channels)
 - [Transports](#transports)
-- [Outbox operations and monitoring](#outbox-operations-and-monitoring)
+- [Outbox and environment](#outbox-and-environment)
 - [Realtime limits](#realtime-limits)
 - [Pitfalls](#pitfalls)
 
@@ -204,7 +204,7 @@ realtime {
 | `mode` | no | `auto` | Only `auto`/`manual` (`Unsupported realtime mode`) |
 | `resource <r>` | yes (>=1) | - | Entity or table name, normalized to table name; unknown/duplicate rejected |
 | `events` | yes | - | At least one, no duplicates; only `created`/`updated`/`deleted` |
-| `roles` | yes | - | At least one, no duplicates; only admin/operator/viewer; defines who can obtain a subscribe capability |
+| `roles` | yes | - | At least one, no duplicates; only admin/operator/viewer; defines who may subscribe to the resource channel |
 | `when <field> claim <claim>` | no | none | Field must exist, be **non-nullable**, and be `Text` or `Integer`; claim may contain dots |
 | Whole block | - | - | At least one resource; without `auth` -> `Realtime requires generated authentication`; `mode integration` rejected |
 
@@ -217,28 +217,46 @@ realtime {
 
 **Important limitation**: the generator only passes `liveMode` to detail (show) pages. Generated list pages use `useTable` without `liveMode`, so they do **not** auto-refresh. Add `liveMode` (`auto`/`manual`) manually in a custom list page if you need it.
 
-Record-level trimming: `subscribe({ params: { id } })` or `params: { ids: [...] }` only invokes the callback when `payload.id` (or `data.id`) matches. Without those params the subscriber receives all events for the resource.
+Record-level trimming: `subscribe({ params: { id } })` or `params: { ids: [...] }` only invokes the callback when `record.id` (or `data.id`) matches. Without those params the subscriber receives all events for the resource.
 
-Channels: `qiy:<table>` for resource events and `qiy:<table>:<claimValue>` for claim-segmented resources; dataflow emits use `qiy:event:<event>`. The browser never gets publish permission - only a subscribe-only capability computed by the server (`realtimeCapabilities(principal)`), and the client subscribes using channels parsed from the token capability rather than assuming the base name.
+Channels: `qiy:<table>` for resource events and `qiy:<table>:<claimValue>` for claim-segmented resources; dataflow emits use `qiy:event:<event>`. The server computes the granted channels per connection (`realtimeCapabilities(principal)`) and only ever writes events from those channels to the stream; the browser has no way to publish.
 
 Permission model (a channel is shared by all subscribers, so per-subscriber row filtering is impossible server-side):
 
 | Constraint | Mechanism |
 | --- | --- |
-| Who may subscribe | `roles` -> subscribe-only Ably capability |
-| Which channels | Server-computed capability; client reads granted channels from the token |
+| Who may subscribe | `roles` -> `realtimeCapabilities(principal)`; anonymous 401, no granted channel 403 |
+| Which channels | Computed at connect time; the first `event: ready` frame lists them |
 | Field masking | Payload is trimmed **before enqueue** for every `mask` that applies to a subscribable role (global masks and `claim present/absent` masks); masks that only apply to non-subscribable roles are not applied |
 | Row isolation | Impossible on a shared channel, so a resource with a `restrict` row predicate (`when`) is **forbidden** from realtime: `restrict row predicates cannot be enforced on a shared channel` |
-| Tenant segmentation | `when <field> claim <claim>` splits the resource into `qiy:<table>:<value>`; a missing claim means **no channel is issued** (`/token` 403) |
+| Tenant segmentation | `when <field> claim <claim>` splits the resource into `qiy:<table>:<value>`; a missing claim means **that channel is not granted** |
 
 `restrict { when ... }` and `when <field> claim <claim>` cannot coexist on one resource (`a claim-scoped channel already isolates rows; remove the restrict row predicates`). Role/mask-only `restrict` blocks may coexist with realtime.
 
 ## Transports
 
+Realtime is a **self-hosted Server-Sent Events** transport; there is no third-party provider or SDK.
+
 | `api.client` | Transport | Generated artifacts |
 | --- | --- | --- |
-| `rest` | **Ably** (resource channels plus `qiy:event:<event>`) | LiveProvider logic (`createQiyLiveProvider`), `POST /api/v1/realtime/token`, outbox worker |
-| `graphql` | Ably **and** GraphQL Subscription over **SSE** (`GET /api/v1/graphql/subscribe`) | Subscription root plus `web/app/subscriptions.ts` |
+| `rest` | `GET /api/v1/realtime/stream`: one connection carrying every granted channel | `web/app/providers/live-provider.ts` (`createQiyLiveProvider`), `server/src/realtime.ts` |
+| `graphql` | The same stream **plus** GraphQL Subscription over SSE (`GET /graphql/subscribe`) | Subscription root plus `web/app/subscriptions.ts` |
+
+Stream frames:
+
+```text
+event: ready
+data: {"channels":["qiy:orders","qiy:stock_movements:WH-1"]}
+
+event: created
+data: {"id":"...","channel":"qiy:orders","event":"created","record":{"id":"...","number":"SO-1"}}
+
+: keep-alive
+```
+
+Auth is the normal `Authorization: Bearer <token>`; the browser reads the stream with `fetch` (not `EventSource`) so it can send the header. Keep-alive comments every 25s. Anonymous 401, no granted channel 403, `QIY_REALTIME_DISABLED=1` 503.
+
+The browser LiveProvider shares **one** stream across all Refine subscriptions: the first subscription opens it, the last unsubscribe closes it, disconnects reconnect with exponential backoff, and 401/403 leave it idle.
 
 GraphQL subscription shape:
 
@@ -247,76 +265,33 @@ type OrdersEvent { event: String! record: Orders! }
 type Subscription { ordersChanged: OrdersEvent! }
 ```
 
-- SSE endpoint `GET /api/v1/graphql/subscribe?query=...`, one `data: {...}` frame per event. Anonymous 401; role not in `roles` 403; unknown field/non-subscription document/syntax error 400; client abort closes the iterator and cleans up.
+- `GET /graphql/subscribe?query=...`, one `data: {...}` frame per event. Anonymous 401; role not in `roles` 403; unknown field/non-subscription document/syntax error 400; client abort or reader cancel closes the iterator.
 - Payloads come from the already-trimmed outbox: masked fields have no key; GraphQL can only return `null` for fields the client explicitly requested - it never leaks values.
-- Event source: in-process bus for locally delivered events plus tailing `deliveredAt`-marked outbox rows at `QIY_REALTIME_SUBSCRIBE_POLL_MS` (default 1000, min 100), so subscribers see events delivered by any replica (deduped by row id).
+- `subscribeGraphql()` reconnects with exponential backoff (1s..30s); pass `reconnect: false` to disable.
 
-The generated `web/app/subscriptions.ts` also exposes a `graphql-ws` client (WebSocket at `/graphql/ws`) with `connection_init` token auth, `subscribe`/`next`/`error`/`complete` frames, ping/pong, exponential reconnect (1s..30s) and `stop()`. SSE has the same reconnect behavior and can be disabled with `reconnect: false`.
+## Outbox and environment
 
-## Outbox operations and monitoring
+CRUD repositories write `qiy_realtime_outbox` (`id`, `channel`, `type`, `payload`, `createdAt`) **in the same Drizzle transaction** as the business write and audit; after commit the service triggers one outbox read. Dataflow `emit` writes both `dataflow_outbox` and the realtime channel, committed/rolled back with the business write; `allow roles` on a flow decides who may subscribe to that event channel.
 
-CRUD repositories write `qiy_realtime_outbox` **in the same Drizzle transaction** as the business write and audit; after commit the service triggers one delivery. A background worker scans undelivered rows every `QIY_REALTIME_POLL_MS`; PostgreSQL/MySQL claim atomically with a transaction, lease and `FOR UPDATE SKIP LOCKED`, release leases on failure and retry with exponential backoff. After `QIY_REALTIME_MAX_ATTEMPTS` the row gets `deadLetteredAt` and is no longer auto-claimed; only `admin` can inspect or replay it.
-
-Dataflow `emit` writes both `dataflow_outbox` and the realtime channel, committed/rolled back with the business write; `allow roles` on a flow becomes the subscribe-only capability for that event channel.
-
-Operations endpoints (all `admin`, except the Prometheus text endpoint which accepts a read-only token):
-
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /api/v1/realtime/outbox/dead` | Latest 100 dead letters |
-| `GET /api/v1/realtime/outbox/metrics` | JSON metrics |
-| `GET /api/v1/realtime/outbox/metrics/prometheus` | Prometheus 0.0.4 text |
-| `GET /api/v1/realtime/outbox/health` | `200 ok` / `503 degraded` by threshold |
-| `POST /api/v1/realtime/outbox/:id/replay` | Replay one dead letter |
-| `POST /api/v1/realtime/outbox/replay` | Bulk replay 1..100 unique UUIDs -> `{ replayed, notFound }` |
-| `DELETE /api/v1/realtime/outbox/delivered?retentionDays=N` | Clean delivered history |
-
-Replay and manual cleanup write `audit_events` (`realtime.outbox.replayed`, `realtime.outbox.bulk_replayed`, `realtime.outbox.cleaned`) as the current admin in the same transaction; an audit failure rolls back the operation. Automatic background cleanup has no interactive admin and writes no audit. `QIY_REALTIME_DISABLED=1` stops the worker and makes `/token` return 503 (used by generated tests).
-
-CLI (calls only the protected HTTP API; never bypasses auth or audit):
-
-```powershell
-$env:QIY_REALTIME_ADMIN_TOKEN = "<admin-access-token>"
-bun run realtime:admin -- metrics
-bun run realtime:admin -- health
-bun run realtime:admin -- prometheus
-bun run realtime:admin -- dead
-bun run realtime:admin -- replay 00000000-0000-4000-8000-000000000001
-bun run realtime:admin -- cleanup 30
-```
-
-`replay` accepts 1..100 unique UUIDs; `cleanup` retention is 1..3650 days. Set `QIY_REALTIME_ADMIN_URL=https://admin.example.com/api/v1/realtime/outbox` for a remote server.
-
-Environment variables:
+Each process runs **one shared poller** while it has subscribers: every `QIY_REALTIME_POLL_MS` it reads new outbox rows, dedupes by row id and fans them out to all local SSE/GraphQL subscribers. Every replica tails the same table, so an event written by any instance reaches every connected browser. A background task deletes rows older than `QIY_REALTIME_RETENTION_DAYS`; the outbox is a short-lived event log, not a delivery queue.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `QIY_ABLY_API_KEY` | empty | Required when realtime is enabled; **server only** - browsers get a short-lived TokenRequest |
-| `QIY_REALTIME_DISABLED` | `0` | `1` stops delivery and makes `/token` 503 |
-| `QIY_REALTIME_POLL_MS` | `5000` | Delivery poll, min 250 |
-| `QIY_REALTIME_LEASE_MS` | `30000` | Claim lease, min 1000; must exceed normal publish latency |
-| `QIY_REALTIME_MAX_ATTEMPTS` | `10` | 1..1000; then dead letter |
-| `QIY_REALTIME_RETENTION_DAYS` | `7` | 1..3650 |
-| `QIY_REALTIME_CLEANUP_MS` | `86400000` | Cleanup interval, min 60000 |
-| `QIY_REALTIME_SUBSCRIBE_POLL_MS` | `1000` | SSE tail interval, min 100 |
-| `QIY_REALTIME_ADMIN_URL` | local `/api/v1/realtime/outbox` | CLI target |
-| `QIY_REALTIME_ADMIN_TOKEN` | empty | Admin access token for the CLI |
-| `QIY_REALTIME_METRICS_TOKEN` | empty | Read-only Prometheus scrape token |
-| `QIY_REALTIME_ALERT_MAX_PENDING` | `1000` | Health threshold |
-| `QIY_REALTIME_ALERT_MAX_DEAD_LETTERED` | `0` | Health threshold |
-| `QIY_REALTIME_ALERT_MAX_OLDEST_PENDING_MS` | `300000` | Health threshold |
+| `QIY_REALTIME_DISABLED` | `0` | `1` makes the stream 503 and stops polling (generated tests set it) |
+| `QIY_REALTIME_POLL_MS` | `1000` | Outbox tail interval, min 100; bounds cross-replica latency |
+| `QIY_REALTIME_RETENTION_DAYS` | `1` | 1..3650 |
+| `QIY_REALTIME_CLEANUP_MS` | `3600000` | Cleanup interval, min 60000 |
 
-Invalid values fail closed at startup/first use (e.g. `QIY_REALTIME_LEASE_MS must be an integer of at least 1000ms`).
-
-Generated monitoring for standalone projects: `deploy/kubernetes/realtime-servicemonitor.yaml`, `deploy/kubernetes/realtime-prometheusrule.yaml`, `deploy/observability/grafana/qiy-realtime-outbox.json`. Metrics: `qiy_realtime_outbox_pending`, `_leased`, `_dead_lettered`, `_delivered`, `_oldest_pending_age_seconds`, `_health`, deliberately without user/tenant/channel/event labels (cardinality). Operator CRDs, Alertmanager routes and Grafana import are your responsibility.
+Invalid values fail closed on first use (e.g. `QIY_REALTIME_POLL_MS must be an integer from 100 to ...`).
 
 ## Realtime limits
 
-- **At-least-once delivery only.** A crash after provider success but before the delivered marker, or a publish exceeding the lease, can duplicate an event. Consumers must be idempotent; Qiy does not claim exactly-once.
+- **Best-effort live updates, not reliable messaging.** Events written while a browser is offline are not replayed; on reconnect Refine refetches. Use Dataflow `emit` plus your own consumer for anything that must be delivered.
+- The poller looks back 5 seconds to cover late commits and small clock skew between replicas; new subscribers never receive events written before they subscribed.
 - List pages are **not** auto-subscribed by default (only show pages get `liveMode`); custom list pages must pass `liveMode`.
 - Field-level masking only; row isolation requires claim-segmented channels. `restrict` row predicates and claim-segmented channels are mutually exclusive.
-- Multi-replica SSE tails the outbox: every subscriber polls the database. At large subscription counts, use a dedicated message broker instead.
-- SQLite realtime is single-process. PostgreSQL/MySQL workers need the lease/dead-letter columns; existing databases must be regenerated and migrated.
+- Polling cost is per **process**, not per subscriber: one query loop per replica regardless of connected browsers.
+- Reverse proxies must not buffer SSE (`proxy_buffering off`; the response already sends `X-Accel-Buffering: no`) and need a read timeout above the 25s keep-alive.
 - S3 presigned PUT and native multipart are not implemented; resumable sessions are in-memory and need sticky sessions.
 - `Files` uploads are not atomic; partial uploads leave orphan objects for the orphan scan.
 
@@ -332,12 +307,11 @@ Generated monitoring for standalone projects: `deploy/kubernetes/realtime-servic
 | Upload succeeded but the field is empty | Upload only returns a key; the entity must be PATCHed | Let generated forms do it, or write the key yourself |
 | Signed URL is `null` | `local` provider has no presigning | Use the protected download endpoint |
 | Orphan scan deletes nothing | Dry-run default | Add `--apply` and confirm `removed > 0` |
-| `/api/v1/realtime/token` 403 | Principal lacks the claim needed for a segmented channel | Add the claim to the users row/IdP, or drop `when ... claim ...` |
-| Page receives no events | Role not in `roles`, or capability/channel name mismatch | Check `roles`, claims, and subscribe from token capability |
+| `/api/v1/realtime/stream` 403 | Role not in any `roles`, or principal lacks the claim for a segmented channel | Check `roles`; add the claim to the users row/IdP, or drop `when ... claim ...` |
+| Page receives no events | A reverse proxy buffers the SSE response or times out before keep-alive | Disable proxy buffering; read timeout > 25s |
 | Events miss fields | A `mask` applies to a subscribable role | Adjust the mask or roles |
-| Dead letters keep growing | Ably unreachable/wrong key/retry cap hit | Check `outbox/health` and `outbox/dead`, fix, then replay |
 | Generation rejects realtime | Resource has a `restrict` row predicate / no `auth` / integration mode | Remove the predicate, add `auth`, or use a host LiveProvider |
-| `/token` 503 `Realtime is disabled` | `QIY_REALTIME_DISABLED=1` | Unset it |
+| Stream 503 `Realtime is disabled` | `QIY_REALTIME_DISABLED=1` | Unset it |
 
 ## Related references
 

@@ -132,7 +132,7 @@ menu {
 
 ## 图表概览页（chart / chart panels）
 
-`modules/charts.qiy` 用新的图表 DSL 替换了旧的 `dashboard { metric ... }` 指标卡：概览页 `/` 由 `chart` 声明视图、`chart panels` 用 `grid 24 24` + `larger/medium/small` 变体摆放卡片：
+`modules/charts.qiy` 用图表 DSL 声明概览页：概览页 `/` 由 `chart` 声明视图、`chart panels` 用 `grid 24 24` + `larger/medium/small` 变体摆放卡片：
 
 | 面板 | 栅格布局（larger/medium/small） | 图表 |
 | --- | --- | --- |
@@ -234,7 +234,7 @@ dataflow 迁移矩阵：
 
 HTTP 验收接口：`GET /api/v1/auth/permissions`、`POST /api/v1/auth/verify-permission`，以及 `/auth/me` 新增的 `permissions` / `groups` 字段。脚本 `tmp/verify-permissions.ts`（不提交）覆盖三种角色登录、权限并集、校验真值表、dataflow 200/403 矩阵与真实 Dex token 登录。
 
-## 本地演示（混合登录 + Ably realtime，端口 8000）
+## 本地演示（混合登录 + SSE realtime，端口 8000）
 
 ```sh
 # 1) 生成并迁移
@@ -246,7 +246,7 @@ cd apps/server && bun run db:generate && bun run db:migrate
 docker run -d --name qiy-dex-demo  -p 5556:5556 -v "$PWD/../../dex:/etc/dex" ghcr.io/dexidp/dex:v2.41.1 dex serve /etc/dex/dex.yaml
 docker run -d --name qiy-dex-demo2 -p 5557:5557 -v "$PWD/../../dex:/etc/dex" ghcr.io/dexidp/dex:v2.41.1 dex serve /etc/dex/keycloak.yaml
 
-# 3) 演示环境（含 Ably key / 真实 Provider client id，本地保存、不提交）
+# 3) 演示环境（含真实 Provider client id，本地保存、不提交）
 #    必需：QIY_AUTH_SECRET（至少 32 字符）、QIY_OIDC_DEFAULT_ROLE（默认 viewer）
 cp examples/self/dex/demo.env examples/self/admin/apps/server/.env.development
 

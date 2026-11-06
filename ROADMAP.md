@@ -2,7 +2,7 @@
 
 > 本文件记录发布质量审计后的待办，按 P0 → P1 → P2 顺序逐项推进。
 > 面向维护者与 AI Agent，不属于文档站用户内容；用户文档见 `docs/`。
-> 当前版本：`0.36.0`（tag `v0.36.0`）。
+> 当前版本：`0.37.0`（tag `v0.37.0`）。
 
 ## 状态图例
 
@@ -94,7 +94,7 @@
 - [x] `qiy add module/entity/feature` 的结构化增量建模（`add entity`、`add field`、`add module`、`add feature`，写入后校验并回滚）
 - [x] `qiy fmt [--check]`：保留语义的空白规范化（缩进/空行/行尾/末尾换行）
 - [x] 友好语法 v1 RFC：设计理念页记录提案（project/module、name:type、内联关系、可选分号、v0 兼容）
-- [x] v1 语法最小版：v1 → v0 预处理器（project/module、name:type、自动主键、one、one-to-many、many-to-many、常用配置块 v0 透传、include v1 片段），`explain/generate/fmt` 自动识别；`add entity/field/module/feature` 支持 v1
+- [x] ~~v1 语法最小版~~（0.37.0 删除，见 `docs/guide/migration-0.37.md`）：v1 → v0 预处理器（project/module、name:type、自动主键、one、one-to-many、many-to-many、常用配置块 v0 透传、include v1 片段），`explain/generate/fmt` 自动识别；`add entity/field/module/feature` 支持 v1
 - [x] v1 注解透传 + 自定义关系名/onDelete（one / one-to-many）
 - [x] 文档按任务重构：任务索引覆盖当前能力；内部工具/真实验收页移至 CONTRIBUTING/MAINTAINER；用户页改用公开命令与生产验收清单
 - [x] `qiy dev --watch`：模型变更防抖后自动重新生成、迁移，dev server 重新加载
@@ -127,6 +127,7 @@
 - [x] `v0.2.2`：`qiy skill list/update/uninstall`（含 `--json`、本地修改保护、保留手写文件）；通过 dry-run → tag → Release 流程发布。
 - [x] `v0.2.3`：`qiy explain` / `qiy schema`，机器可读模型摘要 + 已发布 JSON Schema。
 - [x] `v0.2.4`：稳定错误码目录 `QIY1001–QIY1016`、`qiy explain --errors`、文档 `/dsl/errors`、`explain --json` 自动附带 code/fix。
+- [x] `v0.37.0`：删除冗余：v1 语法、MPS 工作台、OIDC 厂商关键字（改为 `preset`）、Ably 实时（改为内置 SSE）、`dashboard { metric }`（改为 chart）、`llms-full.txt`；迁移指南 `docs/guide/migration-0.37.md`。
 - [x] `v0.36.0`：关闭 v0.35.0 审计登记的 7 个产品边界——软删除审计 `deleted`/`restored` + restore API + 回收站页；DB view 继承源实体软删除/scope/tenant/policy 行过滤与 mask；数值计算字段（Integer/Decimal/Money 算术）；`auth { claim <claim> <field>; }` 解耦租户 claim 与 users 同名列（含 OTP claims）；Docker 固定浏览器的像素视觉回归；负载工具按时长/预热/多阈值/多机报告合并；生成应用测试不再写 OS 临时目录（Windows 沙箱 EPERM）。
 - [x] `v0.35.0`：生成应用 Vite 8.3.5 + override，生成应用 audit 归零。
 - [x] `v0.34.0`：Vite 6 docs 工具链，`bun audit` 归零。
@@ -184,6 +185,20 @@
 - [x] `v0.3.0`：CLI-first 项目工作流：`qiy create project` + `qiy check/generate/dev/test/build/preview`、模块化标准模板、CLI-first 快速开始与设计理念页；发布后二进制实测 `create project` 可用。
 - [x] `v0.2.5`：API 文档页下载当前账号过滤后的 OpenAPI JSON（`<title>.openapi.json`）。
 - [x] `v0.2.1`：补全官方 Agent Skill（router + 12 个 references），release + release-smoke 通过。
+
+## 0.37 之后：补齐与优化
+
+0.37.0 删除了冗余写法（v1 语法、MPS、OIDC 厂商关键字、Ably、dashboard 指标、llms-full.txt）。之后按顺序推进：
+
+- [ ] 字段校验与默认值：`@min`/`@max`/`@length`/`@pattern`/`@default`，服务端与表单同源
+- [ ] 乐观锁 `@version`（冲突 409）
+- [ ] kitchen-sink 全语法 fixture（三方言）+ CI 示例漂移检查
+- [ ] 多对多关系与多选 UI
+- [ ] 声明式状态机 / 审批流转
+- [ ] Webhook、通知适配器（SMTP 默认 / Resend / webhook / 开发环境 console）与定时任务
+- [ ] 拆分 `tools/generate-server.ts`；计算字段落为数据库生成列；view IN 子查询性能
+- [ ] 本地 E2E 对陈旧服务的鲁棒性
+- [ ] 英文用户文档
 
 ## 验证命令
 

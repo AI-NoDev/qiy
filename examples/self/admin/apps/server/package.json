@@ -18,8 +18,7 @@
     "db:rollback": "bun --env-file=.env.production src/db-rollback.ts",
     "db:backup": "bun --env-file=.env.production src/db-backup.ts",
     "db:restore": "bun --env-file=.env.production src/db-restore.ts",
-    "db:check": "bun --env-file=.env.development src/db-check.ts",
-    "realtime:admin": "bun --env-file=.env.production src/realtime-admin.ts"
+    "db:check": "bun --env-file=.env.development src/db-check.ts"
   },
   "dependencies": {
     "@elysia/cors": "1.4.2",
@@ -28,8 +27,7 @@
     "drizzle-orm": "0.45.3",
     "graphql": "17.0.2",
     "jose": "^6.1.0",
-    "mysql2": "^3.15.3",
-    "ably": "2.29.0"
+    "mysql2": "^3.15.3"
   },
   "devDependencies": {
     "@types/bun": "1.4.2",

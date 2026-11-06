@@ -32,7 +32,7 @@ qiy create -f <source> -n <name> -o <output-dir>     # 旧 create
 qiy init -f <source> [-n <name>] [--sync]            # 挂载到现有 Bun 项目
 ```
 
-公开生成入口只接受 `.qiy`。MPS 模型和内部 Database IR 不属于已发布 CLI 的应用输入；仓库维护者可以单独运行内部 MPS/TextGen 验证工具，但最终仍应导出 `.qiy` 后进入同一条生成链路。
+生成入口只接受 `.qiy`。
 
 ## 项目命令
 

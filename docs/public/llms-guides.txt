@@ -133,37 +133,7 @@ Qiy 的语法不是配置文件，也不是自由自然语言，而是**受限�
 - 同一语义只有一种规范写法；格式化器保证 AI 和人写出的风格一致；
 - 不用自然语言解析器处理"给订单加个金额"这类模糊输入——这会让结果不可复现。Agent 应该生成**结构化、可校验**的文本。
 
-当前 V0 语法已经稳定。更简洁的 v1 语法已以**预览**形式落地：入口文件自动识别 `project`/`module`、`name: type`、自动主键与内联一对一关系，先转换为 v0 再走同一套 parser。v1 的完整范围、限制和示例见 [v1 友好语法（预览）](./syntax-v1)。
-
-### 语法演进：v1 友好语法（预览）
-
-目标：让模型更接近需求描述，同时保持解析结果的确定性。当前已落地最小子集（完整范围见 [v1 友好语法](./syntax-v1)）：
-
-```qiy
-project shop
-database sqlite
-
-module Catalog {
-  entity Product {
-    name: text
-    price: decimal(12, 2)
-  }
-
-  entity Order {
-    reference: text unique
-    customer: Customer        # 自动生成 customerId 外键 + 一对一关系
-  }
-}
-```
-
-规则草案：
-
-- `project` 替代 `qiy v0;` + `application` 外壳；
-- 字段写成 `name: type`，`primary`/`nullable`/`unique` 作为自然词后缀，分号可选；
-- 常用关系内联：`customer: Customer`（one）、`lines: OrderLine[]`（one-to-many，自动在子实体生成外键）、双向数组（many-to-many，自动生成 join 实体）；需要 `onDelete`/自定义名称/复合关系时仍写显式 `relation`；
-- `module` 对应 include 片段，模块内部按“实体 → 关系 → UI/命令”自然分组，跨模块顺序由项目组装器管理；
-- 解析器同时接受 v0/v1，`qiy fmt` 输出规范 v1，`qiy explain` 展示展开后的语义；
-- 不做自由自然语言解析；所有输入仍然可校验、可格式化、可复现。
+Qiy 只有一种语法：`qiy v0;`。0.37.0 删除了实验性的 v1 简写预览——两套写法让 AI 与人都要先判断「这是哪种方言」，换来的只是少写几个关键词。不做自由自然语言解析；所有输入都可校验、可格式化、可复现。
 
 ## 5. 显式授权，默认安全
 
@@ -340,122 +310,6 @@ qiy dev
 - [定义数据模型](/guide/data-modeling)：实体、字段、关系
 - [CLI 参考](/guide/cli)：全部命令与参数
 
-# v1 友好语法（预览）
-
-Source: https://ai-nodev.github.io/qiy/guide/syntax-v1
-
-# v1 友好语法（预览）
-
-Qiy 正在验证一套更接近需求描述的语法。**v1 是预览能力**：默认模板仍是 v0，v1 只覆盖最小子集，通过预处理器转换为 v0 后走同一套生成、校验和运行时。
-
-```qiy
-qiy v1;
-
-project shop
-database sqlite
-
-module Catalog {
-  entity Product {
-    name: text
-    price: decimal(12, 2) nullable
-  }
-
-  entity Order {
-    reference: text unique
-    customer: Customer
-    lines: OrderLine[]
-  }
-
-  entity OrderLine {
-    sku: text
-    quantity: integer
-  }
-}
-```
-
-生成与校验命令不变：
-
-```bash
-qiy explain app.qiy          # 规范化摘要（自动识别 v1）
-qiy generate app.qiy out/    # 生成完整应用
-qiy fmt app.qiy              # 空白规范化
-```
-
-## 已支持
-
-| 能力 | 写法 |
-| --- | --- |
-| 项目名 | `project shop`（替代 `qiy v0;` + `application` 外壳） |
-| 数据库 | `database sqlite` / `postgresql` / `mysql` |
-| 模块 | `module Catalog { ... }`（仅组织作用，可省略） |
-| 实体 | `entity Product { ... }`；PascalCase 自动转 `products` 表名，小写名保持不变 |
-| 字段 | `name: text`、`price: decimal(12, 2)`、`active: text` |
-| 修饰符 | `primary`、`nullable`、`unique`（可组合） |
-| 自动主键 | 省略 `id` 时自动生成 `field id UUID @id;` |
-| 一对一关系 | `customer: Customer` → `customerId` 外键 + `relation`；可加 `as orderCustomer @onDelete(cascade)` 自定义关系名/删除策略 |
-| 一对多关系 | `lines: OrderLine[]` → 在子实体生成 `orderId` 外键 + `relation`（子实体需在本文件声明）；同样支持 `as` 与 `@onDelete` |
-| 注解 | 实体/字段注解原样透传：`@display("{$.name}")`、`@label("…")`、`@code("…")`、`@onDelete(cascade)` 等 |
-| 多对多关系 | 双向数组（`tags: Tag[]` + `products: Product[]`）→ 自动生成 `products_tags` join 实体与两条 one 关系 |
-| 模块文件 | `include "modules/catalog.qiy";` → 展开 v1 片段（片段不带 `project`，可含 `module`/`entity`/配置块） |
-| 注释 | `#` 行内/独立注释 |
-
-类型别名：`uuid` → `UUID`、`text` → `Text`、`integer/int` → `Integer`、`decimal` → `Decimal`、`money` → `Money`、`date/time/datetime`、`file/files`、`vector(n)`。
-
-## 配置块（v0 语法透传）
-
-v1 允许直接写常用的 v0 配置块，内容按 v0 语法解析，按规范顺序输出：
-
-```qiy
-features {
-  apiDocs true;
-  apiKeys true;
-}
-
-enum role {
-  value admin;
-  value operator;
-  value viewer;
-}
-
-auth {
-  provider local;
-  user users;
-  subjectField id;
-  roleField role;
-  usernameField email;
-  passwordField passwordHash;
-}
-
-menu {
-  group system {
-    resource users;
-  }
-}
-```
-
-支持的透传块：`workspace`、`ui`、`api`、`features`、`realtime`、`elysia`、`storage`、`auth`、`env`、`messages`、`permission`、`workflow`、`enum`，以及实体之后的 `menu`、`dashboard`、`chart`、`dataflow`、`action`。它们内部仍使用 v0 语法（实体名使用生成后的表名，如 `users`）。
-
-v1 也支持增量命令：`qiy add entity/field` 写入 v1 实体/字段；`qiy add module` 创建 v1 片段并追加 `include`；`qiy add feature` 写入/更新 `features` 块。
-
-## 尚未支持（明确报错）
-
-- `include` 路径必须是相对路径且位于项目内；片段不能带 `project`，可包含 `module`、`entity` 或配置块，展开后仍按 v1 规则校验；
-- 单向多对多（只在一侧写 `tags: Tag[]` 会被当作一对多；多对多需要双向数组，或显式建 join 实体）；
-- 多对多数组上的自定义关系名/注解（请显式写 join 实体）。
-
-需要这些能力时继续使用 v0。不同项目/入口文件可以选择 v0 或 v1，Qiy 按入口首行自动识别，不需要额外参数。
-
-## 为什么先做预处理器
-
-v1 先转换成 v0 文本，再进入现有 parser：
-
-- 生成器、运行时、错误码、测试完全复用，风险低；
-- v1 与 v0 可以逐文件共存、逐步迁移；
-- 预处理器只负责语法糖，真正的语义校验仍由同一套 parser 完成；
-- 等语法稳定后，再把 v1 解析并入 parser 主路径。
-
-设计目标、取舍与完整提案见 [设计理念](./design-philosophy)。
-
 # Qiy CLI 与发布
 
 Source: https://ai-nodev.github.io/qiy/guide/cli
@@ -494,7 +348,7 @@ qiy create -f <source> -n <name> -o <output-dir>     # 旧 create
 qiy init -f <source> [-n <name>] [--sync]            # 挂载到现有 Bun 项目
 ```
 
-公开生成入口只接受 `.qiy`。MPS 模型和内部 Database IR 不属于已发布 CLI 的应用输入；仓库维护者可以单独运行内部 MPS/TextGen 验证工具，但最终仍应导出 `.qiy` 后进入同一条生成链路。
+生成入口只接受 `.qiy`。
 
 ## 项目命令
 
@@ -1060,7 +914,7 @@ relation stockMovementWarehouse stockMovements warehouseId warehouses id one @on
 relation stockMovementProduct stockMovements productId products id one @onDelete(restrict);
 ```
 
-## 菜单与 Dashboard
+## 菜单与概览页
 
 界面组织也是独立模块。模型更大时，可以继续按领域拆成 `sales/navigation.qiy`、`purchasing/navigation.qiy` 等片段。
 
@@ -1077,8 +931,10 @@ menu {
   }
 }
 
-dashboard {
-  metric movementCount stockMovements @label("Movements") @icon(SwapOutlined) @span(8);
+chart const MovementCount {
+  icon = "SwapOutlined";
+  title = "Movements";
+  data = count stockMovements;
 }
 ```
 
@@ -1233,7 +1089,7 @@ find .agents/skills/qiy -type f             # macOS/Linux
 | 全部参考文件 | `/skills/qiy/references/` |
 | 可运行示例 | `/skills/qiy/examples/warehouse-admin/README.md` |
 | LLM 文档索引 | `/llms.txt` |
-| LLM 全文 | `/llms-full.txt` |
+| LLM 全文 | `/llms-dsl.txt`（DSL 参考）、`/llms-guides.txt`（指南） |
 
 本地部署时地址为 `http://localhost:5173/...`；生产站点为 `https://ai-nodev.github.io/qiy/...`。解压到 Agent 的 skills 目录：
 
@@ -1285,7 +1141,7 @@ qiy/
 3. 生成后必须运行 typecheck、测试、build，再声称完成；`preview` 只用于本地验证。
 4. `.qiy` 中不写任何密码/密钥；认证、存储、数据库凭据只通过环境变量与部署 secret 注入。
 5. 修改已有生成项目时优先 `--sync`，尊重 `.qiy-generated.json` 的所有权边界；自定义逻辑放到不受管理目录（如 `extensions/`）。
-6. 需要发现更多 Qiy 文档时，优先请求文档站的 [llms.txt](/llms.txt)（精选索引）或 [llms-full.txt](/llms-full.txt)（全文），而不是逐页爬取。
+6. 需要发现更多 Qiy 文档时，优先请求文档站的 [llms.txt](/llms.txt)（精选索引），需要全文时按主题请求 [llms-dsl.txt](/llms-dsl.txt) 或 [llms-guides.txt](/llms-guides.txt)，而不是逐页爬取。
 7. 不确定的错误先查 `references/troubleshooting.md`；它按校验/认证/命令/存储/CLI/部署分组给出精确错误串与修复方式。
 
 ## 更新与版本
@@ -1652,17 +1508,11 @@ GET    /api/v1/graphql/subscribe   GraphQL 订阅（SSE，仅 GraphQL 客户端 
 - Web：列表页打开时通过 `web/app/views-api.ts` 的 `fetchServerViews()` 拉取并合并进 `Saved views` 下拉；本地视图标记为 **个人**，服务端私有视图标记为 **发布**，共享视图标记为 **共享**。下拉里每一项右侧有**删除图标 + Popconfirm**：本地视图删除 localStorage 行；`server:<id>` 视图调用 `deleteServerView({ resource, id })` → `DELETE /api/v1/saved-views/:id`，成功后立即重新拉取服务端列表并清除选中项，失败以通知显示。删除图标只在本地视图或 `mine: true` 的服务端视图上出现，其他用户的共享视图不提供删除入口（服务端仍对 admin 开放清理能力）。选中视图后点 **Publish view** → **Save to server**（个人/发布）或 **Share with everyone**（共享）：同名发布走 upsert，发布成功后本地副本会被服务端行取代，下拉不会出现本地 + 服务端两条同名项。
 - 保留旧 `shared` 文案键 `qiy.shared` 供旧项目覆盖；新 UI 使用 `qiy.viewMine` / `qiy.viewPublishedTag` / `qiy.viewSharedTag` / `qiy.viewDeleted` / `qiy.viewDeleteFailed` / `qiy.confirmDeleteView`。
 
-## GraphQL Subscription（SSE 与 graphql-ws）
+## GraphQL Subscription（SSE）
 
-- SSE：`GET /api/v1/graphql/subscribe?query=...`，每个事件一帧 `data: {...}`（见 realtime 文档）。
-- **graphql-ws（WebSocket）**：`ws(s)://<host>/graphql/ws`，标准 graphql-ws 帧：
-  - `connection_init` 的 `payload.token` 携带 Bearer token（也可用 `Authorization` 头），失败以 `4401` 关闭；
-  - `connection_ack` 后可发 `{ id, type: "subscribe", payload: { query, variables, operationName } }`；
-  - 每个事件返回 `{ id, type: "next", payload }`，错误 `type: "error"`，结束 `type: "complete"`（客户端 `complete` 会被立即确认）；
-  - 支持 `ping/pong` 与 `connection_terminate`；订阅权限仍走 capability（agent 分段 channel 同样生效）。
-- 浏览器端：生成的 `web/app/subscriptions.ts` 同时提供 SSE 客户端 `subscribeGraphql()` 与 graphql-ws 客户端 `subscribeGraphqlWs(query, { onData, onError, onComplete, token })`（原生 WebSocket，无新增依赖；`socketFactory` 可注入以便测试）。页面默认仍用 SSE，订阅组件可以按偏好选择 WS。
-- **断线重连**：`subscribeGraphqlWs` 在 socket 关闭时自动重连（`reconnectDelayMs` 起始 1s、最高 `maxReconnectDelayMs` 30s 的指数退避，`attempt` 封顶；`onReconnect({ attempt, delayMs })` 可观测），重连成功后重新 `connection_init` + `subscribe`；调用 `stop()` 会清掉重试定时器。
-- **SSE 断线重连**：`subscribeGraphql` 在流结束或请求失败后同样按 `reconnectDelayMs`→`maxReconnectDelayMs` 退避重连（默认开启，`reconnect: false` 可关闭），`onReconnect` 报告 attempt/delay，`stop()` 中止请求并清理定时器。
+- `GET /graphql/subscribe?query=...`，每个事件一帧 `data: {...}`；REST 资源事件走 `GET /api/v1/realtime/stream`（见 [realtime](/dsl/realtime)）。
+- 浏览器端：生成的 `web/app/subscriptions.ts` 提供 `subscribeGraphql()`。
+- **断线重连**：流结束或请求失败后按 `reconnectDelayMs`（默认 1s）→ `maxReconnectDelayMs`（默认 30s）指数退避重连（默认开启，`reconnect: false` 可关闭），`onReconnect` 报告 attempt/delay，`stop()` 中止请求并清理定时器。
 
 ## CSV 导入
 `POST /api/v1/:resources/import` 接收 `text/csv` 请求体（首行为表头），逐行调用与创建相同的一条写入路径，因此同样受 `restrict` 行谓词与脱敏规则约束：
@@ -1732,7 +1582,7 @@ auth {
 
 | 字段 | 说明 |
 | --- | --- |
-| `provider` | `local`、`otp`、`oidc`、`oauth2`、`sso`、`okta`、`auth0`、`azure-ad-b2c`、`keycloak`、`google`、`kinde`。单 Provider 写法 |
+| `provider` | `local`、`otp`、`oidc`。单 Provider 写法；厂商用 `provider oidc { preset okta; }` 选择，见 [Provider 命名与 preset](/dsl/auth#provider-命名与-preset) |
 | `providers` | Provider 列表；可含 `local`（混合认证），不能含 `otp`、不能重复，且与 `provider` 互斥 |
 | `local` | 由生成器推导（`providers` 含 `local` 或 `provider local`），DSL 不直接书写 |
 | `user` | 用户实体名，必须存在 |
@@ -2144,7 +1994,7 @@ export function qiyApiError(payload, statusCode, locale = document.documentEleme
 | `getMany` | id 分块 + 30 秒合并缓存 | id 分块，无合并缓存 |
 | 过滤器 | 受字段白名单约束 | 所有操作符透传，由服务端 GraphQL schema 校验 |
 | 错误 | `qiyApiError`，带 `statusCode` + `errorKey` | `Error`，只带 `statusCode`（响应含 `errors` 时固定 400），**没有 `errorKey` 本地化** |
-| 实时 | Ably `LiveProvider` | 仍是 Ably `LiveProvider`；额外可选 SSE / `graphql-ws` 订阅客户端 |
+| 实时 | SSE `LiveProvider`（`/api/v1/realtime/stream`） | 同一个 SSE `LiveProvider`；额外有 GraphQL SSE 订阅客户端 |
 
 GraphQL 列表的 `filters` 变量形如 `[{ field, operator, value }]`（生成版会把非 `eq` 操作符一起传出）。`deleteMany` 在 GraphQL 里是 `delete{Name}Many(ids: [ID!]!)`，与 REST 的 `?ids=` 语义一致。
 
@@ -2184,7 +2034,7 @@ const { result, query } = useOne({ resource: name ?? "", id: id ?? "", liveMode:
 | --- | --- | --- | --- |
 | 本地密码 | `provider local` | `AuthPage`（关闭注册/忘记密码/记住我） | `POST /api/v1/auth/login` |
 | OTP | `provider otp` | 两阶段（标识 → 验证码） | `POST /api/v1/auth/otp/request`、`POST /api/v1/auth/otp/verify` |
-| 单一 OIDC | 无 local 且 provider ∈ `oidc/oauth2/sso/okta/auth0/azure-ad-b2c/keycloak/google/kinde` | 单按钮 + 一次性静默续期 | `auth/oidc-client.ts`：浏览器 PKCE 直达 `VITE_QIY_TOKEN_URL` |
+| 单一 OIDC | 无 local 且 `provider oidc`（任意 preset） | 单按钮 + 一次性静默续期 | `auth/oidc-client.ts`：浏览器 PKCE 直达 `VITE_QIY_TOKEN_URL` |
 | 多 Provider | `providers` 多个且不含 `local` | `GET /api/v1/auth/providers` 渲染按钮列表 | `auth/oidc-multi.ts`：回调经服务端 `POST /api/v1/auth/exchange` |
 | 混合 | `providers` 含 `local` 且有 OAuth | 一张页：密码表单 + Provider 按钮 | 表单走本地登录；按钮走 `oidc-multi`，回调经 `/auth/exchange`，新身份进 onboarding |
 | 宿主集成 | `mode integration` 且 `integration.authTransport` 不是 `none` | `app/extensions/host-login.tsx` | `authProvider={qiyIntegrationAuthProvider}` 委托 `window.qiyHostAuth` |
@@ -2296,7 +2146,7 @@ const { result, query } = useOne({ resource: name ?? "", id: id ?? "", liveMode:
 
 - `check()` 在无 `window` 时恒返回 `{ authenticated: false, redirectTo: "/auth/login" }`。
 - DataProvider 的 `authHeaders()` 在无 `window` 时返回空对象（不会发 Bearer）。
-- `createQiyLiveProvider()` 在无 `window` 且未注入 Ably 客户端时返回 `undefined`。
+- `createQiyLiveProvider()` 在无 `window` 且未注入 `fetcher` 时返回 `undefined`。
 - 路由模块里的 loader/action 不要假设能拿到 auth hook；需要在非 hook 位置读身份时用 `fetchCurrentIdentity()`。
 
 ### 角色与权限如何浮现
@@ -2378,15 +2228,15 @@ options: {
 
 | 项 | 行为 |
 | --- | --- |
-| 传输 | Ably Realtime JS SDK 2.x；`QIY_ABLY_API_KEY` 只在服务端 |
-| 授权 | `POST /api/v1/realtime/token`（Bearer 会话）→ Ably TokenRequest，subscribe-only、按角色 capability |
+| 传输 | 自托管 SSE：`GET /api/v1/realtime/stream`，用 `fetch` 读取并带 `Authorization: Bearer`（不用 `EventSource`），无第三方依赖 |
+| 连接 | 所有 Refine 订阅共享一条连接：首个订阅时打开，最后一个取消时关闭；断开后按 1s→30s 指数退避重连，401/403 时保持空闲 |
 | 通道 | `qiy:{table}`；声明了 `when {field} claim {claim}` 的资源是分段通道 `qiy:{table}:{claimValue}` |
-| 通道解析 | 客户端不假设通道名：从 token 的 `capability` 里找 `qiy:{table}` 或 `qiy:{table}:*`，找不到才退回基础名 |
-| 事件类型 | `subscribe({ types })` 对应资源声明的 `created`/`updated`/`deleted`；回调里的 `type` 取消息名，消息无名时为 `*` |
-| 记录级裁剪 | `params.id` / `params.ids` 存在时，只有 `payload.id` 或 `payload.data.id` 命中才回调 |
-| 负载 | `message.data` 是对象时原样给 Refine，否则包成 `{ data }`；`date` 取消息时间戳 |
-| 取消 | `unsubscribe(subscription)` 调 `channel.unsubscribe(types, listener)` |
-| SSR | 无 `window` 且未注入客户端时 `createQiyLiveProvider()` 返回 `undefined` |
+| 通道匹配 | 服务端只发送调用者被授予的 channel；客户端按资源前缀匹配（`qiy:{table}` 或 `qiy:{table}:*`），因此无需知道 claim 值 |
+| 事件类型 | `subscribe({ types })` 对应资源声明的 `created`/`updated`/`deleted`；`*` 接收全部 |
+| 记录级裁剪 | `params.id` / `params.ids` 存在时，只有 `record.id` 或 `record.data.id` 命中才回调 |
+| 负载 | 回调 `payload` 是已脱敏的记录对象 |
+| 取消 | `unsubscribe(subscription)` 移除订阅；没有订阅时断开连接 |
+| SSR | 无 `window` 且未注入 `fetcher` 时 `createQiyLiveProvider()` 返回 `undefined` |
 
 `resources[].liveMode` 来自 `realtime` 块的 `mode`：`auto` 让 Refine 自动失效相关查询，`manual` 只把事件交给 `onLiveEvent`（生成代码没有接 `onLiveEvent`，所以 `manual` 需要你自己在页面里处理）。如上一节所述，生成路由只给详情页传了 `liveMode`：
 
@@ -2395,7 +2245,7 @@ options: {
 const { tableProps } = useTable({ resource: name ?? "", liveMode: resource?.liveMode ?? "off", pagination: { currentPage: 1, pageSize: 10 } });
 ```
 
-`/api/v1/realtime/token` 的失败语义：未认证 401、无任何 channel 权限 403（`Realtime subscription is not permitted`）、`QIY_REALTIME_DISABLED=1` 时 503。dataflow 的 `emit` 不走这条通道，而是发到 `qiy:event:{event}`，需要单独订阅。投递语义（at-least-once、死信、重放、脱敏时机）见 [realtime](/dsl/realtime)。
+`/api/v1/realtime/stream` 的失败语义：未认证 401、无任何 channel 权限 403（`Realtime subscription is not permitted`）、`QIY_REALTIME_DISABLED=1` 时 503。dataflow 的 `emit` 发到 `qiy:event:{event}`，同一条流里也会出现（前提是角色在该 dataflow 的 `allow roles` 里）。投递语义（尽力实时、跨副本尾随、脱敏时机）见 [realtime](/dsl/realtime)。
 
 ## AuditLogProvider
 
@@ -2518,7 +2368,7 @@ const dataProvider = createDataProvider(async (input, init) => {
 
 - `createDataProvider(fetcher)` / `createGraphQLDataProvider(fetcher)`：`fetcher` 默认为 `fetch`，替换它就能统一加日志、埋点、重试或把请求转发到别的 origin。
 - `createAuditLogProvider(fetcher)`：同上，方便在宿主里换成带自有审计端点的 fetch。
-- `createQiyLiveProvider(fetcher, injected)`：`injected` 可传一个已建好的 Ably 客户端（测试里用假客户端，SSR 时返回 `undefined`）。
+- `createQiyLiveProvider({ fetcher, reconnectDelayMs, maxReconnectDelayMs })`：测试里注入返回 SSE 响应的假 `fetcher`；SSR 时返回 `undefined`。
 - `getMany` 的 30 秒缓存是**实例内**状态：`createDataProvider()` 返回新实例即新缓存；`dataProvider` 单例的缓存跟随模块生命周期。
 
 ### 宿主集成模式
@@ -2629,8 +2479,8 @@ app/resources.ts          # resourceNames / resources[].{name,apiName,fields}
 | 审计面板 403 | 非 admin；或该资源声明了 `scope` | 用 admin 查看；租户审计需要持久化 scope 元数据 |
 | 审计面板 400 `Unknown audit resource` | 传了实体名而不是表名 | 用 `resource.name`（tableName） |
 | 列表不实时刷新 | 列表 `useTable` 没传 `liveMode` | 显式传 `liveMode: resource.liveMode` |
-| 详情页收不到事件 | 角色不在 `realtime.roles`；分段通道 claim 缺失 | 看 `/api/v1/realtime/token` 的 capability；补角色/claim |
-| `/api/v1/realtime/token` 503 | `QIY_REALTIME_DISABLED=1` | 取消该变量 |
+| 详情页收不到事件 | 角色不在 `realtime.roles`；分段通道 claim 缺失；反向代理缓冲 SSE | 看 `/api/v1/realtime/stream` 首帧 `ready` 列出的 channel；补角色/claim；关闭代理缓冲 |
+| `/api/v1/realtime/stream` 503 | `QIY_REALTIME_DISABLED=1` | 取消该变量 |
 | 命令按钮报 `Unknown workflow command` | 调了未声明的命令 URL，或 method 不是 `post` | 命令必须走 `dataflow`/`actions` 声明 |
 | GraphQL 错误没有中文文案 | GraphQL 错误不带 `errorKey` | 已知差异；需要本地化就用 REST 客户端或自己映射 |
 | 退出登录后仍残留 `qiy.id_token` | 多 Provider 模式的 `logout` 只删 access token | 自己清或改用混合模式 |
@@ -2682,7 +2532,7 @@ curl -s -o /dev/null -w '%{http_code}\n' "$API/api/v1/audit-logs/?resource=produ
 
 # 8) Provider 列表与实时 token
 curl -s $API/api/v1/auth/providers
-curl -s -X POST $API/api/v1/realtime/token -H "Authorization: Bearer $TOKEN"                                                        # 期望 TokenRequest
+curl -s -N $API/api/v1/realtime/stream -H "Authorization: Bearer $TOKEN"                                                            # 期望 event: ready
 
 # 9) 命令（命令名取模型里声明的 dataflow，例如 receiveInventory；body 形状由该 flow 的 inputs 决定）
 curl -s -X POST "$API/api/v1/commands/receiveInventory" \
@@ -2990,25 +2840,24 @@ const mode = optional?.resolvedColorMode ?? "light";
 - [application · ui](/dsl/application#ui)：`ui` 块在 `application` 中的位置与字段级说明。
 - [多语言（messages / i18n）](/dsl/i18n)：主题/色彩模式文案与回退链。
 - [chart（多视图图表）](/dsl/charts)：图表在暗色模式下的表现。
-- [菜单与 Dashboard](/guide/menu-dashboard)：侧边栏折叠持久化与移动端抽屉。
+- [菜单与概览页](/guide/menu-dashboard)：侧边栏折叠持久化与移动端抽屉。
 - [Refine Providers](/guide/refine-providers)：`QiyUiProvider` 在 Refine 树中的位置与 Header。
 - 完整示例：[`examples/themes/app.qiy`](https://github.com/AI-NoDev/qiy/blob/main/examples/themes/app.qiy)。
 
-# 菜单与 Dashboard
+# 菜单与概览页
 
 Source: https://ai-nodev.github.io/qiy/guide/menu-dashboard
 
-# 菜单与 Dashboard
+# 菜单与概览页
 
-概览页与侧边栏由三组 DSL 决定：
+侧边栏与概览页由两组 DSL 决定：
 
 | DSL | 位置 | 生成物 |
 | --- | --- | --- |
-| `menu { group ... }` | `pages` 之后、`dashboard`/`chart` 之前 | `app/resources.ts` 的 `menuGroups` + `QiySider` 树 |
-| `dashboard { metric ... }` | 与 `chart` 同位置（`menu` 之后、`dataflow` 之前） | `app/dashboard.ts` + 概览页指标卡 |
-| `chart` / `chart panels` | 同上，与 `dashboard` 可交错 | `app/charts.ts` + `ChartDashboard` |
+| `menu { group ... }` | `pages` 之后、`chart` 之前 | `app/resources.ts` 的 `menuGroups` + `QiySider` 树 |
+| `chart` / `chart panels` | `menu` 之后、`dataflow` 之前 | `app/charts.ts` + `ChartDashboard` |
 
-三者都只描述界面结构；权限、数据范围仍由服务端接口与 Refine access control 决定。图表的完整语法见 [chart（多视图图表）](/dsl/charts)。
+两者都只描述界面结构；权限、数据范围仍由服务端接口与 Refine access control 决定。图表的完整语法见 [chart（多视图图表）](/dsl/charts)。
 
 ## 菜单
 
@@ -3048,7 +2897,7 @@ menu {
 - `@label`、`@icon`、`@parent`、`@comment` 顺序任意、可省略；每个最多一次。
 - `@comment` 支持字面量或 `t("key")`，进入生成元数据供二次开发使用，不渲染在侧边栏。
 - `resource` 的值是**资源名（表名）**，不是实体名；`entity Order table orders` 应写 `resource orders;`。
-- 解析器按固定顺序读取：`menu` 必须在 `pages`（若有）之后、`dashboard`/`chart`（若有）之前。
+- 解析器按固定顺序读取：`menu` 必须在 `pages`（若有）之后、`chart`（若有）之前。
 
 ### 参数表
 
@@ -3151,136 +3000,40 @@ apps/web/tests/menu-tree.test.ts       # 排序/嵌套/未分组/隐藏资源断
 - `lg` 以下使用抽屉（Drawer）：点击遮罩或菜单项关闭；方向跟随 RTL。
 - 侧边栏标题组件默认 `ThemedTitle`（显示 "Qiy Admin"），可从 `QiyThemedLayout` 的 `Title` prop 覆盖。
 
-## Dashboard 指标（旧语法）
+## 概览页
 
-### 语法
+概览页（`/`）的主体只由 `chart` 决定：
 
-```qiy
-dashboard {
-  metric orderCount orders @label("订单总数") @icon(ShoppingOutlined) @span(8);
-  metric orderStatus orders @label("订单状态") @span(12)
-    @type(distribution) @groupBy(status);
-  metric orderTrend orders @label("近 30 天订单") @span(24)
-    @type(trend) @groupBy(createdAt) @days(30);
-  metric orderAmount orders @label("订单金额") @span(12)
-    @type(aggregate) @field(total) @agg(sum);
-}
-```
-
-```text
-dashboard {
-  metric <MetricName> <resource> @label(...) @icon(...) @span(8|12|24) @type(...) @groupBy(...) @field(...) @agg(...) @days(...) @comment(...);
-  ...
-}
-```
-
-`dashboard` 与 `chart` 共用同一位置，可以写多个 `dashboard` 块（指标累积），也可以交错 `chart` 块。
-
-### 参数表
-
-| 注解 | 必填 | 取值 | 默认 | 说明 |
-| --- | --- | --- | --- | --- |
-| `metric <name>` | **是** | 标识符，全模型唯一 | 无 | 指标 key；同时用于 `qiy.dashboard.<name>.label` |
-| `metric <name> <resource>` | **是** | **表名** | 无 | 必须是资源表名（实体名不是表名时不能用） |
-| `@label(...)` | 否 | 字符串 | 指标名 | 卡片标题 |
-| `@icon(...)` | 否 | `*Outlined` | 资源图标 → `TableOutlined` | 卡片图标 |
-| `@span(...)` | 否 | `8` / `12` / `24` | `8` | 栅格宽度（`lg` 列宽） |
-| `@type(...)` | 否 | `count` / `distribution` / `trend` / `aggregate` | `count` | 指标类型 |
-| `@groupBy(...)` | distribution/trend 必填 | 字段名 | 无 | distribution 需枚举字段；trend 需 `DateTime` 字段 |
-| `@field(...)` | aggregate 必填 | 数字字段名 | 无 | `Integer`/`Decimal`/`Money` |
-| `@agg(...)` | aggregate 必填 | `sum` / `avg` / `min` / `max` | 无 | 聚合操作 |
-| `@days(...)` | trend **必填** | 1..365 的整数 | 无 | 趋势窗口；缺失或越界在生成阶段报错 |
-| `@comment(...)` | 否 | 字面量 / `t("key")` | 无 | 卡片说明；按当前语言显示 |
-
-### 默认值与校验
-
-解析阶段：
-
-- `@span` 只接受 8/12/24：`Dashboard metric <name>: span must be 8, 12 or 24`。
-- `@type` 只接受 count/distribution/trend/aggregate：`type must be count, distribution, trend or aggregate`。
-- `@agg` 只接受 sum/avg/min/max：`agg must be sum, avg, min or max`。
-- 未知注解：`Unsupported dashboard metric attribute @<x>`；重复 `@comment`、重复注解也会报错。
-- `@days(0)` 会被解析成"未设置"（`days = metricDays > 0 ? metricDays : undefined`）。
-
-生成阶段（`generate-web.ts`，通常与菜单/图标错误合并输出）：
-
-- 指标名非法或重复：`Dashboard metric <name>: invalid or duplicate name`。
-- 资源不存在（必须是表名）：`Dashboard metric <name>: unknown resource <r>`。
-- `span` 越界：`span must be 8, 12 or 24`。
-- `distribution` 的 `@groupBy` 不是枚举字段：`distribution requires an enum groupBy field`。
-- `trend` 的 `@groupBy` 不是 `DateTime` 或 `@days` 缺失/越界：`trend requires a DateTime groupBy field` / `days must be between 1 and 365`。
-- `aggregate` 缺数字字段或 `@agg`：`aggregate requires a numeric field` / `aggregate requires agg sum, avg, min or max`。
-- 非 aggregate 写了 `@field`/`@agg`：`field and agg require aggregate type`。
-- 非 trend 写了 `@days`：`days requires trend type`。
-
-### 生成结果
-
-- `app/dashboard.ts` 导出 `dashboardMetrics`（含 `labelKey`）。
-- 概览页（`app/routes/home.tsx`）在**没有 chart** 时渲染指标卡：
-
-| type | 组件 | 数据 | 交互 |
-| --- | --- | --- | --- |
-| `count` | `CountSummary` + `Statistic` | 列表 `page=1&pageSize=1` 的 `total` | 整卡链接到资源列表，`hoverable` |
-| `distribution` | `DistributionSummary` | `/api/v1/<resource>/distribution?field=<groupBy>` | 每行 label + count + `Progress` 百分比；label 用枚举 label（可被 `qiy.enums...` 覆盖） |
-| `trend` | `TrendSummary` | `/api/v1/<resource>/trend?field=<groupBy>&days=<days>` | 每天一行 + `Progress` 百分比（相对最大值） |
-| `aggregate` | `AggregateSummary` | `/api/v1/<resource>/aggregate?field=<field>&op=<agg>` | `Statistic` + `precision`（Money/Decimal 两位）+ `操作 · 字段` 后缀 |
-
-- 布局：`Col xs=24 sm=12 lg=<span>`；`span=24` 时独占整行。
-- 每个指标卡包在 `CanAccess resource=<resource> action="list"` 中。
-- 加载中：卡片 `loading`（count 的 `Statistic` 显示 `—`）；错误：卡内红色 `String(error)`；空：`—` 或 `qiy.noData`。
-
-### i18n
-
-| key | 用途 |
+| 模型情况 | 概览页主体 |
 | --- | --- |
-| `qiy.dashboard.<metric>.label` | 指标卡标题 |
-| `qiy.enums.<enum>.values.<value>` | distribution 行 label（通过字段元数据） |
-| `qiy.resources.<resource>.fields.<field>.label` | aggregate 后缀里的字段名 |
-| `qiy.aggSum` / `qiy.aggAvg` / `qiy.aggMin` / `qiy.aggMax` | aggregate 后缀的操作名 |
-| `qiy.noData` | 空状态 |
-| `@comment(t("key"))` 的 key | 卡片说明文案 |
+| 声明了 `chart` | `ChartDashboard`：多视图卡片 + `chart panels` 响应式栅格 |
+| 没有 `chart` | 每个可写资源一张计数卡（`ResourceSummary`）：资源图标、复数名、总数，整卡链接到列表；只读资源（如 `view`）不出卡 |
 
-`@comment("...")` 是默认语言字面量，不会随界面语言切换；需要翻译时使用 `t("key")`。
-
-### 概览页选择（chart 优先）
-
-生成器在 `generate-web.ts` 里这样决定概览页内容：
-
-```text
-dashboardMetrics = 显式 dashboard 指标
-                  ? 显式指标
-                  : charts 存在 ? [] : 每个实体一个默认 count 指标
-```
-
-概览页渲染：
-
-```text
-charts.length > 0 ? <ChartDashboard charts panels /> : <指标卡 Row />
-```
-
-因此：
-
-1. **有 chart 时概览页只渲染图表**，即使同时写了 `dashboard { metric ... }`，旧指标也不会显示（元数据仍会生成，属于死配置）。
-2. **没有 chart 且没有 dashboard**：自动为每个实体生成一个 `count` 指标（`@span(8)`、label=实体 label、icon=实体 icon），即"每资源一张计数卡"。
-3. **有 dashboard 且没有 chart**：渲染声明的指标卡。
-4. 图表与指标卡不会混排。
+计数卡用 `useList` 取 `page=1&pageSize=1` 的 `total`，包在 `CanAccess resource=<resource> action="list"` 中；标题走 `qiy.resources.<table>.plural` → `.label` → 实体 `@label`。
 
 概览页固定结构：
 
 - 标题：`qiy.overview`；说明：`qiy.overviewDescription`（内置中文"概览"/"从数据资源快速进入业务管理。"）。
-- 主体：`ChartDashboard` 或指标卡 `Row`。
+- 主体：`ChartDashboard` 或计数卡 `Row`。
 - 底部"快速访问"卡片：`qiy.quickAccess`，列出**前 4 个资源**的列表链接（`resources.slice(0, 4)`），每个包 `CanAccess list`。
 
-### 图表概览页
+图表的完整语法、校验、端点和 i18n 见 [chart（多视图图表）](/dsl/charts)。与菜单的衔接只有两点：chart 与 panel 的名称在全模型唯一且与菜单分组无关；面板选择存 `qiy.charts.panel`，视图选择不持久化。
 
-`chart` / `chart panels` 是推荐的概览页写法：多视图卡片、响应式栅格、面板切换、分布/趋势/表格预览。完整语法、校验、端点和 i18n 见 [chart（多视图图表）](/dsl/charts)。这里只保留与菜单/概览页的衔接：
+### 从 `dashboard { metric }` 迁移
 
-- chart 与 panel 的名称在全模型唯一，且与菜单分组无关；
-- 面板选择存 `qiy.charts.panel`，视图选择不持久化；
-- 图表卡片同样受 `CanAccess list` 约束；
-- 有 chart 时旧指标卡不渲染（见上）。
+0.37.0 删除了旧的 `dashboard { metric ... }` 块，解析器遇到它会报错并指向 [0.37 迁移指南](/guide/migration-0.37)。逐条改写：
 
-## 示例：最小菜单 + 指标模型
+| 0.36 `metric` 写法 | 0.37 `chart` 写法 |
+| --- | --- |
+| `metric orderCount orders @label("订单总数") @icon(ShoppingOutlined);` | `chart const OrderCount { title = "订单总数"; icon = "ShoppingOutlined"; data = count orders; }` |
+| `@type(distribution) @groupBy(status)` | `chart pie OrderStatus { data = count orders group by status; labels = status; }` |
+| `@type(trend) @groupBy(createdAt) @days(30)` | `chart line OrderTrend { data = trend orders.createdAt days 30; }` |
+| `@type(aggregate) @field(amount) @agg(sum)` | `chart const OrderAmount { data = sum orders.amount; }` |
+| `@span(8\|12\|24)` | `chart panels` 的 `grid 24 <rows>` 与每个变体的 `x y w h` |
+| `@comment(...)` | 无对应属性；说明文字写进 `title` 或 `qiy.charts.<Chart>.label` |
+| `qiy.dashboard.<metric>.label` | `qiy.charts.<Chart>.label` |
+
+## 示例：最小菜单 + 图表模型
 
 ```qiy
 qiy v0;
@@ -3305,15 +3058,12 @@ application menu-demo {
     }
   }
 
-  dashboard {
-    metric productCount products @label("产品数") @icon(TableOutlined) @span(8);
-    metric productActive products @label("启用分布") @span(12)
-      @type(distribution) @groupBy(active);
-  }
+  chart const ProductCount { title = "产品数"; icon = "TableOutlined"; data = count products; }
+  chart pie ProductActive { title = "启用分布"; data = count products group by active; labels = active; }
 }
 ```
 
-生成结果：侧边栏只有一个"主数据 → Products"分组；概览页是"产品数"计数卡 + "启用分布"进度条卡。把 `dashboard` 换成 `chart` 即切换到图表页。
+生成结果：侧边栏只有一个"主数据 → Products"分组；概览页是"产品数"统计卡 + "启用分布"饼图。删掉两个 `chart` 则回到每资源一张计数卡。
 
 ## 进阶用法
 
@@ -3371,22 +3121,16 @@ menu {
 | `Unsupported menu group attribute @x` | 未知注解 | 只用 label/icon/parent/comment |
 | 分组不显示 | 组内资源都被角色过滤 | 检查 `restrict`/`pages`/角色 |
 | 菜单项是原文而非译文 | 只写了 `.label`，没写 `.plural` | 同时声明 `.plural` |
-| `Dashboard metric <m>: unknown resource <r>` | 指标用了实体名 | 改用表名 |
-| `distribution requires an enum groupBy field` | `@groupBy` 非枚举 | 换枚举字段或用 chart |
-| `trend requires a DateTime groupBy field` | `@groupBy` 非 DateTime | 换 DateTime 字段 |
-| `aggregate requires a numeric field` | `@field` 非 Integer/Decimal/Money | 换数字字段 |
-| `field and agg require aggregate type` | count/distribution/trend 写了 `@field`/`@agg` | 删除或改 `@type(aggregate)` |
-| `days requires trend type` | 非 trend 写了 `@days` | 删除或改 `@type(trend)` |
-| 写了 dashboard 但概览页显示图表 | 模型同时有 `chart` | 删除 chart，或把指标迁移到 chart |
+| `The dashboard { metric ... } block was removed in Qiy 0.37.0` | 模型还在用旧指标块 | 按[上表](#从-dashboard-metric-迁移)改写成 `chart` |
 
 ## 相关
 
 - [chart（多视图图表）](/dsl/charts)：图表语法、面板栅格、视图切换、i18n。
-- [enum / menu / dashboard](/dsl/enum-menu-dashboard)：`menu` / `dashboard` 的精简语法卡。
+- [enum / menu](/dsl/enum-menu-dashboard)：`enum` / `menu` 的精简语法卡。
 - [多语言（messages / i18n）](/dsl/i18n)：`qiy.menu.*`、`qiy.resources.*.plural`、chrome 键与回退链。
 - [UI 与主题](/guide/ui-theming)：侧边栏折叠、主题与色彩模式持久化。
 - [features](/dsl/features)：系统管理页面与菜单链接生成规则。
-- [Refine Providers](/guide/refine-providers)：access control 如何过滤菜单、指标/图表请求如何走 DataProvider。
+- [Refine Providers](/guide/refine-providers)：access control 如何过滤菜单、图表请求如何走 DataProvider。
 - 示例：[`examples/self/modules/menu.qiy`](https://github.com/AI-NoDev/qiy/blob/main/examples/self/modules/menu.qiy)、[`examples/self/modules/charts.qiy`](https://github.com/AI-NoDev/qiy/blob/main/examples/self/modules/charts.qiy)。
 
 # API 文档与访问密钥
@@ -4497,9 +4241,9 @@ chart panels MainPanel {
 - 同名同 kind 重复声明会报错；多视图必须用不同 kind。
 - `x + w <= cols`、`y + h <= rows`；不检测重叠，重叠会叠在一起。
 - 没有 panel 时所有 chart 用 `xs=24 / lg=12` 平铺，不走坐标。
-- 有 chart 时旧 `dashboard { metric ... }` 不再渲染。
+- 没有 chart 时概览页回退为每个可写资源一张计数卡。
 
-**参考**：[chart（多视图图表）](/dsl/charts) · [菜单与 Dashboard](/guide/menu-dashboard#概览页选择chart-优先)。
+**参考**：[chart（多视图图表）](/dsl/charts) · [菜单与概览页](/guide/menu-dashboard#概览页)。
 
 ### 配方 4.2：KPI、聚合与表格预览 {#recipe-42}
 
@@ -4866,7 +4610,7 @@ action
 ## 相关
 
 - 语法参考：[DSL 总览](/dsl/overview)、[application](/dsl/application)、[entity 与 field](/dsl/entity)、[relation 与 index](/dsl/relation-index)、[enum / menu / dashboard](/dsl/enum-menu-dashboard)、[chart](/dsl/charts)、[i18n](/dsl/i18n)、[permission](/dsl/permissions)、[dataflow](/dsl/dataflow)、[action](/dsl/actions)、[realtime](/dsl/realtime)、[storage](/dsl/storage)、[features](/dsl/features)。
-- 指南：[数据建模](/guide/data-modeling)、[认证与权限](/guide/auth)、[业务工作流](/guide/workflow)、[菜单与 Dashboard](/guide/menu-dashboard)、[UI 与主题](/guide/ui-theming)、[Refine Providers](/guide/refine-providers)、[API 文档与访问密钥](/guide/api-docs-and-keys)、[文件存储](/guide/storage)、[部署](/guide/deployment)、[集成现有 Bun 项目](/guide/existing-bun-project)。
+- 指南：[数据建模](/guide/data-modeling)、[认证与权限](/guide/auth)、[业务工作流](/guide/workflow)、[菜单与概览页](/guide/menu-dashboard)、[UI 与主题](/guide/ui-theming)、[Refine Providers](/guide/refine-providers)、[API 文档与访问密钥](/guide/api-docs-and-keys)、[文件存储](/guide/storage)、[部署](/guide/deployment)、[集成现有 Bun 项目](/guide/existing-bun-project)。
 - 完整示例：[`examples/self`](https://github.com/AI-NoDev/qiy/blob/main/examples/self/app.qiy)（供应链 + ERP + WMS，含全部配方）。
 
 # 部署
@@ -4982,7 +4726,7 @@ deploy/kubernetes/
 
 ## Realtime 监控
 
-声明 REST Realtime 后还会生成 ServiceMonitor、PrometheusRule 和 Grafana Dashboard。配置应用 Secret 中的 `QIY_REALTIME_METRICS_TOKEN`，并让 Prometheus Operator 的 selector 选中生成对象；该凭据只允许读取 Prometheus 文本指标。安装要求、凭据轮换和当前验收边界见 [Realtime 监控](../dsl/realtime.md#prometheus-operator-与-grafana)。
+Realtime 是自托管 SSE（`GET /api/v1/realtime/stream`），不需要额外服务或密钥。生成的 `deploy/nginx.conf` 无需改动：nginx 遵循响应里的 `X-Accel-Buffering: no` 关闭缓冲，默认 60 秒读超时也大于 25 秒保活间隔；换用其他反向代理或 CDN 时，需要为 `/api/v1/realtime/stream` 与 `/graphql/subscribe` 关闭响应缓冲并放宽读超时。多副本时各实例尾随同一张 outbox 表，跨副本事件延迟由 `QIY_REALTIME_POLL_MS` 决定。详见 [realtime](../dsl/realtime.md)。
 
 ## Nginx 反向代理
 
@@ -5305,6 +5049,127 @@ user's normal CLI permissions.
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"qiy_explain","arguments":{"source":"qiy v0; application demo { database sqlite {} entity items { field id UUID @id; field name Text; } }"}}}
 ```
 
+# 迁移到 0.37
+
+Source: https://ai-nodev.github.io/qiy/guide/migration-0.37
+
+# 迁移到 0.37
+
+0.37.0 是一次"删除冗余"的版本：同一件事只保留一种写法，旧写法直接删除，不保留兼容期。被删除的写法在解析时会报错，并在错误信息里指向本页。
+
+| 删除的内容 | 改用 | 影响 |
+| --- | --- | --- |
+| v1 友好语法（`qiy v1;`） | v0 语法 | 模型需改写 |
+| JetBrains MPS 工作台与 exporter | `.qiy` 文本 | 只影响仓库维护者 |
+| 各厂商独立的 OIDC provider 关键字 | `provider oidc { preset ...; }` | 单 Provider 模型需改写 |
+| Ably 实时传输、graphql-ws、outbox 死信与运维端点 | 内置 SSE | 重新生成 + 迁移 + 清理环境变量 |
+| `dashboard { metric ... }` | `chart` | 模型需改写 |
+| `llms-full.txt` | `llms-dsl.txt` + `llms-guides.txt` | 只影响 Agent 检索地址 |
+
+升级步骤：
+
+1. 按下面各节改写模型，运行 `qiy check` 直到没有错误。
+2. 重新生成：`qiy generate app.qiy <输出目录> --sync`。
+3. 运行数据库迁移（实时 outbox 表结构有变化）：开发环境在项目根目录运行 `bun run db:migrate`，生产环境在 `apps/server` 下运行 `bun run db:migrate:production`。
+4. 从部署环境删除下文列出的旧环境变量。
+
+## v1 友好语法
+
+`qiy v1;` 开头的模型会报：
+
+```text
+The v1 shorthand syntax was removed in Qiy 0.37.0. Rewrite the model as `qiy v0; application <name> { ... }`; see docs/guide/migration-0.37.md.
+```
+
+v1 只是预处理成 v0 的语法糖，逐项改写即可：
+
+| v1 | v0 |
+| --- | --- |
+| `qiy v1;` + `project shop` + `database sqlite` | `qiy v0;` + `application shop { database sqlite {} ... }` |
+| `module Catalog { ... }` | 去掉外壳，或拆成 `include "modules/catalog.qiy";` 片段 |
+| `entity Product { ... }`（PascalCase 自动转表名） | `entity Product table products { ... }` |
+| 省略 `id` 自动生成主键 | 显式写 `field id UUID @id;` |
+| `name: text`、`price: decimal(12, 2) nullable` | `field name Text;`、`field price Decimal(12, 2) @nullable;` |
+| `primary` / `unique` 修饰 | `@id` / `@unique` |
+| `customer: Customer`（一对一） | `field customerId UUID;` + `relation orderCustomer orders customerId customers id one;` |
+| `lines: OrderLine[]`（一对多） | 在子实体写 `field orderId UUID;` + `relation orderLineOrder order_lines orderId orders id one;` |
+| `tags: Tag[]` + `products: Product[]`（多对多） | 显式声明中间实体（如 `products_tags`）和两条 `relation ... one` |
+
+类型名改为 v0 的大写形式：`text` → `Text`、`integer`/`int` → `Integer`、`decimal` → `Decimal`、`money` → `Money`、`uuid` → `UUID`、`date`/`time`/`datetime` → `Date`/`Time`/`DateTime`、`file`/`files` → `File`/`Files`、`vector(n)` → `Vector(n)`。注解（`@label`、`@display`、`@code`、`@onDelete` 等）和 v0 配置块原样保留。完整 v0 语法见 [DSL 总览](/dsl/overview)。
+
+## MPS 工作台
+
+仓库里的 `languages/`、`.mps/`、MPS exporter（`tools/mps-*.ts`）和内部的 `export-qiy`/`export-ir`/`validate-mps` 命令已删除，`fast-xml-parser` 依赖随之移除。已发布的 CLI 一直只接受 `.qiy`，因此只影响在本仓库里用 MPS 建模的维护者：用 0.36 的仓库导出一次 `.qiy`，之后直接维护文本模型。
+
+## OIDC provider
+
+所有外部登录都是 OpenID Connect，厂商之间只差端点形态、按钮文案和 claim 约定，所以 0.37 只保留一种外部 Provider，用 `preset` 选厂商。单 Provider 写厂商名会报：
+
+```text
+Unsupported auth provider okta; use provider local, otp or oidc (for example provider oidc { preset okta; })
+```
+
+| 0.36 | 0.37 |
+| --- | --- |
+| `provider okta;`（auth0、azure-ad-b2c、keycloak、google、kinde 同理） | `provider oidc { preset okta; }` |
+| `provider oauth2;` / `provider sso;` | `provider oidc;` |
+| `providers okta, google;` | 不变：名字与 preset 同名时自动套用 |
+| 用 `keycloak` 名字承载其他 IdP（如 Dex） | 自由命名：`providers local, dex;` + `provider dex { label "Dex"; }` |
+
+单 Provider 模式的环境变量仍是 `QIY_OIDC_ISSUER` / `QIY_OIDC_AUDIENCE` / `QIY_OIDC_JWKS_URL`；多 Provider 模式仍按 Provider 名使用 `QIY_OIDC_<NAME>_*`。只有在把 Provider 改名时（例如 `keycloak` → `dex`）才需要同步改环境变量名。详见 [Provider 命名与 preset](/dsl/auth#provider-命名与-preset)。
+
+## 实时推送
+
+`.qiy` 的 `realtime` 语法不变，变化都在生成结果里：
+
+- 传输统一为 SSE：REST `GET /api/v1/realtime/stream`，GraphQL subscription `GET /graphql/subscribe`。生成的 Refine LiveProvider 已经指向新端点，不需要外部服务。
+- 删除了 Ably 依赖、graphql-ws、outbox 租约/重试/死信/重放、管理与 Prometheus 指标端点、`realtime:admin` CLI 和 Grafana/Prometheus 清单。
+- outbox 表删除了 `attempts`、`availableAt`、`deliveredAt`、`leaseOwner`、`leaseExpiresAt`、`deadLetteredAt`、`lastError` 列，索引改为 `qiy_realtime_outbox_created_idx`；重新生成后运行迁移即可。
+- 反向代理需要允许 SSE 长连接：SSE 响应带 `X-Accel-Buffering: no`，Nginx 默认据此关闭缓冲；其他代理请对这两个路径关闭响应缓冲并放宽读超时（服务端每 25 秒发一次 keep-alive）。
+
+从部署环境删除这些变量：
+
+```text
+QIY_ABLY_API_KEY
+QIY_REALTIME_LEASE_MS
+QIY_REALTIME_MAX_ATTEMPTS
+QIY_REALTIME_SUBSCRIBE_POLL_MS
+QIY_REALTIME_ADMIN_URL
+QIY_REALTIME_ADMIN_TOKEN
+QIY_REALTIME_METRICS_TOKEN
+QIY_REALTIME_ALERT_MAX_PENDING
+QIY_REALTIME_ALERT_MAX_OLDEST_PENDING_MS
+QIY_REALTIME_ALERT_MAX_DEAD_LETTERED
+```
+
+保留的变量：`QIY_REALTIME_DISABLED`（默认 0）、`QIY_REALTIME_POLL_MS`（默认 1000，最小 100）、`QIY_REALTIME_RETENTION_DAYS`（默认 1）、`QIY_REALTIME_CLEANUP_MS`（默认 3600000）。详见 [realtime](/dsl/realtime)。
+
+## dashboard 指标
+
+`dashboard { metric ... }` 会报：
+
+```text
+The dashboard { metric ... } block was removed in Qiy 0.37.0; declare chart views instead (for example chart const OrderCount { data = count orders; }); see docs/guide/migration-0.37.md.
+```
+
+逐条改写成 `chart`：
+
+| 0.36 `metric` | 0.37 `chart` |
+| --- | --- |
+| `metric orderCount orders @label("订单总数") @icon(ShoppingOutlined);` | `chart const OrderCount { title = "订单总数"; icon = "ShoppingOutlined"; data = count orders; }` |
+| `@type(distribution) @groupBy(status)` | `chart pie OrderStatus { data = count orders group by status; labels = status; }` |
+| `@type(trend) @groupBy(createdAt) @days(30)` | `chart line OrderTrend { data = trend orders.createdAt days 30; }` |
+| `@type(aggregate) @field(amount) @agg(sum)` | `chart const OrderAmount { data = sum orders.amount; }` |
+| `@span(8\|12\|24)` | `chart panels` 的 `grid 24 <rows>` 与每个变体的 `x y w h` |
+| `@comment(...)` | 无对应属性；说明写进 `title` 或 `qiy.charts.<Chart>.label` |
+| `messages` 里的 `qiy.dashboard.<metric>.label` | `qiy.charts.<Chart>.label` |
+
+没有任何 `chart` 时，概览页自动为每个可写资源显示一张计数卡，等同于 0.36 不写 `dashboard` 的默认行为。生成的 `apps/web/app/dashboard.ts` 会在 `--sync` 时删除。详见 [chart](/dsl/charts) 与 [菜单与概览页](/guide/menu-dashboard#从-dashboard-metric-迁移)。
+
+## llms-full.txt
+
+文档站不再发布 `llms-full.txt`，它与 `llms-dsl.txt` + `llms-guides.txt` 内容完全重复。Agent 先读 [llms.txt](/llms.txt) 索引或 Skill 的 `language-reference.md` 语法卡，需要全文时按主题请求 [llms-dsl.txt](/llms-dsl.txt) 或 [llms-guides.txt](/llms-guides.txt)。
+
 # 生成器插件
 
 Source: https://ai-nodev.github.io/qiy/guide/plugins
@@ -5396,7 +5261,6 @@ Source: https://ai-nodev.github.io/qiy/guide/tasks
 | --- | --- |
 | 定义实体、字段、枚举、索引 | [entity 与 field](../dsl/entity) |
 | 定义一对一 / 一对多 / 多对多 | [relation](../dsl/relation-index) |
-| 使用 v1 友好语法 | [v1 语法](./syntax-v1) |
 | 生成业务编码、UUID | [自动生成值](../dsl/generated-values) |
 | 软删除、租户隔离、计算字段 | [entity 与 field](../dsl/entity) |
 | 声明只读 DB view（REST/GraphQL/Web） | [DB view](../dsl/views) |
@@ -5414,7 +5278,7 @@ Source: https://ai-nodev.github.io/qiy/guide/tasks
 
 | 任务 | 入口 |
 | --- | --- |
-| 配置菜单、页面、Dashboard | [菜单与 Dashboard](../dsl/enum-menu-dashboard) |
+| 配置菜单、概览页图表 | [菜单与概览页](../guide/menu-dashboard) |
 | 配置图表和 panel | [chart](../dsl/charts) |
 | 配置多语言 messages | [i18n](../dsl/i18n) |
 | 配置文件上传 | [storage](../dsl/storage) |
@@ -5445,7 +5309,7 @@ Source: https://ai-nodev.github.io/qiy/guide/tasks
 | 安装官方 Qiy Skill | [Agent Skill](./agent-skill) |
 | 通过 MCP 让 Agent 调用 Qiy | [MCP server](./mcp) |
 | 通过本机 HTTP API 调用 Qiy | [HTTP Agent API](./agent-api) |
-| 让 Agent 读取机器可读文档 | [llms.txt](https://ai-nodev.github.io/qiy/llms.txt)、[llms-full.txt](https://ai-nodev.github.io/qiy/llms-full.txt) |
+| 让 Agent 读取机器可读文档 | [llms.txt](https://ai-nodev.github.io/qiy/llms.txt)、[llms-dsl.txt](https://ai-nodev.github.io/qiy/llms-dsl.txt)、[llms-guides.txt](https://ai-nodev.github.io/qiy/llms-guides.txt) |
 | 校验 `qiy explain --json` | [CLI](./cli) |
 
 # 视觉回归

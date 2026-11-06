@@ -95,7 +95,7 @@ application <name> [@comment] { ... }     # exactly one per project
   restrict ... { ... }
   pages ... { ... }
   menu { ... }                            # at most one
-  dashboard { metric ...; } / chart ... / chart panels ...
+  chart ... / chart panels ...
   dataflow ... { ... }
   action ... { ... }
 }
@@ -361,7 +361,7 @@ auth {
 
 | Key | Values | Required |
 | --- | --- | --- |
-| `provider` | `local`, `otp`, `oidc`, `oauth2`, `sso`, `okta`, `auth0`, `azure-ad-b2c`, `keycloak`, `google`, `kinde` | one of `provider`/`providers` |
+| `provider` | `local`, `otp`, `oidc` | one of `provider`/`providers` |
 | `providers` | comma list (may include `local`, never `otp`) | one of the two |
 | `user` | declared entity | yes |
 | `subjectField` | required unique Text | OAuth family |
@@ -370,6 +370,8 @@ auth {
 | `passwordField` | nullable Text | `local` |
 | `profileField` | nullable Text | optional, OAuth only |
 | mapping `subjectField` | nullable unique Text | hybrid/multi |
+| block `preset` | `generic`, `okta`, `auth0`, `azure-ad-b2c`, `keycloak`, `google`, `kinde` | optional; defaults to the preset named like the provider, else `generic` |
+| block `label` | string | optional login button text |
 | mapping `claim` | plain identifier | optional, default `sub` |
 
 `provider` and `providers` are mutually exclusive; provider mappings must name configured providers. Sessions, onboarding, bind/unbind, env vars and security notes: [auth-permissions.md](auth-permissions.md).
@@ -555,28 +557,9 @@ menu {
 
 At most one `menu` block; groups unique; `resource` is the entity table name and may appear once across all groups; `@parent` must exist and be acyclic. Ungrouped resources append at root. Details: [ui-charts-i18n.md](ui-charts-i18n.md).
 
-## dashboard
+## Overview page
 
-```text
-dashboard {
-  metric <name> <resource>
-    [@label("...")] [@icon(IconName)] [@span(8|12|24)]
-    [@type(<count|distribution|trend|aggregate>)]
-    [@groupBy(<field>)] [@days(<1..365>)]
-    [@field(<field>)] [@agg(<sum|avg|min|max>)]
-    [@comment("..." | t("key"))]
-    ;
-}
-```
-
-| Type | Requirement |
-| --- | --- |
-| `count` | none |
-| `distribution` | enum `@groupBy` |
-| `trend` | `DateTime` `@groupBy`, optional `@days` 1..365 |
-| `aggregate` | numeric `@field` + `@agg` |
-
-`@span` is 8/12/24; `@field`/`@agg` only on aggregate; `@days` only on trend. `chart` takes precedence on the home page.
+The legacy `dashboard { metric ... }` block was removed in 0.37.0 and now fails to parse with a migration hint. Declare `chart` views instead; without any `chart`, the home page shows one count card per writable resource. Migration mapping: "Migrating from dashboard metrics" in [ui-charts-i18n.md](ui-charts-i18n.md).
 
 ## chart and chart panels
 
@@ -683,7 +666,6 @@ Keys derive from identifiers (never label text). `<resource>` is the **table** n
 | `qiy.resources.<table>.fields.<field>.label` | Column/detail/form/filter labels |
 | `qiy.enums.<enum>.label` / `.values.<value>` | Enum descriptions and Tags |
 | `qiy.menu.<group>.label` | Sidebar group |
-| `qiy.dashboard.<metric>.label` | Legacy metric card |
 | `qiy.charts.<chart>.label`, `.views.<kind>.label`, `.labels.<value>`, `qiy.charts.<panel>.label` | Charts |
 | `qiy.actions.<action>.label` / `.confirm` / `.inputs.<input>.label` | Command buttons/forms |
 | `qiy.dataflows.<dataflow>.label` | Overview dataflow name |

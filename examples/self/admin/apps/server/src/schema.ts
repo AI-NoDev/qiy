@@ -260,15 +260,8 @@ export const realtimeOutbox = sqliteTable("qiy_realtime_outbox", {
   channel: text("channel").notNull(),
   type: text("type").notNull(),
   payload: text("payload").notNull(),
-  attempts: integer("attempts").notNull(),
-  availableAt: integer("availableAt", { mode: "timestamp_ms" }).notNull(),
-  deliveredAt: integer("deliveredAt", { mode: "timestamp_ms" }),
-  deadLetteredAt: integer("deadLetteredAt", { mode: "timestamp_ms" }),
-  lastError: text("lastError"),
-  leaseOwner: text("leaseOwner"),
-  leaseUntil: integer("leaseUntil", { mode: "timestamp_ms" }),
   createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),
-}, (table) => [index("qiy_realtime_outbox_pending_idx").on(table.deliveredAt, table.deadLetteredAt, table.availableAt, table.leaseUntil, table.createdAt)]);
+}, (table) => [index("qiy_realtime_outbox_created_idx").on(table.createdAt)]);
 
 
 export const qiyApiKeys = sqliteTable("qiy_api_keys", {

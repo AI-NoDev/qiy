@@ -729,9 +729,9 @@ chart panels MainPanel {
 - 同名同 kind 重复声明会报错；多视图必须用不同 kind。
 - `x + w <= cols`、`y + h <= rows`；不检测重叠，重叠会叠在一起。
 - 没有 panel 时所有 chart 用 `xs=24 / lg=12` 平铺，不走坐标。
-- 有 chart 时旧 `dashboard { metric ... }` 不再渲染。
+- 没有 chart 时概览页回退为每个可写资源一张计数卡。
 
-**参考**：[chart（多视图图表）](/dsl/charts) · [菜单与 Dashboard](/guide/menu-dashboard#概览页选择chart-优先)。
+**参考**：[chart（多视图图表）](/dsl/charts) · [菜单与概览页](/guide/menu-dashboard#概览页)。
 
 ### 配方 4.2：KPI、聚合与表格预览 {#recipe-42}
 
@@ -1098,5 +1098,5 @@ action
 ## 相关
 
 - 语法参考：[DSL 总览](/dsl/overview)、[application](/dsl/application)、[entity 与 field](/dsl/entity)、[relation 与 index](/dsl/relation-index)、[enum / menu / dashboard](/dsl/enum-menu-dashboard)、[chart](/dsl/charts)、[i18n](/dsl/i18n)、[permission](/dsl/permissions)、[dataflow](/dsl/dataflow)、[action](/dsl/actions)、[realtime](/dsl/realtime)、[storage](/dsl/storage)、[features](/dsl/features)。
-- 指南：[数据建模](/guide/data-modeling)、[认证与权限](/guide/auth)、[业务工作流](/guide/workflow)、[菜单与 Dashboard](/guide/menu-dashboard)、[UI 与主题](/guide/ui-theming)、[Refine Providers](/guide/refine-providers)、[API 文档与访问密钥](/guide/api-docs-and-keys)、[文件存储](/guide/storage)、[部署](/guide/deployment)、[集成现有 Bun 项目](/guide/existing-bun-project)。
+- 指南：[数据建模](/guide/data-modeling)、[认证与权限](/guide/auth)、[业务工作流](/guide/workflow)、[菜单与概览页](/guide/menu-dashboard)、[UI 与主题](/guide/ui-theming)、[Refine Providers](/guide/refine-providers)、[API 文档与访问密钥](/guide/api-docs-and-keys)、[文件存储](/guide/storage)、[部署](/guide/deployment)、[集成现有 Bun 项目](/guide/existing-bun-project)。
 - 完整示例：[`examples/self`](https://github.com/AI-NoDev/qiy/blob/main/examples/self/app.qiy)（供应链 + ERP + WMS，含全部配方）。

@@ -138,7 +138,7 @@ Front-end role changes take up to ~1 minute (60s identity cache + query `staleTi
 
 ## LiveProvider
 
-Generated only with `realtime` (which requires `auth`). Transport is the Ably JS SDK 2.x; the server issues a subscribe-only TokenRequest from `POST /api/v1/realtime/token`. Channels are `qiy:<table>` or `qiy:<table>:<claimValue>` for claim-segmented resources; the client resolves granted channels from the token capability instead of assuming names. Events map to the declared `created`/`updated`/`deleted`; `params.id`/`params.ids` trim callbacks by `payload.id`/`payload.data.id`; unsubscribing calls `channel.unsubscribe`.
+Generated only with `realtime` (which requires `auth`). Transport is a self-hosted SSE stream at `GET /api/v1/realtime/stream`, read with `fetch` and the Bearer token; all Refine subscriptions share one connection that closes after the last unsubscribe and reconnects with backoff. Channels are `qiy:<table>` or `qiy:<table>:<claimValue>` for claim-segmented resources; the provider matches any channel under the resource prefix, and the server only sends granted channels. Events map to the declared `created`/`updated`/`deleted`; `params.id`/`params.ids` trim callbacks by `record.id`/`data.id`. `createQiyLiveProvider({ fetcher, reconnectDelayMs, maxReconnectDelayMs })` returns `undefined` during SSR.
 
 `auto` lets Refine invalidate matching queries, `manual` sends events to `onLiveEvent` (not wired by default, so implement it in the page). Token failures: 401 unauthenticated, 403 no channel permission, 503 when `QIY_REALTIME_DISABLED=1`. Dataflow emits go to `qiy:event:<event>` and need a separate subscription. Delivery is at-least-once ([storage-realtime.md](storage-realtime.md)).
 

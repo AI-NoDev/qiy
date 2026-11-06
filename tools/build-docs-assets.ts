@@ -8,7 +8,7 @@ import { qiyExplanationSchema } from "./qiy-schema";
  * Generates the static, agent-facing assets served by the documentation site:
  *
  * - `docs/public/llms.txt` — curated index for LLM/agent retrieval (llms.txt format)
- * - `docs/public/llms-full.txt` — full DSL + guide text for offline retrieval
+ * - `docs/public/llms-dsl.txt` / `llms-guides.txt` — full DSL reference / guide text for offline retrieval
  * - `docs/public/skills/qiy/**` — the official Agent Skill (browsable/downloadable)
  * - `docs/public/skills/qiy-skill.tar.gz` — one-file download of the skill bundle
  * - `docs/public/robots.txt` — crawler hints pointing at the sitemap
@@ -92,7 +92,7 @@ function readPage(file: string): DocPage {
 }
 
 const dslOrder = ["overview", "modules", "application", "entity", "relation-index", "generated-values", "enum-menu-dashboard", "charts", "i18n", "auth", "permissions", "dataflow", "actions", "realtime", "storage", "features", "annotations", "errors"];
-const guideOrder = ["what-is-qiy", "design-philosophy", "getting-started", "syntax-v1", "cli", "existing-bun-project", "modules", "best-practice-warehouse", "editor-support", "agent-skill", "project-structure", "data-modeling", "api", "auth", "refine-providers", "ui-theming", "menu-dashboard", "api-docs-and-keys", "workflow", "storage", "dsl-cookbook", "deployment", "real-services"];
+const guideOrder = ["what-is-qiy", "design-philosophy", "getting-started", "cli", "existing-bun-project", "modules", "best-practice-warehouse", "editor-support", "agent-skill", "project-structure", "data-modeling", "api", "auth", "refine-providers", "ui-theming", "menu-dashboard", "api-docs-and-keys", "workflow", "storage", "dsl-cookbook", "deployment", "real-services"];
 
 function ordered(pages: DocPage[], order: string[]): DocPage[] {
   const byName = new Map(pages.map((page) => [page.slug.split("/").pop()!, page]));
@@ -139,8 +139,9 @@ export async function buildDocsAssets(): Promise<void> {
       "## Machine-readable schema",
       "",
       `- [qiy explain JSON Schema](${siteUrl}/schema/qiy-explanation-1.json): validate \`qiy explain --json\` output.`,
-      `- [DSL-only retrieval](${siteUrl}/llms-dsl.txt): the DSL reference without guides.`,
-      `- [Guides-only retrieval](${siteUrl}/llms-guides.txt): task guides without the DSL reference.`,
+      `- [Compact grammar card](${siteUrl}/skills/qiy/references/language-reference.md): every construct in one page; read this before the full reference.`,
+      `- [DSL reference full text](${siteUrl}/llms-dsl.txt): every DSL page concatenated.`,
+      `- [Guides full text](${siteUrl}/llms-guides.txt): every task guide concatenated.`,
       "- Generate it with `qiy schema`; inspect a model with `qiy explain <file.qiy> [--json]`.",
       "",
     ].join("\n"),
@@ -151,15 +152,6 @@ export async function buildDocsAssets(): Promise<void> {
       "- [Releases](https://github.com/AI-NoDev/qiy/releases/latest)",
       "",
     ].join("\n"),
-  ].join("\n");
-
-  const llmsFull = [
-    "# Qiy full documentation",
-    "",
-    `> Complete text of the Qiy DSL reference and guides. Canonical index: ${siteUrl}/llms.txt`,
-    "",
-    ...dslPages.flatMap((page) => [`# ${page.title}`, "", `Source: ${siteUrl}${page.slug}`, "", page.body, ""]),
-    ...guidePages.flatMap((page) => [`# ${page.title}`, "", `Source: ${siteUrl}${page.slug}`, "", page.body, ""]),
   ].join("\n");
 
   const llmsDsl = [
@@ -179,7 +171,6 @@ export async function buildDocsAssets(): Promise<void> {
 
   mkdirSync(publicDir, { recursive: true });
   writeFileSync(join(publicDir, "llms.txt"), llmsTxt);
-  writeFileSync(join(publicDir, "llms-full.txt"), llmsFull);
   writeFileSync(join(publicDir, "llms-dsl.txt"), llmsDsl);
   writeFileSync(join(publicDir, "llms-guides.txt"), llmsGuides);
   writeFileSync(
@@ -217,7 +208,7 @@ export async function buildDocsAssets(): Promise<void> {
   }));
 
   console.log(
-    `Docs assets: llms.txt (${llmsTxt.length} bytes), llms-full.txt (${llmsFull.length} bytes), ${officialSkills.length} official skills (${skillFiles} files), qiy-skill.tar.gz (${skillBytes} bytes), ${ogPages.length} OG images`,
+    `Docs assets: llms.txt (${llmsTxt.length} bytes), llms-dsl.txt (${llmsDsl.length} bytes), llms-guides.txt (${llmsGuides.length} bytes), ${officialSkills.length} official skills (${skillFiles} files), qiy-skill.tar.gz (${skillBytes} bytes), ${ogPages.length} OG images`,
   );
 }
 

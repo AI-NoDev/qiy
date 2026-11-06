@@ -7,7 +7,7 @@ import type { QiyProject } from "./qiy-project";
 import { authHasLocal, authIsHybrid, authOAuthProviders, authUsesProviderChooser } from "./qiy-project";
 import type { QiyTestSuite } from "./qiy-test";
 
-type ProjectOptions = Pick<QiyProject, "comment" | "commentKey" | "mode" | "integration" | "ui" | "messages" | "dataflows" | "actions" | "apiClient" | "corsOrigins" | "elysiaPlugins" | "menuGroups" | "dashboardMetrics" | "charts" | "chartPanels" | "realtime" | "storageProvider" | "auth" | "permissions" | "environment" | "scopes" | "restrictions" | "pages" | "workflows" | "features"> & { testSuite?: QiyTestSuite };
+type ProjectOptions = Pick<QiyProject, "comment" | "commentKey" | "mode" | "integration" | "ui" | "messages" | "dataflows" | "actions" | "apiClient" | "corsOrigins" | "elysiaPlugins" | "menuGroups" | "charts" | "chartPanels" | "realtime" | "storageProvider" | "auth" | "permissions" | "environment" | "scopes" | "restrictions" | "pages" | "workflows" | "features"> & { testSuite?: QiyTestSuite };
 
 export function generateProject(database: DatabaseIR, name: string, options: ProjectOptions = {}): Record<string, string> {
   if (options.realtime && !options.auth) throw new Error("Realtime requires generated authentication");
@@ -60,18 +60,7 @@ export function generateProject(database: DatabaseIR, name: string, options: Pro
   }
   apps["apps/server/tests/setup.ts"] = template["apps/server/tests/setup.ts"]!;
   if (options.elysiaPlugins?.static) apps[`apps/server/${options.elysiaPlugins.static.assets}/.gitkeep`] = "";
-  if (options.realtime) {
-    Object.assign(apps, generateRealtimeObservability(name));
-    apps["deploy/kubernetes/deployment.yaml"] = apps["deploy/kubernetes/deployment.yaml"]!.replace(
-      '            - name: QIY_DEV_MODE\n              value: "0"',
-      '            - name: QIY_DEV_MODE\n              value: "0"\n            - name: QIY_ABLY_API_KEY\n              valueFrom:\n                secretKeyRef:\n                  name: ' + name + '\n                  key: QIY_ABLY_API_KEY\n            - name: QIY_REALTIME_METRICS_TOKEN\n              valueFrom:\n                secretKeyRef:\n                  name: ' + name + '\n                  key: QIY_REALTIME_METRICS_TOKEN',
-    );
-    apps["deploy/kubernetes/secret.example.yaml"] = apps["deploy/kubernetes/secret.example.yaml"]!.replace(
-      '  QIY_AUTH_SECRET: "replace-with-a-random-32-character-minimum-secret"',
-      '  QIY_AUTH_SECRET: "replace-with-a-random-32-character-minimum-secret"\n  QIY_ABLY_API_KEY: "replace-with-your-server-only-ably-key"\n  QIY_REALTIME_METRICS_TOKEN: "replace-with-a-random-read-only-scrape-token"',
-    );
-  }
-  if ((options.elysiaPlugins && Object.keys(options.elysiaPlugins).length > 0) || options.realtime) {
+  if (options.elysiaPlugins && Object.keys(options.elysiaPlugins).length > 0) {
     const serverPackage = JSON.parse(apps["apps/server/package.json"]!) as { dependencies: Record<string, string> };
     const generatedServerPackage = JSON.parse(files["api/package.json"]!) as { dependencies?: Record<string, string> };
     serverPackage.dependencies = { ...serverPackage.dependencies, ...generatedServerPackage.dependencies };
@@ -98,7 +87,7 @@ export function generateProject(database: DatabaseIR, name: string, options: Pro
     serverPackage.scripts["auth:bootstrap-admin"] = "bun --env-file=.env.production src/auth/bootstrap-admin.ts";
     serverPackage.scripts["auth:set-password"] = "bun --env-file=.env.production src/auth/set-password.ts";
   }
-  if (options.realtime) serverPackage.scripts["realtime:admin"] = "bun --env-file=.env.production src/realtime-admin.ts";  apps["apps/server/package.json"] = `${JSON.stringify(serverPackage, null, 2)}\n`;
+  apps["apps/server/package.json"] = `${JSON.stringify(serverPackage, null, 2)}\n`;
   if (options.comment) {
     for (const path of ["apps/server/package.json", "apps/web/package.json"]) {
       const packageJson = JSON.parse(apps[path]!) as Record<string, unknown>;
@@ -409,19 +398,10 @@ function renderEnvironmentExample(
   if (options.elysiaPlugins?.jwt) values.set(options.elysiaPlugins.jwt.secretEnv, "");
   if (options.elysiaPlugins?.cron?.length) values.set("QIY_CRON_ENABLED", "0");
   if (options.realtime) {
-    values.set("QIY_ABLY_API_KEY", "");
     values.set("QIY_REALTIME_DISABLED", "0");
-    values.set("QIY_REALTIME_POLL_MS", "5000");
-    values.set("QIY_REALTIME_LEASE_MS", "30000");
-    values.set("QIY_REALTIME_MAX_ATTEMPTS", "10");
-    values.set("QIY_REALTIME_RETENTION_DAYS", "7");
-    values.set("QIY_REALTIME_CLEANUP_MS", "86400000");
-    values.set("QIY_REALTIME_ADMIN_URL", "http://127.0.0.1:3000/api/v1/realtime/outbox");
-    values.set("QIY_REALTIME_ADMIN_TOKEN", "");
-    values.set("QIY_REALTIME_METRICS_TOKEN", "");
-    values.set("QIY_REALTIME_ALERT_MAX_PENDING", "1000");
-    values.set("QIY_REALTIME_ALERT_MAX_DEAD_LETTERED", "0");
-    values.set("QIY_REALTIME_ALERT_MAX_OLDEST_PENDING_MS", "300000");
+    values.set("QIY_REALTIME_POLL_MS", "1000");
+    values.set("QIY_REALTIME_RETENTION_DAYS", "1");
+    values.set("QIY_REALTIME_CLEANUP_MS", "3600000");
   }
 
   const lines = [
@@ -441,7 +421,6 @@ function renderEnvironmentExample(
     lines.push("", "# Required for OIDC/OAuth2/SSO access-token verification. These are issuer/JWKS settings, not OAuth client credentials.");
   }
   if (options.elysiaPlugins?.jwt) lines.push("", "# Required by the configured Elysia JWT plugin.");
-  if (options.realtime) lines.push("", "# Required for Ably realtime. Keep QIY_ABLY_API_KEY server-only; clients receive subscribe-only token requests.", "# realtime:admin calls the protected HTTP API; provide an admin access token through QIY_REALTIME_ADMIN_TOKEN.", "# Prometheus uses the separate read-only QIY_REALTIME_METRICS_TOKEN; do not reuse an administrator access token.");
   lines.push(
     "",
     "# Optional S3-compatible storage credentials. Keep secrets out of source control.",
@@ -456,83 +435,3 @@ function renderEnvironmentExample(
   return lines.join("\n");
 }
 
-function generateRealtimeObservability(name: string): Record<string, string> {
-  const resourceName = name;
-  return {
-    "deploy/kubernetes/realtime-servicemonitor.yaml": `apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: ${resourceName}-realtime
-  labels:
-    app: ${resourceName}
-spec:
-  selector:
-    matchLabels:
-      app: ${resourceName}
-  endpoints:
-    - port: http
-      path: /api/v1/realtime/outbox/metrics/prometheus
-      interval: 30s
-      scrapeTimeout: 10s
-      authorization:
-        type: Bearer
-        credentials:
-          name: ${resourceName}
-          key: QIY_REALTIME_METRICS_TOKEN
-`,
-    "deploy/kubernetes/realtime-prometheusrule.yaml": `apiVersion: monitoring.coreos.com/v1
-kind: PrometheusRule
-metadata:
-  name: ${resourceName}-realtime
-  labels:
-    app: ${resourceName}
-spec:
-  groups:
-    - name: ${resourceName}.realtime
-      rules:
-        - alert: QiyRealtimeOutboxDegraded
-          expr: qiy_realtime_outbox_health{service="${resourceName}"} == 0
-          for: 5m
-          labels:
-            severity: warning
-          annotations:
-            summary: Qiy realtime outbox is degraded
-            description: Pending, dead-lettered, or oldest-event thresholds are exceeded.
-        - alert: QiyRealtimeDeadLetters
-          expr: qiy_realtime_outbox_dead_lettered{service="${resourceName}"} > 0
-          for: 1m
-          labels:
-            severity: critical
-          annotations:
-            summary: Qiy realtime outbox has dead letters
-            description: Inspect and replay failed events through the authenticated realtime administration API.
-        - alert: QiyRealtimeMetricsAbsent
-          expr: absent(qiy_realtime_outbox_health{service="${resourceName}"})
-          for: 10m
-          labels:
-            severity: warning
-          annotations:
-            summary: Qiy realtime metrics are unavailable
-            description: Verify the ServiceMonitor selector, service port, and metrics token secret.
-`,
-    "deploy/observability/grafana/qiy-realtime-outbox.json": `${JSON.stringify({
-      __inputs: [{ name: "DS_PROMETHEUS", label: "Prometheus", type: "datasource", pluginId: "prometheus", pluginName: "Prometheus" }],
-      annotations: { list: [] },
-      editable: true,
-      panels: [
-        { type: "stat", title: "Outbox health", targets: [{ expr: "qiy_realtime_outbox_health" }], gridPos: { h: 8, w: 6, x: 0, y: 0 } },
-        { type: "timeseries", title: "Pending and leased", targets: [{ expr: "qiy_realtime_outbox_pending", legendFormat: "pending" }, { expr: "qiy_realtime_outbox_leased", legendFormat: "leased" }], gridPos: { h: 8, w: 9, x: 6, y: 0 } },
-        { type: "timeseries", title: "Dead letters", targets: [{ expr: "qiy_realtime_outbox_dead_lettered", legendFormat: "dead-lettered" }], gridPos: { h: 8, w: 9, x: 15, y: 0 } },
-        { type: "timeseries", title: "Oldest pending age", targets: [{ expr: "qiy_realtime_outbox_oldest_pending_age_seconds", legendFormat: "seconds" }], gridPos: { h: 8, w: 12, x: 0, y: 8 } },
-        { type: "timeseries", title: "Delivered retained", targets: [{ expr: "qiy_realtime_outbox_delivered", legendFormat: "delivered" }], gridPos: { h: 8, w: 12, x: 12, y: 8 } },
-      ].map((panel, index) => ({ ...panel, id: index + 1, datasource: { type: "prometheus", uid: "${DS_PROMETHEUS}" } })),
-      schemaVersion: 39,
-      tags: ["qiy", "realtime"],
-      templating: { list: [] },
-      time: { from: "now-6h", to: "now" },
-      title: "Qiy Realtime Outbox",
-      uid: `${resourceName}-realtime`,
-      version: 1,
-    }, null, 2)}\n`,
-  };
-}

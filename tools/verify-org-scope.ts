@@ -49,9 +49,7 @@ application org-scope {
     field amount Integer;
   }
   scope orders orgId claim org tree organizations parentId;
-  dashboard {
-    metric orderAmount orders @label("Amount") @type(aggregate) @field(amount) @agg(sum);
-  }
+  chart const OrderAmount { title = "Amount"; data = sum orders.amount; }
 }
 `);
 
@@ -133,7 +131,7 @@ try {
   await must(["bun", "run", "db:generate"], server, { DATABASE_URL: databaseUrl });
   await must(["bun", "run", "db:migrate"], server, { DATABASE_URL: databaseUrl });
   console.log(await must(["bun", "run", "typecheck"], server, { DATABASE_URL: databaseUrl }));
-  console.log(await must(["bun", "test", "--preload", "./tests/setup.ts", "scope.acceptance.test.ts"], server, { DATABASE_URL: databaseUrl }));
+  console.log(await must(["bun", "test", "--preload", "./tests/setup.ts", "scope.acceptance.test.ts"], server, { DATABASE_URL: databaseUrl, QIY_TEST_DATABASE_URL: databaseUrl }));
   console.log(await must(["bun", "run", "typecheck"], server, { DATABASE_URL: databaseUrl }));
   // The tree management page is generated from the scope ... tree declaration.
   const web = join(admin, "apps/web");

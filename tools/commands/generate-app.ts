@@ -53,7 +53,6 @@ export async function renderAppFiles(source: string, options: GenerateAppOptions
     elysiaPlugins: project.elysiaPlugins,
     corsOrigins: project.corsOrigins,
     menuGroups: project.menuGroups,
-    dashboardMetrics: project.dashboardMetrics,
     charts: project.charts,
     chartPanels: project.chartPanels,
     realtime: project.realtime,

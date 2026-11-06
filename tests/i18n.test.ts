@@ -14,7 +14,7 @@ application localized-catalog {
       "qiy.enums.productStatus.label" "商品状态";
       "qiy.enums.productStatus.values.active" "上架";
       "qiy.menu.catalog.label" "商品目录";
-      "qiy.dashboard.productCount.label" "商品数";
+      "qiy.charts.ProductCount.label" "商品数";
       "qiy.actions.publishProduct.label" "发布";
       "qiy.actions.publishProduct.inputs.productId.label" "商品";
     }
@@ -24,7 +24,7 @@ application localized-catalog {
       "qiy.enums.productStatus.label" "Product status";
       "qiy.enums.productStatus.values.active" "Active";
       "qiy.menu.catalog.label" "Catalog";
-      "qiy.dashboard.productCount.label" "Product count";
+      "qiy.charts.ProductCount.label" "Product count";
       "qiy.actions.publishProduct.label" "Publish";
       "qiy.actions.publishProduct.inputs.productId.label" "Product";
     }
@@ -43,8 +43,10 @@ application localized-catalog {
       resource products;
     }
   }
-  dashboard {
-    metric productCount products @label("Product count") @icon(ShoppingOutlined) @span(12);
+  chart const ProductCount {
+    icon = "ShoppingOutlined";
+    title = "Product count";
+    data = count products;
   }
   dataflow publishProduct @label("Publish") {
     allow roles admin, operator;
@@ -88,7 +90,7 @@ describe("model-derived i18n keys", () => {
     expect(reparsed).toEqual(project);
   });
 
-  test("emits the stable key scheme for resources, fields, enums, menus, dashboard and actions", () => {
+  test("emits the stable key scheme for resources, fields, enums, menus, charts and actions", () => {
     const project = parseQiyProject(localizedModel);
     const files = generateProject(project.database, project.name, project);
     const resources = files["apps/web/app/resources.ts"]!;
@@ -97,7 +99,7 @@ describe("model-derived i18n keys", () => {
     expect(resources).toContain('"labelKey": "qiy.enums.productStatus.label"');
     expect(resources).toContain('"labelKey": "qiy.enums.productStatus.values.active"');
     expect(resources).toContain('"labelKey": "qiy.menu.catalog.label"');
-    expect(files["apps/web/app/dashboard.ts"]).toContain('"labelKey": "qiy.dashboard.productCount.label"');
+    expect(files["apps/web/app/charts.ts"]).toContain('"labelKey": "qiy.charts.ProductCount.label"');
     const actions = files["apps/web/app/actions.ts"]!;
     expect(actions).toContain('"labelKey": "qiy.actions.publishProduct.label"');
     expect(actions).toContain('"labelKey": "qiy.actions.publishProduct.inputs.productId.label"');
@@ -106,7 +108,7 @@ describe("model-derived i18n keys", () => {
     expect(qiyModelKeys.fieldLabel("products", "name")).toBe("qiy.resources.products.fields.name.label");
     expect(qiyModelKeys.enumValueLabel("productStatus", "active")).toBe("qiy.enums.productStatus.values.active");
     expect(qiyModelKeys.menuLabel("catalog")).toBe("qiy.menu.catalog.label");
-    expect(qiyModelKeys.dashboardLabel("productCount")).toBe("qiy.dashboard.productCount.label");
+    expect(qiyModelKeys.chartLabel("ProductCount")).toBe("qiy.charts.ProductCount.label");
     expect(qiyModelKeys.actionLabel("publishProduct")).toBe("qiy.actions.publishProduct.label");
     expect(qiyModelKeys.actionInputLabel("publishProduct", "productId")).toBe("qiy.actions.publishProduct.inputs.productId.label");
   });
@@ -123,7 +125,7 @@ describe("model-derived i18n keys", () => {
     expect(files["apps/web/app/components/resource-form.tsx"]).toContain("translate(item.labelKey, {}, item.label ?? item.name)");
     expect(files["apps/web/app/components/business-actions.tsx"]).toContain("translate(action.labelKey, {}, action.label)");
     expect(files["apps/web/app/components/business-actions.tsx"]).toContain("translate(field.labelKey, {}, field.comment ?? field.name)");
-    expect(files["apps/web/app/routes/home.tsx"]).toContain("translate(metric.labelKey, {}, metric.label)");
+    expect(files["apps/web/app/routes/home.tsx"]).toContain("translate(resource.pluralKey, {}, translate(resource.labelKey, {}, resource.label))");
     expect(files["apps/web/app/routes/home.tsx"]).toContain("translate(resource.labelKey, {}, resource.label)");
     expect(files["apps/web/app/root.tsx"]).toContain("i18nProvider.translate(labelKey, {}, fallback)");
     // The dictionary reaches the i18n provider and every generated page locale test.

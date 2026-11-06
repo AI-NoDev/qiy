@@ -17,7 +17,6 @@
 | --- | --- |
 | 定义实体、字段、枚举、索引 | [entity 与 field](../dsl/entity) |
 | 定义一对一 / 一对多 / 多对多 | [relation](../dsl/relation-index) |
-| 使用 v1 友好语法 | [v1 语法](./syntax-v1) |
 | 生成业务编码、UUID | [自动生成值](../dsl/generated-values) |
 | 软删除、租户隔离、计算字段 | [entity 与 field](../dsl/entity) |
 | 声明只读 DB view（REST/GraphQL/Web） | [DB view](../dsl/views) |
@@ -35,7 +34,7 @@
 
 | 任务 | 入口 |
 | --- | --- |
-| 配置菜单、页面、Dashboard | [菜单与 Dashboard](../dsl/enum-menu-dashboard) |
+| 配置菜单、概览页图表 | [菜单与概览页](../guide/menu-dashboard) |
 | 配置图表和 panel | [chart](../dsl/charts) |
 | 配置多语言 messages | [i18n](../dsl/i18n) |
 | 配置文件上传 | [storage](../dsl/storage) |
@@ -66,5 +65,5 @@
 | 安装官方 Qiy Skill | [Agent Skill](./agent-skill) |
 | 通过 MCP 让 Agent 调用 Qiy | [MCP server](./mcp) |
 | 通过本机 HTTP API 调用 Qiy | [HTTP Agent API](./agent-api) |
-| 让 Agent 读取机器可读文档 | [llms.txt](https://ai-nodev.github.io/qiy/llms.txt)、[llms-full.txt](https://ai-nodev.github.io/qiy/llms-full.txt) |
+| 让 Agent 读取机器可读文档 | [llms.txt](https://ai-nodev.github.io/qiy/llms.txt)、[llms-dsl.txt](https://ai-nodev.github.io/qiy/llms-dsl.txt)、[llms-guides.txt](https://ai-nodev.github.io/qiy/llms-guides.txt) |
 | 校验 `qiy explain --json` | [CLI](./cli) |

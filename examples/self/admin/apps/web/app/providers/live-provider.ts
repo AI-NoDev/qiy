@@ -1,76 +1,106 @@
-import * as Ably from "ably";
 import type { LiveEvent, LiveProvider } from "@refinedev/core";
 
-type QiySubscription = {
-  channel?: Ably.RealtimeChannel;
-  types: string[];
-  listener: (message: Ably.InboundMessage) => void;
-};
+type QiyStreamEvent = { id: string; channel: string; event: string; record: Record<string, unknown> };
+type QiySubscription = { resource: string; prefix: string; types: string[]; ids: string[]; callback: (event: LiveEvent) => void; meta?: unknown };
 
-type QiyCapabilityMap = Record<string, string[]>;
-
-/**
- * Claim-scoped resources publish to a segmented channel (qiy:orders:eu), so the
- * client resolves the channel it was actually granted from the token capability
- * instead of assuming the base resource name.
- */
-function grantedChannel(capabilities: QiyCapabilityMap, resource: string): string {
-  const base = "qiy:" + resource;
-  if (Array.isArray(capabilities[base])) return base;
-  return Object.keys(capabilities).find((channel) => channel.startsWith(base + ":")) ?? base;
+export interface QiyLiveProviderOptions {
+  fetcher?: typeof fetch;
+  reconnectDelayMs?: number;
+  maxReconnectDelayMs?: number;
 }
 
-export function createQiyLiveProvider(fetcher: typeof fetch = fetch, injected?: Ably.Realtime): LiveProvider | undefined {
-  if (typeof window === "undefined" && !injected) return undefined;
-  const client = injected ?? new Ably.Realtime({
-    authCallback: async (_params, callback) => {
-      try {
-        const token = window.localStorage.getItem("qiy.access_token");
-        const response = await fetcher("/api/v1/realtime/token", { method: "POST", headers: token ? { Authorization: "Bearer " + token } : {} });
-        const body = await response.json() as any;
-        if (!response.ok) throw new Error(body.error ?? "Realtime authorization failed");
-        callback(null, body);
-      } catch (error) { callback(error as any, null); }
-    },
-  });
-  let capabilityPromise: Promise<QiyCapabilityMap> | undefined;
-  const capabilities = () => capabilityPromise ??= (async (): Promise<QiyCapabilityMap> => {
+/**
+ * One authenticated text/event-stream connection to /api/v1/realtime/stream
+ * carries every channel the caller is granted. Claim-scoped resources arrive on
+ * segmented channels (qiy:orders:eu), so events match by resource prefix.
+ */
+export function createQiyLiveProvider(options: QiyLiveProviderOptions = {}): LiveProvider | undefined {
+  if (typeof window === "undefined" && !options.fetcher) return undefined;
+  const fetcher = options.fetcher ?? fetch;
+  const subscriptions = new Set<QiySubscription>();
+  let controller: AbortController | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let attempt = 0;
+
+  const dispatch = (event: QiyStreamEvent) => {
+    for (const subscription of subscriptions) {
+      if (event.channel !== subscription.prefix && !event.channel.startsWith(subscription.prefix + ":")) continue;
+      if (!subscription.types.includes("*") && !subscription.types.includes(event.event)) continue;
+      if (subscription.ids.length) {
+        const nested = event.record.data && typeof event.record.data === "object" ? event.record.data as Record<string, unknown> : undefined;
+        const recordId = event.record.id ?? nested?.id;
+        if (recordId === undefined || !subscription.ids.includes(String(recordId))) continue;
+      }
+      subscription.callback({ channel: subscription.resource, type: event.event, payload: event.record, date: new Date(), meta: subscription.meta } as LiveEvent);
+    }
+  };
+
+  const stop = () => {
+    controller?.abort();
+    controller = undefined;
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+  };
+
+  const connect = async (): Promise<void> => {
+    const current = new AbortController();
+    controller = current;
     try {
-      const token = typeof window === "undefined" ? undefined : window.localStorage.getItem("qiy.access_token");
-      const response = await fetcher("/api/v1/realtime/token", { method: "POST", headers: token ? { Authorization: "Bearer " + token } : {} });
-      if (!response.ok) return {};
-      const body = await response.json() as { capability?: unknown };
-      const parsed = typeof body.capability === "string" ? JSON.parse(body.capability) as QiyCapabilityMap : body.capability as QiyCapabilityMap;
-      return parsed && typeof parsed === "object" ? parsed : {};
-    } catch { return {}; }
-  })();
+      const token = typeof window === "undefined" ? null : window.localStorage.getItem("qiy.access_token");
+      const response = await fetcher("/api/v1/realtime/stream", { headers: token ? { Authorization: "Bearer " + token } : {}, signal: current.signal });
+      // Without a grant there is nothing to stream; the next subscribe tries again.
+      if (response.status === 401 || response.status === 403) { if (controller === current) controller = undefined; return; }
+      if (!response.ok || !response.body) throw new Error("Realtime stream failed: " + response.status);
+      const reader = response.body.getReader();
+      current.signal.addEventListener("abort", () => { void reader.cancel().catch(() => undefined); });
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done || current.signal.aborted) break;
+        buffer += decoder.decode(value, { stream: true });
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary >= 0) {
+          const frame = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          const data = frame.split("\n").find((line) => line.startsWith("data: "));
+          if (data) {
+            attempt = 0;
+            try {
+              const event = JSON.parse(data.slice(6)) as Partial<QiyStreamEvent>;
+              if (typeof event.channel === "string" && typeof event.event === "string") dispatch({ id: String(event.id), channel: event.channel, event: event.event, record: event.record ?? {} });
+            } catch { /* ignore a malformed frame */ }
+          }
+          boundary = buffer.indexOf("\n\n");
+        }
+      }
+    } catch (error) {
+      if (current.signal.aborted) return;
+      console.warn("Realtime stream interrupted", error);
+    }
+    if (current.signal.aborted || controller !== current || !subscriptions.size) return;
+    const delay = Math.min((options.reconnectDelayMs ?? 1000) * 2 ** Math.min(attempt, 5), options.maxReconnectDelayMs ?? 30000);
+    attempt += 1;
+    timer = setTimeout(() => { void connect(); }, delay);
+  };
+
   return {
     subscribe: ({ channel, types, callback, params, meta }) => {
-      // Show and many pages only care about specific records, so they get the same
-      // channel but are scoped to their ids instead of every event for the resource.
-      const scopedIds = [params?.id, ...(Array.isArray(params?.ids) ? params.ids : [])]
+      // Show and many pages only care about specific records, so they share the
+      // stream but are scoped to their ids instead of every event for the resource.
+      const ids = [params?.id, ...(Array.isArray(params?.ids) ? params.ids : [])]
         .filter((value) => value !== undefined && value !== null && value !== "")
         .map((value) => String(value));
-      const listener = (message: Ably.InboundMessage) => {
-        const payload = message.data && typeof message.data === "object" && !Array.isArray(message.data) ? message.data : { data: message.data };
-        if (scopedIds.length) {
-          const record = payload as Record<string, unknown>;
-          const nested = record.data && typeof record.data === "object" ? record.data as Record<string, unknown> : undefined;
-          const recordId = record.id ?? nested?.id;
-          if (recordId === undefined || !scopedIds.includes(String(recordId))) return;
-        }
-        callback({ channel, type: message.name ?? "*", payload, date: new Date(message.timestamp ?? Date.now()), meta } satisfies LiveEvent);
-      };
-      const subscription: QiySubscription = { types, listener };
-      void (async () => {
-        const target = grantedChannel(await capabilities(), channel);
-        const ablyChannel = client.channels.get(target);
-        subscription.channel = ablyChannel;
-        await ablyChannel.subscribe(types, listener).catch((error) => console.error("Realtime subscription failed", { channel: target, error }));
-      })();
+      const resource = channel.replace(/^resources\//, "");
+      const subscription: QiySubscription = { resource: channel, prefix: "qiy:" + resource, types, ids, callback, meta };
+      subscriptions.add(subscription);
+      if (!controller) void connect();
       return subscription;
     },
-    unsubscribe: (subscription: QiySubscription) => subscription.channel?.unsubscribe(subscription.types, subscription.listener),
+    unsubscribe: (subscription: QiySubscription) => {
+      subscriptions.delete(subscription);
+      if (!subscriptions.size) stop();
+    },
   };
 }
 

@@ -10,7 +10,7 @@ import { generateApp } from "./commands/generate-app";
  * user flow named "Resource Owner Password" can mint tokens without a browser.
  * This script verifies:
  *  - the per-policy discovery document and the signing keys (JWKS),
- *  - that the generated `provider azure-ad-b2c` server uses the real JWKS
+ *  - that the generated `provider oidc { preset azure-ad-b2c; }` server uses the real JWKS
  *    (forged tokens are rejected by signature verification),
  *  - optionally a real ROPC token for a local B2C user (identity mapping, role).
  *
@@ -134,7 +134,7 @@ try {
 application azure-b2c-real {
   database sqlite {}
   api { client rest; }
-  auth { provider azure-ad-b2c; user users; subjectField subject; roleField role; }
+  auth { provider oidc { preset azure-ad-b2c; } user users; subjectField subject; roleField role; }
   enum userRole { value admin; value operator; value viewer; }
   entity users {
     field id UUID @id;

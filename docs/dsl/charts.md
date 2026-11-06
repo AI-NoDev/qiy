@@ -55,7 +55,7 @@ chart panels Overview {
 
 ## 语法
 
-`chart` 与 `chart panels` 都写在 `application {}` 内、`menu` 之后、`dataflow` 之前。它们与旧的 `dashboard { metric ... }` **共用同一位置**，可以交错书写（解析器在一个循环里读取 `dashboard`/`chart`），但同一模型里图表优先于旧指标卡，见 [菜单与 Dashboard · 概览页选择](/guide/menu-dashboard#概览页选择chart-优先)。
+`chart` 与 `chart panels` 都写在 `application {}` 内、`menu` 之后、`dataflow` 之前。旧的 `dashboard { metric ... }` 块已在 0.37.0 删除，改写方式见 [菜单与概览页 · 迁移](/guide/menu-dashboard#从-dashboard-metric-迁移)。
 
 ```text
 chart [const|pie|bar|line|area|scatter|stacked|table] <ChartName> {
@@ -253,7 +253,6 @@ chart panels <PanelName> {
 apps/web/app/charts.ts                  # chart/panel/placement 元数据 + 纯函数
 apps/web/app/components/charts.tsx      # ChartDashboard / ChartCard / 五种视图
 apps/web/app/routes/home.tsx            # 概览页：有 chart 时渲染 ChartDashboard
-apps/web/app/dashboard.ts               # 旧 metric 元数据（无显式指标且无 chart 时自动生成；有 chart 时即使有指标也不渲染）
 apps/web/tests/charts.test.ts           # 分组/栅格/变体/持久化断言
 apps/web/tests/charts-render.test.tsx   # SSR 渲染五种视图与两种选择器
 ```
@@ -298,7 +297,7 @@ apps/web/tests/charts-render.test.tsx   # SSR 渲染五种视图与两种选择�
 
 ### 图标
 
-- `icon` 必须是 Ant Design 的 `*Outlined` 图标名。生成器会把 chart 级与每个视图的 `icon` 同样收集进 `qiyIcons`（与实体、字段、枚举值、菜单分组、旧 dashboard metric 的图标合并去重），因此 chart 专用的图标也会被导入和渲染。
+- `icon` 必须是 Ant Design 的 `*Outlined` 图标名。生成器会把 chart 级与每个视图的 `icon` 同样收集进 `qiyIcons`（与实体、字段、枚举值、菜单分组的图标合并去重），因此 chart 专用的图标也会被导入和渲染。
 - 生成期只校验名字格式：不是 `[A-Z][a-zA-Z0-9]*Outlined` 会直接报 `Invalid Ant Design icon <name>`。如果名字格式正确但 Ant Design 并没有导出它，生成仍会成功，随后在生成项目的 typecheck/build 阶段以未导出成员错误暴露。
 
 ## 数据端点与取值
@@ -541,7 +540,7 @@ chart panels Wide {
 
 ## 相关
 
-- [菜单与 Dashboard](/guide/menu-dashboard)：`menu` 分组、旧 `dashboard { metric ... }`、概览页选择与系统管理页面链接。
+- [菜单与概览页](/guide/menu-dashboard)：`menu` 分组、无 chart 时的计数卡、从 `dashboard { metric }` 迁移与系统管理页面链接。
 - [多语言（messages / i18n）](/dsl/i18n)：消息块语法、模型派生 key、chrome 词典、回退链。
 - [UI 与主题](/guide/ui-theming)：主题注册表、亮/暗/跟随系统、持久化键。
 - [Refine Providers](/guide/refine-providers)：图表所用的 list/aggregate/distribution/trend 请求如何经过 DataProvider。

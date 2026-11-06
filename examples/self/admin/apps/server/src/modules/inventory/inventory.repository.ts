@@ -128,7 +128,7 @@ inventory
       if (!record) throw new Error("Insert returned no record");
       
       tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "inventory.created", resource: "inventory", resourceId: record.id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
-       tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:inventory", type: "created", payload: JSON.stringify(record), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }).run();
+       tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:inventory", type: "created", payload: JSON.stringify(record), createdAt: new Date() }).run();
       return record;
     });
   },
@@ -139,7 +139,7 @@ inventory
       
       const record = tx.update(inventory).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(notDeleted, eq(inventory.id, id), scopeCondition)).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "inventory.updated", resource: "inventory", resourceId: id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
-       if (record) tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:inventory", type: "updated", payload: JSON.stringify(record), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }).run();
+       if (record) tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:inventory", type: "updated", payload: JSON.stringify(record), createdAt: new Date() }).run();
       return record;
     });
   },
@@ -150,7 +150,7 @@ inventory
       
       const record = tx.delete(inventory).where(and(notDeleted, eq(inventory.id, id), scopeCondition)).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "inventory.deleted", resource: "inventory", resourceId: id, metadata: "{}", createdAt: new Date() }).run();
-       if (record) tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:inventory", type: "deleted", payload: JSON.stringify(record), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }).run();
+       if (record) tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:inventory", type: "deleted", payload: JSON.stringify(record), createdAt: new Date() }).run();
       return record;
     });
   },
@@ -161,7 +161,7 @@ inventory
       
       const deletedRows = tx.delete(inventory).where(and(notDeleted, inArray(inventory.id, ids), scopeCondition)).returning().all();
       if (deletedRows.length) tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "inventory.deleted", resource: "inventory", resourceId: record.id, metadata: "{}", createdAt: new Date() }))).run();
-       if (deletedRows.length) tx.insert(realtimeOutbox).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), channel: "qiy:inventory", type: "deleted", payload: JSON.stringify(record), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }))).run();
+       if (deletedRows.length) tx.insert(realtimeOutbox).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), channel: "qiy:inventory", type: "deleted", payload: JSON.stringify(record), createdAt: new Date() }))).run();
       return deletedRows;
     });
   },

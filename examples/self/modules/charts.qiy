@@ -1,5 +1,4 @@
-# Chart dashboard (概览页面). Included after `menu` and before dataflows, at the
-# same position as the legacy `dashboard { metric ... }` block.
+# Chart dashboard (概览页面). Included after `menu` and before dataflows.
 #
 # `chart [kind] <Name> { ... }` declares one view of a chart: `const` (stat),
 # `pie`, `bar`, `line` or `table`. Declaring the same name with different kinds

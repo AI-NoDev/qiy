@@ -30,7 +30,7 @@ auth {
 
 | 字段 | 说明 |
 | --- | --- |
-| `provider` | `local`、`otp`、`oidc`、`oauth2`、`sso`、`okta`、`auth0`、`azure-ad-b2c`、`keycloak`、`google`、`kinde`。单 Provider 写法 |
+| `provider` | `local`、`otp`、`oidc`。单 Provider 写法；厂商用 `provider oidc { preset okta; }` 选择，见 [Provider 命名与 preset](/dsl/auth#provider-命名与-preset) |
 | `providers` | Provider 列表；可含 `local`（混合认证），不能含 `otp`、不能重复，且与 `provider` 互斥 |
 | `local` | 由生成器推导（`providers` 含 `local` 或 `provider local`），DSL 不直接书写 |
 | `user` | 用户实体名，必须存在 |

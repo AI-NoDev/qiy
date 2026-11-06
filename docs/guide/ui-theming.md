@@ -261,6 +261,6 @@ const mode = optional?.resolvedColorMode ?? "light";
 - [application · ui](/dsl/application#ui)：`ui` 块在 `application` 中的位置与字段级说明。
 - [多语言（messages / i18n）](/dsl/i18n)：主题/色彩模式文案与回退链。
 - [chart（多视图图表）](/dsl/charts)：图表在暗色模式下的表现。
-- [菜单与 Dashboard](/guide/menu-dashboard)：侧边栏折叠持久化与移动端抽屉。
+- [菜单与概览页](/guide/menu-dashboard)：侧边栏折叠持久化与移动端抽屉。
 - [Refine Providers](/guide/refine-providers)：`QiyUiProvider` 在 Refine 树中的位置与 Header。
 - 完整示例：[`examples/themes/app.qiy`](https://github.com/AI-NoDev/qiy/blob/main/examples/themes/app.qiy)。

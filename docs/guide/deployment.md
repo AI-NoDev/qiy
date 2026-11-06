@@ -107,7 +107,7 @@ deploy/kubernetes/
 
 ## Realtime 监控
 
-声明 REST Realtime 后还会生成 ServiceMonitor、PrometheusRule 和 Grafana Dashboard。配置应用 Secret 中的 `QIY_REALTIME_METRICS_TOKEN`，并让 Prometheus Operator 的 selector 选中生成对象；该凭据只允许读取 Prometheus 文本指标。安装要求、凭据轮换和当前验收边界见 [Realtime 监控](../dsl/realtime.md#prometheus-operator-与-grafana)。
+Realtime 是自托管 SSE（`GET /api/v1/realtime/stream`），不需要额外服务或密钥。生成的 `deploy/nginx.conf` 无需改动：nginx 遵循响应里的 `X-Accel-Buffering: no` 关闭缓冲，默认 60 秒读超时也大于 25 秒保活间隔；换用其他反向代理或 CDN 时，需要为 `/api/v1/realtime/stream` 与 `/graphql/subscribe` 关闭响应缓冲并放宽读超时。多副本时各实例尾随同一张 outbox 表，跨副本事件延迟由 `QIY_REALTIME_POLL_MS` 决定。详见 [realtime](../dsl/realtime.md)。
 
 ## Nginx 反向代理
 

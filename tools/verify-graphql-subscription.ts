@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { generateApp } from "./commands/generate-app";
 
 /**
- * Real acceptance for GraphQL subscriptions. Subscriptions stream over SSE and are
- * fed by the in-process bus that the outbox dispatcher publishes to, so this drives
- * a real write, a real dispatch and a real streamed GraphQL payload.
+ * Real acceptance for the SSE realtime transport: a real write lands in the
+ * outbox, the shared poller fans it out, and both the REST event stream and the
+ * GraphQL subscription stream it to the caller with field masks applied.
  */
 const root = mkdtempSync(join(tmpdir(), "qiy-graphql-subscription-"));
 const admin = join(root, "admin");
@@ -56,19 +56,16 @@ import { db } from "./src/db";
 import { orders, realtimeOutbox } from "./src/schema";
 import { OrdersRepository } from "./src/modules/orders/orders.repository";
 import { UsersRepository } from "./src/modules/users/users.repository";
-import { databaseOutboxStore, dispatchRealtimeOutbox } from "./src/realtime";
+import { pollRealtimeOutbox } from "./src/realtime";
 
 delete Bun.env.QIY_REALTIME_DISABLED;
-Bun.env.QIY_REALTIME_LEASE_MS = "1000";
-Bun.env.QIY_REALTIME_MAX_ATTEMPTS = "2";
+Bun.env.QIY_REALTIME_POLL_MS = "150";
 
-const published: unknown[] = [];
-const fakeAbly = (() => ({ channels: { get: () => ({ publish: async () => { published.push(1); } }) } })) as never;
 const as = (role: "admin" | "operator" | "viewer") => async () => ({ id: "00000000-0000-4000-8000-000000000001", name: role, role, claims: {} });
 const app = (role: "admin" | "operator" | "viewer") => createApp({ users: UsersRepository, orders: OrdersRepository }, as(role));
 const subscribeUrl = (query: string) => "http://localhost/graphql/subscribe?query=" + encodeURIComponent(query);
 
-async function nextFrame(response: Response, timeoutMs = 4000): Promise<Record<string, unknown>> {
+async function nextFrame(response: Response, timeoutMs = 4000, skip: (frame: string) => boolean = () => false): Promise<Record<string, unknown>> {
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -78,11 +75,13 @@ async function nextFrame(response: Response, timeoutMs = 4000): Promise<Record<s
       const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      const index = buffer.indexOf("\\n\\n");
-      if (index >= 0) {
+      let index = buffer.indexOf("\\n\\n");
+      while (index >= 0) {
         const frame = buffer.slice(0, index);
+        buffer = buffer.slice(index + 2);
         const data = frame.split("\\n").find((line) => line.startsWith("data: "));
-        if (data) return JSON.parse(data.slice(6)) as Record<string, unknown>;
+        if (data && !skip(frame)) return JSON.parse(data.slice(6)) as Record<string, unknown>;
+        index = buffer.indexOf("\\n\\n");
       }
     }
     throw new Error("No subscription frame received: " + JSON.stringify(buffer));
@@ -95,11 +94,10 @@ test("streams a created event and applies field masks", async () => {
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toContain("text/event-stream");
 
-  // A real write followed by a real dispatch reaches the in-process bus.
+  // A real write followed by a real outbox read reaches the in-process bus.
   const created = await OrdersRepository.create({ title: "streamed", salary: 99 }, "actor");
   expect((await db.select().from(realtimeOutbox)).length).toBe(1);
-  expect(await dispatchRealtimeOutbox(10, fakeAbly, databaseOutboxStore, "worker")).toEqual({ delivered: 1, failed: 0, deadLettered: 0 });
-  expect(published).toHaveLength(1);
+  await pollRealtimeOutbox();
 
   const frame = await nextFrame(response);
   const payload = (frame.data as Record<string, unknown>).ordersChanged as { event: string; record: Record<string, unknown> };
@@ -111,6 +109,22 @@ test("streams a created event and applies field masks", async () => {
   expect(payload.record.salary).toBeNull();
   const storedPayloads = (await db.select().from(realtimeOutbox)).map((row) => row.payload).join(" ");
   expect(storedPayloads).not.toContain("salary");
+});
+
+test("streams granted channels over the REST event stream with masks applied", async () => {
+  const operator = await app("operator");
+  const response = await operator.handle(new Request("http://localhost/api/v1/realtime/stream", { headers: { "x-test-user": "operator" } }));
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toContain("text/event-stream");
+  const created = await OrdersRepository.create({ title: "rest stream", salary: 7 }, "actor");
+  await pollRealtimeOutbox();
+  const frame = await nextFrame(response, 4000, (raw) => raw.startsWith("event: ready"));
+  expect(frame.channel).toBe("qiy:orders");
+  expect(frame.event).toBe("created");
+  expect((frame.record as Record<string, unknown>).id).toBe(created!.id);
+  expect(frame.record as Record<string, unknown>).not.toHaveProperty("salary");
+  const viewer = await app("viewer");
+  expect((await viewer.handle(new Request("http://localhost/api/v1/realtime/stream", { headers: { "x-test-user": "viewer" } }))).status).toBe(403);
 });
 
 test("enforces subscription permissions and rejects non-subscription documents", async () => {
@@ -138,20 +152,19 @@ test("exposes the subscription root in the generated schema", async () => {
 });
 
 test("receives events delivered by another replica through the outbox tail", async () => {
-  Bun.env.QIY_REALTIME_SUBSCRIBE_POLL_MS = "150";
-  try {
+  {
     const operator = await app("operator");
     const response = await operator.handle(new Request(subscribeUrl("subscription { ordersChanged { event record { title } } }"), { headers: { "x-test-user": "operator" } }));
     expect(response.status).toBe(200);
-    // Give the iterator time to capture its cursor, then insert a row that a
-    // different replica already delivered: nothing publishes on this instance's bus.
+    // Give the poller time to start, then insert a row as another replica would:
+    // nothing on this instance calls pollRealtimeOutbox, so only the tail sees it.
     await Bun.sleep(250);
-    await db.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:orders", type: "updated", payload: JSON.stringify({ id: "remote-1", title: "remote" }), attempts: 0, availableAt: new Date(), deliveredAt: new Date(), deadLetteredAt: null, lastError: null, leaseOwner: null, leaseUntil: null, createdAt: new Date() } as never);
+    await db.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:orders", type: "updated", payload: JSON.stringify({ id: "remote-1", title: "remote" }), createdAt: new Date() });
     const frame = await nextFrame(response, 4000);
     const payload = (frame.data as Record<string, unknown>).ordersChanged as { event: string; record: Record<string, unknown> };
     expect(payload.event).toBe("updated");
     expect(payload.record.title).toBe("remote");
-  } finally { delete Bun.env.QIY_REALTIME_SUBSCRIBE_POLL_MS; }
+  }
 });
 `);
 
@@ -160,7 +173,7 @@ try {
   await must(["bun", "run", "db:generate"], server, { DATABASE_URL: databaseUrl });
   await must(["bun", "run", "db:migrate"], server, { DATABASE_URL: databaseUrl });
   console.log(await must(["bun", "run", "typecheck"], server, { DATABASE_URL: databaseUrl }));
-  console.log(await must(["bun", "test", "--preload", "./tests/setup.ts", "subscription.acceptance.test.ts"], server, { DATABASE_URL: databaseUrl }));
+  console.log(await must(["bun", "test", "--preload", "./tests/setup.ts", "subscription.acceptance.test.ts"], server, { DATABASE_URL: databaseUrl, QIY_TEST_DATABASE_URL: databaseUrl }));
   // The web client half of the transport must compile and parse the SSE frames.
   const web = join(admin, "apps/web");
   console.log(await must(["bun", "run", "typecheck"], web, { DATABASE_URL: ":memory:" }));

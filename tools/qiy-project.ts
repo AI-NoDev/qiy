@@ -1,6 +1,5 @@
 import { validateDatabaseIR, validateEntityDisplayTemplates, type DatabaseIR, type EntityIR, type FieldIR, type FilterMode, type IndexIR, type IndexColumnIR, type RelationIR, type QiyViewIR } from "./database-ir";
 import { validateCodeTemplate } from "./code-template";
-import { isQiyV1Source, translateQiyV1 } from "./qiy-v1";
 import {
   formatPermissionExpression,
   validatePermissionModel,
@@ -151,7 +150,6 @@ export interface QiyProject {
   environment?: QiyEnvironmentVariable[];
   messages?: { defaultLocale: string; locales: Record<string, Record<string, string>> };
   menuGroups?: Array<{ name: string; label: string; icon?: string; parent?: string; comment?: string; commentKey?: string; resources: string[] }>;
-  dashboardMetrics?: Array<{ name: string; resource: string; label: string; icon?: string; comment?: string; commentKey?: string; span: 8 | 12 | 24; type?: "count" | "distribution" | "trend" | "aggregate"; groupBy?: string; days?: number; field?: string; agg?: "sum" | "avg" | "min" | "max" }>;
   /** Multi-view charts declared with top-level `chart <Name> { ... }` blocks. */
   charts?: QiyChart[];
   /** `chart panels <Name> { ... }` dashboard layouts referencing charts by name. */
@@ -293,16 +291,31 @@ export interface QiyFeaturesConfig {
   apiKeys: boolean;
 }
 
-export type QiyAuthProvider = "local" | "oidc" | "oauth2" | "sso" | "okta" | "auth0" | "azure-ad-b2c" | "keycloak" | "google" | "kinde" | "otp";
+/**
+ * `local`, `otp`, or the name of an OpenID Connect provider. A single OIDC
+ * provider is always called `oidc`; a `providers` list names each one freely
+ * (`providers local, corp, google;`) and `provider <name> { preset ...; }` picks
+ * the vendor preset that supplies the login label and example endpoints.
+ */
+export type QiyAuthProvider = string;
 
-/** Per-provider identity mapping: which user-table field stores the provider identifier and which claim carries it. */
+export const QIY_OIDC_PRESETS = ["generic", "okta", "auth0", "azure-ad-b2c", "keycloak", "google", "kinde"] as const;
+export type QiyOidcPreset = (typeof QIY_OIDC_PRESETS)[number];
+
+const presetLabels: Record<QiyOidcPreset, string> = {
+  generic: "OpenID Connect", okta: "Okta", auth0: "Auth0", "azure-ad-b2c": "Azure AD B2C", keycloak: "Keycloak", google: "Google", kinde: "Kinde",
+};
+
+/** Per-provider configuration block: vendor preset, button label and identity mapping. */
 export interface QiyAuthProviderMapping {
   provider: QiyAuthProvider;
-  subjectField: string;
+  preset?: QiyOidcPreset;
+  label?: string;
+  subjectField?: string;
   claim?: string;
 }
 
-const qiyAuthProviders = new Set<QiyAuthProvider>(["local", "oidc", "oauth2", "sso", "okta", "auth0", "azure-ad-b2c", "keycloak", "google", "kinde", "otp"]);
+const oidcProviderName = /^[a-z][a-z0-9-]*$/;
 
 type ResolvedAuth = NonNullable<QiyProject["auth"]>;
 
@@ -341,6 +354,21 @@ export function authProviderSubjectField(auth: ResolvedAuth, provider: QiyAuthPr
 /** Configured claim override for one OAuth provider, if any. */
 export function authProviderClaim(auth: ResolvedAuth, provider: QiyAuthProvider): string | undefined {
   return auth.providerMappings?.find((mapping) => mapping.provider === provider)?.claim;
+}
+
+/** Vendor preset of one OIDC provider: explicit `preset`, else a provider named after a preset, else generic. */
+export function authProviderPreset(auth: ResolvedAuth | undefined, provider: QiyAuthProvider): QiyOidcPreset {
+  const explicit = auth?.providerMappings?.find((mapping) => mapping.provider === provider)?.preset;
+  if (explicit) return explicit;
+  return (QIY_OIDC_PRESETS as readonly string[]).includes(provider) ? provider as QiyOidcPreset : "generic";
+}
+
+/** Login button label of one OIDC provider. */
+export function authProviderLabel(auth: ResolvedAuth | undefined, provider: QiyAuthProvider): string {
+  const explicit = auth?.providerMappings?.find((mapping) => mapping.provider === provider)?.label;
+  if (explicit) return explicit;
+  const preset = authProviderPreset(auth, provider);
+  return preset === "generic" && provider !== "oidc" ? provider : presetLabels[preset];
 }
 
 
@@ -426,8 +454,7 @@ export interface QiyWorkspaceConfig {
   };
 }
 
-export function parseQiyProject(input: string): QiyProject {
-  const source = isQiyV1Source(input) ? translateQiyV1(input) : input;
+export function parseQiyProject(source: string): QiyProject {
   let messages: QiyProject["messages"];
   // `&&`, `||`, `!`, `&` are only used by permission declarations and
   // verification expressions; they stay separate tokens so the rest of the
@@ -1574,50 +1601,6 @@ export function parseQiyProject(input: string): QiyProject {
     expect("}");
     return { name, label, ...(icon && { icon }), ...(parent && { parent }), ...(description && description), resources };
   }
-  function dashboardMetric(): NonNullable<QiyProject["dashboardMetrics"]>[number] {
-    expect("metric");
-    const name = identifier();
-    const resource = identifier();
-    let label = name;
-    let icon: string | undefined;
-    let span: 8 | 12 | 24 = 8;
-    let type: "count" | "distribution" | "trend" | "aggregate" = "count";
-    let groupBy: string | undefined;
-    let days: number | undefined;
-    let field: string | undefined;
-    let agg: "sum" | "avg" | "min" | "max" | undefined;
-    let description: { comment: string; commentKey?: string } | undefined;
-    while (peek() === "@") {
-      expect("@");
-      const attribute = identifier();
-      expect("(");
-      if (attribute === "label") label = value();
-      else if (attribute === "icon") icon = value();
-      else if (attribute === "span") {
-        const width = integer();
-        if (width !== 8 && width !== 12 && width !== 24) throw new Error(`Dashboard metric ${name}: span must be 8, 12 or 24`);
-        span = width;
-      } else if (attribute === "type") {
-        const metricType = value();
-        if (metricType !== "" && metricType !== "count" && metricType !== "distribution" && metricType !== "trend" && metricType !== "aggregate") throw new Error(`Dashboard metric ${name}: type must be count, distribution, trend or aggregate`);
-        type = metricType === "" ? "count" : metricType;
-      } else if (attribute === "groupBy") groupBy = value() || undefined;
-      else if (attribute === "field") field = value() || undefined;
-      else if (attribute === "agg") {
-        const operator = value();
-        if (operator !== "sum" && operator !== "avg" && operator !== "min" && operator !== "max") throw new Error(`Dashboard metric ${name}: agg must be sum, avg, min or max`);
-        agg = operator;
-      } else if (attribute === "days") { const metricDays = integer(); days = metricDays > 0 ? metricDays : undefined; }
-      else if (attribute === "comment") {
-        if (description) throw new Error(`Dashboard metric ${name}: duplicate @comment annotation`);
-        description = documentation("dashboard metric comment");
-      }
-      else throw new Error(`Unsupported dashboard metric attribute @${attribute}`);
-      expect(")");
-    }
-    expect(";");
-    return { name, resource, label, span, ...(icon && { icon }), ...(description && description), ...(type !== "count" && { type }), ...(groupBy && { groupBy }), ...(days !== undefined && { days }), ...(field && { field }), ...(agg && { agg }) };
-  }
   /**
    * Chart DSL (multi-view declarations + responsive panel grid):
    *
@@ -1948,6 +1931,9 @@ function enumeration(): import("./database-ir").EnumIR {
     }
     expect("}");
     return { name, ...(description && description), values };
+  }
+  if (tokens[0] === "project" || (tokens[0] === "qiy" && tokens[1] === "v1")) {
+    throw new Error("The v1 shorthand syntax was removed in Qiy 0.37.0. Rewrite the model as `qiy v0; application <name> { ... }`; see docs/guide/migration-0.37.md.");
   }
   expect("qiy");
   expect("v0");
@@ -2365,21 +2351,24 @@ function enumeration(): import("./database-ir").EnumIR {
         const providerId = identifier();
         if (peek() === "{") {
           expect("{");
-          const mapping: QiyAuthProviderMapping = { provider: providerId as QiyAuthProvider, subjectField: "" };
+          const mapping: QiyAuthProviderMapping = { provider: providerId };
           const mappingOptions = new Set<string>();
           while (peek() !== "}") {
             const option = identifier();
-            if (mappingOptions.has(option)) throw new Error(`Duplicate provider mapping option ${option}`);
+            if (mappingOptions.has(option)) throw new Error(`Duplicate provider option ${option}`);
             mappingOptions.add(option);
-            const optionValue = identifier();
-            if (option === "subjectField") mapping.subjectField = optionValue;
-            else if (option === "claim") mapping.claim = optionValue;
-            else throw new Error(`Unsupported provider mapping option ${option}`);
+            if (option === "label") mapping.label = stringLiteral();
+            else if (option === "preset") {
+              const preset = identifier();
+              if (!(QIY_OIDC_PRESETS as readonly string[]).includes(preset)) throw new Error(`Unsupported OIDC preset ${preset}; use one of ${QIY_OIDC_PRESETS.join(", ")}`);
+              mapping.preset = preset as QiyOidcPreset;
+            } else if (option === "subjectField") mapping.subjectField = identifier();
+            else if (option === "claim") mapping.claim = identifier();
+            else throw new Error(`Unsupported provider option ${option}`);
             expect(";");
           }
           expect("}");
-          if (!mapping.subjectField) throw new Error("Provider mapping requires subjectField");
-          if (!qiyAuthProviders.has(mapping.provider)) throw new Error(`Unsupported auth provider ${mapping.provider}`);
+          if (providerId === "local" || providerId === "otp") throw new Error(`Auth provider ${providerId} does not take a configuration block`);
           if (mapping.claim && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(mapping.claim)) throw new Error(`Provider mapping claim must be a plain claim name: ${mapping.claim}`);
           providerMappings.push(mapping);
           continue;
@@ -2402,9 +2391,14 @@ function enumeration(): import("./database-ir").EnumIR {
     }
     expect("}");
     const providerList = attributes.providers ? attributes.providers.split(",") : undefined;
+    if (!providerList && !attributes.provider && providerMappings.length === 1 && providerMappings[0]!.provider === "oidc") attributes.provider = "oidc";
     if (providerList && attributes.provider) throw new Error("Auth accepts either provider or providers, not both");
+    if (attributes.provider && !["local", "otp", "oidc"].includes(attributes.provider)) {
+      const preset = (QIY_OIDC_PRESETS as readonly string[]).includes(attributes.provider) ? attributes.provider : "generic";
+      throw new Error(`Unsupported auth provider ${attributes.provider}; use provider local, otp or oidc (for example provider oidc { preset ${preset}; })`);
+    }
     for (const candidate of providerList ?? []) {
-      if (!qiyAuthProviders.has(candidate as QiyAuthProvider)) throw new Error(`Unsupported auth provider ${candidate}`);
+      if (candidate !== "local" && !oidcProviderName.test(candidate)) throw new Error(`Invalid auth provider name ${candidate}; use lowercase letters, digits and dashes`);
     }
     if (providerList && new Set(providerList).size !== providerList.length) throw new Error("Auth providers must be unique");
     if (providerList?.includes("otp")) throw new Error("Auth providers cannot include otp; use provider otp for one-time-password login");
@@ -2420,7 +2414,7 @@ function enumeration(): import("./database-ir").EnumIR {
       if (!configured) throw new Error(`Provider mapping ${mapping.provider} is not part of the configured providers`);
     }
     if (new Set(providerMappings.map((mapping) => mapping.provider)).size !== providerMappings.length) throw new Error("Provider mappings must be unique per provider");
-    if (!qiyAuthProviders.has(provider as QiyAuthProvider)) throw new Error(`Unsupported auth provider ${provider || "(missing)"}`);
+    if (!provider) throw new Error("Auth requires provider or providers");
     if (!attributes.user) throw new Error("Auth requires a user entity");
     if (!attributes.roleField) throw new Error("Auth requires roleField");
     const subjectField = attributes.subjectField ?? "";
@@ -2703,18 +2697,10 @@ function enumeration(): import("./database-ir").EnumIR {
     while (peek() !== "}") menuGroups.push(menuGroup());
     expect("}");
   }
-  const dashboardMetrics: NonNullable<QiyProject["dashboardMetrics"]> = [];
   const chartDeclarations: Array<{ name: string; view: QiyChartView }> = [];
   const chartPanels: NonNullable<QiyProject["chartPanels"]> = [];
-  // Dashboard metrics and chart blocks share one position (after menu, before
-  // dataflows) and may be written in either order.
-  while (peek() === "dashboard" || peek() === "chart") {
-    if (peek() === "dashboard") {
-      expect("dashboard"); expect("{");
-      while (peek() !== "}") dashboardMetrics.push(dashboardMetric());
-      expect("}");
-      continue;
-    }
+  if (peek() === "dashboard") throw new Error("The dashboard { metric ... } block was removed in Qiy 0.37.0; declare chart views instead (for example chart const OrderCount { data = count orders; }); see docs/guide/migration-0.37.md.");
+  while (peek() === "chart") {
     expect("chart");
     if (peek() === "panels") {
       expect("panels");
@@ -2984,7 +2970,7 @@ function enumeration(): import("./database-ir").EnumIR {
   if (entities.some((entity) => entity.fields.some((field) => field.tenantClaim !== undefined)) && !auth) {
     throw new Error("@tenant requires an auth declaration so the tenant claim can be resolved");
   }
-  return { name: packageName, ...(applicationDescription && applicationDescription), database: { ...(databaseDescription && databaseDescription), dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}), ...(views.length ? { views } : {}) }, ...(mode && { mode }), ...(integration && { integration }), ...(workspace && { workspace }), ...(ui && { ui }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(features && { features }), ...(auth && { auth }), ...(environment && { environment }), ...(messages && { messages }), ...(permissions && { permissions }), ...(scopes.length ? { scopes } : {}), ...(restrictions.length ? { restrictions } : {}), ...(pages.length ? { pages } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(dashboardMetrics.length && { dashboardMetrics }), ...(charts.length && { charts }), ...(chartPanels.length && { chartPanels }), ...(realtime && { realtime }), ...(dataflows.length && { dataflows }), ...(actions.length && { actions }) };
+  return { name: packageName, ...(applicationDescription && applicationDescription), database: { ...(databaseDescription && databaseDescription), dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}), ...(views.length ? { views } : {}) }, ...(mode && { mode }), ...(integration && { integration }), ...(workspace && { workspace }), ...(ui && { ui }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(features && { features }), ...(auth && { auth }), ...(environment && { environment }), ...(messages && { messages }), ...(permissions && { permissions }), ...(scopes.length ? { scopes } : {}), ...(restrictions.length ? { restrictions } : {}), ...(pages.length ? { pages } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(charts.length && { charts }), ...(chartPanels.length && { chartPanels }), ...(realtime && { realtime }), ...(dataflows.length && { dataflows }), ...(actions.length && { actions }) };
 }
 
 function normalizePackageName(name: string): string {
@@ -3156,8 +3142,17 @@ export function serializeQiyProject(project: QiyProject): string {
     lines.push("  auth {");
   const providerList = project.auth.local ? ["local", ...(project.auth.providers ?? [])] : project.auth.providers ?? [];
   if (providerList.length > 1) lines.push(`    providers ${providerList.join(", ")};`);
+  else if (!["local", "otp", "oidc"].includes(project.auth.provider)) lines.push(`    providers ${project.auth.provider};`);
   else lines.push(`    provider ${project.auth.provider};`);
-  for (const mapping of project.auth.providerMappings ?? []) lines.push(`    provider ${mapping.provider} { subjectField ${mapping.subjectField};${mapping.claim ? ` claim ${mapping.claim};` : ""} }`);
+  for (const mapping of project.auth.providerMappings ?? []) {
+    const options = [
+      mapping.preset ? `preset ${mapping.preset};` : "",
+      mapping.label ? `label ${qiyString(mapping.label)};` : "",
+      mapping.subjectField ? `subjectField ${mapping.subjectField};` : "",
+      mapping.claim ? `claim ${mapping.claim};` : "",
+    ].filter(Boolean);
+    lines.push(`    provider ${mapping.provider} { ${options.join(" ")} }`);
+  }
     lines.push(`    user ${qiyIdentifier(project.auth.userEntity, "Auth user entity")};`);
     if (project.auth.subjectField) lines.push(`    subjectField ${qiyIdentifier(project.auth.subjectField, "Auth subject field")};`);
     lines.push(`    roleField ${qiyIdentifier(project.auth.roleField, "Auth role field")};`);
@@ -3347,21 +3342,6 @@ export function serializeQiyProject(project: QiyProject): string {
       lines.push(`${declaration} {`);
       for (const resource of group.resources) lines.push(`      resource ${qiyIdentifier(resource, "Menu resource")};`);
       lines.push("    }");
-    }
-    lines.push("  }");
-  }
-  if (project.dashboardMetrics?.length) {
-    lines.push("  dashboard {");
-    for (const metric of project.dashboardMetrics) {
-      let declaration = `    metric ${qiyIdentifier(metric.name, "Metric name")} ${qiyIdentifier(metric.resource, "Metric resource")} @label(${qiyString(metric.label)}) @span(${metric.span})`;
-      if (metric.icon) declaration += ` @icon(${qiyString(metric.icon)})`;
-      if (metric.type) declaration += ` @type(${metric.type})`;
-      if (metric.groupBy) declaration += ` @groupBy(${qiyString(metric.groupBy)})`;
-      if (metric.field) declaration += ` @field(${qiyString(metric.field)})`;
-      if (metric.agg) declaration += ` @agg(${metric.agg})`;
-      if (metric.days !== undefined) declaration += ` @days(${metric.days})`;
-      if (metric.comment !== undefined) declaration += ` @comment(${qiyComment(metric)})`;
-      lines.push(`${declaration};`);
     }
     lines.push("  }");
   }

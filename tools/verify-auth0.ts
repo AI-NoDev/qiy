@@ -72,7 +72,7 @@ try {
 application auth0-real {
   database sqlite {}
   api { client rest; }
-  auth { provider auth0; user users; subjectField subject; roleField role; }
+  auth { provider oidc { preset auth0; } user users; subjectField subject; roleField role; }
   enum userRole { value admin; value operator; value viewer; }
   entity users {
     field id UUID @id;

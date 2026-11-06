@@ -113,12 +113,10 @@ application qiy-erp-admin {
     }
   }
 
-  dashboard {
-    metric orderCount orders @label("订单总数") @icon(ShoppingOutlined) @span(8);
-    metric inventoryCount inventory_items @label("库存记录") @icon(DatabaseOutlined) @span(8);
-    metric productCount products @label("产品品类") @icon(AppstoreOutlined) @span(8);
-    metric customerCount customers @label("客户数") @icon(UserOutlined) @span(12);
-    metric orderStatusBreakdown orders @label("订单状态") @icon(CheckOutlined) @span(12) @type(distribution) @groupBy(status);
-    metric orderTrend orders @label("近30天订单") @icon(ShoppingOutlined) @span(24) @type(trend) @groupBy(createdAt) @days(30);
-  }
+  chart const OrderCount { icon = "ShoppingOutlined"; title = "订单总数"; data = count orders; }
+  chart const InventoryCount { icon = "DatabaseOutlined"; title = "库存记录"; data = count inventory_items; }
+  chart const ProductCount { icon = "AppstoreOutlined"; title = "产品品类"; data = count products; }
+  chart const CustomerCount { icon = "UserOutlined"; title = "客户数"; data = count customers; }
+  chart pie OrderStatusBreakdown { icon = "CheckOutlined"; title = "订单状态"; data = count orders group by status; labels = status; }
+  chart line OrderTrend { icon = "ShoppingOutlined"; title = "近30天订单"; data = trend orders.createdAt days 30; }
 }

@@ -59,11 +59,13 @@ test("generated robots, full text and skill assets are consistent", () => {
   const robots = readFileSync(join(docs, "public", "robots.txt"), "utf8");
   expect(robots).toContain("Sitemap: https://ai-nodev.github.io/qiy/sitemap.xml");
 
-  const full = readFileSync(join(docs, "public", "llms-full.txt"), "utf8");
-  expect(full.startsWith("# Qiy full documentation\n")).toBe(true);
-  expect(full).toContain("Source: https://ai-nodev.github.io/qiy/dsl/permissions");
-  expect(full).toContain("Source: https://ai-nodev.github.io/qiy/guide/getting-started");
-  expect(full.length).toBeGreaterThan(100_000);
+  expect(existsSync(join(docs, "public", "llms-full.txt"))).toBe(false);
+  const dsl = readFileSync(join(docs, "public", "llms-dsl.txt"), "utf8");
+  expect(dsl.startsWith("# Qiy DSL reference\n")).toBe(true);
+  expect(dsl).toContain("Source: https://ai-nodev.github.io/qiy/dsl/permissions");
+  const guides = readFileSync(join(docs, "public", "llms-guides.txt"), "utf8");
+  expect(guides.startsWith("# Qiy guides\n")).toBe(true);
+  expect(guides).toContain("Source: https://ai-nodev.github.io/qiy/guide/getting-started");
 
   const skill = join(docs, "public", "skills", "qiy", "SKILL.md");
   expect(existsSync(skill)).toBe(true);

@@ -64,14 +64,11 @@ import { db } from "./src/db";
 import { orders, realtimeOutbox } from "./src/schema";
 import { OrdersRepository } from "./src/modules/orders/orders.repository";
 import { UsersRepository } from "./src/modules/users/users.repository";
-import { databaseOutboxStore, dispatchRealtimeOutbox, publishRealtime, realtimeCapabilities, realtimeChannel } from "./src/realtime";
+import { pollRealtimeOutbox, realtimeCapabilities, realtimeChannel } from "./src/realtime";
 
 delete Bun.env.QIY_REALTIME_DISABLED;
-Bun.env.QIY_REALTIME_SUBSCRIBE_POLL_MS = "150";
-Bun.env.QIY_REALTIME_LEASE_MS = "1000";
+Bun.env.QIY_REALTIME_POLL_MS = "150";
 
-const published: Array<{ channel: string; type: string }> = [];
-const fakeAbly = (() => ({ channels: { get: (channel: string) => ({ publish: async (type: string) => { published.push({ channel, type }); } }) } })) as never;
 type Claims = Record<string, string>;
 const as = (role: "admin" | "operator" | "viewer", claims: Claims) => async () => ({ id: "00000000-0000-4000-8000-000000000001", name: role, role, claims });
 const app = (role: "admin" | "operator" | "viewer", claims: Claims = { tenant: "eu" }) => createApp({ users: UsersRepository, orders: OrdersRepository }, as(role, claims));
@@ -106,15 +103,10 @@ test("grants only the caller's claim segment", async () => {
   expect(Object.keys(realtimeCapabilities(principal("viewer", { tenant: "eu" })))).toEqual([]);
 });
 
-test("publishes and stores per-segment channels", async () => {
+test("stores per-segment channels", async () => {
   await OrdersRepository.create({ title: "eu-order", tenantId: "eu", salary: 11 }, "actor");
   const rows = await db.select().from(realtimeOutbox);
   expect(rows.map((row) => row.channel)).toEqual(["qiy:orders:eu"]);
-  // A record without the claim value cannot be addressed to a segment.
-  await db.delete(realtimeOutbox);
-  await publishRealtime("orders", "created", { id: "x", title: "no tenant" }, fakeAbly);
-  expect(published).toEqual([]);
-  await dispatchRealtimeOutbox(10, fakeAbly, databaseOutboxStore, "worker");
 });
 
 test("streams only the caller's tenant over GraphQL subscriptions", async () => {
@@ -127,7 +119,7 @@ test("streams only the caller's tenant over GraphQL subscriptions", async () => 
   // An eu row reaches this subscriber; a us row published on its own segment does not.
   const eu = await OrdersRepository.create({ title: "streamed-eu", tenantId: "eu", salary: 7 }, "actor");
   const us = await OrdersRepository.create({ title: "streamed-us", tenantId: "us", salary: 9 }, "admin");
-  expect(await dispatchRealtimeOutbox(10, fakeAbly, databaseOutboxStore, "worker")).toMatchObject({ delivered: 2 });
+  await pollRealtimeOutbox();
   expect((await db.select().from(realtimeOutbox)).map((row) => row.channel).sort()).toEqual(["qiy:orders:eu", "qiy:orders:us"]);
 
   const frame = await nextFrame(response);
@@ -136,7 +128,6 @@ test("streams only the caller's tenant over GraphQL subscriptions", async () => 
   expect(payload.record.id).toBe(eu!.id);
   expect(payload.record.tenantId).toBe("eu");
   expect(payload.record.salary).toBeNull();
-  expect(published.map((item) => item.channel).sort()).toEqual(["qiy:orders:eu", "qiy:orders:us"]);
   expect(us!.id).not.toBe(eu!.id);
 });
 
@@ -154,7 +145,7 @@ try {
   await must(["bun", "run", "db:generate"], server, { DATABASE_URL: databaseUrl });
   await must(["bun", "run", "db:migrate"], server, { DATABASE_URL: databaseUrl });
   console.log(await must(["bun", "run", "typecheck"], server, { DATABASE_URL: databaseUrl }));
-  console.log(await must(["bun", "test", "--preload", "./tests/setup.ts", "claim.acceptance.test.ts"], server, { DATABASE_URL: databaseUrl }));
+  console.log(await must(["bun", "test", "--preload", "./tests/setup.ts", "claim.acceptance.test.ts"], server, { DATABASE_URL: databaseUrl, QIY_TEST_DATABASE_URL: databaseUrl }));
   // The browser live provider resolves the segmented channel from the token capability.
   const web = join(admin, "apps/web");
   console.log(await must(["bun", "run", "typecheck"], web, { DATABASE_URL: ":memory:" }));

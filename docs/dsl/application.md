@@ -1,4 +1,4 @@
-﻿# application
+# application
 
 一个 `.qiy` 项目有且只有一个 `application <name> { ... }` 块。块内的声明**顺序即语法**：解析器按固定顺序逐个匹配，顺序错了会报 `Expected <关键字> near token N`，而不是“任意顺序配置”。
 
@@ -59,7 +59,7 @@ application qiy-erp-admin @comment("Operations administration") {
 
   pages orders { list roles admin, operator; }
   menu { group sales @label("销售") { resource orders; } }
-  dashboard { metric orderCount orders @label("订单总数"); }
+  chart const OrderCount { title = "订单总数"; data = count orders; }
 
   // dataflow / action 见各自章节
 }
@@ -91,7 +91,7 @@ application qiy-erp-admin @comment("Operations administration") {
 | 20 | `restrict … { }` | 0..N | 行级/字段级策略 |
 | 21 | `pages … { }` | 0..N | 页面级角色规则 |
 | 22 | `menu { … }` | 0..1 | 侧边栏分组 |
-| 23 | `dashboard { … }` / `chart …` | 0..N | 概览页，二者共享位置、可混排 |
+| 23 | `chart …` / `chart panels …` | 0..N | 概览页图表与面板 |
 | 24 | `dataflow … { }` | 0..N | 事务型命令（见 [dataflow](/dsl/dataflow)） |
 | 25 | `action … { }` | 0..N | 命令按钮/手写页（见 [action](/dsl/actions)） |
 
@@ -542,9 +542,9 @@ realtime {
 
 ### 生成结果
 
-- Server：`/api/v1/realtime/token`（角色 + 资源范围、只订阅权限）、`realtime` outbox 表与投递 worker、`/api/v1/realtime/outbox` 管理端点、Prometheus 指标。
-- Web：Refine LiveProvider（REST 用 Ably；GraphQL 另有 SSE subscription transport）；字段 `mask` 会在入队前从负载中删除。
-- 环境变量：`QIY_ABLY_API_KEY`、`QIY_REALTIME_*`。完整说明见 [realtime](/dsl/realtime)。
+- Server：`GET /api/v1/realtime/stream`（SSE，按角色 + claim 计算 channel）、`qiy_realtime_outbox` 事件表与每进程共享的尾随轮询器。
+- Web：基于 SSE 的 Refine LiveProvider（GraphQL 另有 SSE subscription 客户端）；字段 `mask` 会在入队前从负载中删除。
+- 环境变量：`QIY_REALTIME_*`。完整说明见 [realtime](/dsl/realtime)。
 
 ### 示例
 
@@ -714,9 +714,9 @@ auth {
 
 | 键 | 取值 | 默认 | 说明 |
 | --- | --- | --- | --- |
-| `provider` | `local`、`otp`、`oidc`、`oauth2`、`sso`、`okta`、`auth0`、`azure-ad-b2c`、`keycloak`、`google`、`kinde` | 必填（或改用 `providers`） | 单 provider 模式 |
-| `providers` | 上面列表的逗号组合（可含 `local`，不能含 `otp`） | 无 | 多 provider / hybrid 模式 |
-| `provider <id> { … }` | 映射块 | 无 | 每 provider 的标识列与 claim |
+| `provider` | `local`、`otp`、`oidc` | 必填（或改用 `providers`） | 单 provider 模式 |
+| `providers` | 自由命名的逗号列表（小写字母/数字/`-`，可含 `local`，不能含 `otp`） | 无 | 多 provider / hybrid 模式 |
+| `provider <id> { … }` | 配置块：`preset`、`label`、`subjectField`、`claim` | 无 | 厂商预设、按钮文案、每 provider 的标识列与 claim；见 [Provider 命名与 preset](/dsl/auth#provider-命名与-preset) |
 | `user` | 实体名 | 必填 | 用户表 |
 | `subjectField` | 用户表字段 | 无 | 外部身份标识列（OAuth 家族必填） |
 | `roleField` | 用户表字段 | 必填 | 角色列 |

@@ -50,7 +50,7 @@ features:
     link: /guide/dsl-cookbook
     linkText: 查看用法手册
   - title: AI Agent 就绪
-    details: 标准 Agent Skill（SKILL.md + 模块化 references + 可运行示例）可用 qiy skill install 安装到项目或全局；llms.txt / llms-full.txt 提供面向 Agent 的检索入口。
+    details: 标准 Agent Skill（SKILL.md + 模块化 references + 可运行示例）可用 qiy skill install 安装到项目或全局；llms.txt / llms-dsl.txt / llms-guides.txt 提供面向 Agent 的检索入口。
     link: /guide/agent-skill
     linkText: 安装 Agent Skill
 ---

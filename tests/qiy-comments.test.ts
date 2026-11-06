@@ -112,7 +112,7 @@ test("declares international locales and generates matching Refine and component
   }
 });
 
-test("enum, enum value, menu group and dashboard comments roundtrip into generated metadata", () => {
+test("enum, enum value and menu group comments roundtrip into generated metadata", () => {
   const model = `qiy v0; application documented-objects {
     database sqlite {}
     messages {
@@ -121,13 +121,11 @@ test("enum, enum value, menu group and dashboard comments roundtrip into generat
         "enum.status" "Lifecycle status";
         "enum.status.active" "Available for normal operations";
         "menu.operations" "Operational master data";
-        "dashboard.users" "Current user records";
       }
       locale "zh-CN" {
         "enum.status" "生命周期状态";
         "enum.status.active" "可用于正常业务";
         "menu.operations" "运营主数据";
-        "dashboard.users" "当前用户记录";
       }
     }
     enum status @comment(t("enum.status")) {
@@ -144,24 +142,18 @@ test("enum, enum value, menu group and dashboard comments roundtrip into generat
         resource users;
       }
     }
-    dashboard {
-      metric userCount users @label("Users") @span(8) @comment(t("dashboard.users"));
-    }
   }`;
   const project = parseQiyProject(model);
   expect(project.database.enums?.[0]).toMatchObject({ comment: "Lifecycle status", commentKey: "enum.status" });
   expect(project.database.enums?.[0]?.values[0]).toMatchObject({ comment: "Available for normal operations", commentKey: "enum.status.active" });
   expect(project.database.enums?.[0]?.values[1]?.comment).toBe("Unavailable account");
   expect(project.menuGroups?.[0]).toMatchObject({ comment: "Operational master data", commentKey: "menu.operations" });
-  expect(project.dashboardMetrics?.[0]).toMatchObject({ comment: "Current user records", commentKey: "dashboard.users" });
   expect(parseQiyProject(serializeQiyProject(project))).toEqual(project);
 
   const files = generateProject(project.database, project.name, project);
   expect(files["apps/web/app/resources.ts"]).toContain('export const enumerations');
   expect(files["apps/web/app/resources.ts"]).toContain('"commentKey": "enum.status.active"');
   expect(files["apps/web/app/resources.ts"]).toContain('"commentKey": "menu.operations"');
-  expect(files["apps/web/app/dashboard.ts"]).toContain('"commentKey": "dashboard.users"');
-  expect(files["apps/web/app/routes/home.tsx"]).toContain("<MetricDescription metric={metric} />");
   expect(files["apps/web/app/routes/list.tsx"]).toContain("translate(enumValue.commentKey");
   expect(files["apps/web/app/components/resource-form.tsx"]).toContain("translate(item.commentKey");
 });
@@ -205,11 +197,9 @@ test("named object comments fail closed for missing messages and duplicate annot
     enum status @comment(t("known")) { value active @comment(t("known")); }
     entity users { field id UUID @id; field status status; }
     menu { group operations @comment(t("known")) { resource users; } }
-    dashboard { metric userCount users @comment(t("known")); }
   }`;
   expect(() => parseQiyProject(base.replace('enum status @comment(t("known"))', 'enum status @comment(t("missing"))'))).toThrow("Missing default locale message for enum comment");
   expect(() => parseQiyProject(base.replace('enum status @comment(t("known"))', 'enum status @comment(t("known")) @comment("duplicate")'))).toThrow("Enum status: duplicate @comment annotation");
   expect(() => parseQiyProject(base.replace('value active @comment(t("known"))', 'value active @comment(t("known")) @comment("duplicate")'))).toThrow("Enum status.active: duplicate @comment annotation");
   expect(() => parseQiyProject(base.replace('group operations @comment(t("known"))', 'group operations @comment(t("known")) @comment("duplicate")'))).toThrow("Menu group operations: duplicate @comment annotation");
-  expect(() => parseQiyProject(base.replace('metric userCount users @comment(t("known"))', 'metric userCount users @comment(t("known")) @comment("duplicate")'))).toThrow("Dashboard metric userCount: duplicate @comment annotation");
 });

@@ -28,8 +28,8 @@ Canonical reference: https://ai-nodev.github.io/qiy/dsl/permissions (`/dsl/auth`
 | Mode | Declaration | Generated result |
 | --- | --- | --- |
 | Local password | `provider local;` | Argon2id verify + HS256 session JWT + `/auth/login` + Refine `AuthPage` |
-| Single OAuth/OIDC/SSO | `provider oidc;` (also `oauth2`, `sso`, `okta`, `auth0`, `azure-ad-b2c`, `keycloak`, `google`, `kinde`) | Browser PKCE + server JWKS verification; one `QIY_OIDC_ISSUER/AUDIENCE/JWKS_URL` block |
-| Multiple providers | `providers okta, keycloak, google;` | Login buttons from `GET /api/v1/auth/providers`; one `QIY_OIDC_<ID>_*` block per provider |
+| Single OpenID Connect | `provider oidc;`, optionally `provider oidc { preset okta; }` | Browser PKCE + server JWKS verification; one `QIY_OIDC_ISSUER/AUDIENCE/JWKS_URL` block |
+| Multiple providers | `providers okta, corp, google;` (free names; see Provider names and presets) | Login buttons from `GET /api/v1/auth/providers`; one `QIY_OIDC_<ID>_*` block per provider |
 | Hybrid (password + OAuth) | `providers local, okta, google;` plus username/password fields | One login page with password form + provider buttons; first-login onboarding, bind/unbind, profile page |
 | One-time password | `provider otp;` | `/auth/otp/request` + `/auth/otp/verify`, 5-minute signed challenge, 12-hour session |
 | Host integration | `mode integration` | No Qiy server, no Qiy auth; host adapter supplies identity ([workspace-integration.md](workspace-integration.md)) |
@@ -68,11 +68,27 @@ auth {
 }
 ```
 
-`provider <id> { ... }` is a **mapping block**, not a second login mode. It must name an already-configured provider. `provider` and `providers` are mutually exclusive.
+`provider <id> { ... }` is a **configuration block**, not a second login mode. It must name an already-configured provider (a lone `provider oidc { ... }` block also declares `provider oidc;`); `local` and `otp` take no block. `provider` and `providers` are mutually exclusive.
+
+### Provider names and presets
+
+Every external login is OpenID Connect; vendors differ only in endpoint shape, button label and claim conventions, so there is one external provider kind and `preset` picks the vendor.
+
+| Declaration | Meaning |
+| --- | --- |
+| `provider oidc;` | One external provider named `oidc`, preset `generic` |
+| `provider oidc { preset okta; }` | One external provider with the Okta preset |
+| `providers local, okta, google;` | A name equal to a preset applies that preset |
+| `providers local, corp;` + `provider corp { preset keycloak; label "Corp SSO"; }` | Free name with explicit preset and label |
+
+- Presets: `generic`, `okta`, `auth0`, `azure-ad-b2c`, `keycloak`, `google`, `kinde`; anything else fails with `Unsupported OIDC preset <x>`.
+- Provider names are lowercase letters, digits and `-`. The name (not the preset) drives the callback path and `QIY_OIDC_<NAME>_*` variables.
+- Button label: `label` -> preset vendor name -> provider name.
+- A single `provider okta;` / `provider sso;` was removed in 0.37.0 and fails with `use provider local, otp or oidc (for example provider oidc { preset okta; })`.
 
 | Attribute | Required | Default | Rule |
 | --- | --- | --- | --- |
-| `provider` | one of two | - | Single provider: `local`, `otp`, `oidc`, `oauth2`, `sso`, `okta`, `auth0`, `azure-ad-b2c`, `keycloak`, `google`, `kinde` |
+| `provider` | one of two | - | Single provider: `local`, `otp` or `oidc` |
 | `providers` | one of two | - | Comma list; unique; cannot contain `otp`; may contain `local` |
 | `user` | yes | - | Declared user entity (`Auth: unknown user entity X`) |
 | `subjectField` | required for OAuth family | empty | Required + unique + Text column |
@@ -80,8 +96,10 @@ auth {
 | `usernameField` | required for `local`/`otp` | empty | Required + unique + Text; must differ from `passwordField` |
 | `passwordField` | required for `local` | empty | Nullable Text; never appears in the API schema |
 | `profileField` | no | empty | Nullable Text JSON; only with at least one OAuth provider |
-| mapping `subjectField` | required in hybrid | - | Existing nullable + unique Text column |
-| mapping `claim` | no | `sub` | Plain claim name `[A-Za-z_][A-Za-z0-9_]*`; quotes are rejected |
+| block `subjectField` | required in hybrid | - | Existing nullable + unique Text column |
+| block `preset` | no | preset named like the provider, else `generic` | One of `generic`, `okta`, `auth0`, `azure-ad-b2c`, `keycloak`, `google`, `kinde` |
+| block `label` | no | preset vendor name -> provider name | Login button text (string) |
+| block `claim` | no | `sub` | Plain claim name `[A-Za-z_][A-Za-z0-9_]*`; quotes are rejected |
 
 ## User model contract
 
@@ -216,7 +234,7 @@ Non-hybrid multi-provider mode **does not create accounts**. A valid IdP identit
 
 `QIY_OIDC_<PROVIDER>_*` uses the provider name uppercased with non-alphanumerics replaced by `_`: `okta` -> `OKTA`, `azure-ad-b2c` -> `AZURE_AD_B2C`.
 
-| Provider id | Issuer shape | Audience | JWKS | Identity claim |
+| preset | Issuer shape | Audience | JWKS | Identity claim |
 | --- | --- | --- | --- | --- |
 | `okta` | `https://<domain>/oauth2/default` | `api://default` or custom AS audience | `/oauth2/default/v1/keys` | `sub` |
 | `keycloak` | `https://<host>/realms/<realm>` | `account` or client id | `/realms/<realm>/protocol/openid-connect/certs` | `sub` (roles usually in `realm_access.roles`) |
@@ -224,8 +242,8 @@ Non-hybrid multi-provider mode **does not create accounts**. A valid IdP identit
 | `kinde` | `https://<subdomain>.kinde.com` | client id | `/.well-known/jwks.json` | `sub` |
 | `azure-ad-b2c` | `https://<tenant>.b2clogin.com/<tenantId>/<policy>/v2.0/` | app client id | `<policy>/discovery/v2.0/keys` | `sub` (custom policies often add `roles`) |
 | `auth0` | `https://<tenant>.<region>.auth0.com/` | API identifier | `/.well-known/jwks.json` | `sub` |
-| `oidc`/`oauth2`/`sso` | your issuer | your audience | your JWKS | `sub` |
-| Dex (via `keycloak`/`oidc`) | `https://<host>/dex` | `qiy-admin` or your client | `/dex/keys` | `sub` (no `roles`/`groups` by default) |
+| `generic` | your issuer | your audience | your JWKS | `sub` |
+| Dex (`generic`, free name such as `dex`) | `https://<host>/dex` | `qiy-admin` or your client | `/dex/keys` | `sub` (no `roles`/`groups` by default) |
 
 These are configuration starting points, not acceptance claims: verify each real tenant (issuer, audience, JWKS, claims, logout, third-party cookie behavior) in its own environment. `tools/verify-*.ts` scripts prove protocol shape, not your tenant.
 

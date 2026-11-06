@@ -43,7 +43,7 @@ qiy --help
 
 From a Qiy source checkout use `bun run qiy -- --help` instead. Do not assume `bunx qiy` exists; it only works if a published npm package is installed and resolves to the expected version.
 
-The executable embeds the Admin template, so it can generate a complete application outside the repository. The public input format is `.qiy` only; MPS models and Database IR are maintainer tools, not CLI inputs.
+The executable embeds the Admin template, so it can generate a complete application outside the repository. The only input format is `.qiy`.
 
 ## Command reference
 
