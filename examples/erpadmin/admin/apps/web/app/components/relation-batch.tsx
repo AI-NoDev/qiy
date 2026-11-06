@@ -47,12 +47,15 @@ export function buildRelationBatchPlan(fields: ReadonlyArray<ResourceField>, row
     if (!target) continue;
     for (const row of rows ?? []) {
       const raw = row[field.name];
-      if (raw === null || raw === undefined || raw === "") continue;
-      const id = String(raw);
-      if (!id) continue;
-      const ids = grouped.get(target) ?? new Set<string>();
-      ids.add(id);
-      grouped.set(target, ids);
+      // A many-to-many field holds an id array; every linked id joins the batch.
+      for (const value of Array.isArray(raw) ? raw : [raw]) {
+        if (value === null || value === undefined || value === "") continue;
+        const id = String(value);
+        if (!id) continue;
+        const ids = grouped.get(target) ?? new Set<string>();
+        ids.add(id);
+        grouped.set(target, ids);
+      }
     }
   }
   return [...grouped.entries()]

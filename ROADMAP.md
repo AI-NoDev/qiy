@@ -194,7 +194,7 @@
 - [x] 字段校验与默认值：`@min`/`@max`/`@length`/`@pattern`/`@default`，服务端与表单同源
 - [x] 乐观锁 `@version`（冲突 409，表单提示并重新加载）
 - [x] 自定义角色：`auth { roles { <name> full|write|read; } }`，替代固定的 `admin`/`operator`/`viewer`
-- [ ] 多对多关系与多选 UI（`relation ... many` 目前解析后被拒绝）
+- [x] 多对多关系与多选 UI：`relation ... many` 生成连接表、id 数组字段（事务内校验并替换、软删/数据范围感知、`eq`/`in` 过滤、CSV、审计）与多选关联下拉
 - [ ] 声明式状态机 / 审批流转，完成后删除 `workflow orderInventory`
 - [ ] Dataflow 应用资源的 `restrict` 行策略（目前带行策略的资源不能被 Dataflow 使用）
 - [ ] Webhook、通知适配器（SMTP 默认 / Resend / webhook / 开发环境 console）；cron 调用 Dataflow 并加分布式锁

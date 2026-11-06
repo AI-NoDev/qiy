@@ -1,4 +1,6 @@
 import type { DatabaseIR, EntityIR, FieldIR, FilterMode } from "./database-ir";
+import { manyRelations } from "./database-ir";
+import { injectLinkWrites, linkBodySchema, sqliteLinkTestTables, renderLinkedRepository, renderRelationLinksModule, renderRepositoryLinks, repositoryLinkImports, validateRelationLinkScopes } from "./generate-relation-links";
 import { renderViewRoutes } from "./generate-view-routes";
 import type { QiyProject, DataflowIR, QiyPolicyExpression, QiyResourceRestriction, QiyRowPredicate, QiyFieldMask } from "./qiy-project";
 import { authHasLocal, authIsHybrid, authOAuthProviders, authProviderLabel, authProviderSubjectField, authUsesProviderChooser } from "./qiy-project";
@@ -192,14 +194,14 @@ function createFields(entity: EntityIR, database: DatabaseIR): string {
     // when the column is NOT NULL. Client-supplied values are ignored on write.
     // A @default column fills an omitted value the same way.
     return `  ${JSON.stringify(field.name)}: ${generated.has(field.name) || field.defaultValue ? `t.Optional(${value})` : value},`;
-  }).join("\n");
+  }).concat(manyRelations(database, entity.name).map(linkBodySchema)).join("\n");
 }
 
 function patchFields(entity: EntityIR, database: DatabaseIR): string {
   return entity.fields.filter((field) => !field.primaryKey && !field.softDelete && field.tenantClaim === undefined && field.computed === undefined).map((field) => {
     const value = field.nullable ? `t.Union([${apiField(field, database)}, t.Null()], ${JSON.stringify(field.comment !== undefined ? { description: field.comment } : {})})` : apiField(field, database);
     return `  ${JSON.stringify(field.name)}: t.Optional(${value}),`;
-  }).join("\n");
+  }).concat(manyRelations(database, entity.name).map(linkBodySchema)).join("\n");
 }
 
 function modelName(entity: EntityIR): string {
@@ -314,7 +316,9 @@ function graphqlSchema(database: DatabaseIR, hiddenFields: Record<string, string
     const hidden = hiddenFields[entity.name] ?? [];
     const publicFields = entity.fields.filter((field) => !hidden.includes(field.name));
     const generatedFields = generatedFieldsOf(entity, database.relations ?? []).map((generated) => generated.field.name);
-    return `${graphqlDescription(entity.comment)}type ${modelName(entity)} {\n${publicFields.map((field) => `${graphqlDescription(field.comment, "  ")}  ${field.name}: ${graphqlType(field)}`).join("\n")}\n}\n\ntype ${modelName(entity)}Page {\n  items: [${modelName(entity)}!]!\n  total: Int!\n  page: Int!\n  pageSize: Int!\n}\n\n${graphqlDescription(entity.comment)}input ${modelName(entity)}CreateInput {\n${graphqlInputFields(entity, false, hidden, generatedFields)}\n}\n\n${graphqlDescription(entity.comment)}input ${modelName(entity)}UpdateInput {\n${graphqlInputFields(entity, true, hidden)}\n}`;
+    const links = manyRelations(database, entity.name);
+    const linkLines = (type: string) => links.map((link) => `\n${graphqlDescription(link.relation.comment, "  ")}  ${link.field}: ${type}`).join("");
+    return `${graphqlDescription(entity.comment)}type ${modelName(entity)} {\n${publicFields.map((field) => `${graphqlDescription(field.comment, "  ")}  ${field.name}: ${graphqlType(field)}`).join("\n")}${linkLines("[ID!]!")}\n}\n\ntype ${modelName(entity)}Page {\n  items: [${modelName(entity)}!]!\n  total: Int!\n  page: Int!\n  pageSize: Int!\n}\n\n${graphqlDescription(entity.comment)}input ${modelName(entity)}CreateInput {\n${graphqlInputFields(entity, false, hidden, generatedFields)}${linkLines("[ID!]")}\n}\n\n${graphqlDescription(entity.comment)}input ${modelName(entity)}UpdateInput {\n${graphqlInputFields(entity, true, hidden)}${linkLines("[ID!]")}\n}`;
   }).join("\n\n");
   const views = database.views ?? [];
   const viewTypes = views.map((view) => {
@@ -366,11 +370,11 @@ type ${view.name}Page {
 input QiyFilterInput {\n  field: String!\n  operator: String = "eq"\n  value: String!\n}\n\ntype QiyDistribution {\n  value: String\n  count: Int!\n}\n\ntype QiyTrend {\n  day: String!\n  count: Int!\n}\n\n${types}${viewTypes ? "\n\n" + viewTypes : ""}${realtimeEntities.length ? `\n\n${realtimeEntities.map((entity) => `type ${modelName(entity)}Event {\n  event: String!\n  record: ${modelName(entity)}!\n}`).join("\n\n")}` : ""}${dataflowInputs ? `\n\n${dataflowInputs}` : ""}\n\ntype Query {\n${queries}${viewQueries ? "\n" + viewQueries : ""}\n}\n\ntype Mutation {\n${mutations}${dataflowMutations ? `\n${dataflowMutations}` : ""}\n}${realtimeEntities.length ? `\n\ntype Subscription {\n${realtimeEntities.map((entity) => `  ${entity.name}Changed: ${modelName(entity)}Event!`).join("\n")}\n}` : ""}`;
 }
 
-function graphqlResolver(entity: EntityIR, restricted = false): string {
+function graphqlResolver(entity: EntityIR, restricted = false, linkFields: string[] = []): string {
   const name = modelName(entity);
   const sortableFields = JSON.stringify(entity.fields.filter((field) => field.computed === undefined && field.sortable !== false).map((field) => field.name));
-  const filterableFields = JSON.stringify(entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => field.name));
-  const filterModes = JSON.stringify(Object.fromEntries(entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => [field.name, filterModesForField(field)])));
+  const filterableFields = JSON.stringify([...entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => field.name), ...linkFields]);
+  const filterModes = JSON.stringify(Object.fromEntries([...entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => [field.name, filterModesForField(field)]), ...linkFields.map((field) => [field, ["eq", "in"]])]));
   // GraphQL must not become an authorization bypass: every resolver resolves the
   // same request policy as REST, forwards it to the service, and applies the
   // field masks before returning records.
@@ -425,7 +429,7 @@ function renderGraphQL(database: DatabaseIR, hiddenFields: Record<string, string
   const batchFlows = new Set(actions.filter((action) => action.batch && action.target.kind === "dataflow").map((action) => action.target.kind === "dataflow" ? action.target.dataflow : ""));
   const serviceImports = database.entities.map((entity) => `import { create${modelName(entity)}Service } from "./modules/${entity.name}/${entity.name}.service";`).join("\n") + '\nimport { withPaginationLimit } from "./pagination";\n\ntype FilterOperator = "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in";';
   const services = database.entities.map((entity) => `  ${entity.name}: withPaginationLimit(create${modelName(entity)}Service(repositories.${entity.name})),`).join("\n");
-  const resolvers = database.entities.map((entity) => graphqlResolver(entity, restrictedResources.has(entity.name))).join("\n");
+  const resolvers = database.entities.map((entity) => graphqlResolver(entity, restrictedResources.has(entity.name), manyRelations(database, entity.name).map((link) => link.field))).join("\n");
   const views = database.views ?? [];
   const viewResolvers = views.map((view) => {
     const hasId = view.columns.includes("id");
@@ -767,7 +771,7 @@ test("SQLite rejects updates carrying a stale @version", async () => {
   const { client } = await import("../src/db");
   const { QiyVersionConflict } = await import("../src/concurrency");
   const { ${modelName(entity)}Repository: repository } = await import("../src/modules/${entity.name}/${entity.name}.repository");
-  client.exec(${JSON.stringify(`DROP TABLE IF EXISTS "${entity.tableName}"; DROP TABLE IF EXISTS "audit_events"; DROP TABLE IF EXISTS "qiy_realtime_outbox"; CREATE TABLE "${entity.tableName}" (${columns}); CREATE TABLE "audit_events" ("id" text primary key, "actorId" text, "action" text not null, "resource" text not null, "resourceId" text, "metadata" text, "createdAt" integer not null); CREATE TABLE "qiy_realtime_outbox" ("id" text primary key, "channel" text not null, "type" text not null, "payload" text not null, "createdAt" integer not null);`)});
+  client.exec(${JSON.stringify(`DROP TABLE IF EXISTS "${entity.tableName}"; DROP TABLE IF EXISTS "audit_events"; DROP TABLE IF EXISTS "qiy_realtime_outbox"; CREATE TABLE "${entity.tableName}" (${columns}); CREATE TABLE "audit_events" ("id" text primary key, "actorId" text, "action" text not null, "resource" text not null, "resourceId" text, "metadata" text, "createdAt" integer not null); CREATE TABLE "qiy_realtime_outbox" ("id" text primary key, "channel" text not null, "type" text not null, "payload" text not null, "createdAt" integer not null);${sqliteLinkTestTables(entity, database)}`)});
   const created = await repository.create({ ${values} }, "actor");
   const id = String(created.id);
   expect(created.${version}).toBe(1);
@@ -1152,9 +1156,10 @@ function renderRoutes(entity: EntityIR, database: DatabaseIR, scopes: Array<{ re
   const route = JSON.stringify(`/${entity.tableName}`);
   const scope = scopes.find((item) => item.resource === entity.name || item.resource === entity.tableName);
   const scopeLiteral = scope ? JSON.stringify({ field: scope.field, claim: scope.claim }) : "null";
+  const linkFields = manyRelations(database, entity.name).map((link) => link.field);
   const sortableFields = JSON.stringify(entity.fields.filter((field) => field.computed === undefined && field.sortable !== false).map((field) => field.name));
-  const filterableFields = JSON.stringify(entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => field.name));
-  const filterModes = JSON.stringify(Object.fromEntries(entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => [field.name, filterModesForField(field)])));
+  const filterableFields = JSON.stringify([...entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => field.name), ...linkFields]);
+  const filterModes = JSON.stringify(Object.fromEntries([...entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => [field.name, filterModesForField(field)]), ...linkFields.map((field) => [field, ["eq", "in"]])]));
   const allowed = entity.fields.filter((field) => !field.primaryKey && field.computed === undefined).map((field) => JSON.stringify(field.name)).join(", ");
   const sanitize = hiddenFields.length ? `const privateFields = ${JSON.stringify(hiddenFields)} as string[];
 const redact = (record: Record<string, unknown>) => { const safe = { ...record }; for (const field of privateFields) delete safe[field]; return safe; };` : "const redact = (record: Record<string, unknown>) => record;";
@@ -1194,6 +1199,10 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
   // A stale @version counter is a documented 409; the class comes from api/src/concurrency.ts.
   const versionErrorHandler = entity.fields.some((field) => field.version)
     ? `.onError(({ error, status }) => error instanceof QiyVersionConflict ? status(409, { error: error.message, errorKey: error.errorKey }) : undefined)`
+    : "";
+  // Unknown, soft-deleted or out-of-scope link targets come from api/src/relation-links.ts.
+  const linkErrorHandler = linkFields.length
+    ? `.onError(({ error, status }) => error instanceof QiyRelationLinkError ? status(400, { error: error.message, errorKey: error.errorKey, field: error.field }) : undefined)`
     : "";
   // @min/@max/@length/@pattern violations come from api/src/field-rules.ts.
   const fieldRuleErrorHandler = fieldRuled
@@ -1339,12 +1348,13 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
     if (!principal || claimValue === undefined || claimValue === null || claimValue === "") throw new Error("Missing required data scope claim: " + scopeClaim);
     return { field: scopeField, value: String(claimValue) };
   };${policyPlumbing}
-  const exportColumns = ${JSON.stringify(entity.fields.filter((field) => field.type !== "Vector").map((field) => field.name))} as string[];
+  const exportColumns = ${JSON.stringify([...entity.fields.filter((field) => field.type !== "Vector").map((field) => field.name), ...linkFields])} as string[];
   const exportMaxRows = () => { const value = Number(Bun.env.QIY_EXPORT_MAX_ROWS ?? 1000); return Number.isSafeInteger(value) && value >= 1 && value <= 100000 ? value : 1000; };
   // Exports stream in bounded pages so memory does not grow with the result set.
   const EXPORT_PAGE_SIZE = Math.min(250, exportMaxRows());
   // Import accepts plain scalar columns only; vectors and key lists need the API.
-  const importTypes = ${JSON.stringify(Object.fromEntries(entity.fields.filter((field) => !field.primaryKey && field.type !== "Vector" && field.type !== "Files").map((field) => [field.name, field.type])))} as Record<string, string>;
+  // Many-to-many link fields travel as JSON id arrays, like Array columns.
+  const importTypes = ${JSON.stringify(Object.fromEntries([...entity.fields.filter((field) => !field.primaryKey && field.type !== "Vector" && field.type !== "Files").map((field) => [field.name, field.type]), ...linkFields.map((field) => [field, "Array"])]))} as Record<string, string>;
   const importArrayItems = ${JSON.stringify(Object.fromEntries(entity.fields.filter((field) => field.type === "Array").map((field) => [field.name, field.itemType]))) } as Record<string, string | undefined>;
 ${entity.fields.some((field) => field.defaultValue) ? `  // An empty cell leaves a @default column to its declared default.
   const importDefaulted = new Set(${JSON.stringify(entity.fields.filter((field) => field.defaultValue).map((field) => field.name))});
@@ -1521,7 +1531,7 @@ ${entity.fields.some((field) => field.defaultValue) ? `  // An empty cell leaves
     const result = await repository.list(query.page ?? 1, query.pageSize ?? 20, { ...query, deleted: query.deleted === "true", filters, scope${restricted ? ", policy" : ""} });
     return { result, clauses: clauses.length, policy };
   };
-  return new Elysia({ prefix: ${route} })${privateInputGuard}${maskWriteGuard}\n    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)${policyErrorHandler}${temporalErrorHandler}${fieldRuleErrorHandler}${versionErrorHandler}${generatedErrorHandler}\n    .get("/aggregate", async ({ query, status, request }) => {
+  return new Elysia({ prefix: ${route} })${privateInputGuard}${maskWriteGuard}\n    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)${policyErrorHandler}${temporalErrorHandler}${fieldRuleErrorHandler}${versionErrorHandler}${linkErrorHandler}${generatedErrorHandler}\n    .get("/aggregate", async ({ query, status, request }) => {
       ${restricted ? "const principal = await authenticate(request);\n      const policy = await resolveResourcePolicy(principal, request);\n      if (policy.maskedFields.includes(query.field)) return status(403, { error: \"Aggregating a masked field is not permitted\", errorKey: \"policy.maskedField\" });\n      " : ""}if (!["sum", "avg", "min", "max"].includes(query.op)) return status(400, { error: "Unsupported aggregate operator" });
       if (!(${JSON.stringify(entity.fields.filter((field) => ["Integer", "Decimal", "Money"].includes(field.type)).map((field) => field.name))} as string[]).includes(query.field)) return status(400, { error: "Unsupported aggregate field" });
       return repository.aggregate ? repository.aggregate(query.field, query.op as "sum" | "avg" | "min" | "max", await resolveScope(request)${restricted ? ", policy" : ""}) : { value: null, operator: query.op };
@@ -1860,6 +1870,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
   const numericFields = entity.fields.filter((field) => field.computed === undefined && ["Integer", "Decimal", "Money"].includes(field.type)).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
   const dateFields = entity.fields.filter((field) => field.computed === undefined && field.type === "DateTime").map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
   const scopeColumns = scopeColumnFields || "";
+  const linked = manyRelations(database, entity.name).length > 0;
   // A `tree` scope widens the claim to the whole subtree, so the row predicate
   // becomes a recursive CTE over the tree entity instead of an equality check.
   const scopeColumnCondition = resolveScopeTree(database, entity) ? `qiyScopeSubtree(scopeColumns[scope.field], scope.value)` : `eq(scopeColumns[scope.field], scope.value)`;
@@ -1904,7 +1915,8 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const expectedVersion = expectedVersionValue === undefined || expectedVersionValue === null ? undefined : Number(expectedVersionValue);
       ` : "";
   const versionCondition = versionField ? `, expectedVersion === undefined ? undefined : eq(${entity.name}.${versionField}, expectedVersion)` : "";
-  const updateSet = versionField ? `{ ...changes, ${versionField}: sql\`\${${entity.name}.${versionField}} + 1\`, ${scopeWriteSpread} }` : `{ ...values, ${scopeWriteSpread} }`;
+  // A links-only patch has no column change; rewriting the id keeps the visibility check, row lock and audit.
+  const updateSet = versionField ? `{ ...changes, ${versionField}: sql\`\${${entity.name}.${versionField}} + 1\`, ${scopeWriteSpread} }` : linked ? `{ ...(Object.keys(values).length ? values : { id }), ${scopeWriteSpread} }` : `{ ...values, ${scopeWriteSpread} }`;
   // A missed versioned update is a conflict only when the row is still visible to the caller.
   const versionConflict = (lookup: string) => versionField ? `
       if (!record && expectedVersion !== undefined && ${lookup}) throw new QiyVersionConflict(${JSON.stringify(entity.tableName)}, id);` : "";
@@ -2100,9 +2112,9 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
   },
 `;
   const generatedCreateFields = generatedFieldsOf(entity, database.relations ?? []);
-  const mutationMethods = generatedCreateFields.length
+  const mutationMethods = injectLinkWrites(generatedCreateFields.length
     ? wrapGeneratedCreateMethods(auditedMutationMethods + restoreMethod, entity.name, JSON.stringify(generatedFieldSpecs(entity, database)))
-    : auditedMutationMethods + restoreMethod;
+    : auditedMutationMethods + restoreMethod, entity, database);
   return `  async aggregate(field, operator, scope${restricted ? ", policy" : ""}) {
     if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
     const columns: Record<string, any> = { ${numericFields} };
@@ -2167,10 +2179,15 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
     const filterTypes = ${filterTypes} as Record<string, string>;
     const filters = Array.isArray(options.filters) ? options.filters : Object.entries(options.filters ?? {}).map(([field, value]) => ({ field, operator: "eq" as const, value }));
     const filterClauses = (expressions: FilterExpression[]): FilterClause[] => expressions.flatMap((filter) => "field" in filter ? [filter] : filterClauses(filter.filters));
-    if (filterClauses(filters as FilterExpression[]).some(({ field }) => !filterColumns[field])) throw new Error("Unsupported filter field");
+    if (filterClauses(filters as FilterExpression[]).some(({ field }) => !filterColumns[field]${linked ? " && !qiyLinkFilters[field]" : ""})) throw new Error("Unsupported filter field");
     const coerce = (field: string, value: string) => filterTypes[field] === "Integer" ? Number(value) : filterTypes[field] === "DateTime" ? new Date(value) : value;
     const filterCondition = ({ field, operator, value }: FilterClause) => {
-      const column = filterColumns[field];
+      const column = filterColumns[field];${linked ? `
+      const link = qiyLinkFilters[field];
+      if (link) {
+        if (operator !== "eq" && operator !== "in") throw new Error("Unsupported filter operator");
+        return qiyLinkedSources(link, ${entity.name}.id, value);
+      }` : ""}
       if (operator === "contains") return ${searchOperator}(column, "%" + value + "%");
       if (operator === "startsWith") return ${searchOperator}(column, value + "%");
       if (operator === "endsWith") return ${searchOperator}(column, "%" + value);
@@ -2310,6 +2327,19 @@ function renderRouteTest(entity: EntityIR, database: DatabaseIR, scopes: NonNull
     expect(patched.status).toBe(400);
   });`)).join("\n");
   const ruleSection = ruleTests ? `\n${ruleTests}` : "";
+  const linkSection = manyRelations(database, entity.name).map((link) => `
+  test("validates the ${link.field} id list", async () => {
+    records.clear();
+    const post = (body: Record<string, unknown>) => app.handle(new Request(endpoint + "/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...{ ${values} }, ...body }) }));
+    const id = "00000000-0000-4000-8000-0000000000aa";
+    for (const invalid of [["not-a-uuid"], [id, id], id, Array.from({ length: 501 }, () => crypto.randomUUID())]) expect((await post({ ${JSON.stringify(link.field)}: invalid })).status).toBe(422);
+    const created = await post({ ${JSON.stringify(link.field)}: [id] });
+    expect(created.status).toBe(201);
+    expect((await created.json() as Record<string, unknown>)[${JSON.stringify(link.field)}]).toEqual([id]);
+    const filtered = (filters: unknown) => app.handle(new Request(endpoint + "/?filters=" + encodeURIComponent(JSON.stringify(filters))));
+    expect((await filtered([{ field: ${JSON.stringify(link.field)}, operator: "in", value: id }])).status).toBe(200);
+    expect((await filtered([{ field: ${JSON.stringify(link.field)}, operator: "contains", value: "0" }])).status).toBe(400);
+  });`).join("\n");
   return `import { describe, expect, test } from "bun:test";
 import { Elysia } from "elysia";
 import { ${name}Routes, type ${name}Repository } from "../src/routes/${entity.name}";
@@ -2413,7 +2443,7 @@ describe("${entity.tableName} CRUD", () => {
   });
 
 ${unsupportedQueryTests}
-${hiddenFieldTests}${temporalSection}${ruleSection}
+${hiddenFieldTests}${temporalSection}${ruleSection}${linkSection}
 });
 `;
 }
@@ -3670,7 +3700,7 @@ import { client } from "../src/db";
 import { ${repositoryName} } from "../src/modules/${entity.name}/${entity.name}.repository";
 
 test("commits CRUD records and realtime outbox rows atomically", async () => {
-  client.exec(${JSON.stringify(`DROP TABLE IF EXISTS "${entity.tableName}"; DROP TABLE IF EXISTS audit_events; DROP TABLE IF EXISTS qiy_realtime_outbox; CREATE TABLE "${entity.tableName}" (${columns}); CREATE TABLE audit_events (id text primary key, actorId text, action text not null, resource text not null, resourceId text, metadata text, createdAt integer not null); CREATE TABLE qiy_realtime_outbox (id text primary key, channel text not null, type text not null, payload text not null, createdAt integer not null);`)});
+  client.exec(${JSON.stringify(`DROP TABLE IF EXISTS "${entity.tableName}"; DROP TABLE IF EXISTS audit_events; DROP TABLE IF EXISTS qiy_realtime_outbox; CREATE TABLE "${entity.tableName}" (${columns}); CREATE TABLE audit_events (id text primary key, actorId text, action text not null, resource text not null, resourceId text, metadata text, createdAt integer not null); CREATE TABLE qiy_realtime_outbox (id text primary key, channel text not null, type text not null, payload text not null, createdAt integer not null);${sqliteLinkTestTables(entity, database)}`)});
   const first = await ${repositoryName}.create({ ${fixture(1)} }, "actor-1");
   expect(first.id).toBeTruthy();
   expect(client.query<{ total: number }, []>("select count(*) as total from qiy_realtime_outbox").get()?.total).toBe(1);
@@ -4613,7 +4643,7 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
   if (options.realtime && !options.auth) throw new Error("Realtime requires generated authentication");
   const roles = roleContext(options.auth);
   if (options.dataflows) options = { ...options, dataflows: withDefaultCommandRoles(options.dataflows, options.auth) };
-  const errors = validateDatabaseIR(database);
+  const errors = [...validateDatabaseIR(database), ...validateRelationLinkScopes(database, options.scopes ?? [])];
   if (errors.length) throw new Error(errors.join("\n"));
   const uploadField = database.entities.flatMap((entity) => entity.fields.filter((field) => field.type === "File").map((field) => ({ entity, field }))).at(0);
   const graphqlTypes = new Set(["String", "Int", "Float", "Boolean", "ID", "Query", "Mutation", "QiyFilterInput", "QiyDistribution", "QiyTrend"]);
@@ -5011,10 +5041,11 @@ export const orderIdempotency = pgTable("order_idempotency", {
     "api/src/saved-views.ts": renderSavedViewsModule(database.dialect, database.entities.map((entity) => entity.tableName)),
     "api/tests/saved-views.test.ts": renderSavedViewsTest(database.dialect, database.entities.map((entity) => entity.tableName), roles),
     "api/src/export-jobs.ts": renderExportJobsModule(database.dialect),
-    "api/src/db.ts": database.dialect === "postgresql" ? `import { SQL } from "bun";\nimport { drizzle } from "drizzle-orm/bun-sql";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = new SQL(url);\nexport const db = drizzle({ client, schema });\n` : database.dialect === "sqlite" ? `import { Database } from "bun:sqlite";\nimport { drizzle } from "drizzle-orm/bun-sqlite";\nimport * as schema from "./schema";\n\nconst filename = Bun.env.DATABASE_URL ?? "./qiy.sqlite";\nexport const client = new Database(filename);\nexport const db = drizzle(client, { schema });\n` : `import mysql from "mysql2/promise";\nimport { drizzle } from "drizzle-orm/mysql2";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = mysql.createPool({ uri: url, timezone: "Z" });\nexport const db = drizzle({ client, schema, mode: "default" });\n`,
+    "api/src/db.ts": database.dialect === "postgresql" ? `import { SQL } from "bun";\nimport { drizzle } from "drizzle-orm/bun-sql";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = new SQL(url);\nexport const db = drizzle({ client, schema });\n` : database.dialect === "sqlite" ? `import { Database } from "bun:sqlite";\nimport { drizzle } from "drizzle-orm/bun-sqlite";\nimport * as schema from "./schema";\n\nconst filename = Bun.env.DATABASE_URL ?? "./qiy.sqlite";\nexport const client = new Database(filename);\n// SQLite leaves foreign keys unenforced unless every connection opts in.\nclient.exec("PRAGMA foreign_keys = ON");\nexport const db = drizzle(client, { schema });\n` : `import mysql from "mysql2/promise";\nimport { drizzle } from "drizzle-orm/mysql2";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = mysql.createPool({ uri: url, timezone: "Z" });\nexport const db = drizzle({ client, schema, mode: "default" });\n`,
     ...(database.entities.some((entity) => temporalFieldsOf(entity).length) ? { "api/src/temporal.ts": renderTemporalModule() } : {}),
     ...(database.entities.some((entity) => Object.keys(entityFieldRules(entity.fields)).length) ? { "api/src/field-rules.ts": renderFieldRulesModule() } : {}),
     ...(database.entities.some((entity) => entity.fields.some((field) => field.version)) ? { "api/src/concurrency.ts": renderConcurrencyModule() } : {}),
+    ...(manyRelations(database).length ? { "api/src/relation-links.ts": renderRelationLinksModule(database.dialect) } : {}),
     "api/src/schema-drift.ts": `import { isTable } from "drizzle-orm";
 import { getTableConfig } from "drizzle-orm/${database.dialect === "postgresql" ? "pg-core" : database.dialect === "mysql" ? "mysql-core" : "sqlite-core"}";
 import * as schema from "./schema";
@@ -6751,15 +6782,15 @@ test("verifies issuer, audience and rotating JWKS keys before resolving subject"
     const generatedRepositoryDeclaration = generatedEntityFields.length ? `const qiyGeneratedFields = ${JSON.stringify(generatedFieldSpecs(publicEntity, database))} as QiyGeneratedField[];\n` : "";
     files[`${moduleRoot}/${entity.name}.repository.ts`] = `import { and, asc, avg, count, desc, eq, gt, gte, isNotNull, isNull, lt, lte, max, min, sql, sum, ${database.dialect === "postgresql" ? "ilike" : "like"}, inArray, or } from "drizzle-orm";
 import { db } from "../../db";
- import { ${entity.name}, auditEvents${realtimeSubscription ? ", realtimeOutbox" : ""}${resolveScopeTree(scopedDatabase, publicEntity) && resolveScopeTree(scopedDatabase, publicEntity)!.table.name !== entity.name ? `, ${resolveScopeTree(scopedDatabase, publicEntity)!.table.name}` : ""} } from "../../schema";
+ import { ${entity.name}, auditEvents${repositoryLinkImports(publicEntity, database).map((name) => ", " + name).join("")}${realtimeSubscription ? ", realtimeOutbox" : ""}${resolveScopeTree(scopedDatabase, publicEntity) && resolveScopeTree(scopedDatabase, publicEntity)!.table.name !== entity.name ? `, ${resolveScopeTree(scopedDatabase, publicEntity)!.table.name}` : ""} } from "../../schema";
 import type { FilterClause, FilterExpression, ${modelName(entity)}Repository as ${modelName(entity)}RepositoryContract } from "./${entity.name}.contract";
 ${entityRestricted ? 'import { QiyPolicyError, type QiyPolicy } from "../../security/policy";' : ""}
-${publicEntity.fields.some((field) => field.version) ? 'import { QiyVersionConflict } from "../../concurrency";\n' : ""}${generatedRepositoryImport}${realtimeMasked.length ? `\n// Every role that may subscribe has one of these fields masked, so the shared\n// channel must not carry them.\nfunction qiyRealtimePayload(record: Record<string, unknown>): Record<string, unknown> {\n  const safe = { ...record };\n  for (const field of ${JSON.stringify(realtimeMasked)}) delete safe[field];\n  return safe;\n}\n` : ""}
-${generatedRepositoryDeclaration}${renderScopeTreeHelper(scopedDatabase, publicEntity)}const notDeleted = ${publicEntity.fields.find((field) => field.softDelete) ? `isNull(${entity.name}.${publicEntity.fields.find((field) => field.softDelete)!.name})` : "undefined"};\nconst qiyBase${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = {
+${publicEntity.fields.some((field) => field.version) ? 'import { QiyVersionConflict } from "../../concurrency";\n' : ""}${manyRelations(database, entity.name).length ? 'import { qiyAttachLinks, qiyLinkedSources, qiySplitLinks, qiyWriteLinks, type QiyLink } from "../../relation-links";\n' : ""}${generatedRepositoryImport}${realtimeMasked.length ? `\n// Every role that may subscribe has one of these fields masked, so the shared\n// channel must not carry them.\nfunction qiyRealtimePayload(record: Record<string, unknown>): Record<string, unknown> {\n  const safe = { ...record };\n  for (const field of ${JSON.stringify(realtimeMasked)}) delete safe[field];\n  return safe;\n}\n` : ""}
+${generatedRepositoryDeclaration}${renderRepositoryLinks(publicEntity, database, options.scopes ?? [])}${renderScopeTreeHelper(scopedDatabase, publicEntity)}const notDeleted = ${publicEntity.fields.find((field) => field.softDelete) ? `isNull(${entity.name}.${publicEntity.fields.find((field) => field.softDelete)!.name})` : "undefined"};\nconst qiyBase${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = {
 ${renderRepositoryMethods(publicEntity, scopedDatabase, realtimeEvents, entityRestricted, realtimeMasked, realtimeClaim)}
 };
-${renderComputedRepository(publicEntity, `qiyBase${modelName(entity)}Repository`)}
-export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = ${publicEntity.fields.some((field) => field.computed !== undefined) ? "qiyComputedRepository" : `qiyBase${modelName(entity)}Repository`};
+${renderComputedRepository(publicEntity, `qiyBase${modelName(entity)}Repository`)}${renderLinkedRepository(publicEntity, database, `${modelName(entity)}RepositoryContract`, publicEntity.fields.some((field) => field.computed !== undefined) ? "qiyComputedRepository" : `qiyBase${modelName(entity)}Repository`)}
+export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = ${manyRelations(database, entity.name).length ? "qiyLinkedRepository" : publicEntity.fields.some((field) => field.computed !== undefined) ? "qiyComputedRepository" : `qiyBase${modelName(entity)}Repository`};
 `;
     files[`${moduleRoot}/${entity.name}.contract.ts`] = `${generatedDocumentation(entity)}${entityRestricted ? 'import type { QiyPolicy } from "../../security/policy";\n' : ""}export interface ${modelName(entity)}Repository {
   distribution(field: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<{ value: string | null; count: number }>>;
@@ -6859,7 +6890,7 @@ ${generatedDocumentation(entity)}export function create${modelName(entity)}Servi
     files[`${moduleRoot}/${entity.name}.routes.ts`] = `import { Elysia, t } from "elysia";
 import type { Authenticator${entityRestricted ? "" : ", Principal"} } from "../../auth/guard";
 import { QIY_DEFAULT_ROLE, hasFullAccess, isQiyRole } from "../../auth/roles";
-${temporalFields.length ? 'import { QiyTemporalValueError } from "../../temporal";\n' : ""}${Object.keys(entityFieldRules(entity.fields)).length ? 'import { QiyFieldRuleError } from "../../field-rules";\n' : ""}${entity.fields.some((field) => field.version) ? 'import { QiyVersionConflict } from "../../concurrency";\n' : ""}${generatedEntityFields.length ? 'import { QiyGeneratedValueConflict } from "../../generated-values";\n' : ""}import { create${modelName(entity)}Service } from "./${entity.name}.service";
+${temporalFields.length ? 'import { QiyTemporalValueError } from "../../temporal";\n' : ""}${Object.keys(entityFieldRules(entity.fields)).length ? 'import { QiyFieldRuleError } from "../../field-rules";\n' : ""}${entity.fields.some((field) => field.version) ? 'import { QiyVersionConflict } from "../../concurrency";\n' : ""}${manyRelations(database, entity.name).length ? 'import { QiyRelationLinkError } from "../../relation-links";\n' : ""}${generatedEntityFields.length ? 'import { QiyGeneratedValueConflict } from "../../generated-values";\n' : ""}import { create${modelName(entity)}Service } from "./${entity.name}.service";
 import { claimImportJob, createImportJob, isImportJobCancelled, listImportJobs, readImportJob, releaseStaleImportJobs, requestImportJobCancel, updateImportJob } from "../../import-jobs";
 import { claimExportJob, createExportJob, listExportJobs, readExportJob, updateExportJob } from "../../export-jobs";
 import type { ${modelName(entity)}Repository as ${modelName(entity)}RepositoryPort } from "./${entity.name}.contract";

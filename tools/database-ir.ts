@@ -98,9 +98,44 @@ export interface RelationIR {
   fromField: string;
   toEntity: string;
   toField: string;
+  /**
+   * `one`: `fromField` is a UUID foreign-key column of `fromEntity`.
+   * `many`: `fromField` is a virtual id-array field backed by a generated join table.
+   */
   cardinality: "one" | "many";
   onDelete?: "restrict" | "cascade" | "setNull";
 }
+
+/** A `many` relation resolved against its entities: the join table links `source.id` to `target[targetField]`. */
+export interface ManyRelation {
+  relation: RelationIR;
+  /** Virtual id-array field on the source entity, e.g. `labelIds`. */
+  field: string;
+  /** Generated join table, snake_case of the relation name. */
+  table: string;
+  source: EntityIR;
+  target: EntityIR;
+  targetField: string;
+}
+
+export function manyRelationTable(relation: Pick<RelationIR, "name">): string {
+  return relation.name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+}
+
+/** Valid `many` relations, optionally only those declared on one source entity. */
+export function manyRelations(database: DatabaseIR, sourceEntity?: string): ManyRelation[] {
+  const entities = new Map(database.entities.map((entity) => [entity.name, entity]));
+  return (database.relations ?? []).flatMap((relation) => {
+    if (relation.cardinality !== "many" || (sourceEntity && relation.fromEntity !== sourceEntity)) return [];
+    const source = entities.get(relation.fromEntity);
+    const target = entities.get(relation.toEntity);
+    return source && target ? [{ relation, field: relation.fromField, table: manyRelationTable(relation), source, target, targetField: relation.toField }] : [];
+  });
+}
+
+/** Tables and schema exports every generated application owns; a join table must not shadow them. */
+const systemTables = new Set(["audit_events", "attachments", "dataflow_idempotency", "dataflow_outbox"]);
+const systemSchemaExports = new Set(["auditEvents", "attachments", "dataflowIdempotency", "dataflowOutbox", "realtimeOutbox"]);
 
 export interface EntityIR {
   name: string;
@@ -606,12 +641,26 @@ export function validateDatabaseIR(database: DatabaseIR): string[] {
     const source = `${relation.fromEntity}.${relation.fromField}`;
     if (relationSources.has(source)) errors.push(`Relation ${relation.name}: duplicate source field ${source}`);
     relationSources.add(source);
-    if (relation.cardinality !== "one") errors.push(`Relation ${relation.name}: only one-to-one/many-to-one foreign keys are supported; model many-to-many with an explicit join entity`);
     if (relation.onDelete && !["restrict", "cascade", "setNull"].includes(relation.onDelete)) errors.push(`Relation ${relation.name}: unsupported onDelete action`);
     const from = entitiesByName.get(relation.fromEntity);
     const to = entitiesByName.get(relation.toEntity);
     if (!from || !to) {
       errors.push(`Relation ${relation.name}: referenced entity does not exist`);
+      continue;
+    }
+    if (relation.cardinality === "many") {
+      const table = manyRelationTable(relation);
+      if (from.fields.some((field) => field.name === relation.fromField)) errors.push(`Relation ${relation.name}: many-to-many field ${source} must not be declared as a column; the relation creates it`);
+      else if (!identifier.test(relation.fromField) || reservedNames.has(relation.fromField)) errors.push(`Relation ${relation.name}: invalid many-to-many field name ${relation.fromField}`);
+      const sourceKey = from.fields.find((field) => field.primaryKey);
+      if (sourceKey?.name !== "id" || sourceKey.type !== "UUID") errors.push(`Relation ${relation.name}: many-to-many source ${relation.fromEntity} needs a UUID primary key named id`);
+      const toField = to.fields.find((field) => field.name === relation.toField);
+      if (!toField) errors.push(`Relation ${relation.name}: unknown target field ${relation.toEntity}.${relation.toField}`);
+      else if (toField.type !== "UUID" || (!toField.primaryKey && !toField.unique)) errors.push(`Relation ${relation.name}: many-to-many target ${relation.toEntity}.${relation.toField} must be a UUID primary or unique field`);
+      if (relation.onDelete) errors.push(`Relation ${relation.name}: @onDelete is not supported on many-to-many relations; link rows are always removed with either side`);
+      if (tableNames.has(table) || systemTables.has(table) || table.startsWith("qiy_")) errors.push(`Relation ${relation.name}: join table ${table} collides with an existing table; rename the relation`);
+      if (entitiesByName.has(relation.name) || (database.views ?? []).some((view) => view.name === relation.name) || systemSchemaExports.has(relation.name) || relation.name.startsWith("qiy")) errors.push(`Relation ${relation.name}: the join table is exported as ${relation.name}, which collides with another schema export; rename the relation`);
+      tableNames.add(table);
       continue;
     }
     if (!from.fields.some((field) => field.name === relation.fromField)) errors.push(`Relation ${relation.name}: unknown source field ${relation.fromEntity}.${relation.fromField}`);

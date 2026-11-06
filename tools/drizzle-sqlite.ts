@@ -1,5 +1,5 @@
 import type { DatabaseIR, EntityIR, FieldIR, RelationIR } from "./database-ir";
-import { generatedFieldsOf, validateDatabaseIR } from "./database-ir";
+import { generatedFieldsOf, manyRelations, validateDatabaseIR } from "./database-ir";
 import { drizzleDefault } from "./field-rules";
 import { generatedDocumentation } from "./generated-documentation";
 
@@ -77,14 +77,19 @@ export function generateDrizzleSqlite(database: DatabaseIR): string {
   const sequences = usesCodeSequences(database);
   const selfRelations = (database.relations ?? []).some((relation) => relation.fromEntity === relation.toEntity);
   const imports = new Set(["blob", "index", "integer", "real", "sqliteTable", "text", "uniqueIndex", ...((database.views ?? []).length ? ["sqliteView"] : [])]);
-  if (sequences) imports.add("primaryKey");
+  const links = manyRelations(database);
+  if (sequences || links.length) imports.add("primaryKey");
+  const linkCode = links.map((link) => `${generatedDocumentation(link.relation)}export const ${link.relation.name} = sqliteTable(${JSON.stringify(link.table)}, {
+  sourceId: text("sourceId").notNull().references(() => ${link.source.name}.id, { onDelete: "cascade" }),
+  targetId: text("targetId").notNull().references(() => ${link.target.name}[${JSON.stringify(link.targetField)}], { onDelete: "cascade" }),
+}, (table) => [primaryKey({ columns: [table.sourceId, table.targetId] }), index(${JSON.stringify(`${link.table}_target_idx`)}).on(table.targetId)]);`).join("\n\n");
   const typeImport = selfRelations ? `import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";\n` : "";
   const viewCode = (database.views ?? []).length ? (database.views ?? []).map((view) => {
     const source = database.entities.find((entity) => entity.name === view.from || entity.tableName === view.from)!;
     const selection = view.columns.map((column) => `${JSON.stringify(column)}: ${source.name}.${column}`).join(", ");
     return `export const ${view.name} = sqliteView(${JSON.stringify(view.name)}).as((qb) => qb.select({ ${selection} }).from(${source.name}));`;
   }).join("\n") : "";
-  return `import { ${[...imports].sort().join(", ")} } from "drizzle-orm/sqlite-core";\n${typeImport}\n${database.entities.map((item) => renderEntity(item, database.relations ?? [])).join("\n\n")}\n${viewCode ? viewCode + "\n\n" : ""}${sequences ? codeSequenceTable() : ""}\nexport const auditEvents = sqliteTable("audit_events", {\n  id: text("id").primaryKey(),\n  actorId: text("actorId"),\n  action: text("action").notNull(),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  metadata: text("metadata"),\n  createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),\n}, (table) => [index("audit_events_resource_idx").on(table.resource, table.resourceId), index("audit_events_created_at_idx").on(table.createdAt)]);\n\nexport const attachments = sqliteTable("attachments", {\n  id: text("id").primaryKey(),\n  storageKey: text("storageKey").notNull().unique(),\n  fileName: text("fileName"),\n  contentType: text("contentType").notNull(),\n  size: integer("size").notNull(),\n  ownerId: text("ownerId"),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),\n}, (table) => [index("attachments_resource_idx").on(table.resource, table.resourceId), index("attachments_owner_idx").on(table.ownerId)]);
+  return `import { ${[...imports].sort().join(", ")} } from "drizzle-orm/sqlite-core";\n${typeImport}\n${database.entities.map((item) => renderEntity(item, database.relations ?? [])).join("\n\n")}\n${linkCode ? linkCode + "\n\n" : ""}${viewCode ? viewCode + "\n\n" : ""}${sequences ? codeSequenceTable() : ""}\nexport const auditEvents = sqliteTable("audit_events", {\n  id: text("id").primaryKey(),\n  actorId: text("actorId"),\n  action: text("action").notNull(),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  metadata: text("metadata"),\n  createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),\n}, (table) => [index("audit_events_resource_idx").on(table.resource, table.resourceId), index("audit_events_created_at_idx").on(table.createdAt)]);\n\nexport const attachments = sqliteTable("attachments", {\n  id: text("id").primaryKey(),\n  storageKey: text("storageKey").notNull().unique(),\n  fileName: text("fileName"),\n  contentType: text("contentType").notNull(),\n  size: integer("size").notNull(),\n  ownerId: text("ownerId"),\n  resource: text("resource").notNull(),\n  resourceId: text("resourceId"),\n  createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),\n}, (table) => [index("attachments_resource_idx").on(table.resource, table.resourceId), index("attachments_owner_idx").on(table.ownerId)]);
 
 export const qiyImportJobs = sqliteTable("qiy_import_jobs", {
   id: text("id").primaryKey(),

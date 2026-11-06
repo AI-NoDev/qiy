@@ -44,7 +44,8 @@ Canonical reference: https://ai-nodev.github.io/qiy/dsl/overview
 | `X: route path must be lowercase and URL-safe` | Generation | Uppercase/invalid `table` name | `^[a-z][a-z0-9_-]*$` |
 | `required field cannot be hidden from the create form` | Generation | Non-null field hidden by `@visible(false)`/`@formVisible(false)` | Add `@nullable` or keep it visible |
 | `V3 foreign keys require UUID fields` | IR | Non-UUID relation endpoint | Both endpoints `UUID` |
-| `only one-to-one/many-to-one foreign keys are supported` | IR | Relation cardinality `many` | Use `one`; model M2M with a join entity |
+| `many-to-many field X.Y must not be declared as a column` | IR | A `many` relation's source field is also declared on the entity | Remove the field; the relation creates it |
+| `400 relation.unknownTarget` on save | Runtime | A submitted link id is missing, soft-deleted or outside the caller's scope | Reload options and reselect |
 | `target field must be primary or unique` | IR | Relation targets a non-unique field | Target the PK or add `@unique` |
 | `setNull requires a nullable source field` | IR | `@onDelete(setNull)` on a non-null FK | Add `@nullable` |
 | `Vector requires PostgreSQL and a declared pgvector extension` | IR | Wrong dialect or missing extension | PostgreSQL + `extension pgvector;` + `@extension(pgvector)` |

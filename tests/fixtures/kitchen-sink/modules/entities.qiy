@@ -81,6 +81,12 @@ entity announcements table announcements @label("Announcements") @icon(Notificat
   field revision Integer @version;
 }
 
+entity labels table labels @label("Labels") @icon(TagsOutlined) {
+  field id UUID @id;
+  field name Text @unique;
+  field deletedAt DateTime @nullable @softDelete;
+}
+
 entity ticketComments table ticket_comments @label("Comments") @icon(CommentOutlined) {
   field id UUID @id;
   field ticketId UUID;

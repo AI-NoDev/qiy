@@ -1,5 +1,5 @@
 import type { DatabaseIR, EntityIR, FieldIR, RelationIR } from "./database-ir";
-import { generatedFieldsOf, validateDatabaseIR } from "./database-ir";
+import { generatedFieldsOf, manyRelations, validateDatabaseIR } from "./database-ir";
 import { drizzleDefault } from "./field-rules";
 import { generatedDocumentation } from "./generated-documentation";
 
@@ -79,7 +79,12 @@ export function generateDrizzleMysql(database: DatabaseIR): string {
   for (const entity of database.entities) for (const field of entity.fields) if (field.type === "Date") imports.add("date");
   for (const entity of database.entities) for (const field of entity.fields) if (field.type === "Time") imports.add("time");
   const sequences = usesCodeSequences(database);
-  if (sequences) imports.add("primaryKey");
+  const links = manyRelations(database);
+  if (sequences || links.length) imports.add("primaryKey");
+  const linkCode = links.map((link) => `${generatedDocumentation(link.relation)}export const ${link.relation.name} = mysqlTable(${JSON.stringify(link.table)}, {
+  sourceId: varchar("sourceId", { length: 36 }).notNull().references(() => ${link.source.name}.id, { onDelete: "cascade" }),
+  targetId: varchar("targetId", { length: 36 }).notNull().references(() => ${link.target.name}[${JSON.stringify(link.targetField)}], { onDelete: "cascade" }),
+}, (table) => [primaryKey({ columns: [table.sourceId, table.targetId] }), index(${JSON.stringify(`${link.table}_target_idx`)}).on(table.targetId)]);`).join("\n\n");
   const selfRelations = (database.relations ?? []).some((relation) => relation.fromEntity === relation.toEntity);
   const typeImport = selfRelations ? `import type { AnyMySqlColumn } from "drizzle-orm/mysql-core";\n` : "";
   const viewCode = (database.views ?? []).length ? (database.views ?? []).map((view) => {
@@ -87,7 +92,7 @@ export function generateDrizzleMysql(database: DatabaseIR): string {
     const selection = view.columns.map((column) => `${JSON.stringify(column)}: ${source.name}.${column}`).join(", ");
     return `export const ${view.name} = mysqlView(${JSON.stringify(view.name)}).as((qb) => qb.select({ ${selection} }).from(${source.name}));`;
   }).join("\n") : "";
-  return `import { ${[...imports].sort().join(", ")} } from "drizzle-orm/mysql-core";\n${typeImport}\n${database.entities.map((item) => renderEntity(item, database.relations ?? [])).join("\n\n")}\n${viewCode ? viewCode + "\n\n" : ""}${sequences ? codeSequenceTable() : ""}\nexport const auditEvents = mysqlTable("audit_events", {\n  id: varchar("id", { length: 36 }).primaryKey(),\n  actorId: varchar("actorId", { length: 36 }),\n  action: varchar("action", { length: 160 }).notNull(),\n  resource: varchar("resource", { length: 160 }).notNull(),\n  resourceId: varchar("resourceId", { length: 160 }),\n  metadata: json("metadata"),\n  createdAt: bigint("createdAt", { mode: "number" }).notNull(),\n}, (table) => [index("audit_events_resource_idx").on(table.resource, table.resourceId), index("audit_events_created_at_idx").on(table.createdAt)]);\n\nexport const attachments = mysqlTable("attachments", {\n  id: varchar("id", { length: 36 }).primaryKey(),\n  storageKey: varchar("storageKey", { length: 240 }).notNull().unique(),\n  fileName: text("fileName"),\n  contentType: varchar("contentType", { length: 255 }).notNull(),\n  size: int("size").notNull(),\n  ownerId: varchar("ownerId", { length: 36 }),\n  resource: varchar("resource", { length: 160 }).notNull(),\n  resourceId: varchar("resourceId", { length: 160 }),\n  createdAt: bigint("createdAt", { mode: "number" }).notNull().$defaultFn(() => Date.now()),\n}, (table) => [index("attachments_resource_idx").on(table.resource, table.resourceId), index("attachments_owner_idx").on(table.ownerId)]);
+  return `import { ${[...imports].sort().join(", ")} } from "drizzle-orm/mysql-core";\n${typeImport}\n${database.entities.map((item) => renderEntity(item, database.relations ?? [])).join("\n\n")}\n${linkCode ? linkCode + "\n\n" : ""}${viewCode ? viewCode + "\n\n" : ""}${sequences ? codeSequenceTable() : ""}\nexport const auditEvents = mysqlTable("audit_events", {\n  id: varchar("id", { length: 36 }).primaryKey(),\n  actorId: varchar("actorId", { length: 36 }),\n  action: varchar("action", { length: 160 }).notNull(),\n  resource: varchar("resource", { length: 160 }).notNull(),\n  resourceId: varchar("resourceId", { length: 160 }),\n  metadata: json("metadata"),\n  createdAt: bigint("createdAt", { mode: "number" }).notNull(),\n}, (table) => [index("audit_events_resource_idx").on(table.resource, table.resourceId), index("audit_events_created_at_idx").on(table.createdAt)]);\n\nexport const attachments = mysqlTable("attachments", {\n  id: varchar("id", { length: 36 }).primaryKey(),\n  storageKey: varchar("storageKey", { length: 240 }).notNull().unique(),\n  fileName: text("fileName"),\n  contentType: varchar("contentType", { length: 255 }).notNull(),\n  size: int("size").notNull(),\n  ownerId: varchar("ownerId", { length: 36 }),\n  resource: varchar("resource", { length: 160 }).notNull(),\n  resourceId: varchar("resourceId", { length: 160 }),\n  createdAt: bigint("createdAt", { mode: "number" }).notNull().$defaultFn(() => Date.now()),\n}, (table) => [index("attachments_resource_idx").on(table.resource, table.resourceId), index("attachments_owner_idx").on(table.ownerId)]);
 
 export const qiyImportJobs = mysqlTable("qiy_import_jobs", {
   id: varchar("id", { length: 36 }).primaryKey(),

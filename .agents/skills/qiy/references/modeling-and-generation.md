@@ -305,18 +305,21 @@ relation <name> <fromEntity> <fromField> <toEntity> <toField> <one|many>
 relation orderCustomer orders customerId customers id one @onDelete(restrict);
 relation lineOrder orderItems orderId orders id one @onDelete(cascade);
 relation orgParent orgs parentId orgs id one @onDelete(setNull);
+relation announcementLabels announcements labelIds labels id many;
 ```
 
 | Slot | Rule |
 | --- | --- |
 | Name | Globally unique (`Relation X: invalid or duplicate name`) |
-| Source | Declared entity + its `UUID` field; one relation per source field (`duplicate source field X.Y`) |
-| Target | Declared entity + primary key or `@unique` field (`target field must be primary or unique`) |
-| Cardinality | Only `one`. `many` parses but fails validation: `only one-to-one/many-to-one foreign keys are supported; model many-to-many with an explicit join entity` |
-| `@onDelete` | `restrict`, `cascade`, `setNull` (default: database default). `setNull` requires `@nullable`; `@onDelete("")` emits no action |
-| `@comment` | JSDoc on the FK column |
+| Source | `one`: declared entity + its `UUID` field. `many`: declared entity + an undeclared field name the relation creates (`labelIds`). One relation per source field (`duplicate source field X.Y`) |
+| Target | Declared entity + `UUID` primary key or `@unique` field (`target field must be primary or unique`) |
+| Cardinality | `one` = FK column; `many` = many-to-many through a generated join table (see below) |
+| `@onDelete` | `one` only: `restrict`, `cascade`, `setNull` (default: database default). `setNull` requires `@nullable`; `@onDelete("")` emits no action |
+| `@comment` | JSDoc on the FK column (`one`) or the API/form description of the id list (`many`) |
 
 Hard rules: both endpoints must be `UUID` (`V3 foreign keys require UUID fields`); the source cannot be `@generated` or `@code`; only single-column FKs exist (no composite syntax); self relations are legal and generate a typed `.references((): AnyPgColumn => ...)` callback; `relation` declarations come after all `entity` blocks. Relations carry no authorization - use `restrict` for row/field policy ([auth-permissions.md](auth-permissions.md)).
+
+Many-to-many (`many`): the source gains a virtual `labelIds` field. Rules: the field must not be declared as a column; the source primary key is a UUID named `id`; the target field is a UUID primary/`@unique` field; no `@onDelete`; the join table (relation name in snake_case, e.g. `announcement_labels`) and the relation name must not collide with entity/system tables or schema exports, nor start with `qiy`; a tree-scoped target is rejected, and a scoped target requires the source to be scoped by the same claim. Generated: a join table with `sourceId`/`targetId`, composite primary key, both FKs `ON DELETE CASCADE`, index on `targetId`. REST/GraphQL create and update accept `labelIds: uuid[] | null` (<= 500, unique; `null`/`[]` clears; omitted = unchanged) and responses carry the sorted id array. Writes run in the record's transaction: every target must exist, not be soft-deleted and share the data scope, otherwise the whole write rolls back with `400 relation.unknownTarget`; links are then replaced and audited. Reads hide soft-deleted targets. Filters: `eq` (has this target) and `in` (has any). CSV exports/imports the field as a JSON id array. UI: multi-select `RelationSelect`, list/detail cells render each target's display text. Use an explicit join entity with two `one` relations only when the link itself carries data (quantity, role, order).
 
 Generated UI: FK cells render the target's display text (`@tableDisplay` -> `@display` -> natural field), not a bare UUID. The list batches FK lookups per resource (deduplicated, <= 200 ids, one `getMany` per target); detail pages and the drawer use `useOne`. The drawer mirrors the target's detail page, keeps a `@relationDetail` summary, supports nested FKs, and is `min(92vw, 760px)` wide. `pages ... field X roles ...` also gates drawer fields.
 
@@ -355,9 +358,9 @@ include expansion -> lexer/parser -> IR validation -> generation validation -> w
 
 Modeling limits (do not promise these):
 
-- No functions, default values, transient fields or Text length constraints; expressions exist only inside `@computed` (Text templates and `+ - * /` arithmetic over numeric fields).
+- No functions or transient fields; expressions exist only inside `@computed` (Text templates and `+ - * /` arithmetic over numeric fields). Defaults and value rules are limited to `@default`, `@min`/`@max`, `@length` and `@pattern`.
 - One database dialect per model; no cross-database joins.
-- No implicit many-to-many: model an explicit join entity with two `one` relations.
+- Many-to-many links carry no attributes; when the link needs its own fields, model an explicit join entity with two `one` relations.
 - No business workflow inference from fields/relations. Use `workflow orderInventory` (fixed, PostgreSQL, exact field contract) or an explicit `dataflow` ([dataflows-actions.md](dataflows-actions.md)).
 - Format: `mode integration` models generate a Refine web package only; they reject `auth`, `scope`, `restrict`, `workflow`, `dataflow`, `storage`, `elysia`, `env` and `realtime` ([workspace-integration.md](workspace-integration.md)).
 - `restrict` cannot be combined with `dataflow`/`orderInventory` on the same resource; the generator fails closed.

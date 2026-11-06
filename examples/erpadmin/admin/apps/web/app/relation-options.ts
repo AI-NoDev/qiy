@@ -19,9 +19,16 @@ export function mergeRelationOptions(
   currentId: string | undefined,
   currentLabel: string | undefined,
 ): QiyRelationOption[] {
+  return mergeSelectedRelationOptions(options, currentId ? [{ id: currentId, label: currentLabel }] : []);
+}
+
+/** Multi-select variant: every selected record missing from the options page is prepended in selection order. */
+export function mergeSelectedRelationOptions(
+  options: QiyRelationOption[] | undefined,
+  selected: ReadonlyArray<{ id: string; label?: string }>,
+): QiyRelationOption[] {
   const merged = options ? [...options] : [];
-  if (!currentId) return merged;
-  const present = merged.some((option) => option.value !== undefined && String(option.value) === currentId);
-  if (present) return merged;
-  return [{ value: currentId, label: currentLabel || currentId }, ...merged];
+  const present = new Set(merged.flatMap((option) => (option.value === undefined ? [] : [String(option.value)])));
+  const missing = selected.filter((item) => item.id && !present.has(item.id)).map((item) => ({ value: item.id, label: item.label || item.id }));
+  return [...missing, ...merged];
 }

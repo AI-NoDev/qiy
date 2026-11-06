@@ -145,7 +145,7 @@ describe("Refine SPA generation", () => {
     expect(files["web/app/routes/list.tsx"]).toContain('translate("qiy.createResource", { resource: singular }, singular)');
     expect(files["web/app/routes/show.tsx"]).toContain("<RecordDetails resource={resource} record={result} />");
     expect(files["web/app/components/related-records.tsx"]).toContain("<RelationCell field={field} value={value} />");
-    expect(files["web/app/components/resource-form.tsx"]).toContain("<RelationSelect relation={field.relation} fieldName={field.name} />");
+    expect(files["web/app/components/resource-form.tsx"]).toContain("<RelationSelect relation={field.relation} fieldName={field.name} multiple={field.many} />");
     // The display renderer and the drawer component ship with the app.
     expect(files["web/app/display-template.ts"]).toContain("export function renderTemplate");
     expect(files["web/app/display-template.ts"]).toContain("export function plainTextTemplate");

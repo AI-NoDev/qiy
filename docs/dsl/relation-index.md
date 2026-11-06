@@ -1,6 +1,6 @@
 # relation 与 index
 
-`relation` 声明外键与关联 UI，`index` 声明数据库索引。两者都写在 `entity` 之外（索引写在实体块内）。
+`relation` 声明外键（`one`）或多对多关联（`many`）以及对应的关联 UI，`index` 声明数据库索引。两者都写在 `entity` 之外（索引写在实体块内）。
 
 ```qiy
 entity customers @display("{$.name}") {
@@ -34,17 +34,16 @@ relation <name> <fromEntity> <fromField> <toEntity> <toField> <one|many>
 | 槽位 | 取值 | 说明 |
 | --- | --- | --- |
 | `<name>` | 标识符，全局唯一 | 重名报 `Relation X: invalid or duplicate name` |
-| `<fromEntity>` / `<fromField>` | 已声明实体 + 该实体的 `UUID` 字段 | 外键源；`fromField` 中 `$fromEntity` 组合全局唯一（`duplicate source field`） |
-| `<toEntity>` / `<toField>` | 已声明实体 + 主键或唯一字段 | 关系目标 |
-| 基数 | `one` / `many` | **只有 `one` 可用**，见下 |
-| `@onDelete(...)` | `restrict` / `cascade` / `setNull` | 映射到数据库 `ON DELETE`；缺省交给数据库默认 |
-| `@comment(...)` | 字面量或 `t("key")` | 生成 schema 中该外键列的 JSDoc |
+| `<fromEntity>` / `<fromField>` | `one`：已声明实体 + 该实体的 `UUID` 字段；`many`：已声明实体 + **未声明**的字段名 | 外键源；`many` 时 `fromField` 是关系自动创建的 id 数组字段（如 `labelIds`）。同一 `fromEntity.fromField` 只能有一条 relation（`duplicate source field`） |
+| `<toEntity>` / `<toField>` | 已声明实体 + `UUID` 主键或 `@unique` 字段 | 关系目标 |
+| 基数 | `one` / `many` | `one`：外键列；`many`：多对多，生成连接表，见 [多对多](#多对多-many) |
+| `@onDelete(...)` | `restrict` / `cascade` / `setNull` | 仅 `one`，映射到数据库 `ON DELETE`；缺省交给数据库默认 |
+| `@comment(...)` | 字面量或 `t("key")` | `one`：外键列的 JSDoc；`many`：API 文档与表单提示 |
 
 ### 默认值与校验
 
 | 规则 | 错误信息 / 行为 |
 | --- | --- |
-| 基数只支持 `one` | 写 `many` 能解析，但 `validateDatabaseIR` 报 `only one-to-one/many-to-one foreign keys are supported; model many-to-many with an explicit join entity` |
 | 非法基数 | `Unsupported relation cardinality X` |
 | 两端字段必须是 `UUID` | `V3 foreign keys require UUID fields` |
 | 目标字段必须主键或 `@unique` | `target field must be primary or unique` |
@@ -58,7 +57,7 @@ relation <name> <fromEntity> <fromField> <toEntity> <toField> <one|many>
 
 补充：
 
-- **只支持单列外键**（复合外键没有语法）；多对多用显式连接实体 + 两条 `one` 关系表达。
+- **只支持单列外键**（复合外键没有语法）。多对多直接写 `many`；连接记录本身需要额外字段（数量、角色、排序）时，改用显式连接实体 + 两条 `one` 关系。
 - **自关联**（`fromEntity === toEntity`）合法，Drizzle 会生成带显式返回类型的 `.references((): AnyPgColumn => …)`；`setNull` 常用于组织树 `parentId`。
 - **没有 relation 的 `UUID` 字段会被当成系统引用**：服务端自动生成 UUIDv4 并在表单隐藏。真实外键必须声明 relation，否则用户无法选择目标记录（见 [自动生成值](/dsl/generated-values)）。
 - `relation` 必须写在所有 `entity` 之后（解析器先消费完 `entity` 才读 `relation`）。
@@ -74,6 +73,44 @@ relation <name> <fromEntity> <fromField> <toEntity> <toField> <one|many>
 | 详情页/抽屉 | 关联记录卡片 + 可点击进入；抽屉内可继续嵌套打开下一层 |
 | 表单 | 外键渲染为 `RelationSelect`（下拉搜索、显示目标文本），不可能手输 UUID |
 | Dataflow | `context { order = entity orders by id input.orderId; }` 要求按主键加载，与 relation 无关 |
+
+### 多对多（many）
+
+```qiy
+entity labels @display("{$.name}") {
+  field id UUID @id;
+  field name Text @unique;
+  field deletedAt DateTime @nullable @softDelete;
+}
+
+relation announcementLabels announcements labelIds labels id many @comment("Labels shown on the announcement");
+```
+
+`announcements` 因此多出一个虚拟字段 `labelIds`：读取时是已排序的目标 id 数组，写入时整体替换。
+
+| 规则 | 错误信息 |
+| --- | --- |
+| `fromField` 不能是已声明的列 | `many-to-many field X.Y must not be declared as a column; the relation creates it` |
+| `fromField` 必须是合法标识符 | `invalid many-to-many field name X` |
+| 源实体主键必须是名为 `id` 的 `UUID` | `many-to-many source X needs a UUID primary key named id` |
+| 目标字段必须是 `UUID` 主键或 `@unique` | `many-to-many target X.Y must be a UUID primary or unique field` |
+| 不能写 `@onDelete` | `@onDelete is not supported on many-to-many relations; link rows are always removed with either side` |
+| 连接表名（relation 名转 snake_case）不能与实体表、系统表或 `qiy_` 前缀冲突 | `join table X collides with an existing table; rename the relation` |
+| relation 名不能与实体、视图、系统 schema 导出重名，也不能以 `qiy` 开头 | `the join table is exported as X, which collides with another schema export` |
+| 目标实体有 `scope … tree` | `many-to-many target X uses a tree scope, which link validation cannot bound; link to an entity with a plain scope` |
+| 目标实体有数据范围（`scope`）时，源实体必须用同一个 claim 限定范围；写入时只能关联同范围的目标 | `many-to-many target X is scoped by claim C, so Y must be scoped by the same claim` |
+
+| 产物 | 内容 |
+| --- | --- |
+| Drizzle schema | 连接表 `<relation_snake>`：`sourceId`、`targetId` 两列，复合主键，两端外键都 `ON DELETE CASCADE`，`targetId` 带索引 |
+| REST / GraphQL | 创建、更新接受 `labelIds: uuid[] \| null`（最多 500 个、不允许重复；`null` 或 `[]` 清空；省略则不改）；响应带 `labelIds` 数组 |
+| 写入 | 与主记录同一事务：先校验所有目标存在、未软删、在同一数据范围，否则整笔回滚并返回 `400`（`errorKey: "relation.unknownTarget"`）；然后替换连接行；审计记录包含该字段 |
+| 读取 | 只返回仍可见的目标（软删目标被隐藏） |
+| 过滤 | `labelIds` 支持 `eq`（包含某个目标）和 `in`（包含任一目标），走 `IN (子查询)` |
+| CSV | 导出为 JSON id 数组；导入接受同样格式 |
+| 列表 / 详情 | 单元格渲染为多个可点击的目标显示文本，整页批量加载 |
+| 表单 | 多选 `RelationSelect`（远程搜索，已选项即使不在第一页也会显示） |
+| 删除 | 删除任一端（硬删）时，连接行随外键级联删除 |
 
 ### 外键 UI：批量查询、Drawer 与批量加载
 
@@ -98,6 +135,9 @@ relation lineOrder orderItems orderId orders id one @onDelete(cascade);
 
 # 可空自关联（组织树）
 relation orgParent orgs parentId orgs id one @onDelete(setNull);
+
+# 多对多：工单关注人
+relation ticketWatchers tickets watcherIds users id many;
 ```
 
 ### 进阶用法
@@ -116,7 +156,8 @@ relation orgParent orgs parentId orgs id one @onDelete(setNull);
 | `Relation X: target field must be primary or unique` | 目标字段既不是 `@id` 也不是 `@unique` | 给目标字段加 `@unique`，或改指向主键 |
 | `Relation X: V3 foreign keys require UUID fields` | 用了 Text/Integer 做外键 | 外键两端必须是 UUID |
 | `Relation X: setNull requires a nullable source field` | `setNull` + 非空源字段 | 加 `@nullable`，或改用 `restrict`/`cascade` |
-| `Relation X: only one-to-one/many-to-one foreign keys are supported` | 写了 `many` | 改为 `one`；多对多用连接实体 |
+| `Relation X: many-to-many field tickets.watcherIds must not be declared as a column` | `many` 关系的源字段又在实体里声明了 | 删掉该字段声明，由关系创建 |
+| 保存时 `400 relation.unknownTarget` | 提交的 id 不存在、已软删或不在你的数据范围 | 刷新选项后重选 |
 | 表单里外键变成只读、创建时被随机填充 | 忘写 relation，UUID 被当作系统引用 | 补 `relation` 声明 |
 | `Expected relation near token N` | `relation` 写在了 `entity` 之前 | 把所有 `relation` 移到所有实体之后 |
 

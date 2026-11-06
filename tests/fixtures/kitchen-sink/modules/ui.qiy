@@ -3,6 +3,7 @@ menu {
     resource tickets;
     resource ticket_comments;
     resource announcements;
+    resource labels;
     resource contracts;
   }
   group administration @label("Administration") @icon(SettingOutlined) {}

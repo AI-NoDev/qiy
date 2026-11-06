@@ -1,9 +1,9 @@
 import { useSelect } from "@refinedev/antd";
-import { useOne, useTranslation } from "@refinedev/core";
+import { useMany, useOne, useTranslation } from "@refinedev/core";
 import { Alert, Breadcrumb, Button, Drawer, Select, Skeleton, Space, Spin, Typography, type SelectProps } from "antd";
-import { useMemo, useState, type FC, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type CSSProperties, type FC, type ReactNode } from "react";
 import { Link } from "react-router";
-import { mergeRelationOptions, type QiyRelationOption } from "../relation-options";
+import { mergeRelationOptions, mergeSelectedRelationOptions, type QiyRelationOption } from "../relation-options";
 import { getResource, type ResourceDefinition, type ResourceField } from "../resources";
 import { recordDisplayText, relationDetailHtml, type DisplayTemplateOptions, type DisplayTranslate } from "../display-template";
 import { formatFieldValue } from "../date-fields";
@@ -162,36 +162,56 @@ function RelationLink({ target, resource, id, labelField }: RelationLinkProps) {
   );
 }
 
-/** Renders one foreign-key value. A missing relation (or empty value) degrades to plain text. */
+/** Ids of a many-to-many value; anything that is not an id array is treated as empty. */
+export function relationIds(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+}
+
+/**
+ * Renders one foreign-key value, or every linked record of a many-to-many field.
+ * A missing relation (or empty value) degrades to plain text.
+ */
 export function RelationCell({ field, value }: { field: ResourceField; value: unknown }) {
   const { getLocale } = useTranslation();
   const relation = field.relation;
   if (!relation) return <>{formatFieldValue(field.type, value, getLocale()) || "—"}</>;
+  const target = getResource(relation.resource);
+  if (field.many) {
+    const ids = relationIds(value);
+    if (!ids.length) return <>—</>;
+    return <Space size={[4, 4]} wrap className="qiy-relation-links">{ids.map((id) => <RelationLink key={id} target={target} resource={relation.resource} id={id} labelField={relation.labelField} />)}</Space>;
+  }
   const id = value === null || value === undefined || value === "" ? "" : String(value);
   if (!id) return <>—</>;
-  return <RelationLink target={getResource(relation.resource)} resource={relation.resource} id={id} labelField={relation.labelField} />;
+  return <RelationLink target={target} resource={relation.resource} id={id} labelField={relation.labelField} />;
 }
 
 /**
- * Form select for a foreign key: options are labelled with the target entity's
- * display template.
+ * Form select for a foreign key (or, with `multiple`, a many-to-many field):
+ * options are labelled with the target entity's display template.
  *
  * `Form.Item` injects `value` and `onChange` into its child. They must be
  * forwarded to the underlying `Select`, otherwise the picker renders but the
  * form value stays `undefined` (the field then fails its required rule).
  */
-export function RelationSelect({ relation, fieldName, value, onChange }: {
+export function RelationSelect({ relation, fieldName, value, onChange, multiple = false, style }: {
   relation: NonNullable<ResourceField["relation"]>;
   fieldName: string;
-  /** Current form value injected by Form.Item (the related record id). */
+  /** Current form value injected by Form.Item: the related record id, or an id array when `multiple`. */
   value?: unknown;
-  /** Form.Item setter; receives the selected id or undefined when cleared. */
-  onChange?: (next?: string) => void;
+  /** Form.Item setter; receives the selected id (undefined when cleared), or the id array when `multiple`. */
+  onChange?: (next?: string | string[]) => void;
+  multiple?: boolean;
+  style?: CSSProperties;
 }) {
+  if (multiple) return <RelationMultiSelect relation={relation} fieldName={fieldName} value={value} onChange={onChange} style={style} />;
+  return <RelationSingleSelect relation={relation} fieldName={fieldName} value={value} onChange={onChange} style={style} />;
+}
+
+function useRelationOptions(relation: NonNullable<ResourceField["relation"]>) {
   const { translate } = useTranslation();
   const target = getResource(relation.resource);
   const display = translate as unknown as DisplayTranslate;
-  const currentId = value === null || value === undefined || value === "" ? undefined : String(value);
   const { selectProps } = useSelect<Record<string, unknown>>({
     resource: relation.resource,
     optionLabel: (item) => relatedRecordLabel(target, item, display, relation.labelField) || String(item.id ?? ""),
@@ -201,12 +221,45 @@ export function RelationSelect({ relation, fieldName, value, onChange }: {
     queryOptions: { staleTime: 60_000 },
     onSearch: (value) => [{ field: "__search", operator: "contains", value }],
   });
-  // `defaultValue`/`onChange` from useSelect target its own uncontrolled option
-  // type; the form value is controlled here, so both are replaced by the value
-  // and change handler below.
+  // The form value is controlled by the caller, so useSelect's own uncontrolled
+  // value and change handler are dropped.
   const { defaultValue, onChange: selectOnChange, ...selectRestProps } = selectProps;
   void defaultValue;
   void selectOnChange;
+  const label = useCallback((record: Record<string, unknown>) => relatedRecordLabel(target, record, display, relation.labelField), [target, display, relation.labelField]);
+  return { selectRestProps, label };
+}
+
+/** Selected linked records may sit beyond the first options page, so they are loaded explicitly. */
+function RelationMultiSelect({ relation, fieldName, value, onChange, style }: { relation: NonNullable<ResourceField["relation"]>; fieldName: string; value?: unknown; onChange?: (next?: string | string[]) => void; style?: CSSProperties }) {
+  const { selectRestProps, label } = useRelationOptions(relation);
+  const currentIds = useMemo(() => relationIds(value), [value]);
+  const { result } = useMany<Record<string, unknown>>({ resource: relation.resource, ids: currentIds, queryOptions: { enabled: currentIds.length > 0, staleTime: 60_000, retry: false } });
+  const selected = useMemo(() => {
+    const records = new Map((result.data ?? []).map((record) => [String(record.id), record]));
+    return currentIds.map((id) => ({ id, label: records.has(id) ? label(records.get(id)!) : undefined }));
+  }, [currentIds, result.data, label]);
+  const options = useMemo(() => mergeSelectedRelationOptions((selectRestProps.options ?? []) as QiyRelationOption[], selected), [selectRestProps.options, selected]);
+  const rest = selectRestProps as SelectProps<string[], QiyRelationOption>;
+  return (
+    <Select
+      {...rest}
+      mode="multiple"
+      options={options}
+      value={currentIds}
+      onChange={(next: string[]) => onChange?.(next)}
+      data-field={fieldName}
+      showSearch
+      optionFilterProp="label"
+      allowClear
+      style={style}
+    />
+  );
+}
+
+function RelationSingleSelect({ relation, fieldName, value, onChange, style }: { relation: NonNullable<ResourceField["relation"]>; fieldName: string; value?: unknown; onChange?: (next?: string | string[]) => void; style?: CSSProperties }) {
+  const { selectRestProps, label } = useRelationOptions(relation);
+  const currentId = value === null || value === undefined || value === "" ? undefined : String(value);
   // The selected record may not be on the first options page (or the options may
   // still be loading), so resolve it explicitly and merge it into the options.
   const { result: selected } = useOne<Record<string, unknown>>({
@@ -215,7 +268,7 @@ export function RelationSelect({ relation, fieldName, value, onChange }: {
     queryOptions: { enabled: Boolean(currentId), staleTime: 60_000, retry: false },
   });
   const selectedRecord = (selected ?? undefined) as Record<string, unknown> | undefined;
-  const selectedLabel = selectedRecord ? relatedRecordLabel(target, selectedRecord, display, relation.labelField) : undefined;
+  const selectedLabel = selectedRecord ? label(selectedRecord) : undefined;
   const options = useMemo(
     () => mergeRelationOptions((selectRestProps.options ?? []) as QiyRelationOption[], currentId, selectedLabel),
     [selectRestProps.options, currentId, selectedLabel],
@@ -233,6 +286,7 @@ export function RelationSelect({ relation, fieldName, value, onChange }: {
       showSearch
       optionFilterProp="label"
       allowClear
+      style={style}
     />
   );
 }

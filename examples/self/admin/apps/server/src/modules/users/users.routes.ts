@@ -94,6 +94,7 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
   // Exports stream in bounded pages so memory does not grow with the result set.
   const EXPORT_PAGE_SIZE = Math.min(250, exportMaxRows());
   // Import accepts plain scalar columns only; vectors and key lists need the API.
+  // Many-to-many link fields travel as JSON id arrays, like Array columns.
   const importTypes = {"subject":"Text","oktaSubject":"Text","keycloakSubject":"Text","googleSubject":"Text","kindeSubject":"Text","azureSubject":"Text","email":"Text","displayName":"Text","role":"Text","oauthProfiles":"Text","permissions":"Text","orgId":"UUID"} as Record<string, string>;
   const importArrayItems = {} as Record<string, string | undefined>;
   const importColumns = Object.keys(importTypes);

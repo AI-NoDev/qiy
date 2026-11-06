@@ -30,6 +30,7 @@ app.qiy + include 片段
 | `tools/database-ir.ts` | 方言无关的数据模型校验 |
 | `tools/roles.ts` | 角色声明校验、默认角色、`RoleContext`，以及生成的 `api/src/auth/roles.ts` |
 | `tools/generate-server.ts` | 服务端生成（最大的文件，计划按领域拆分） |
+| `tools/generate-relation-links.ts` | 多对多：连接表读写模块 `api/src/relation-links.ts`、repository 注入、数据范围校验 |
 | `tools/generate-web.ts` | 前端生成 |
 | `tools/generate-project.ts` | 生成编排、workspace 组装、插件钩子 |
 | `tools/admin-template.data.ts` | `templates/admin` 打包后的模板（`bun run template:build` 重建） |

@@ -513,7 +513,7 @@ index <name> <btree|hnsw|ivfflat> ( <field> [<opclass>] [, ...] )
       [@unique] [@concurrently] [@comment("...")] ;
 ```
 
-Relation rules: only `one` (writing `many` parses but fails IR validation); both endpoints must be `UUID`; target must be primary or `@unique`; source cannot be `@code`/`@generated`; `setNull` requires `@nullable`; single-column only; self relations allowed; relations come after all entities. Index rules: name globally unique; `hnsw`/`ivfflat` require PostgreSQL + pgvector, one `Vector` column, an opclass from `vector_l2_ops`/`vector_ip_ops`/`vector_cosine_ops`, dimension <= 2000; `@concurrently` is PostgreSQL only. Details: [modeling-and-generation.md](modeling-and-generation.md).
+Relation rules: `one` is a FK column, `many` creates a virtual id-array field (`labelIds`, not declared on the entity) backed by a cascading join table, without `@onDelete`; both endpoints must be `UUID`; target must be primary or `@unique`; source cannot be `@code`/`@generated`; `setNull` requires `@nullable`; single-column only; self relations allowed; relations come after all entities. Index rules: name globally unique; `hnsw`/`ivfflat` require PostgreSQL + pgvector, one `Vector` column, an opclass from `vector_l2_ops`/`vector_ip_ops`/`vector_cosine_ops`, dimension <= 2000; `@concurrently` is PostgreSQL only. Details: [modeling-and-generation.md](modeling-and-generation.md).
 
 ## scope, restrict, pages
 
