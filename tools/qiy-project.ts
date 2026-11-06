@@ -147,7 +147,7 @@ export interface QiyProject {
    * password login is enabled in addition to the OAuth providers in `providers`.
    * `providers` never contains `otp` and never contains `local`.
    */
-  auth?: { provider: QiyAuthProvider; providers?: QiyAuthProvider[]; local?: boolean; userEntity: string; subjectField: string; providerMappings?: QiyAuthProviderMapping[]; roleField: string; usernameField?: string; passwordField?: string; profileField?: string };
+  auth?: { provider: QiyAuthProvider; providers?: QiyAuthProvider[]; local?: boolean; userEntity: string; subjectField: string; providerMappings?: QiyAuthProviderMapping[]; roleField: string; usernameField?: string; passwordField?: string; profileField?: string; claimFields?: Array<{ claim: string; field: string }> };
   environment?: QiyEnvironmentVariable[];
   messages?: { defaultLocale: string; locales: Record<string, Record<string, string>> };
   menuGroups?: Array<{ name: string; label: string; icon?: string; parent?: string; comment?: string; commentKey?: string; resources: string[] }>;
@@ -2349,9 +2349,18 @@ function enumeration(): import("./database-ir").EnumIR {
     expect("auth"); expect("{");
     const attributes: Record<string, string> = {};
     const providerMappings: QiyAuthProviderMapping[] = [];
+    const claimFields: Array<{ claim: string; field: string }> = [];
     while (peek() !== "}") {
       const key = identifier();
-      if (!["provider", "providers", "user", "subjectField", "roleField", "usernameField", "passwordField", "profileField"].includes(key)) throw new Error(`Unsupported auth attribute ${key}`);
+      if (!["provider", "providers", "user", "subjectField", "roleField", "usernameField", "passwordField", "profileField", "claim"].includes(key)) throw new Error(`Unsupported auth attribute ${key}`);
+      if (key === "claim") {
+        const claim = claimIdentifier();
+        const field = identifier();
+        if (claimFields.some((mapping) => mapping.claim === claim)) throw new Error(`Duplicate auth claim mapping ${claim}`);
+        claimFields.push({ claim, field });
+        expect(";");
+        continue;
+      }
       if (key === "provider") {
         const providerId = identifier();
         if (peek() === "{") {
@@ -2440,6 +2449,7 @@ function enumeration(): import("./database-ir").EnumIR {
       ...(usernameField && { usernameField }),
       ...(passwordField && { passwordField }),
       ...(profileField && { profileField }),
+      ...(claimFields.length ? { claimFields } : {}),
     };
   }
   if (features?.apiKeys && !auth) {
@@ -3154,6 +3164,7 @@ export function serializeQiyProject(project: QiyProject): string {
     if (project.auth.usernameField) lines.push(`    usernameField ${qiyIdentifier(project.auth.usernameField, "Auth username field")};`);
     if (project.auth.passwordField) lines.push(`    passwordField ${qiyIdentifier(project.auth.passwordField, "Auth password field")};`);
     if (project.auth.profileField) lines.push(`    profileField ${qiyIdentifier(project.auth.profileField, "Auth profile field")};`);
+    for (const mapping of project.auth.claimFields ?? []) lines.push(`    claim ${qiyClaim(mapping.claim)} ${qiyIdentifier(mapping.field, "Auth claim field")};`);
     lines.push("  }");
   }
   if (project.environment?.length) {

@@ -428,7 +428,7 @@ scope warehouses orgId claim org.id tree organizations parentId;
 | field | 必须是 `UUID` 或 `Text`（生成器不禁止主键，但通常用外键/租户列而不是主键） |
 | claim | `^[a-zA-Z_][a-zA-Z0-9_.-]*$`，从 `principal.claims` 取值 |
 | `tree <entity> <parentField>` | 该实体必须存在，`parentField` 为 UUID/Text；scope 字段类型必须与树主键、父字段**类型一致** |
-| 本地/混合认证 | 每个 scope claim 必须在 users 上有对应列（claim `org.id` → 字段 `orgId`，点号后的首字母大写），否则生成期报 `Data scope claim org.id needs a matching field on users (expected orgId) to resolve local password sessions`；该列用于 API Key 与本地会话派生 claim |
+| 本地/混合认证 | 每个 scope claim 必须在 users 上有对应列：默认按命名推导（claim `org.id` → 字段 `orgId`，点号后的首字母大写），也可在 `auth` 中写 `claim org.id organizationId;` 映射到任意列；都没有时生成期报 ``Data scope claim org.id needs a matching field on users (expected orgId) to resolve local password sessions; add that field or map it with `claim org.id <field>;` in auth``。该列用于本地密码、OTP 与 API Key 会话派生 claim |
 
 运行时：
 
@@ -439,7 +439,7 @@ scope warehouses orgId claim org.id tree organizations parentId;
 | 写入（create/update） | scope 字段被**强制**写成 claim 值；客户端提交的同名字段被覆盖 |
 | dataflow | 不允许 `update` scope 字段（`cannot update scope field`）；`create` 时 scope 字段由 principal 推导（`create scope field ... is derived from the authenticated principal`） |
 | `restrict { when ( scope or ... ) }` | 表达式含 `scope` 时跳过仓储层隐式 scope 过滤（否则会变成 AND 覆盖 OR 语义），按表达式求值 |
-| API Key | 由用户行反查 claim 列（`org.id` ← `orgId`），因此 scope 对 API Key 同样生效 |
+| API Key / OTP | 由用户行反查 claim 列（`org.id` ← `orgId` 或 `auth { claim … }` 映射的列），因此 scope 对 API Key 与 OTP 会话同样生效 |
 
 ## 页面规则：`pages`
 

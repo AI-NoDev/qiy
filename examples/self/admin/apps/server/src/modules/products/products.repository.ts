@@ -1,10 +1,11 @@
-import { and, asc, avg, count, desc, eq, gt, gte, lt, lte, max, min, sql, sum, like, inArray, or } from "drizzle-orm";
+import { and, asc, avg, count, desc, eq, gt, gte, isNotNull, isNull, lt, lte, max, min, sql, sum, like, inArray, or } from "drizzle-orm";
 import { db } from "../../db";
  import { products, auditEvents } from "../../schema";
 import type { FilterClause, FilterExpression, ProductsRepository as ProductsRepositoryContract } from "./products.contract";
 import { QiyPolicyError, type QiyPolicy } from "../../security/policy";
 
-export const ProductsRepository: ProductsRepositoryContract = {
+const notDeleted = undefined;
+const qiyBaseProductsRepository: ProductsRepositoryContract = {
   async aggregate(field, operator, scope, policy) {
     if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
     const columns: Record<string, any> = { "unitCost": products.unitCost, "price": products.price, "reorderPoint": products.reorderPoint };
@@ -14,7 +15,7 @@ export const ProductsRepository: ProductsRepositoryContract = {
     const scopeCondition = scope && !(policy && policy.usesScope) && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     const policyCondition = policy && policy.conditions.length ? and(...(policy.conditions as any[])) : undefined;
     const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
-    const [row] = await db.select({ value: expression }).from(products).where(and(scopeCondition, policyCondition));
+    const [row] = await db.select({ value: expression }).from(products).where(and(notDeleted, scopeCondition, policyCondition));
     const value = row?.value === null || row?.value === undefined ? null : Number(row.value);
     return { value: value === null || Number.isFinite(value) ? value : null, operator };
   },
@@ -25,7 +26,22 @@ export const ProductsRepository: ProductsRepositoryContract = {
     const scopeColumns: Record<string, any> = { "id": products.id, "sku": products.sku, "name": products.name, "uom": products.uom, "unitCost": products.unitCost, "price": products.price, "reorderPoint": products.reorderPoint, "active": products.active };
     const scopeCondition = scope && !(policy && policy.usesScope) && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     const policyCondition = policy && policy.conditions.length ? and(...(policy.conditions as any[])) : undefined;
-    return db.select({ value: column, count: count() }).from(products).where(and(scopeCondition, policyCondition)).groupBy(column);
+    return db.select({ value: column, count: count() }).from(products).where(and(notDeleted, scopeCondition, policyCondition)).groupBy(column);
+  },
+  async grouped(groupBy, metric, operator, scope, policy) {
+    if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
+    const groupColumns: Record<string, any> = { "active": products.active };
+    const metricColumns: Record<string, any> = { "unitCost": products.unitCost, "price": products.price, "reorderPoint": products.reorderPoint };
+    const group = groupColumns[groupBy];
+    const column = metricColumns[metric];
+    if (!group) throw new Error("Unsupported distribution field");
+    if (!column) throw new Error("Unsupported aggregate field");
+    const scopeColumns: Record<string, any> = { "id": products.id, "sku": products.sku, "name": products.name, "uom": products.uom, "unitCost": products.unitCost, "price": products.price, "reorderPoint": products.reorderPoint, "active": products.active };
+    const scopeCondition = scope && !(policy && policy.usesScope) && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
+    const policyCondition = policy && policy.conditions.length ? and(...(policy.conditions as any[])) : undefined;
+    const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
+    const rows = await db.select({ value: group, count: expression }).from(products).where(and(notDeleted, scopeCondition, policyCondition)).groupBy(group);
+    return rows.map((row) => ({ value: row.value === null ? null : String(row.value), count: Number(row.count ?? 0) }));
   },
   async trend(field, days, scope, policy) {
     const columns: Record<string, any> = {  };
@@ -39,7 +55,7 @@ export const ProductsRepository: ProductsRepositoryContract = {
     const start = new Date(today - (days - 1) * 86400000);
     const end = new Date(today + 86400000);
     const day = sql<string>`strftime('%Y-%m-%d', ${column} / 1000, 'unixepoch')`;
-    return db.select({ day, count: count() }).from(products).where(and(gte(column, start), lt(column, end), scopeCondition, policyCondition)).groupBy(day).orderBy(day);
+    return db.select({ day, count: count() }).from(products).where(and(notDeleted, gte(column, start), lt(column, end), scopeCondition, policyCondition)).groupBy(day).orderBy(day);
   },
   async list(page, pageSize, options = {}) {
     const searchableColumns: any[] = [products.sku, products.name, products.uom, products.active];
@@ -83,7 +99,7 @@ export const ProductsRepository: ProductsRepositoryContract = {
     const scopeColumns: Record<string, any> = { "id": products.id, "sku": products.sku, "name": products.name, "uom": products.uom, "unitCost": products.unitCost, "price": products.price, "reorderPoint": products.reorderPoint, "active": products.active };
     const scopeCondition = options.scope && !(options.policy && options.policy.usesScope) && scopeColumns[options.scope.field] ? eq(scopeColumns[options.scope.field], options.scope.value) : undefined;
     const policyCondition = options.policy && options.policy.conditions.length ? and(...(options.policy.conditions as any[])) : undefined;
-    const whereCondition = and(searchCondition, scopeCondition, policyCondition, ...(filters as FilterExpression[]).map(filterExpression));
+    const whereCondition = and(notDeleted, searchCondition, scopeCondition, policyCondition, ...(filters as FilterExpression[]).map(filterExpression));
     const [data, totalRows] = await Promise.all([
       db.select().from(
 products
@@ -100,7 +116,7 @@ products
     const policyCondition = policy && policy.conditions.length ? and(...(policy.conditions as any[])) : undefined;
     const [record] = await db.select().from(
 products
-).where(and(eq(
+).where(and(notDeleted, eq(
 products
 .id, id), scopeCondition, policyCondition)).limit(1);
     return record;
@@ -121,7 +137,7 @@ products
       const scopeColumns: Record<string, any> = { "id": products.id, "sku": products.sku, "name": products.name, "uom": products.uom, "unitCost": products.unitCost, "price": products.price, "reorderPoint": products.reorderPoint, "active": products.active };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       const policyCondition = policy && policy.conditions.length ? and(...(policy.conditions as any[])) : undefined;
-      const record = tx.update(products).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(eq(products.id, id), scopeCondition, policyCondition)).returning().get();
+      const record = tx.update(products).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(notDeleted, eq(products.id, id), scopeCondition, policyCondition)).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "products.updated", resource: "products", resourceId: id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
        if (record) void 0;
       return record;
@@ -132,7 +148,7 @@ products
       const scopeColumns: Record<string, any> = { "id": products.id, "sku": products.sku, "name": products.name, "uom": products.uom, "unitCost": products.unitCost, "price": products.price, "reorderPoint": products.reorderPoint, "active": products.active };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       const policyCondition = policy && policy.conditions.length ? and(...(policy.conditions as any[])) : undefined;
-      const record = tx.delete(products).where(and(eq(products.id, id), scopeCondition, policyCondition)).returning().get();
+      const record = tx.delete(products).where(and(notDeleted, eq(products.id, id), scopeCondition, policyCondition)).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "products.deleted", resource: "products", resourceId: id, metadata: "{}", createdAt: new Date() }).run();
        if (record) void 0;
       return record;
@@ -143,7 +159,7 @@ products
       const scopeColumns: Record<string, any> = { "id": products.id, "sku": products.sku, "name": products.name, "uom": products.uom, "unitCost": products.unitCost, "price": products.price, "reorderPoint": products.reorderPoint, "active": products.active };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       const policyCondition = policy && policy.conditions.length ? and(...(policy.conditions as any[])) : undefined;
-      const deletedRows = tx.delete(products).where(and(inArray(products.id, ids), scopeCondition, policyCondition)).returning().all();
+      const deletedRows = tx.delete(products).where(and(notDeleted, inArray(products.id, ids), scopeCondition, policyCondition)).returning().all();
       if (deletedRows.length) tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "products.deleted", resource: "products", resourceId: record.id, metadata: "{}", createdAt: new Date() }))).run();
        if (deletedRows.length) void 0;
       return deletedRows;
@@ -158,3 +174,5 @@ products
   },
 
 };
+
+export const ProductsRepository: ProductsRepositoryContract = qiyBaseProductsRepository;

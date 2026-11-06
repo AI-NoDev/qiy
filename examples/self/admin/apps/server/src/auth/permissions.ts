@@ -86,7 +86,10 @@ export async function loadPermissions(principal: Principal): Promise<QiyPermissi
     // claims still apply, and the database source only ever adds permissions.
     databasePermissions = undefined;
   }
-  return resolvePermissionSnapshot({ role: principal.role, ...(principal.claims ? { claims: principal.claims } : {}), databasePermissions });
+  const snapshot = resolvePermissionSnapshot({ role: principal.role, ...(principal.claims ? { claims: principal.claims } : {}), databasePermissions });
+  if (!principal.scopes || principal.scopes.length === 0) return snapshot;
+  const allowed = new Set(principal.scopes);
+  return { ...snapshot, permissions: snapshot.permissions.filter((permission) => allowed.has(permission)) };
 }
 
 export type QiyPermissionVerdict = { allowed: boolean; missing: string[] };

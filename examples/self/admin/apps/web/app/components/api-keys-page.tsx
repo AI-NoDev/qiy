@@ -13,9 +13,13 @@ import {
   defaultApiKeyName,
   filterApiKeys,
   formatApiKeyDate,
+  listApiKeyEvents,
   permissionTags,
+  permissionValues,
   relativeTime,
   revokeApiKey,
+  rotateApiKey,
+  type ApiKeyEvent,
   type ApiKeyRecord,
   type ApiKeyStatusFilter,
   type QiyIdentityLike,
@@ -25,6 +29,7 @@ import { qiyFeatureFlags } from "../features";
 export interface ApiKeysPageProps {
   identity?: QiyIdentityLike | null;
   initialRecords?: ApiKeyRecord[];
+  initialEvents?: ApiKeyEvent[];
   loading?: boolean;
   error?: string;
   initialSearch?: string;
@@ -40,7 +45,7 @@ function statusLabel(state: string, translate: Translate): string {
   return translate("qiy.apiKey.status." + state, {}, state.charAt(0).toUpperCase() + state.slice(1));
 }
 
-function CreateKeyForm({ translate, form, records }: { translate: Translate; form?: ReturnType<typeof Form.useForm>[0]; records?: ApiKeyRecord[] }) {
+function CreateKeyForm({ translate, form, records, permissions }: { translate: Translate; form?: ReturnType<typeof Form.useForm>[0]; records?: ApiKeyRecord[]; permissions?: string[] }) {
   const [fallback] = Form.useForm();
   const usedForm = form ?? fallback;
   return <Form form={usedForm} layout="vertical" initialValues={{ name: defaultApiKeyName(records ?? []) }}>
@@ -50,7 +55,10 @@ function CreateKeyForm({ translate, form, records }: { translate: Translate; for
     <Form.Item name="expiresAt" label={translate("qiy.apiKey.expires", {}, "Expires (optional)")}>
       <DatePicker showTime style={{ width: "100%" }} />
     </Form.Item>
-    <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{translate("qiy.apiKey.createExplanation", {}, "The key inherits your current role and permissions. Expired or revoked keys stop working immediately.")}</Typography.Paragraph>
+    {permissions && permissions.length > 0 ? <Form.Item name="scopes" label={translate("qiy.apiKey.scopes", {}, "Permission scopes (optional)")} extra={translate("qiy.apiKey.scopesHint", {}, "Leave empty to inherit all of your permissions. Scopes only narrow permission checks.")}>
+      <Select mode="multiple" allowClear placeholder={translate("qiy.apiKey.scopesPlaceholder", {}, "All permissions")} options={permissions.map((permission) => ({ value: permission, label: permission }))} />
+    </Form.Item> : null}
+    <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{translate("qiy.apiKey.createExplanation", {}, "The key inherits your current role and permissions (or the selected subset). Expired or revoked keys stop working immediately.")}</Typography.Paragraph>
   </Form>;
 }
 
@@ -67,6 +75,7 @@ export function ApiKeysPage(props: ApiKeysPageProps) {
   const { translate, getLocale } = useTranslation();
   const locale = getLocale();
   const [records, setRecords] = useState<ApiKeyRecord[]>(props.initialRecords ?? []);
+  const [events, setEvents] = useState<ApiKeyEvent[]>(props.initialEvents ?? []);
   const [search, setSearch] = useState(props.initialSearch ?? "");
   const [status, setStatus] = useState<ApiKeyStatusFilter>(props.initialStatus ?? "all");
   const [createOpen, setCreateOpen] = useState(Boolean(props.initialCreateOpen));
@@ -80,6 +89,9 @@ export function ApiKeysPage(props: ApiKeysPageProps) {
   const roleTooltip = translate("qiy.apiKey.roleTooltip", {}, "Your account role. API keys inherit the role and permissions of the user who created them.");
   const permissionTooltip = translate("qiy.apiKey.permissionTooltip", {}, "Effective permission values for your account; a key created here can call exactly the APIs that you can call.");
   const groupTooltip = translate("qiy.apiKey.groupTooltip", {}, "Permission groups (roles) granted to your account.");
+  const refreshAudit = () => {
+    void listApiKeyEvents().then(setEvents).catch(() => undefined);
+  };
   const copy = async (value: string) => {
     try {
       await navigator.clipboard.writeText(value);
@@ -89,14 +101,15 @@ export function ApiKeysPage(props: ApiKeysPageProps) {
     }
   };
   const create = async () => {
-    const values = await form.validateFields() as { name: string; expiresAt?: { toISOString?: () => string } | null };
+    const values = await form.validateFields() as { name: string; expiresAt?: { toISOString?: () => string } | null; scopes?: string[] };
     setSaving(true);
     try {
-      const created = await createApiKey({ name: values.name, expiresAt: values.expiresAt?.toISOString?.() ?? null });
+      const created = await createApiKey({ name: values.name, expiresAt: values.expiresAt?.toISOString?.() ?? null, scopes: values.scopes ?? [] });
       setRecords((current) => [created.record, ...current]);
       setSecret(created.key);
       setCreateOpen(false);
       form.resetFields();
+      refreshAudit();
       void message.success(translate("qiy.apiKey.created", {}, "Created"));
     } catch (cause) {
       void message.error(cause instanceof Error ? cause.message : String(cause));
@@ -108,9 +121,24 @@ export function ApiKeysPage(props: ApiKeysPageProps) {
     try {
       await revokeApiKey(record.id);
       setRecords((current) => current.map((entry) => entry.id === record.id ? { ...entry, revokedAt: new Date().toISOString() } : entry));
+      refreshAudit();
       void message.success(translate("qiy.apiKey.revokedMessage", {}, "Revoked"));
     } catch (cause) {
       void message.error(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+  const rotate = async (record: ApiKeyRecord) => {
+    setSaving(true);
+    try {
+      const rotated = await rotateApiKey(record.id);
+      setRecords((current) => [rotated.record, ...current.map((entry) => entry.id === record.id ? { ...entry, revokedAt: new Date().toISOString() } : entry)]);
+      setSecret(rotated.key);
+      refreshAudit();
+      void message.success(translate("qiy.apiKey.rotatedMessage", {}, "Rotated; the old key is revoked"));
+    } catch (cause) {
+      void message.error(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
     }
   };
   return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -135,20 +163,28 @@ export function ApiKeysPage(props: ApiKeysPageProps) {
     {props.error ? <Alert type="error" showIcon message={translate("qiy.apiKey.loadError", {}, "Failed to load API keys")} description={props.error} /> : null}
     <Table<ApiKeyRecord> size="small" rowKey="id" loading={props.loading} pagination={false} dataSource={filtered} locale={{ emptyText: translate("qiy.apiKey.empty", {}, "No API keys yet") }} columns={[
       { title: translate("qiy.apiKey.name", {}, "Name"), dataIndex: "name", key: "name" },
+      { title: translate("qiy.apiKey.scopes", {}, "Scopes"), key: "scopes", render: (_, record) => record.scopes && record.scopes.length ? <Space wrap>{record.scopes.map((scope) => <Tag key={scope}>{scope}</Tag>)}</Space> : <Typography.Text type="secondary">{translate("qiy.apiKey.scopesAll", {}, "All permissions")}</Typography.Text> },
       { title: translate("qiy.apiKey.prefix", {}, "Key"), key: "prefix", render: (_, record) => <Space><Typography.Text code>{record.maskedKey}</Typography.Text><Button size="small" type="link" onClick={() => void copy(record.maskedKey)}>{translate("qiy.apiKey.copy", {}, "Copy")}</Button></Space> },
       { title: translate("qiy.apiKey.status", {}, "Status"), key: "status", render: (_, record) => { const state = apiKeyStatus(record); return <Tag color={statusColor[state]}>{statusLabel(state, translate)}</Tag>; } },
       { title: translate("qiy.apiKey.createdAt", {}, "Created"), dataIndex: "createdAt", key: "createdAt", render: (value: string) => formatApiKeyDate(value, locale) },
       { title: translate("qiy.apiKey.lastUsed", {}, "Last used"), dataIndex: "lastUsedAt", key: "lastUsedAt", render: (value: string | null) => value ? <Tooltip title={formatApiKeyDate(value, locale)}>{relativeTime(value, new Date(), locale)}</Tooltip> : translate("qiy.apiKey.never", {}, "Never") },
       { title: translate("qiy.apiKey.expires", {}, "Expires"), dataIndex: "expiresAt", key: "expiresAt", render: (value: string | null) => value ? <Tooltip title={formatApiKeyDate(value, locale)}>{formatApiKeyDate(value, locale)}</Tooltip> : translate("qiy.apiKey.never", {}, "Never") },
-      { title: translate("qiy.apiKey.actions", {}, "Actions"), key: "actions", render: (_, record) => record.revokedAt ? null : <Popconfirm title={translate("qiy.apiKey.revokeConfirm", {}, "Revoke this key? It stops working immediately.")} onConfirm={() => void revoke(record)} okText={translate("qiy.apiKey.revoke", {}, "Revoke")} cancelText={translate("qiy.cancel", {}, "Cancel")}><Button danger size="small">{translate("qiy.apiKey.revoke", {}, "Revoke")}</Button></Popconfirm> },
+      { title: translate("qiy.apiKey.actions", {}, "Actions"), key: "actions", render: (_, record) => record.revokedAt ? null : <Space wrap><Popconfirm title={translate("qiy.apiKey.rotateConfirm", {}, "Rotate this key? The old key stops working immediately and the new secret is shown once.")} onConfirm={() => void rotate(record)} okText={translate("qiy.apiKey.rotate", {}, "Rotate")} cancelText={translate("qiy.cancel", {}, "Cancel")}><Button size="small" loading={saving}>{translate("qiy.apiKey.rotate", {}, "Rotate")}</Button></Popconfirm><Popconfirm title={translate("qiy.apiKey.revokeConfirm", {}, "Revoke this key? It stops working immediately.")} onConfirm={() => void revoke(record)} okText={translate("qiy.apiKey.revoke", {}, "Revoke")} cancelText={translate("qiy.cancel", {}, "Cancel")}><Button danger size="small">{translate("qiy.apiKey.revoke", {}, "Revoke")}</Button></Popconfirm></Space> },
     ]} />
+    <Card size="small" title={translate("qiy.apiKey.auditTitle", {}, "Audit trail")}>
+      <Table<ApiKeyEvent> size="small" rowKey="id" pagination={false} dataSource={events} locale={{ emptyText: translate("qiy.apiKey.auditEmpty", {}, "No key events yet") }} columns={[
+        { title: translate("qiy.apiKey.auditTime", {}, "Time"), dataIndex: "at", key: "at", render: (value: string) => formatApiKeyDate(value, locale) },
+        { title: translate("qiy.apiKey.auditAction", {}, "Action"), dataIndex: "action", key: "action", render: (value: string) => <Tag color={value === "revoked" ? "red" : value === "rotated" ? "orange" : "green"}>{value}</Tag> },
+        { title: translate("qiy.apiKey.auditKey", {}, "Key"), dataIndex: "keyId", key: "keyId", render: (value: string) => <Typography.Text code>{value.slice(0, 8) + "…"}</Typography.Text> },
+      ]} />
+    </Card>
     <Modal open={createOpen} forceRender getContainer={false} title={translate("qiy.apiKey.create", {}, "Create key")} okText={translate("qiy.apiKey.create", {}, "Create key")} confirmLoading={saving} onOk={() => void create()} onCancel={() => setCreateOpen(false)}>
-      <CreateKeyForm translate={translate} form={form} records={records} />
+      <CreateKeyForm translate={translate} form={form} records={records} permissions={permissionValues(props.identity)} />
     </Modal>
     <Modal open={Boolean(secret)} forceRender getContainer={false} title={translate("qiy.apiKey.secretTitle", {}, "Save this secret now")} onCancel={() => setSecret(undefined)} footer={<Space><Button onClick={() => secret ? void copy(secret) : undefined}>{translate("qiy.apiKey.copy", {}, "Copy")}</Button><Button type="primary" onClick={() => setSecret(undefined)}>{translate("qiy.close", {}, "Close")}</Button></Space>}>
       <SecretKeyContent secret={secret} translate={translate} copy={copy} />
     </Modal>
-    {props.initialCreateOpen ? <div hidden data-modal-preview="create"><CreateKeyForm translate={translate} records={records} /></div> : null}
+    {props.initialCreateOpen ? <div hidden data-modal-preview="create"><CreateKeyForm translate={translate} records={records} permissions={permissionValues(props.identity)} /></div> : null}
     {props.initialSecret ? <div hidden data-modal-preview="secret"><Typography.Title level={5}>{translate("qiy.apiKey.secretTitle", {}, "Save this secret now")}</Typography.Title><SecretKeyContent secret={props.initialSecret} translate={translate} copy={copy} /></div> : null}
   </Space>;
 }

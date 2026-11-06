@@ -48,14 +48,25 @@ SQLite / MySQL 分别使用 `sqliteView` / `mysqlView`；视图定义放在实�
 - GraphQL：`<view>(page, pageSize)` 与 `<view>ById(id)`（含 id 时）；
 - Web：生成只读资源与侧边栏入口，列表可导出、查看列；包含 `id` 时可进入只读详情。不显示新建/编辑/删除/导入。
 
-应用声明了 `auth` 时这些端点要求已认证；没有按实体 policy 做行级过滤。
+## 权限继承
+
+视图的 REST 与 GraphQL 读路径继承源实体的行级规则：
+
+| 源实体规则 | 视图读路径的效果 |
+| --- | --- |
+| `@softDelete` | 已软删除的源行不出现在视图列表/详情/计数里 |
+| `scope` / `@tenant` | 按调用者 claim 过滤；claim 缺失 → 403 `Missing required data scope claim` |
+| `restrict ... when` | 与源实体相同的行条件；缺 claim 按 `policy.missingClaim` 403 |
+| `restrict ... mask` | 对视图中同名列执行相同的 `omit` / `null` / `redact` |
+
+实现方式：生成的 `views-routes.ts` 导出 `viewAccess.<view>(principal)`，把源实体规则编译成 `view.id IN (SELECT id FROM <source> WHERE …)` 子查询并返回 mask 函数；REST 与 GraphQL resolver 共用它。因此**源实体有上述任一规则时，视图必须选择 `id` 列**，否则生成期报 `view X: source Y has <@softDelete / data scope / row policy>, so the view must select the id column to inherit row filtering`。源实体没有这些规则时，视图只要求已认证（声明了 `auth` 时）。
 
 ## 边界
 
 - 当前 `view` 生成 **Drizzle schema + 只读 REST/GraphQL + Web 列表/详情**，不生成表单与变更端点。
 - 需要 API 时，用生成器插件或在集成项目里挂载只读适配器；不要把它当成可变实体。
 - SQLite / PostgreSQL / MySQL 均已实库验证：`drizzle-kit generate` 生成 view 迁移，`db:migrate` 后可查询；schema drift 检查会忽略 view，不再报告 `unexpected table`。
-- 视图列没有字段注解、权限或表单语义；权限仍应通过底层实体或数据库账号控制。
+- 视图列没有字段注解或表单语义；行级规则来自源实体（见上），直接用 SQL 访问数据库视图时不经过这些规则。
 
 ## 校验
 

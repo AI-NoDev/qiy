@@ -355,6 +355,7 @@ auth {
   usernameField <user-field> ;
   passwordField <user-field> ;
   profileField <user-field> ;
+  claim <claim> <user-field> ;      // users column behind a scope/@tenant claim
 }
 ```
 
@@ -485,7 +486,7 @@ Field types (closed set):
 | `Vector(n)` | `vector(n)` | PostgreSQL + pgvector |
 | `<enumName>` | `text` | declared enum |
 
-Unknown types (`String`, `Json`, ...) fail. Parameters only on `Vector`/`Decimal`/`Money` (`Field type Text has no parameters`). Field attributes: `@id`, `@nullable`, `@unique`, `@label`, `@comment`, `@icon`, `@visible`, `@listVisible`, `@formVisible`, `@showVisible`, `@sortable`, `@filterable`, `@filter(...)`, `@upload(...)`, `@maxBytes`, `@maxFiles`, `@mime`, `@extension`, `@code`, `@generated(uuid)`, `@column`, `@dimension`, `@precision`, `@scale`. There is no `@required`, `@default`, `@length`, `@computed`; `@softDelete` marks a nullable DateTime for soft deletion; `@tenant("claim")` marks a tenant column and synthesizes a principal scope; `@computed("{a} {b}")` adds a read-only Text field computed in API responses. Full matrices: [modeling-and-generation.md](modeling-and-generation.md).
+Unknown types (`String`, `Json`, ...) fail. Parameters only on `Vector`/`Decimal`/`Money` (`Field type Text has no parameters`). Field attributes: `@id`, `@nullable`, `@unique`, `@label`, `@comment`, `@icon`, `@visible`, `@listVisible`, `@formVisible`, `@showVisible`, `@sortable`, `@filterable`, `@filter(...)`, `@upload(...)`, `@maxBytes`, `@maxFiles`, `@mime`, `@extension`, `@code`, `@generated(uuid)`, `@column`, `@dimension`, `@precision`, `@scale`, `@softDelete`, `@tenant`, `@computed`. There is no `@required`, `@default`, `@length`. `@softDelete` marks a nullable DateTime for soft deletion with trash listing (`?deleted=true`) and `POST /:id/restore`; `@tenant("claim")` marks a tenant column and synthesizes a principal scope; `@computed("{a} {b}")` adds a read-only Text field, and `@computed("{price} * {quantity}")` on a nullable Integer/Decimal/Money field adds a numeric one, both computed in API responses. Full matrices: [modeling-and-generation.md](modeling-and-generation.md).
 
 ## DB view
 
@@ -495,7 +496,7 @@ view <Name> from <Entity> {
 }
 ```
 
-Schema-only read-only projection; no REST/GraphQL resource. Names/columns validated; computed columns excluded.
+Read-only projection: Drizzle view + migration, read-only REST (`GET /api/v1/<view>`, `/:id` when `id` is selected), GraphQL queries and a read-only web list/detail. Names/columns validated; computed columns excluded. Reads inherit the source entity's `@softDelete`, `scope`/`@tenant`, `restrict when` and `restrict mask` rules; when the source has any of those row rules the view must select `id`.
 
 ## relation and index
 
@@ -648,7 +649,7 @@ action <Name> {
 
 Parameter forms: `documentation` accepts a literal or `t("key")`; `string` accepts a quoted string or bare identifier; `integer` is a non-negative decimal; boolean is `@x` (= true) or `@x(true|false)` - not all booleans allow omitting parentheses; identifiers are enumeration values. Duplicates usually overwrite silently; explicitly rejected duplicates: `@singular`, `@plural`, `@display`, `@tableDisplay`, `@relationDetail`, `@code`, `@generated`, `@filter` (same operator), `@mime` (same type), `@comment` on definition-site blocks, `@order` (via step uniqueness).
 
-Common miswrites: field `@required` (use `@nullable` for optional), `@optional`, `@default(...)`, `@searchable`/`@hidden`/`@readonly`, field/entity `@order(...)`, `@length`/`@min`/`@max`/`@format`, `@enum`/`@relation`/`@index`, enum `@label`, field `@plural`, `@transient`/`@computed`, `@primaryKey`.
+Common miswrites: field `@required` (use `@nullable` for optional), `@optional`, `@default(...)`, `@searchable`/`@hidden`/`@readonly`, field/entity `@order(...)`, `@length`/`@min`/`@max`/`@format`, `@enum`/`@relation`/`@index`, enum `@label`, field `@plural`, `@transient` (use `@computed`), `@primaryKey`.
 
 ## Generated values
 

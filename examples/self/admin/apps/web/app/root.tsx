@@ -75,9 +75,14 @@ function RefineApplication({ i18nProvider }: { i18nProvider: I18nProvider }) {
     }, ...menuGroups.map((group) => ({
       name: group.name,
       meta: { label: modelLabel(group.labelKey, group.label), icon: resolveResourceIcon(group.icon), ...("parent" in group ? { parent: group.parent } : {}) },
-    })), ...resources.map((resource) => ({
+    })), ...resources.map((resource) => resource.readOnly ? ({
       name: resource.name,
       meta: { audit: [], label: modelLabel(resource.pluralKey, modelLabel(resource.labelKey, resource.label)), icon: resolveResourceIcon(resource.icon), ...(resource.menuParent && { parent: resource.menuParent }) },
+      list: `/${resource.name}`,
+      ...(resource.hasDetail ? { show: `/${resource.name}/:id` } : {}),
+    }) : ({
+      name: resource.name,
+      meta: { label: modelLabel(resource.pluralKey, modelLabel(resource.labelKey, resource.label)), icon: resolveResourceIcon(resource.icon), ...(resource.menuParent && { parent: resource.menuParent }) },
       list: `/${resource.name}`,
       create: `/${resource.name}/new`,
       show: `/${resource.name}/:id`,

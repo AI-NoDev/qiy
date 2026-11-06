@@ -1,10 +1,11 @@
-import { and, asc, avg, count, desc, eq, gt, gte, lt, lte, max, min, sql, sum, like, inArray, or } from "drizzle-orm";
+import { and, asc, avg, count, desc, eq, gt, gte, isNotNull, isNull, lt, lte, max, min, sql, sum, like, inArray, or } from "drizzle-orm";
 import { db } from "../../db";
  import { sales_orders, auditEvents } from "../../schema";
 import type { FilterClause, FilterExpression, Sales_ordersRepository as Sales_ordersRepositoryContract } from "./sales_orders.contract";
 
 
-export const Sales_ordersRepository: Sales_ordersRepositoryContract = {
+const notDeleted = undefined;
+const qiyBaseSales_ordersRepository: Sales_ordersRepositoryContract = {
   async aggregate(field, operator, scope) {
     if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
     const columns: Record<string, any> = { "total": sales_orders.total };
@@ -14,7 +15,7 @@ export const Sales_ordersRepository: Sales_ordersRepositoryContract = {
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
-    const [row] = await db.select({ value: expression }).from(sales_orders).where(and(scopeCondition));
+    const [row] = await db.select({ value: expression }).from(sales_orders).where(and(notDeleted, scopeCondition));
     const value = row?.value === null || row?.value === undefined ? null : Number(row.value);
     return { value: value === null || Number.isFinite(value) ? value : null, operator };
   },
@@ -25,7 +26,22 @@ export const Sales_ordersRepository: Sales_ordersRepositoryContract = {
     const scopeColumns: Record<string, any> = { "id": sales_orders.id, "number": sales_orders.number, "customerId": sales_orders.customerId, "status": sales_orders.status, "orderedAt": sales_orders.orderedAt, "total": sales_orders.total };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
-    return db.select({ value: column, count: count() }).from(sales_orders).where(and(scopeCondition)).groupBy(column);
+    return db.select({ value: column, count: count() }).from(sales_orders).where(and(notDeleted, scopeCondition)).groupBy(column);
+  },
+  async grouped(groupBy, metric, operator, scope) {
+    if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
+    const groupColumns: Record<string, any> = { "status": sales_orders.status };
+    const metricColumns: Record<string, any> = { "total": sales_orders.total };
+    const group = groupColumns[groupBy];
+    const column = metricColumns[metric];
+    if (!group) throw new Error("Unsupported distribution field");
+    if (!column) throw new Error("Unsupported aggregate field");
+    const scopeColumns: Record<string, any> = { "id": sales_orders.id, "number": sales_orders.number, "customerId": sales_orders.customerId, "status": sales_orders.status, "orderedAt": sales_orders.orderedAt, "total": sales_orders.total };
+    const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
+    
+    const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
+    const rows = await db.select({ value: group, count: expression }).from(sales_orders).where(and(notDeleted, scopeCondition)).groupBy(group);
+    return rows.map((row) => ({ value: row.value === null ? null : String(row.value), count: Number(row.count ?? 0) }));
   },
   async trend(field, days, scope) {
     const columns: Record<string, any> = { "orderedAt": sales_orders.orderedAt };
@@ -39,7 +55,7 @@ export const Sales_ordersRepository: Sales_ordersRepositoryContract = {
     const start = new Date(today - (days - 1) * 86400000);
     const end = new Date(today + 86400000);
     const day = sql<string>`strftime('%Y-%m-%d', ${column} / 1000, 'unixepoch')`;
-    return db.select({ day, count: count() }).from(sales_orders).where(and(gte(column, start), lt(column, end), scopeCondition)).groupBy(day).orderBy(day);
+    return db.select({ day, count: count() }).from(sales_orders).where(and(notDeleted, gte(column, start), lt(column, end), scopeCondition)).groupBy(day).orderBy(day);
   },
   async list(page, pageSize, options = {}) {
     const searchableColumns: any[] = [sales_orders.number, sales_orders.status];
@@ -83,7 +99,7 @@ export const Sales_ordersRepository: Sales_ordersRepositoryContract = {
     const scopeColumns: Record<string, any> = { "id": sales_orders.id, "number": sales_orders.number, "customerId": sales_orders.customerId, "status": sales_orders.status, "orderedAt": sales_orders.orderedAt, "total": sales_orders.total };
     const scopeCondition = options.scope && scopeColumns[options.scope.field] ? eq(scopeColumns[options.scope.field], options.scope.value) : undefined;
     
-    const whereCondition = and(searchCondition, scopeCondition, ...(filters as FilterExpression[]).map(filterExpression));
+    const whereCondition = and(notDeleted, searchCondition, scopeCondition, ...(filters as FilterExpression[]).map(filterExpression));
     const [data, totalRows] = await Promise.all([
       db.select().from(
 sales_orders
@@ -100,7 +116,7 @@ sales_orders
     
     const [record] = await db.select().from(
 sales_orders
-).where(and(eq(
+).where(and(notDeleted, eq(
 sales_orders
 .id, id), scopeCondition)).limit(1);
     return record;
@@ -121,7 +137,7 @@ sales_orders
       const scopeColumns: Record<string, any> = { "id": sales_orders.id, "number": sales_orders.number, "customerId": sales_orders.customerId, "status": sales_orders.status, "orderedAt": sales_orders.orderedAt, "total": sales_orders.total };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
-      const record = tx.update(sales_orders).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(eq(sales_orders.id, id), scopeCondition)).returning().get();
+      const record = tx.update(sales_orders).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(notDeleted, eq(sales_orders.id, id), scopeCondition)).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "sales_orders.updated", resource: "sales_orders", resourceId: id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
        if (record) void 0;
       return record;
@@ -132,7 +148,7 @@ sales_orders
       const scopeColumns: Record<string, any> = { "id": sales_orders.id, "number": sales_orders.number, "customerId": sales_orders.customerId, "status": sales_orders.status, "orderedAt": sales_orders.orderedAt, "total": sales_orders.total };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
-      const record = tx.delete(sales_orders).where(and(eq(sales_orders.id, id), scopeCondition)).returning().get();
+      const record = tx.delete(sales_orders).where(and(notDeleted, eq(sales_orders.id, id), scopeCondition)).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "sales_orders.deleted", resource: "sales_orders", resourceId: id, metadata: "{}", createdAt: new Date() }).run();
        if (record) void 0;
       return record;
@@ -143,7 +159,7 @@ sales_orders
       const scopeColumns: Record<string, any> = { "id": sales_orders.id, "number": sales_orders.number, "customerId": sales_orders.customerId, "status": sales_orders.status, "orderedAt": sales_orders.orderedAt, "total": sales_orders.total };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
-      const deletedRows = tx.delete(sales_orders).where(and(inArray(sales_orders.id, ids), scopeCondition)).returning().all();
+      const deletedRows = tx.delete(sales_orders).where(and(notDeleted, inArray(sales_orders.id, ids), scopeCondition)).returning().all();
       if (deletedRows.length) tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "sales_orders.deleted", resource: "sales_orders", resourceId: record.id, metadata: "{}", createdAt: new Date() }))).run();
        if (deletedRows.length) void 0;
       return deletedRows;
@@ -158,3 +174,5 @@ sales_orders
   },
 
 };
+
+export const Sales_ordersRepository: Sales_ordersRepositoryContract = qiyBaseSales_ordersRepository;

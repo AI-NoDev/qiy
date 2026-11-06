@@ -74,6 +74,11 @@ export function toPayloadValue(type: DateFieldType, value: Dayjs | string | null
  * so data is never silently hidden.
  */
 export function formatFieldValue(type: string | undefined, value: unknown, locale?: string): string {
+  if (type === "Array") return Array.isArray(value) ? value.join(", ") : value === null || value === undefined ? "" : String(value);
+  if (type === "JSON") {
+    if (value === null || value === undefined || value === "") return "";
+    try { return JSON.stringify(value); } catch { return String(value); }
+  }
   const raw = value === null || value === undefined || value === "" ? "" : String(value);
   if (!raw || !isDateFieldType(type)) return raw;
   const parsed = toFormValue(type, raw);

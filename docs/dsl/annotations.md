@@ -117,7 +117,7 @@
 | `@length(...)` / `@min` / `@max` / `@format` | Text 没有长度/格式注解；写业务校验 |
 | `@enum(...)` / `@relation(...)` / `@index(...)` | 用顶层 `enum`/`relation` 与实体块内 `index` 声明 |
 | `@plural`（字段）/ `@label`（枚举） | 枚举只有 `@comment`；枚举值用裸 `label` |
-| `@transient` / `@computed` | 不支持；生成字段用 `@code` / `@generated` |
+| `@transient` | 不支持；派生值用 `@computed`（见 [entity](/dsl/entity)），服务端生成值用 `@code` / `@generated` |
 | `@primaryKey` | 用 `@id` |
 
 ## 注解与 i18n 键的对应

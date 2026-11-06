@@ -25,6 +25,7 @@ const patchShipments = t.Object({
 
 export interface ShipmentsRepository {
   distribution(field: string, scope?: { field: string; value: string }): Promise<Array<{ value: string | null; count: number }>>;
+  grouped?(groupBy: string, metric: string, operator: "sum" | "avg" | "min" | "max", scope?: { field: string; value: string }): Promise<Array<{ value: string | null; count: number }>>;
   /** Optional so generated test doubles and hand-written repositories keep compiling. */
   aggregate?(field: string, operator: string, scope?: { field: string; value: string }): Promise<{ value: number | null; operator: string }>;
   trend(field: string, days: number, scope?: { field: string; value: string }): Promise<Array<{ day: string; count: number }>>;
@@ -34,6 +35,8 @@ export interface ShipmentsRepository {
   update(id: string, values: typeof patchShipments.static, actorId?: string, scope?: { field: string; value: string }): Promise<Record<string, unknown> | undefined>;
   delete(id: string, actorId?: string, scope?: { field: string; value: string }): Promise<Record<string, unknown> | undefined>;
   deleteMany(ids: string[], actorId?: string, scope?: { field: string; value: string }): Promise<Array<Record<string, unknown>>>;
+  /** Clears the @softDelete marker; only soft-deleted resources implement it. */
+  restore?(id: string, actorId?: string, scope?: { field: string; value: string }): Promise<Record<string, unknown> | undefined>;
   /** Optional so test doubles and hand-written repositories keep working. */
   recordExportAudit?(input: { rows: number; filters: number; principalId?: string }): Promise<void>;
   recordImportAudit?(input: { rows: number; principalId?: string }): Promise<void>;
@@ -50,6 +53,8 @@ export interface ListQuery {
   order?: "asc" | "desc";
   filters?: Record<string, string> | FilterExpression[];
   scope?: { field: string; value: string };
+  /** Lists soft-deleted rows instead of live ones (ignored without @softDelete). */
+  deleted?: boolean;
 
 }
 
@@ -75,6 +80,7 @@ export function ShipmentsRoutes(repository: ShipmentsRepositoryPort, authenticat
   const EXPORT_PAGE_SIZE = Math.min(250, exportMaxRows());
   // Import accepts plain scalar columns only; vectors and key lists need the API.
   const importTypes = {"salesOrderId":"UUID","warehouseId":"UUID","status":"Text","shippedAt":"DateTime","departureTime":"Time"} as Record<string, string>;
+  const importArrayItems = {} as Record<string, string | undefined>;
   const importColumns = Object.keys(importTypes);
   const importMaxRows = () => { const value = Number(Bun.env.QIY_IMPORT_MAX_ROWS ?? 1000); return Number.isSafeInteger(value) && value >= 1 && value <= 100000 ? value : 1000; };
   /** RFC 4180 reader: quoted fields, doubled quotes and CRLF line endings. */
@@ -99,6 +105,17 @@ export function ShipmentsRoutes(repository: ShipmentsRepositoryPort, authenticat
   const importValue = (field: string, value: string) => {
     if (value === "") return null;
     if (importTypes[field] === "Integer") { const parsed = Number(value); if (!Number.isFinite(parsed)) throw new Error("Column " + field + " must be an integer"); return parsed; }
+    if (importTypes[field] === "Boolean") { if (!["true", "false", "1", "0"].includes(value.toLowerCase())) throw new Error("Column " + field + " must be true or false"); return value === "1" || value.toLowerCase() === "true"; }
+    if (importTypes[field] === "JSON" || importTypes[field] === "Array") {
+      let parsed: unknown;
+      try { parsed = JSON.parse(value); } catch { throw new Error("Column " + field + " must be valid JSON"); }
+      if (importTypes[field] === "Array") {
+        if (!Array.isArray(parsed)) throw new Error("Column " + field + " must be a JSON array");
+        if (importArrayItems[field] === "Integer" && parsed.some((item) => !Number.isInteger(item))) throw new Error("Column " + field + " must be an array of integers");
+        if (importArrayItems[field] !== "Integer" && parsed.some((item) => typeof item !== "string")) throw new Error("Column " + field + " must be an array of strings");
+      }
+      return parsed;
+    }
     if (importTypes[field] === "DateTime") { const parsed = new Date(value); if (Number.isNaN(parsed.getTime())) throw new Error("Column " + field + " must be an ISO date-time"); return parsed; }
     if (importTypes[field] === "Date") { const parsed = new Date(value + "T00:00:00Z"); if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) throw new Error("Column " + field + " must be a YYYY-MM-DD date"); return value; }
     if (importTypes[field] === "Time") { const match = /^([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9]))?$/.exec(value); if (!match) throw new Error("Column " + field + " must be a HH:mm:ss time"); return match[1] + ":" + match[2] + ":" + (match[3] ?? "00"); }
@@ -208,7 +225,7 @@ export function ShipmentsRoutes(repository: ShipmentsRepositoryPort, authenticat
   };
   // The list and export routes share one query path so export cannot diverge from
   // the list's filter validation, scope handling or row policy.
-  const runListQuery = async (query: { page?: number; pageSize?: number; search?: string; sort?: string; order?: "asc" | "desc"; filters?: string }, request: Request, workerContext?: { principal: { id: string; name?: string; role?: string; claims?: Record<string, string | number | boolean | null> }; scope?: { field: string; value: string } }): Promise<{ status: number; error: string } | { result: { data: Array<Record<string, unknown>>; total: number }; clauses: number; policy: undefined }> => {
+  const runListQuery = async (query: { page?: number; pageSize?: number; search?: string; sort?: string; order?: "asc" | "desc"; filters?: string; deleted?: string }, request: Request, workerContext?: { principal: { id: string; name?: string; role?: string; claims?: Record<string, string | number | boolean | null> }; scope?: { field: string; value: string } }): Promise<{ status: number; error: string } | { result: { data: Array<Record<string, unknown>>; total: number }; clauses: number; policy: undefined }> => {
     let filters: Record<string, string> | FilterExpression[] | undefined;
     if (query.filters) {
       try {
@@ -234,7 +251,7 @@ export function ShipmentsRoutes(repository: ShipmentsRepositoryPort, authenticat
     const scope = workerContext ? workerContext.scope : await resolveScope(request);
     const principal = workerContext ? (workerContext.principal as Principal | null) : await authenticate(request);
     const policy = undefined;
-    const result = await service.list(query.page ?? 1, query.pageSize ?? 20, { ...query, filters, scope });
+    const result = await service.list(query.page ?? 1, query.pageSize ?? 20, { ...query, deleted: query.deleted === "true", filters, scope });
     return { result, clauses: clauses.length, policy };
   };
   const service = createShipmentsService(repository);
@@ -246,8 +263,14 @@ export function ShipmentsRoutes(repository: ShipmentsRepositoryPort, authenticat
       return repository.aggregate ? repository.aggregate(query.field, query.op as "sum" | "avg" | "min" | "max", await resolveScope(request)) : { value: null, operator: query.op };
     }, { query: t.Object({ field: t.String({ minLength: 1 }), op: t.String({ minLength: 3 }) }) })
     .get("/distribution", async ({ query, status, request }) => {
+      if (query.metric) {
+        if (!repository.grouped) return status(501, { error: "Grouped aggregation is not supported" });
+        if (!["sum", "avg", "min", "max"].includes(query.op ?? "")) return status(400, { error: "Unsupported aggregate operator" });
+        if (!([] as string[]).includes(query.metric)) return status(400, { error: "Unsupported aggregate field" });
+        return (["status"] as string[]).includes(query.field) ? repository.grouped(query.field, query.metric, query.op as "sum" | "avg" | "min" | "max", await resolveScope(request)) : status(400, { error: "Unsupported distribution field" });
+      }
       return (["status"] as string[]).includes(query.field) ? repository.distribution(query.field, await resolveScope(request)) : status(400, { error: "Unsupported distribution field" });
-    }, { query: t.Object({ field: t.String() }) })
+    }, { query: t.Object({ field: t.String(), metric: t.Optional(t.String()), op: t.Optional(t.String()) }) })
     .get("/trend", async ({ query, status, request }) => {
       return (["shippedAt"] as string[]).includes(query.field) ? repository.trend(query.field, query.days, await resolveScope(request)) : status(400, { error: "Unsupported trend field" });
     }, { query: t.Object({ field: t.String(), days: t.Numeric({ minimum: 1, maximum: 365 }) }) })
@@ -475,6 +498,7 @@ export function ShipmentsRoutes(repository: ShipmentsRepositoryPort, authenticat
     .delete("/", async ({ query, request }) => (await repository.deleteMany(query.ids.split(","), (await authenticate(request))?.id, await resolveScope(request))).map((record) => redactRecord(record)), {
       query: t.Object({ ids: t.String({ minLength: 1 }) }),
     })
+    
     .delete("/:id", async ({ params, status, request }) => {
       const record = await service.delete(params.id, (await authenticate(request))?.id, await resolveScope(request));
       return record ? redactRecord(record) : status(404, { error: "Not found" });

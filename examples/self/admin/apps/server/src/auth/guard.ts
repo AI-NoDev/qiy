@@ -10,6 +10,11 @@ export interface Principal {
    * array (permission claim sources accept arrays and separated strings).
    */
   claims?: Record<string, string | number | boolean | null | string[]>;
+  /**
+   * Optional API-key permission scopes. When present, effective permissions are
+   * intersected with this list; role/page access still follows the user's role.
+   */
+  scopes?: string[];
 }
 
 export type Authenticator = (request: Request) => Promise<Principal | null>;
@@ -22,13 +27,17 @@ function error(status: number, message: string): Response {
 }
 
 /** Maps a REST request onto the page action its rule guards. Segments exclude /api/v1. */
-function restAction(method: string, segments: string[]): string {
+function restAction(method: string, segments: string[], search = new URLSearchParams()): string {
   const tail = segments[segments.length - 1] ?? "";
+  // The trash listing of a soft-deleted resource is part of delete/restore, not of list.
+  if (method === "GET" && segments.length === 1 && search.get("deleted") === "true") return "delete";
   // Export reads follow list; import writes follow create, including their job endpoints.
   if (segments.includes("export")) return "list";
   if (segments.includes("import")) return method === "GET" ? "list" : "create";
   if (tail === "export") return "list";
   if (tail === "import") return "create";
+  // Restoring a soft-deleted row undoes a delete, so it needs the same page access.
+  if (method === "POST" && tail === "restore") return "delete";
   const hasId = segments.length >= 2;
   if (method === "GET") return hasId ? "show" : "list";
   if (method === "POST") return "create";
@@ -128,6 +137,7 @@ export function createAuthorizationGuard(authenticate: Authenticator, resources:
     if (roleGuardExemptPaths.includes(resource.path)) return;
     if (!mayAccess(principal.role, resource, request.method)) return error(403, "Permission denied");
     const segments = path.split("/").slice(3).filter(Boolean);
-    if (!mayUsePage(principal.role, resource.path, restAction(request.method, segments))) return error(403, "Page access denied");
+    if (!mayUsePage(principal.role, resource.path, restAction(request.method, segments, new URL(request.url).searchParams))) return error(403, "Page access denied");
+    if (request.method === "GET" && segments.length === 1 && new URL(request.url).searchParams.get("deleted") === "true" && !mayAccess(principal.role, resource, "DELETE")) return error(403, "Permission denied");
   };
 }

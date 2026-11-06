@@ -522,6 +522,16 @@ describe("generated permission provider", () => {
     expect(resolvePermissionSnapshot({ role: "viewer" })).toEqual({"permissions":["report:read"],"groups":["viewer"]});
   });
 
+  test("API-key permission scopes intersect the effective permission set", async () => {
+    const adminPermissions = (await loadPermissions(principal("admin"))).permissions;
+    if (adminPermissions.length > 0) {
+      const scoped = await loadPermissions({ ...principal("admin"), scopes: [adminPermissions[0]!] });
+      expect(scoped.permissions).toEqual([adminPermissions[0]!]);
+      const none = await loadPermissions({ ...principal("admin"), scopes: ["qiy-unknown-scope"] });
+      expect(none.permissions).toEqual([]);
+    }
+  });
+
   test("claim values accept arrays, comma-separated text and space-separated text", () => {
     expect(normalizeClaimPermissionValues(["a", "b"])).toEqual(["a", "b"]);
     expect(normalizeClaimPermissionValues("a,b")).toEqual(["a", "b"]);

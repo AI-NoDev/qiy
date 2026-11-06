@@ -69,6 +69,8 @@ jobs:
         run: bunx playwright install --with-deps chromium
       - name: Generated app CRUD E2E
         run: bun run e2e:generated
+      - name: Generated app pixel regression
+        run: bun run e2e:visual
       - name: Generated API load smoke
         working-directory: tmp/e2e-admin
         run: |
@@ -81,3 +83,10 @@ jobs:
           done
           curl -fsS http://localhost:3000/api/v1/health > /dev/null
           bun run ../../tools/load-test.ts --url http://localhost:3000/api/v1/health --requests 100 --concurrency 10 --p95 1000
+          bun run ../../tools/load-test.ts --url "http://localhost:3000/api/v1/products?page=1&pageSize=10" --duration 10 --warmup 20 --concurrency 20 --p95 1000 --p99 2000 --min-rps 20
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: generated-e2e-results
+          path: test-results
+          if-no-files-found: ignore

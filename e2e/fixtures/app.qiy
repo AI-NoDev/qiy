@@ -4,6 +4,12 @@
     field id UUID @id;
     field name Text;
     field price Integer;
+    field doubled Integer @nullable @computed("{price} * 2");
+  }
+  entity notes {
+    field id UUID @id;
+    field title Text;
+    field deletedAt DateTime @nullable @softDelete;
   }
   view product_names from products {
     columns id, name;

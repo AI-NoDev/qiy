@@ -706,6 +706,7 @@ auth {
   usernameField <user-field> ;                        // local / otp
   passwordField <user-field> ;                        // local
   profileField <user-field> ;                         // 需要至少一个 OAuth/OIDC
+  claim <claim> <user-field> ;                        // scope/@tenant claim 的来源列
 }
 ```
 
@@ -722,6 +723,7 @@ auth {
 | `usernameField` | 用户表字段 | 无 | `local`/`otp` 必填 |
 | `passwordField` | 用户表字段 | 无 | `local` 必填 |
 | `profileField` | 用户表字段 | 无 | 每 provider 的 profile 元数据 |
+| `claim <claim> <field>` | claim（点分或引号）+ 用户表字段 | 按命名推导（`org.id` → `orgId`） | 本地/OTP/API Key 会话从该列读取 claim；可重复，同一 claim 只能映射一次 |
 
 ### 默认值与校验
 
@@ -733,6 +735,7 @@ auth {
 - `local` 需要 `usernameField` + `passwordField`；`otp` 需要 `usernameField` 且拒绝 `passwordField`；非 local/otp 的 provider 不接受用户名/口令字段。
 - `profileField` 只允许在至少一个 OAuth provider 时声明。
 - provider 映射：`subjectField` 必填；`claim` 必须是**裸标识符**（纯 claim 名，写引号会报 `Expected identifier`）；映射的 provider 必须在已配置列表内；每 provider 只能一个映射。
+- 顶层 `claim <claim> <field>`：同一 claim 重复映射报 `Duplicate auth claim mapping <claim>`；生成期字段不存在报 `Auth claim <claim>: unknown field <users>.<field>`。
 
 生成期（`generateServer`）额外校验用户表形态：
 

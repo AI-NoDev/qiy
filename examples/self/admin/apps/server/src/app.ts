@@ -98,6 +98,7 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     const dataflows = includeDataflows ? (await import("./dataflows")).createDataflowRoutes(authenticateRequest) : undefined;
     const realtime = createRealtimeRoutes(authenticateRequest);
     const storage = includeStorage ? (await import("./storage/routes")).createStorageRoutes(authenticateRequest) : undefined;
+    
     const authRoutes = (await import("./auth/local")).createLocalAuthRoutes();
     const accountRoutes = (await import("./auth/account")).createAccountRoutes(authenticateRequest);
     const apiKeyRoutes = (await import("./auth/api-keys")).createApiKeyRoutes(authenticateRequest);

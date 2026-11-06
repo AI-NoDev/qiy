@@ -68,6 +68,16 @@ test("filters operations by the principal permissions and page rules", () => {
   }
 });
 
+test("lists verification-gated commands as hidden for non-admins", () => {
+  const verificationFlows = docsMeta.dataflows.filter((flow) => flow.verification);
+  if (verificationFlows.length === 0) return;
+  const operatorDocument = buildOpenApiDocument(operator);
+  for (const flow of verificationFlows) {
+    expect(operatorDocument["x-qiy-hidden"]).toContainEqual({ method: "post", path: "/api/v1/commands/" + flow.name, reason: "verification", verification: flow.verification!, label: flow.label });
+  }
+  expect(buildOpenApiDocument(admin)["x-qiy-hidden"]).toEqual([]);
+});
+
 test("serves the docs endpoints only to authenticated principals", async () => {
   const app = new Elysia().use(createDocsRoutes(async (request) => request.headers.get("authorization") === "Bearer session-admin" ? { id: "admin", name: "Admin", role: "admin" } : null));
   const anonymous = await app.handle(new Request("http://localhost/api/v1/openapi.json"));

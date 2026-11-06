@@ -68,3 +68,26 @@ test("a scope claim without a matching user field fails generation", () => {
     }),
   ).toThrow("Data scope claim tenant.region needs a matching field on users (expected tenantRegion)");
 });
+
+test("an explicit auth claim mapping resolves a differently named user field", () => {
+  const files = generateServer(scopeDatabase(), {
+    auth: { ...localAuth, claimFields: [{ claim: "tenantId", field: "orgId" }] },
+    scopes: [{ resource: "warehouses", field: "orgId", claim: "tenantId" }],
+  });
+  expect(files["api/src/auth/local.ts"]!).toContain('claims["tenantId"]');
+  expect(files["api/src/auth/local.ts"]!).toContain("row.orgId");
+  expect(() => generateServer(scopeDatabase(), {
+    auth: { ...localAuth, claimFields: [{ claim: "tenantId", field: "missing" }] },
+    scopes: [{ resource: "warehouses", field: "orgId", claim: "tenantId" }],
+  })).toThrow("Auth claim tenantId: unknown field users.missing");
+});
+
+test("OTP sessions resolve scope claims from the user row", () => {
+  const files = generateServer(scopeDatabase(), {
+    auth: { provider: "otp", userEntity: "users", subjectField: "", roleField: "role", usernameField: "email", claimFields: [{ claim: "tenant", field: "orgId" }] },
+    scopes: [{ resource: "warehouses", field: "orgId", claim: "tenant" }],
+  });
+  const otp = files["api/src/auth/otp.ts"]!;
+  expect(otp).toContain('claims["tenant"]');
+  expect(otp).toContain("...(Object.keys(claims).length ? { claims } : {})");
+});

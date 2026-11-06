@@ -22,3 +22,10 @@ export async function unbindProvider(provider: string, fetcher: typeof fetch = f
   const result = await response.json().catch(() => null) as { error?: string; ok?: boolean } | null;
   if (!response.ok || !result?.ok) throw new Error(result?.error ?? "Could not unlink the identity provider");
 }
+
+/** Revokes every existing local session for the current account. */
+export async function revokeAllSessions(fetcher: typeof fetch = fetch): Promise<void> {
+  const response = await fetcher("/api/v1/auth/logout-all", { method: "POST", headers: { ...bearer() } });
+  const result = await response.json().catch(() => null) as { error?: string; ok?: boolean } | null;
+  if (!response.ok || !result?.ok) throw new Error(result?.error ?? "Could not revoke sessions");
+}

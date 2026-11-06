@@ -117,9 +117,9 @@ entity <Name> [table <tableName>] [@annotation(...)]... {
 | --- | --- | --- | --- | --- | --- |
 | `@id` | UUID | `@id` / `@id(false)` | 无 | 主键；生成 `.primaryKey()`，ID 由服务端生成且表单不渲染 | 多于/少于一个 `id UUID @id` 时报 V0 CRUD 错误 |
 | `@nullable` | 全部 | `@nullable` / `@nullable(false)` | 非空 | 生成可空列；请求体可省略；`setNull` 关系要求它 | — |
-| `@softDelete` | DateTime + `@nullable` | `@softDelete` | 无 | 软删除时间戳；delete 改为写入当前时间，list/one/update 默认排除已删除行 | 非 DateTime、非 nullable、重复声明报错 |
-| `@tenant("claim")` | UUID / Text / Integer | `@tenant` 或 `@tenant("tenant.id")` | `tenantId` | 租户列；自动生成 principal scope，值来自认证 claim，表单/写入只读 | 非标量、nullable、重复、无 auth 或与显式 scope 冲突都报错 |
-| `@computed("…")` | Text | 字符串模板，`{field}` 引用其他 Text 字段 | 无 | 只读派生字段；不建列，list/one/create/update 响应中计算；表单只读 | 非 Text、nullable、主键、自引用、未知或非 Text 引用报错 |
+| `@softDelete` | DateTime + `@nullable` | `@softDelete` | 无 | 软删除时间戳；delete 改为写入当前时间并审计为 `<table>.deleted`，list/one/update 默认排除已删除行；生成 `GET ?deleted=true` 回收站列表、`POST /:id/restore` 恢复（审计 `<table>.restored`）与 Web 回收站页 | 非 DateTime、非 nullable、重复声明报错 |
+| `@tenant("claim")` | UUID / Text / Integer | `@tenant` 或 `@tenant("tenant.id")` | `tenantId` | 租户列；自动生成 principal scope，值来自认证 claim，表单/写入只读；本地会话从 users 列解析 claim，列名可用 `auth { claim <claim> <field>; }` 显式映射 | 非标量、nullable、重复、无 auth 或与显式 scope 冲突都报错 |
+| `@computed("…")` | Text / Integer / Decimal / Money | Text：字符串模板 `{field}`；数值：`{field}`、数字、`+ - * /` 与括号的算术表达式 | 无 | 只读派生字段；不建列，list/one/create/update 响应中计算；表单只读、不可排序/筛选 | 类型不支持、Text 却 nullable、数值却非 nullable、主键、自引用/引用其他计算字段、未知字段、数值表达式引用非数值字段或语法非法都报错 |
 | `@unique` | 除 `Files` | `@unique` / `@unique(false)` | 非唯一 | 生成唯一约束（`.unique()`）；可作为 relation 目标字段 | `Files cannot be unique` |
 | `@label("…")` | 全部 | 字符串或裸值 | 字段名 | 列头、详情字段名、表单 label、筛选占位符；`qiy.resources.<table>.fields.<field>.label` | 重复声明后者覆盖 |
 | `@comment("…")` | 全部 | 字面量或 `t("key")` | 无 | schema JSDoc（含 `i18n: key`）、资源元数据 `comment`/`commentKey` | `t()` key 缺失 → `Missing default locale message for comment: <key>` |
@@ -146,6 +146,28 @@ entity <Name> [table <tableName>] [@annotation(...)]... {
 - **属性顺序任意**，但同一属性重复声明时，除下面几种情况外都是“后者覆盖、不报错”：`@code`/`@generated` 互斥、`@code` 重复、`@generated` 重复、`@filter` 重复 operator、`@mime` 重复类型都会显式报错。
 - **`Files` 的排序/过滤默认值**：解析器把 `Files` 的 `sortable`/`filterable` 默认值强制为 `false`（JSON key 数组没有有意义的排序/过滤语义）；显式写 `@sortable(true)` / `@filterable(true)` 仍会生效，但不建议。
 - **副作用的默认值**：`@upload`/`@maxBytes`/`@mime`/`@maxFiles` 只影响 File/Files，其他类型使用会直接报错，不做静默降级。
+
+### 软删除、租户与计算字段
+
+```qiy
+entity orders {
+  field id UUID @id;
+  field quantity Integer;
+  field unitPrice Decimal(12, 2);
+  field total Decimal(12, 2) @nullable @computed("{quantity} * {unitPrice}");
+  field summary Text @computed("{quantity} x {unitPrice}");
+  field tenantId UUID @tenant("tenant.id");
+  field deletedAt DateTime @nullable @softDelete;
+}
+```
+
+| 能力 | REST / GraphQL | Web |
+| --- | --- | --- |
+| `@softDelete` | `DELETE /:id` 写入时间戳并审计 `orders.deleted`；`GET /orders?deleted=true` 只列已删除行；`POST /orders/:id/restore` 清空时间戳并审计 `orders.restored`（只能恢复已删除且在调用者 scope/policy 内的行，否则 404） | 列表页右上角「回收站」入口，回收站页列出已删除行并提供恢复 |
+| `@tenant` | 读路径按 claim 过滤、写路径强制写入 claim 值；claim 缺失 403 | 字段只读 |
+| `@computed` | 响应中按引用字段实时计算；数值表达式任一引用为 null 或除数为 0 时结果为 null，Integer 结果向零取整 | 表单只读、列表/详情正常显示 |
+
+回收站列表与恢复都按该资源的 **delete** 权限授权（没有 delete 权限的角色看不到入口，接口返回 403）。
 
 ## 可见性与默认值
 

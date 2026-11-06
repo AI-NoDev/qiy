@@ -11,8 +11,11 @@ export interface ApiKeyRecord {
   lastUsedAt: string | null;
   expiresAt: string | null;
   revokedAt: string | null;
+  rotatedFromId?: string | null;
+  scopes?: string[] | null;
 }
 export interface CreatedApiKey { key: string; record: ApiKeyRecord }
+export interface ApiKeyEvent { id: string; keyId: string; action: "created" | "rotated" | "revoked" | string; at: string }
 export interface QiyIdentityLike { id?: string; role?: string; permissions?: unknown; groups?: unknown }
 export type ApiKeyStatusFilter = "all" | "active" | "revoked" | "expired";
 export interface ApiKeyPermissionTag { key: string; kind: "role" | "permission" | "group"; value: string }
@@ -34,12 +37,21 @@ export async function listApiKeys(): Promise<ApiKeyRecord[]> {
   return body.items;
 }
 
-export async function createApiKey(input: { name: string; expiresAt?: string | null }): Promise<CreatedApiKey> {
-  return await apiKeyRequest("/api/v1/auth/api-keys", { method: "POST", body: JSON.stringify({ name: input.name, ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}) }) }) as CreatedApiKey;
+export async function createApiKey(input: { name: string; expiresAt?: string | null; scopes?: string[] }): Promise<CreatedApiKey> {
+  return await apiKeyRequest("/api/v1/auth/api-keys", { method: "POST", body: JSON.stringify({ name: input.name, ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}), ...(input.scopes && input.scopes.length ? { scopes: input.scopes } : {}) }) }) as CreatedApiKey;
 }
 
 export async function revokeApiKey(id: string): Promise<void> {
   await apiKeyRequest("/api/v1/auth/api-keys/" + encodeURIComponent(id), { method: "DELETE" });
+}
+
+export async function rotateApiKey(id: string): Promise<CreatedApiKey> {
+  return await apiKeyRequest("/api/v1/auth/api-keys/" + encodeURIComponent(id) + "/rotate", { method: "POST" }) as CreatedApiKey;
+}
+
+export async function listApiKeyEvents(): Promise<ApiKeyEvent[]> {
+  const body = await apiKeyRequest("/api/v1/auth/api-keys/events") as { items: ApiKeyEvent[] };
+  return body.items;
 }
 
 export function maskedApiKey(prefix: string): string {
@@ -93,6 +105,11 @@ export function filterApiKeys(records: readonly ApiKeyRecord[], input: { search?
 }
 
 /** Flatten the current identity into role/permission/group tags with hover explanations. */
+/** Effective permission values from the cached identity, used as optional API-key scopes. */
+export function permissionValues(identity: QiyIdentityLike | null | undefined): string[] {
+  return permissionTags(identity).filter((tag) => tag.kind === "permission").map((tag) => tag.value);
+}
+
 export function permissionTags(identity: QiyIdentityLike | null | undefined): ApiKeyPermissionTag[] {
   if (!identity) return [];
   const tags: ApiKeyPermissionTag[] = [];

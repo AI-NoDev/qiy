@@ -56,7 +56,7 @@
 | --- | --- |
 | 运行 lint / TypeScript / 测试 | [Lint 与格式](./lint-format) |
 | 压测生成应用 | [负载测试](./load-testing) |
-| 检查生成应用布局回归 | [布局快照](./visual-regression) |
+| 检查生成应用布局/像素回归 | [视觉回归](./visual-regression) |
 | 生成器插件追加文件 | [生成器插件](./plugins) |
 
 ## AI Agent

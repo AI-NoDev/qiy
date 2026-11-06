@@ -1233,6 +1233,7 @@ auth {
   usernameField <user-field> ;                        // local / otp
   passwordField <user-field> ;                        // local
   profileField <user-field> ;                         // 需要至少一个 OAuth/OIDC
+  claim <claim> <user-field> ;                        // scope/@tenant claim 的来源列
 }
 ```
 
@@ -1249,6 +1250,7 @@ auth {
 | `usernameField` | 用户表字段 | 无 | `local`/`otp` 必填 |
 | `passwordField` | 用户表字段 | 无 | `local` 必填 |
 | `profileField` | 用户表字段 | 无 | 每 provider 的 profile 元数据 |
+| `claim <claim> <field>` | claim（点分或引号）+ 用户表字段 | 按命名推导（`org.id` → `orgId`） | 本地/OTP/API Key 会话从该列读取 claim；可重复，同一 claim 只能映射一次 |
 
 ### 默认值与校验
 
@@ -1260,6 +1262,7 @@ auth {
 - `local` 需要 `usernameField` + `passwordField`；`otp` 需要 `usernameField` 且拒绝 `passwordField`；非 local/otp 的 provider 不接受用户名/口令字段。
 - `profileField` 只允许在至少一个 OAuth provider 时声明。
 - provider 映射：`subjectField` 必填；`claim` 必须是**裸标识符**（纯 claim 名，写引号会报 `Expected identifier`）；映射的 provider 必须在已配置列表内；每 provider 只能一个映射。
+- 顶层 `claim <claim> <field>`：同一 claim 重复映射报 `Duplicate auth claim mapping <claim>`；生成期字段不存在报 `Auth claim <claim>: unknown field <users>.<field>`。
 
 生成期（`generateServer`）额外校验用户表形态：
 
@@ -1812,9 +1815,9 @@ entity <Name> [table <tableName>] [@annotation(...)]... {
 | --- | --- | --- | --- | --- | --- |
 | `@id` | UUID | `@id` / `@id(false)` | 无 | 主键；生成 `.primaryKey()`，ID 由服务端生成且表单不渲染 | 多于/少于一个 `id UUID @id` 时报 V0 CRUD 错误 |
 | `@nullable` | 全部 | `@nullable` / `@nullable(false)` | 非空 | 生成可空列；请求体可省略；`setNull` 关系要求它 | — |
-| `@softDelete` | DateTime + `@nullable` | `@softDelete` | 无 | 软删除时间戳；delete 改为写入当前时间，list/one/update 默认排除已删除行 | 非 DateTime、非 nullable、重复声明报错 |
-| `@tenant("claim")` | UUID / Text / Integer | `@tenant` 或 `@tenant("tenant.id")` | `tenantId` | 租户列；自动生成 principal scope，值来自认证 claim，表单/写入只读 | 非标量、nullable、重复、无 auth 或与显式 scope 冲突都报错 |
-| `@computed("…")` | Text | 字符串模板，`{field}` 引用其他 Text 字段 | 无 | 只读派生字段；不建列，list/one/create/update 响应中计算；表单只读 | 非 Text、nullable、主键、自引用、未知或非 Text 引用报错 |
+| `@softDelete` | DateTime + `@nullable` | `@softDelete` | 无 | 软删除时间戳；delete 改为写入当前时间并审计为 `<table>.deleted`，list/one/update 默认排除已删除行；生成 `GET ?deleted=true` 回收站列表、`POST /:id/restore` 恢复（审计 `<table>.restored`）与 Web 回收站页 | 非 DateTime、非 nullable、重复声明报错 |
+| `@tenant("claim")` | UUID / Text / Integer | `@tenant` 或 `@tenant("tenant.id")` | `tenantId` | 租户列；自动生成 principal scope，值来自认证 claim，表单/写入只读；本地会话从 users 列解析 claim，列名可用 `auth { claim <claim> <field>; }` 显式映射 | 非标量、nullable、重复、无 auth 或与显式 scope 冲突都报错 |
+| `@computed("…")` | Text / Integer / Decimal / Money | Text：字符串模板 `{field}`；数值：`{field}`、数字、`+ - * /` 与括号的算术表达式 | 无 | 只读派生字段；不建列，list/one/create/update 响应中计算；表单只读、不可排序/筛选 | 类型不支持、Text 却 nullable、数值却非 nullable、主键、自引用/引用其他计算字段、未知字段、数值表达式引用非数值字段或语法非法都报错 |
 | `@unique` | 除 `Files` | `@unique` / `@unique(false)` | 非唯一 | 生成唯一约束（`.unique()`）；可作为 relation 目标字段 | `Files cannot be unique` |
 | `@label("…")` | 全部 | 字符串或裸值 | 字段名 | 列头、详情字段名、表单 label、筛选占位符；`qiy.resources.<table>.fields.<field>.label` | 重复声明后者覆盖 |
 | `@comment("…")` | 全部 | 字面量或 `t("key")` | 无 | schema JSDoc（含 `i18n: key`）、资源元数据 `comment`/`commentKey` | `t()` key 缺失 → `Missing default locale message for comment: <key>` |
@@ -1841,6 +1844,28 @@ entity <Name> [table <tableName>] [@annotation(...)]... {
 - **属性顺序任意**，但同一属性重复声明时，除下面几种情况外都是“后者覆盖、不报错”：`@code`/`@generated` 互斥、`@code` 重复、`@generated` 重复、`@filter` 重复 operator、`@mime` 重复类型都会显式报错。
 - **`Files` 的排序/过滤默认值**：解析器把 `Files` 的 `sortable`/`filterable` 默认值强制为 `false`（JSON key 数组没有有意义的排序/过滤语义）；显式写 `@sortable(true)` / `@filterable(true)` 仍会生效，但不建议。
 - **副作用的默认值**：`@upload`/`@maxBytes`/`@mime`/`@maxFiles` 只影响 File/Files，其他类型使用会直接报错，不做静默降级。
+
+### 软删除、租户与计算字段
+
+```qiy
+entity orders {
+  field id UUID @id;
+  field quantity Integer;
+  field unitPrice Decimal(12, 2);
+  field total Decimal(12, 2) @nullable @computed("{quantity} * {unitPrice}");
+  field summary Text @computed("{quantity} x {unitPrice}");
+  field tenantId UUID @tenant("tenant.id");
+  field deletedAt DateTime @nullable @softDelete;
+}
+```
+
+| 能力 | REST / GraphQL | Web |
+| --- | --- | --- |
+| `@softDelete` | `DELETE /:id` 写入时间戳并审计 `orders.deleted`；`GET /orders?deleted=true` 只列已删除行；`POST /orders/:id/restore` 清空时间戳并审计 `orders.restored`（只能恢复已删除且在调用者 scope/policy 内的行，否则 404） | 列表页右上角「回收站」入口，回收站页列出已删除行并提供恢复 |
+| `@tenant` | 读路径按 claim 过滤、写路径强制写入 claim 值；claim 缺失 403 | 字段只读 |
+| `@computed` | 响应中按引用字段实时计算；数值表达式任一引用为 null 或除数为 0 时结果为 null，Integer 结果向零取整 | 表单只读、列表/详情正常显示 |
+
+回收站列表与恢复都按该资源的 **delete** 权限授权（没有 delete 权限的角色看不到入口，接口返回 403）。
 
 ## 可见性与默认值
 
@@ -3709,6 +3734,7 @@ auth {
   usernameField email;                  // local / otp 的登录标识列
   passwordField passwordHash;           // local 的密码哈希列
   profileField oauthProfiles;           // 可选：每 Provider 的 profile 元数据
+  claim tenant.id organizationId;       // 可选：scope/@tenant claim 由哪个 users 列解析
 
   // 每 Provider 身份列映射（混合/多 Provider 常用）
   provider okta { subjectField oktaSubject; }
@@ -3726,6 +3752,7 @@ auth {
 | "usernameField" <field> ";"
 | "passwordField" <field> ";"
 | "profileField" <field> ";"
+| "claim" <claim> <field> ";"
 }
 ```
 
@@ -3745,6 +3772,7 @@ auth {
 | `profileField` | 否 | `""` | `@nullable` Text，存 `{ "<provider>": { email, name, sub } }` JSON；只有声明了 OAuth Provider 才允许 |
 | `provider <id> { subjectField ... }` | 混合模式必需 | — | 该 Provider 的身份列：必须存在、Text、`@nullable`、`@unique` |
 | `provider <id> { claim ... }` | 否 | `sub` | 用哪个 claim 作为该 Provider 的外部身份；必须是纯 claim 名 `[A-Za-z_][A-Za-z0-9_]*` |
+| `claim <claim> <field>` | 否 | 按命名推导（`org.id` → `orgId`） | 本地密码、OTP 与 API Key 会话的 claim 从 users 行读取；该语句指定 claim 来自哪一列。claim 可带点号或写成引号字符串；同一 claim 只能映射一次，列必须是 users 实体的已声明字段（`Auth claim <c>: unknown field users.<f>`） |
 
 模式推导（生成器内部，DSL 里无需书写）：
 
@@ -3790,7 +3818,7 @@ entity users table users @label("用户") {
 | 每 Provider 映射列 | 存在、Text、`@nullable`、`@unique` | `Auth: provider <p> subjectField <f> must be nullable so accounts can exist without that binding` 等 |
 | `profileField` | `@nullable` Text | `Auth: profileField must be a nullable Text field storing per-provider profile metadata` |
 | onboarding 可创建 | 除自动列（id/username/password/role/subject/profile/各 Provider 身份列/`email`/`displayName`/`name`）外的**必填**字段必须可空 | `Auth: OAuth onboarding cannot populate required user fields: <字段…>; make them nullable` |
-| `scope` claim 对应列 | 本地/混合模式下每个 scope claim 要在 users 有列（`org.id` → `orgId`） | `Data scope claim org.id needs a matching field on users (expected orgId) …` |
+| `scope` / `@tenant` claim 对应列 | 本地/混合模式下每个 scope claim 要在 users 有列：默认按命名推导（`org.id` → `orgId`），或用 `claim org.id organizationId;` 显式映射到任意列 | ``Data scope claim org.id needs a matching field on users (expected orgId) …; add that field or map it with `claim org.id <field>;` in auth`` |
 
 身份写入规则（生成器行为，非可选）：
 
@@ -4597,7 +4625,7 @@ scope warehouses orgId claim org.id tree organizations parentId;
 | field | 必须是 `UUID` 或 `Text`（生成器不禁止主键，但通常用外键/租户列而不是主键） |
 | claim | `^[a-zA-Z_][a-zA-Z0-9_.-]*$`，从 `principal.claims` 取值 |
 | `tree <entity> <parentField>` | 该实体必须存在，`parentField` 为 UUID/Text；scope 字段类型必须与树主键、父字段**类型一致** |
-| 本地/混合认证 | 每个 scope claim 必须在 users 上有对应列（claim `org.id` → 字段 `orgId`，点号后的首字母大写），否则生成期报 `Data scope claim org.id needs a matching field on users (expected orgId) to resolve local password sessions`；该列用于 API Key 与本地会话派生 claim |
+| 本地/混合认证 | 每个 scope claim 必须在 users 上有对应列：默认按命名推导（claim `org.id` → 字段 `orgId`，点号后的首字母大写），也可在 `auth` 中写 `claim org.id organizationId;` 映射到任意列；都没有时生成期报 ``Data scope claim org.id needs a matching field on users (expected orgId) to resolve local password sessions; add that field or map it with `claim org.id <field>;` in auth``。该列用于本地密码、OTP 与 API Key 会话派生 claim |
 
 运行时：
 
@@ -4608,7 +4636,7 @@ scope warehouses orgId claim org.id tree organizations parentId;
 | 写入（create/update） | scope 字段被**强制**写成 claim 值；客户端提交的同名字段被覆盖 |
 | dataflow | 不允许 `update` scope 字段（`cannot update scope field`）；`create` 时 scope 字段由 principal 推导（`create scope field ... is derived from the authenticated principal`） |
 | `restrict { when ( scope or ... ) }` | 表达式含 `scope` 时跳过仓储层隐式 scope 过滤（否则会变成 AND 覆盖 OR 语义），按表达式求值 |
-| API Key | 由用户行反查 claim 列（`org.id` ← `orgId`），因此 scope 对 API Key 同样生效 |
+| API Key / OTP | 由用户行反查 claim 列（`org.id` ← `orgId` 或 `auth { claim … }` 映射的列），因此 scope 对 API Key 与 OTP 会话同样生效 |
 
 ## 页面规则：`pages`
 
@@ -6660,7 +6688,7 @@ Source: https://ai-nodev.github.io/qiy/dsl/annotations
 | `@length(...)` / `@min` / `@max` / `@format` | Text 没有长度/格式注解；写业务校验 |
 | `@enum(...)` / `@relation(...)` / `@index(...)` | 用顶层 `enum`/`relation` 与实体块内 `index` 声明 |
 | `@plural`（字段）/ `@label`（枚举） | 枚举只有 `@comment`；枚举值用裸 `label` |
-| `@transient` / `@computed` | 不支持；生成字段用 `@code` / `@generated` |
+| `@transient` | 不支持；派生值用 `@computed`（见 [entity](/dsl/entity)），服务端生成值用 `@code` / `@generated` |
 | `@primaryKey` | 用 `@id` |
 
 ## 注解与 i18n 键的对应
@@ -6884,14 +6912,25 @@ SQLite / MySQL 分别使用 `sqliteView` / `mysqlView`；视图定义放在实�
 - GraphQL：`<view>(page, pageSize)` 与 `<view>ById(id)`（含 id 时）；
 - Web：生成只读资源与侧边栏入口，列表可导出、查看列；包含 `id` 时可进入只读详情。不显示新建/编辑/删除/导入。
 
-应用声明了 `auth` 时这些端点要求已认证；没有按实体 policy 做行级过滤。
+## 权限继承
+
+视图的 REST 与 GraphQL 读路径继承源实体的行级规则：
+
+| 源实体规则 | 视图读路径的效果 |
+| --- | --- |
+| `@softDelete` | 已软删除的源行不出现在视图列表/详情/计数里 |
+| `scope` / `@tenant` | 按调用者 claim 过滤；claim 缺失 → 403 `Missing required data scope claim` |
+| `restrict ... when` | 与源实体相同的行条件；缺 claim 按 `policy.missingClaim` 403 |
+| `restrict ... mask` | 对视图中同名列执行相同的 `omit` / `null` / `redact` |
+
+实现方式：生成的 `views-routes.ts` 导出 `viewAccess.<view>(principal)`，把源实体规则编译成 `view.id IN (SELECT id FROM <source> WHERE …)` 子查询并返回 mask 函数；REST 与 GraphQL resolver 共用它。因此**源实体有上述任一规则时，视图必须选择 `id` 列**，否则生成期报 `view X: source Y has <@softDelete / data scope / row policy>, so the view must select the id column to inherit row filtering`。源实体没有这些规则时，视图只要求已认证（声明了 `auth` 时）。
 
 ## 边界
 
 - 当前 `view` 生成 **Drizzle schema + 只读 REST/GraphQL + Web 列表/详情**，不生成表单与变更端点。
 - 需要 API 时，用生成器插件或在集成项目里挂载只读适配器；不要把它当成可变实体。
 - SQLite / PostgreSQL / MySQL 均已实库验证：`drizzle-kit generate` 生成 view 迁移，`db:migrate` 后可查询；schema drift 检查会忽略 view，不再报告 `unexpected table`。
-- 视图列没有字段注解、权限或表单语义；权限仍应通过底层实体或数据库账号控制。
+- 视图列没有字段注解或表单语义；行级规则来自源实体（见上），直接用 SQL 访问数据库视图时不经过这些规则。
 
 ## 校验
 

@@ -1,10 +1,11 @@
-import { and, asc, avg, count, desc, eq, gt, gte, lt, lte, max, min, sql, sum, like, inArray, or } from "drizzle-orm";
+import { and, asc, avg, count, desc, eq, gt, gte, isNotNull, isNull, lt, lte, max, min, sql, sum, like, inArray, or } from "drizzle-orm";
 import { db } from "../../db";
  import { inventory, auditEvents, realtimeOutbox } from "../../schema";
 import type { FilterClause, FilterExpression, InventoryRepository as InventoryRepositoryContract } from "./inventory.contract";
 
 
-export const InventoryRepository: InventoryRepositoryContract = {
+const notDeleted = undefined;
+const qiyBaseInventoryRepository: InventoryRepositoryContract = {
   async aggregate(field, operator, scope) {
     if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
     const columns: Record<string, any> = { "quantity": inventory.quantity, "reserved": inventory.reserved };
@@ -14,7 +15,7 @@ export const InventoryRepository: InventoryRepositoryContract = {
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
-    const [row] = await db.select({ value: expression }).from(inventory).where(and(scopeCondition));
+    const [row] = await db.select({ value: expression }).from(inventory).where(and(notDeleted, scopeCondition));
     const value = row?.value === null || row?.value === undefined ? null : Number(row.value);
     return { value: value === null || Number.isFinite(value) ? value : null, operator };
   },
@@ -25,7 +26,22 @@ export const InventoryRepository: InventoryRepositoryContract = {
     const scopeColumns: Record<string, any> = { "id": inventory.id, "inventoryKey": inventory.inventoryKey, "warehouseId": inventory.warehouseId, "binId": inventory.binId, "productId": inventory.productId, "quantity": inventory.quantity, "reserved": inventory.reserved, "lotCode": inventory.lotCode, "updatedAt": inventory.updatedAt };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
-    return db.select({ value: column, count: count() }).from(inventory).where(and(scopeCondition)).groupBy(column);
+    return db.select({ value: column, count: count() }).from(inventory).where(and(notDeleted, scopeCondition)).groupBy(column);
+  },
+  async grouped(groupBy, metric, operator, scope) {
+    if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
+    const groupColumns: Record<string, any> = {  };
+    const metricColumns: Record<string, any> = { "quantity": inventory.quantity, "reserved": inventory.reserved };
+    const group = groupColumns[groupBy];
+    const column = metricColumns[metric];
+    if (!group) throw new Error("Unsupported distribution field");
+    if (!column) throw new Error("Unsupported aggregate field");
+    const scopeColumns: Record<string, any> = { "id": inventory.id, "inventoryKey": inventory.inventoryKey, "warehouseId": inventory.warehouseId, "binId": inventory.binId, "productId": inventory.productId, "quantity": inventory.quantity, "reserved": inventory.reserved, "lotCode": inventory.lotCode, "updatedAt": inventory.updatedAt };
+    const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
+    
+    const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
+    const rows = await db.select({ value: group, count: expression }).from(inventory).where(and(notDeleted, scopeCondition)).groupBy(group);
+    return rows.map((row) => ({ value: row.value === null ? null : String(row.value), count: Number(row.count ?? 0) }));
   },
   async trend(field, days, scope) {
     const columns: Record<string, any> = { "updatedAt": inventory.updatedAt };
@@ -39,7 +55,7 @@ export const InventoryRepository: InventoryRepositoryContract = {
     const start = new Date(today - (days - 1) * 86400000);
     const end = new Date(today + 86400000);
     const day = sql<string>`strftime('%Y-%m-%d', ${column} / 1000, 'unixepoch')`;
-    return db.select({ day, count: count() }).from(inventory).where(and(gte(column, start), lt(column, end), scopeCondition)).groupBy(day).orderBy(day);
+    return db.select({ day, count: count() }).from(inventory).where(and(notDeleted, gte(column, start), lt(column, end), scopeCondition)).groupBy(day).orderBy(day);
   },
   async list(page, pageSize, options = {}) {
     const searchableColumns: any[] = [inventory.inventoryKey, inventory.lotCode];
@@ -83,7 +99,7 @@ export const InventoryRepository: InventoryRepositoryContract = {
     const scopeColumns: Record<string, any> = { "id": inventory.id, "inventoryKey": inventory.inventoryKey, "warehouseId": inventory.warehouseId, "binId": inventory.binId, "productId": inventory.productId, "quantity": inventory.quantity, "reserved": inventory.reserved, "lotCode": inventory.lotCode, "updatedAt": inventory.updatedAt };
     const scopeCondition = options.scope && scopeColumns[options.scope.field] ? eq(scopeColumns[options.scope.field], options.scope.value) : undefined;
     
-    const whereCondition = and(searchCondition, scopeCondition, ...(filters as FilterExpression[]).map(filterExpression));
+    const whereCondition = and(notDeleted, searchCondition, scopeCondition, ...(filters as FilterExpression[]).map(filterExpression));
     const [data, totalRows] = await Promise.all([
       db.select().from(
 inventory
@@ -100,7 +116,7 @@ inventory
     
     const [record] = await db.select().from(
 inventory
-).where(and(eq(
+).where(and(notDeleted, eq(
 inventory
 .id, id), scopeCondition)).limit(1);
     return record;
@@ -121,7 +137,7 @@ inventory
       const scopeColumns: Record<string, any> = { "id": inventory.id, "inventoryKey": inventory.inventoryKey, "warehouseId": inventory.warehouseId, "binId": inventory.binId, "productId": inventory.productId, "quantity": inventory.quantity, "reserved": inventory.reserved, "lotCode": inventory.lotCode, "updatedAt": inventory.updatedAt };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
-      const record = tx.update(inventory).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(eq(inventory.id, id), scopeCondition)).returning().get();
+      const record = tx.update(inventory).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(notDeleted, eq(inventory.id, id), scopeCondition)).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "inventory.updated", resource: "inventory", resourceId: id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
        if (record) tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:inventory", type: "updated", payload: JSON.stringify(record), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }).run();
       return record;
@@ -132,7 +148,7 @@ inventory
       const scopeColumns: Record<string, any> = { "id": inventory.id, "inventoryKey": inventory.inventoryKey, "warehouseId": inventory.warehouseId, "binId": inventory.binId, "productId": inventory.productId, "quantity": inventory.quantity, "reserved": inventory.reserved, "lotCode": inventory.lotCode, "updatedAt": inventory.updatedAt };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
-      const record = tx.delete(inventory).where(and(eq(inventory.id, id), scopeCondition)).returning().get();
+      const record = tx.delete(inventory).where(and(notDeleted, eq(inventory.id, id), scopeCondition)).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "inventory.deleted", resource: "inventory", resourceId: id, metadata: "{}", createdAt: new Date() }).run();
        if (record) tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: "qiy:inventory", type: "deleted", payload: JSON.stringify(record), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }).run();
       return record;
@@ -143,7 +159,7 @@ inventory
       const scopeColumns: Record<string, any> = { "id": inventory.id, "inventoryKey": inventory.inventoryKey, "warehouseId": inventory.warehouseId, "binId": inventory.binId, "productId": inventory.productId, "quantity": inventory.quantity, "reserved": inventory.reserved, "lotCode": inventory.lotCode, "updatedAt": inventory.updatedAt };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
-      const deletedRows = tx.delete(inventory).where(and(inArray(inventory.id, ids), scopeCondition)).returning().all();
+      const deletedRows = tx.delete(inventory).where(and(notDeleted, inArray(inventory.id, ids), scopeCondition)).returning().all();
       if (deletedRows.length) tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "inventory.deleted", resource: "inventory", resourceId: record.id, metadata: "{}", createdAt: new Date() }))).run();
        if (deletedRows.length) tx.insert(realtimeOutbox).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), channel: "qiy:inventory", type: "deleted", payload: JSON.stringify(record), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() }))).run();
       return deletedRows;
@@ -158,3 +174,5 @@ inventory
   },
 
 };
+
+export const InventoryRepository: InventoryRepositoryContract = qiyBaseInventoryRepository;

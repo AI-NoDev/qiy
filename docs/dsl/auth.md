@@ -28,6 +28,7 @@ auth {
   usernameField email;                  // local / otp 的登录标识列
   passwordField passwordHash;           // local 的密码哈希列
   profileField oauthProfiles;           // 可选：每 Provider 的 profile 元数据
+  claim tenant.id organizationId;       // 可选：scope/@tenant claim 由哪个 users 列解析
 
   // 每 Provider 身份列映射（混合/多 Provider 常用）
   provider okta { subjectField oktaSubject; }
@@ -45,6 +46,7 @@ auth {
 | "usernameField" <field> ";"
 | "passwordField" <field> ";"
 | "profileField" <field> ";"
+| "claim" <claim> <field> ";"
 }
 ```
 
@@ -64,6 +66,7 @@ auth {
 | `profileField` | 否 | `""` | `@nullable` Text，存 `{ "<provider>": { email, name, sub } }` JSON；只有声明了 OAuth Provider 才允许 |
 | `provider <id> { subjectField ... }` | 混合模式必需 | — | 该 Provider 的身份列：必须存在、Text、`@nullable`、`@unique` |
 | `provider <id> { claim ... }` | 否 | `sub` | 用哪个 claim 作为该 Provider 的外部身份；必须是纯 claim 名 `[A-Za-z_][A-Za-z0-9_]*` |
+| `claim <claim> <field>` | 否 | 按命名推导（`org.id` → `orgId`） | 本地密码、OTP 与 API Key 会话的 claim 从 users 行读取；该语句指定 claim 来自哪一列。claim 可带点号或写成引号字符串；同一 claim 只能映射一次，列必须是 users 实体的已声明字段（`Auth claim <c>: unknown field users.<f>`） |
 
 模式推导（生成器内部，DSL 里无需书写）：
 
@@ -109,7 +112,7 @@ entity users table users @label("用户") {
 | 每 Provider 映射列 | 存在、Text、`@nullable`、`@unique` | `Auth: provider <p> subjectField <f> must be nullable so accounts can exist without that binding` 等 |
 | `profileField` | `@nullable` Text | `Auth: profileField must be a nullable Text field storing per-provider profile metadata` |
 | onboarding 可创建 | 除自动列（id/username/password/role/subject/profile/各 Provider 身份列/`email`/`displayName`/`name`）外的**必填**字段必须可空 | `Auth: OAuth onboarding cannot populate required user fields: <字段…>; make them nullable` |
-| `scope` claim 对应列 | 本地/混合模式下每个 scope claim 要在 users 有列（`org.id` → `orgId`） | `Data scope claim org.id needs a matching field on users (expected orgId) …` |
+| `scope` / `@tenant` claim 对应列 | 本地/混合模式下每个 scope claim 要在 users 有列：默认按命名推导（`org.id` → `orgId`），或用 `claim org.id organizationId;` 显式映射到任意列 | ``Data scope claim org.id needs a matching field on users (expected orgId) …; add that field or map it with `claim org.id <field>;` in auth`` |
 
 身份写入规则（生成器行为，非可选）：
 

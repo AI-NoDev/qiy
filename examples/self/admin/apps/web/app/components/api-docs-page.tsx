@@ -53,6 +53,52 @@ function ApiOperationCard({ operation, baseUrl, translate, locale }: { operation
   const color = operation.method === "get" ? "blue" : operation.method === "post" ? "green" : operation.method === "patch" ? "orange" : "red";
   const requestExample = operation.requestSchema !== undefined ? JSON.stringify(schemaExample(operation.requestSchema), null, 2) : undefined;
   const curl = curlFor(operation, baseUrl, locale);
+  const pathParameters = operation.parameters.filter((parameter) => parameter.in === "path");
+  const queryParameters = operation.parameters.filter((parameter) => parameter.in === "query");
+  const [tryOpen, setTryOpen] = useState(false);
+  const [paramValues, setParamValues] = useState<Record<string, string>>({});
+  const [bodyDraft, setBodyDraft] = useState(requestExample ?? "");
+  const [apiKey, setApiKey] = useState("");
+  const [sending, setSending] = useState(false);
+  const [tryError, setTryError] = useState<string | undefined>();
+  const [result, setResult] = useState<{ status: number; statusText: string; body: string } | undefined>();
+  const sendTryIt = async () => {
+    setSending(true);
+    setTryError(undefined);
+    setResult(undefined);
+    try {
+      let url = baseUrl.replace(/\/+$/, "") + operation.path;
+      for (const parameter of pathParameters) {
+        url = url.replace("{" + parameter.name + "}", encodeURIComponent(paramValues[parameter.name] ?? ""));
+      }
+      const query = new URLSearchParams();
+      for (const parameter of queryParameters) {
+        const value = paramValues[parameter.name];
+        if (value) query.set(parameter.name, value);
+      }
+      const token = typeof window === "undefined" ? null : window.localStorage.getItem("qiy.access_token");
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = "Bearer " + token;
+      if (apiKey.trim()) headers["X-API-Key"] = apiKey.trim();
+      let body: string | undefined;
+      if (operation.method !== "get" && bodyDraft.trim()) {
+        headers["Content-Type"] = "application/json";
+        body = bodyDraft;
+      }
+      const response = await fetch(url + (query.toString() ? "?" + query.toString() : ""), {
+        method,
+        headers,
+        ...(body ? { body } : {}),
+        credentials: "include",
+      });
+      const text = await response.text();
+      setResult({ status: response.status, statusText: response.statusText, body: text.slice(0, 20000) });
+    } catch (error) {
+      setTryError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSending(false);
+    }
+  };
   const roleTooltip = translate("qiy.apiDocs.rolesTooltip", {}, "Your role must be one of these roles; this document is already filtered for your account.");
   const permissionTooltip = translate("qiy.apiDocs.permissionsTooltip", {}, "The operation additionally requires every listed permission; this document is already filtered for your account.");
   const securityTooltip = translate("qiy.apiDocs.securityTooltip", {}, "Supported authentication schemes for this operation.");
@@ -91,10 +137,30 @@ function ApiOperationCard({ operation, baseUrl, translate, locale }: { operation
     <Tooltip title={securityTooltip}><Space wrap>{securityLabels.length > 0 ? securityLabels.map((label) => <Tag key={label} data-tooltip={securityTooltip}>{label}</Tag>) : <Typography.Text type="secondary">—</Typography.Text>}</Space></Tooltip>
     <Typography.Text strong style={{ display: "block", marginTop: 12 }}>{translate("qiy.docs.curl", {}, "curl example")}</Typography.Text>
     <Typography.Paragraph copyable={{ text: curl }}><pre className="qiy-docs-code">{curl}</pre></Typography.Paragraph>
+    <Space wrap>
+      <Button size="small" onClick={() => setTryOpen((open) => !open)}>{tryOpen ? translate("qiy.apiDocs.tryHide", {}, "Hide try it") : translate("qiy.apiDocs.tryOpen", {}, "Try it")}</Button>
+    </Space>
+    {tryOpen ? <Card size="small" type="inner" style={{ marginTop: 8 }}>
+      <Alert type="warning" showIcon style={{ marginBottom: 8 }} message={translate("qiy.apiDocs.tryWarning", {}, "Requests run from this browser using your current session token (or the API key below). Responses are shown raw and truncated to 20k characters.")} />
+      {operation.security.includes("apiKey") ? <Input.Password style={{ marginBottom: 8 }} placeholder={translate("qiy.apiDocs.tryApiKey", {}, "Optional X-API-Key")} value={apiKey} onChange={(event) => setApiKey(event.target.value)} /> : null}
+      {pathParameters.length > 0 || queryParameters.length > 0 ? <Space direction="vertical" style={{ width: "100%", marginBottom: 8 }}>
+        {[...pathParameters, ...queryParameters].map((parameter) => <Input key={parameter.in + ":" + parameter.name} addonBefore={parameter.in + " " + parameter.name} placeholder={parameter.required ? translate("qiy.apiDocs.tryRequired", {}, "required") : translate("qiy.apiDocs.tryOptional", {}, "optional")} value={paramValues[parameter.name] ?? ""} onChange={(event) => setParamValues({ ...paramValues, [parameter.name]: event.target.value })} />)}
+      </Space> : null}
+      {operation.method !== "get" && requestExample ? <Input.TextArea rows={6} style={{ marginBottom: 8, fontFamily: "monospace" }} value={bodyDraft} onChange={(event) => setBodyDraft(event.target.value)} /> : null}
+      <Space style={{ marginBottom: 8 }}>
+        <Button type="primary" size="small" loading={sending} onClick={sendTryIt}>{translate("qiy.apiDocs.trySend", {}, "Send request")}</Button>
+        <Typography.Text type="secondary">{translate("qiy.apiDocs.tryAuth", {}, "Authorization: current session token / X-API-Key")}</Typography.Text>
+      </Space>
+      {tryError ? <Alert type="error" showIcon message={tryError} /> : null}
+      {result ? <div style={{ marginTop: 8 }}>
+        <Space style={{ marginBottom: 4 }}><Tag color={result.status >= 200 && result.status < 300 ? "green" : result.status >= 400 ? "red" : "orange"}>{result.status + " " + result.statusText}</Tag></Space>
+        <pre className="qiy-docs-code">{result.body || "(empty response)"}</pre>
+      </div> : null}
+    </Card> : null}
   </Card>;
 }
 
-/** Full-page API reference explorer (read-only; no try-it requests). */
+/** Full-page API reference explorer with session-scoped try-it requests. */
 export function ApiDocsPage(props: ApiDocsPageProps) {
   const { translate, getLocale } = useTranslation();
   const groups = useMemo(() => groupOpenApiOperations(props.spec), [props.spec]);
@@ -105,12 +171,17 @@ export function ApiDocsPage(props: ApiDocsPageProps) {
   const document = props.spec !== null && typeof props.spec === "object" && !Array.isArray(props.spec) ? props.spec as Record<string, unknown> : undefined;
   const info = document && document.info !== null && typeof document.info === "object" ? document.info as { title?: string; version?: string } : undefined;
   const principal = props.identity ?? (document && document["x-qiy-principal"] !== null && typeof document["x-qiy-principal"] === "object" ? document["x-qiy-principal"] as { role?: string; permissions?: string[]; groups?: string[] } : undefined);
+  const hiddenOperations = useMemo(() => {
+    const hidden = document?.["x-qiy-hidden"];
+    return Array.isArray(hidden) ? hidden.filter((entry): entry is { method?: string; path?: string; reason?: string; verification?: string; label?: string } => entry !== null && typeof entry === "object") : [];
+  }, [props.spec]);
   const baseUrl = openApiServerBaseUrl(props.spec, typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
   const roleTooltip = translate("qiy.apiDocs.roleTooltip", {}, "Your account role is used to filter this document; operations you cannot call are not listed.");
   const permissionTooltip = translate("qiy.apiDocs.permissionTooltip", {}, "Permission values from your role, database column and verified claims. The document only contains operations you may call.");
   return <Space direction="vertical" size="middle" style={{ width: "100%" }}>
     <Typography.Title level={3} style={{ margin: 0 }}>{translate("qiy.apiDocs.pageTitle", {}, "API reference")}</Typography.Title>
-    <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{translate("qiy.apiDocs.pageSubtitle", {}, "OpenAPI 3.1 operations allowed for the current account. Read-only: use the curl examples with a session token or an API key.")}</Typography.Paragraph>
+    <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{translate("qiy.apiDocs.pageSubtitle", {}, "OpenAPI 3.1 operations allowed for the current account. Try them with your session token or an API key, or copy the curl example.")}</Typography.Paragraph>
+    {hiddenOperations.length > 0 ? <Alert type="info" showIcon message={translate("qiy.apiDocs.hiddenTitle", { count: hiddenOperations.length }, hiddenOperations.length + " verification-gated operations are hidden")} description={<Space direction="vertical" size={2}>{hiddenOperations.map((operation) => <Typography.Text key={(operation.method ?? "post") + ":" + (operation.path ?? "")} type="secondary">{(operation.label ?? operation.path ?? "") + " — " + translate("qiy.apiDocs.hiddenVerification", { verification: operation.verification ?? "" }, "requires runtime verification: " + (operation.verification ?? ""))}</Typography.Text>)}</Space>} /> : null}
     <Space wrap>
       {info?.title ? <Typography.Text strong>{info.title}</Typography.Text> : null}
       {info?.version ? <Tag>{info.version}</Tag> : null}

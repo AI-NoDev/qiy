@@ -277,8 +277,24 @@ export const qiyApiKeys = sqliteTable("qiy_api_keys", {
   name: text("name").notNull(),
   prefix: text("prefix").notNull().unique(),
   hash: text("hash").notNull().unique(),
+  scopes: text("scopes"),
+  rotatedFromId: text("rotatedFromId"),
   createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),
   lastUsedAt: integer("lastUsedAt", { mode: "timestamp_ms" }),
   expiresAt: integer("expiresAt", { mode: "timestamp_ms" }),
   revokedAt: integer("revokedAt", { mode: "timestamp_ms" }),
 }, (table) => [index("qiy_api_keys_user_idx").on(table.userId)]);
+
+export const qiyApiKeyEvents = sqliteTable("qiy_api_key_events", {
+  id: text("id").primaryKey(),
+  keyId: text("keyId").notNull(),
+  userId: text("userId").notNull(),
+  action: text("action").notNull(),
+  at: integer("at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [index("qiy_api_key_events_user_idx").on(table.userId), index("qiy_api_key_events_key_idx").on(table.keyId)]);
+
+
+export const qiySessionRevocations = sqliteTable("qiy_session_revocations", {
+  userId: text("userId").primaryKey(),
+  revokedBefore: integer("revokedBefore", { mode: "timestamp_ms" }).notNull(),
+});

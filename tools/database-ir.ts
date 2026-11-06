@@ -293,6 +293,42 @@ export function validateEntityDisplayTemplates(entity: EntityIR, options: Displa
   return errors;
 }
 
+export const computedNumericTypes: ReadonlySet<string> = new Set(["Integer", "Decimal", "Money"]);
+
+/** Splits a numeric @computed expression into `{field}` references, numbers, operators and parentheses. */
+export function computedExpressionTokens(expression: string): string[] | undefined {
+  const tokens: string[] = [];
+  const pattern = /\s*(\{[A-Za-z_][A-Za-z0-9_]*\}|\d+(?:\.\d+)?|[-+*/()])/y;
+  let index = 0;
+  while (index < expression.length) {
+    if (/^\s*$/.test(expression.slice(index))) break;
+    pattern.lastIndex = index;
+    const match = pattern.exec(expression);
+    if (!match) return undefined;
+    tokens.push(match[1]!);
+    index = pattern.lastIndex;
+  }
+  return tokens;
+}
+
+/** Returns why a numeric @computed expression is invalid, or undefined when it parses. */
+export function computedExpressionError(expression: string): string | undefined {
+  const tokens = computedExpressionTokens(expression);
+  if (!tokens) return "may only contain {field} references, numbers, + - * / and parentheses";
+  if (!tokens.some((token) => token.startsWith("{"))) return "must reference at least one field";
+  let position = 0;
+  const primary = (): boolean => {
+    const token = tokens[position];
+    if (token === "-" || token === "+") { position++; return primary(); }
+    if (token === "(") { position++; if (!sum() || tokens[position] !== ")") return false; position++; return true; }
+    if (token !== undefined && (token.startsWith("{") || /^\d/.test(token))) { position++; return true; }
+    return false;
+  };
+  const product = (): boolean => { if (!primary()) return false; while (tokens[position] === "*" || tokens[position] === "/") { position++; if (!primary()) return false; } return true; };
+  const sum = (): boolean => { if (!product()) return false; while (tokens[position] === "+" || tokens[position] === "-") { position++; if (!product()) return false; } return true; };
+  return sum() && position === tokens.length ? undefined : "is not a valid arithmetic expression";
+}
+
 export function validateDatabaseIR(database: DatabaseIR): string[] {
   const errors: string[] = [];
   if (!database || !Array.isArray(database.entities) || !Array.isArray(database.extensions)) {
@@ -469,14 +505,22 @@ export function validateDatabaseIR(database: DatabaseIR): string[] {
         if (field.nullable) errors.push(`${entity.name}.${field.name}: @tenant requires a non-null field`);
       }
       if (field.computed !== undefined) {
-        if (field.type !== "Text") errors.push(`${entity.name}.${field.name}: @computed currently supports Text fields only`);
-        if (field.nullable) errors.push(`${entity.name}.${field.name}: @computed fields cannot be nullable`);
+        const numeric = computedNumericTypes.has(field.type);
+        if (field.type !== "Text" && !numeric) errors.push(`${entity.name}.${field.name}: @computed currently supports Text, Integer, Decimal and Money fields only`);
+        if (field.type === "Text" && field.nullable) errors.push(`${entity.name}.${field.name}: @computed fields cannot be nullable`);
+        if (numeric && !field.nullable) errors.push(`${entity.name}.${field.name}: numeric @computed fields must be @nullable (null when an operand is null or the result is not finite)`);
         if (field.primaryKey) errors.push(`${entity.name}.${field.name}: @computed fields cannot be primary keys`);
+        if (numeric) {
+          const syntax = computedExpressionError(field.computed);
+          if (syntax) errors.push(`${entity.name}.${field.name}: @computed expression ${syntax}`);
+        }
         for (const match of field.computed.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)) {
           const reference = match[1]!;
           if (reference === field.name) errors.push(`${entity.name}.${field.name}: @computed cannot reference itself`);
           else if (!fields.has(reference)) errors.push(`${entity.name}.${field.name}: @computed references unknown field ${reference}`);
-          else if (fields.get(reference)!.type !== "Text") errors.push(`${entity.name}.${field.name}: @computed reference ${reference} must be Text`);
+          else if (fields.get(reference)!.computed !== undefined) errors.push(`${entity.name}.${field.name}: @computed cannot reference another computed field ${reference}`);
+          else if (!numeric && fields.get(reference)!.type !== "Text") errors.push(`${entity.name}.${field.name}: @computed reference ${reference} must be Text`);
+          else if (numeric && !computedNumericTypes.has(fields.get(reference)!.type)) errors.push(`${entity.name}.${field.name}: @computed reference ${reference} must be Integer, Decimal or Money`);
         }
       }
     }

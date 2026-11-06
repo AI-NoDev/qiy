@@ -1,7 +1,7 @@
 import { CanAccess, useCustom, useList, useTranslation } from "@refinedev/core";
 import { Alert, Card, Col, Empty, Progress, Row, Select, Space, Spin, Statistic, Table, Typography, theme } from "antd";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import {
   chartViewKindLabelKey,
   chartViewportBreakpoints,
@@ -36,7 +36,7 @@ import type { DisplayTranslate } from "../display-template";
  * several views gets a top-right view-kind selector.
  */
 
-const viewKindFallback: Record<ChartViewKind, string> = { const: "Stat", pie: "Pie chart", bar: "Bar chart", line: "Line chart", table: "Table" };
+const viewKindFallback: Record<ChartViewKind, string> = { const: "Stat", pie: "Pie chart", bar: "Bar chart", line: "Line chart", area: "Area chart", scatter: "Scatter chart", stacked: "Stacked bar", table: "Table" };
 const chartPalette = ["#1677ff", "#52c41a", "#faad14", "#eb2f96", "#722ed1", "#13c2c2", "#fa541c", "#8c8c8c"];
 
 function useChartViewportCategory(): ChartViewportCategory {
@@ -110,7 +110,7 @@ function DistributionView({ view, title, shape }: { view: ChartViewDefinition; t
   const { result, query } = useCustom<{ items: Array<{ value: string | null; count: number }> }>({
     url: `/api/v1/${view.data.entity}/distribution`,
     method: "get",
-    config: { query: { field: view.data.groupBy } },
+    config: { query: { field: view.data.groupBy, ...(view.data.field && { metric: view.data.field, op: view.data.operation }) } },
   });
   const items = result.data?.items ?? [];
   const total = items.reduce((sum, item) => sum + item.count, 0);
@@ -124,7 +124,7 @@ function DistributionView({ view, title, shape }: { view: ChartViewDefinition; t
               <Typography.Text>{labelFor(view, item.value, translate)}</Typography.Text>
               <Typography.Text type="secondary">{item.count}</Typography.Text>
             </Space>
-            <Progress percent={total ? Math.round(item.count / total * 100) : 0} showInfo={false} />
+            <Progress percent={total ? Math.round(item.count / total * 100) : 0} showInfo={false} strokeColor={view.color} />
           </div>
         )) : <>
           <div className="qiy-chart-pie">
@@ -154,7 +154,7 @@ function DistributionView({ view, title, shape }: { view: ChartViewDefinition; t
               })()}
             </svg>
           </div>
-          <div className="qiy-chart-legend">
+          {view.legend !== false && <div className="qiy-chart-legend">
             {items.map((item, index) => (
               <Space key={item.value ?? "null"} style={{ width: "100%", justifyContent: "space-between" }}>
                 <Space>
@@ -164,7 +164,7 @@ function DistributionView({ view, title, shape }: { view: ChartViewDefinition; t
                 <Typography.Text type="secondary">{item.count}</Typography.Text>
               </Space>
             ))}
-          </div>
+          </div>}
         </>}
       </>}
     </ViewState>
@@ -172,7 +172,7 @@ function DistributionView({ view, title, shape }: { view: ChartViewDefinition; t
 }
 
 /** `line`: daily count trend from the existing `/trend` endpoint (inline SVG polyline). */
-function TrendView({ view, title }: { view: ChartViewDefinition; title: string }) {
+function TrendView({ view, title, area = false }: { view: ChartViewDefinition; title: string; area?: boolean }) {
   const { translate } = useTranslation();
   const { result, query } = useCustom<{ items: Array<{ day: string; count: number }> }>({
     url: `/api/v1/${view.data.entity}/trend`,
@@ -194,13 +194,92 @@ function TrendView({ view, title }: { view: ChartViewDefinition; title: string }
           <Typography.Text type="secondary">{translate("qiy.aggMax", {}, "max") + " " + max}</Typography.Text>
         </Space>
         <svg className="qiy-chart-line" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} preserveAspectRatio="none">
-          <polyline fill="none" stroke="#1677ff" strokeWidth={2} points={points} />
+          {area && <polygon fill={view.color ?? "#1677ff"} fillOpacity={0.18} points={`0,${height} ${points} ${width},${height}`} />}
+          <polyline fill="none" stroke={view.color ?? "#1677ff"} strokeWidth={2} points={points} />
           {items.map((item, index) => <circle key={item.day} cx={Math.round(index * step)} cy={y(item.count)} r={2} fill="#1677ff" />)}
         </svg>
         <Space style={{ width: "100%", justifyContent: "space-between" }}>
           <Typography.Text type="secondary">{items[0]?.day}</Typography.Text>
           <Typography.Text type="secondary">{items[items.length - 1]?.day}</Typography.Text>
         </Space>
+      </>}
+    </ViewState>
+  );
+}
+
+/** `scatter`: client-side numeric x/y points from the list endpoint; click opens the record. */
+function ScatterView({ view, title }: { view: ChartViewDefinition; title: string }) {
+  const navigate = useNavigate();
+  const { translate } = useTranslation();
+  const { result, query } = useList<Record<string, unknown>>({ resource: view.data.entity, pagination: { currentPage: 1, pageSize: 200 } });
+  const [xName, yName] = view.data.columns ?? [];
+  const rows = (result.data ?? []).flatMap((row) => {
+    const x = Number(row[xName ?? ""]);
+    const y = Number(row[yName ?? ""]);
+    return Number.isFinite(x) && Number.isFinite(y) ? [{ id: String(row.id ?? ""), x, y }] : [];
+  });
+  const width = 320;
+  const height = 160;
+  const maxX = Math.max(...rows.map((row) => row.x), 1);
+  const maxY = Math.max(...rows.map((row) => row.y), 1);
+  const minX = Math.min(...rows.map((row) => row.x), 0);
+  const minY = Math.min(...rows.map((row) => row.y), 0);
+  const px = (value: number) => 12 + ((value - minX) / (maxX - minX || 1)) * (width - 24);
+  const py = (value: number) => height - 12 - ((value - minY) / (maxY - minY || 1)) * (height - 24);
+  return (
+    <ViewState loading={query.isLoading} error={query.error}>
+      {rows.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} /> : <>
+        <Space style={{ width: "100%", justifyContent: "space-between" }}>
+          <Typography.Text type="secondary">{title}</Typography.Text>
+          <Typography.Text type="secondary">{`${xName} / ${yName}`}</Typography.Text>
+        </Space>
+        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} style={{ width: "100%", height: 160 }}>
+          <line x1={12} y1={height - 12} x2={width - 12} y2={height - 12} stroke="#d9d9d9" />
+          <line x1={12} y1={12} x2={12} y2={height - 12} stroke="#d9d9d9" />
+          {rows.map((row) => <circle key={row.id || `${row.x}-${row.y}`} cx={px(row.x)} cy={py(row.y)} r={4} fill={view.color ?? "#1677ff"} style={row.id ? { cursor: "pointer" } : undefined} onClick={() => row.id && navigate(`/${view.data.entity}/show/${row.id}`)} />)}
+        </svg>
+        <Typography.Text type="secondary">{translate("qiy.scatterHint", {}, "Click a point to open the record")}</Typography.Text>
+      </>}
+    </ViewState>
+  );
+}
+
+/** `stacked`: client-side group/series/value aggregation from the list endpoint. */
+function StackedView({ view, title }: { view: ChartViewDefinition; title: string }) {
+  const { result, query } = useList<Record<string, unknown>>({ resource: view.data.entity, pagination: { currentPage: 1, pageSize: 500 } });
+  const [groupName, seriesName, valueName] = view.data.columns ?? [];
+  const groups = new Map<string, Map<string, number>>();
+  const seriesSet = new Set<string>();
+  for (const row of result.data ?? []) {
+    const group = String(row[groupName ?? ""] ?? "—");
+    const series = String(row[seriesName ?? ""] ?? "—");
+    const value = Number(row[valueName ?? ""]);
+    if (!Number.isFinite(value)) continue;
+    const bucket = groups.get(group) ?? new Map<string, number>();
+    bucket.set(series, (bucket.get(series) ?? 0) + value);
+    groups.set(group, bucket);
+    seriesSet.add(series);
+  }
+  const series = [...seriesSet];
+  const rows = [...groups.entries()].map(([group, values]) => ({ group, values, total: [...values.values()].reduce((sum, value) => sum + value, 0) })).sort((a, b) => b.total - a.total);
+  const max = Math.max(...rows.map((row) => row.total), 1);
+  return (
+    <ViewState loading={query.isLoading} error={query.error}>
+      {rows.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} /> : <>
+        <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8 }}>{title}</Typography.Text>
+        {rows.map((row) => (
+          <div key={row.group} style={{ marginBottom: 10 }}>
+            <Space style={{ width: "100%", justifyContent: "space-between" }}><Typography.Text>{row.group}</Typography.Text><Typography.Text type="secondary">{row.total}</Typography.Text></Space>
+            <div style={{ display: "flex", width: `${Math.round(row.total / max * 100)}%`, minWidth: 2, height: 18, borderRadius: 4, overflow: "hidden" }}>
+              {series.map((name, index) => {
+                const value = row.values.get(name) ?? 0;
+                if (!value) return null;
+                return <div key={name} title={`${name}: ${value}`} style={{ width: `${row.total ? value / row.total * 100 : 0}%`, background: view.color && index === 0 ? view.color : chartPalette[index % chartPalette.length] }} />;
+              })}
+            </div>
+          </div>
+        ))}
+        {view.legend !== false && <Space wrap>{series.map((name, index) => <Space key={name} size={4}><span className="qiy-chart-legend-swatch" style={{ background: view.color && index === 0 ? view.color : chartPalette[index % chartPalette.length] }} /><Typography.Text>{name}</Typography.Text></Space>)}</Space>}
       </>}
     </ViewState>
   );
@@ -234,7 +313,9 @@ function ChartViewBody({ chart, view, title }: { chart: ChartDefinition; view: C
   if (view.kind === "const") return <StatView chart={chart} view={view} title={title} />;
   if (view.kind === "bar") return <DistributionView view={view} title={title} shape="bar" />;
   if (view.kind === "pie") return <DistributionView view={view} title={title} shape="pie" />;
-  if (view.kind === "line") return <TrendView view={view} title={title} />;
+  if (view.kind === "line" || view.kind === "area") return <TrendView view={view} title={title} area={view.kind === "area"} />;
+  if (view.kind === "scatter") return <ScatterView view={view} title={title} />;
+  if (view.kind === "stacked") return <StackedView view={view} title={title} />;
   return <ChartTableView view={view} />;
 }
 

@@ -39,6 +39,16 @@ test("@tenant synthesizes a principal scope and hides the column", () => {
   expect(files["apps/server/src/modules/notes/notes.repository.ts"]).toContain("tenantId");
 });
 
+test("auth claim mappings parse, round-trip and decouple the claim from the user field name", () => {
+  const mapped = source("tenant").replace("field tenantId UUID;\n  }", "field organizationId UUID;\n  }").replace("    passwordField password;\n", "    passwordField password;\n    claim tenant organizationId;\n");
+  const project = parseQiyProject(mapped);
+  expect(project.auth?.claimFields).toEqual([{ claim: "tenant", field: "organizationId" }]);
+  expect(serializeQiyProject(project)).toContain("claim tenant organizationId;");
+  expect(parseQiyProject(serializeQiyProject(project)).auth?.claimFields).toEqual(project.auth?.claimFields);
+  const files = generateProject(project.database, "tenant-demo", project);
+  expect(files["apps/server/src/auth/local.ts"]).toContain("row.organizationId");
+});
+
 test("@tenant accepts a custom claim path", () => {
   const project = parseQiyProject(source("tenant.id"));
   expect(project.scopes?.[0]?.claim).toBe("tenant.id");

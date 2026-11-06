@@ -5,6 +5,8 @@ export const API_KEY_PREFIX = "qiy";
 export const API_KEY_PREFIX_LENGTH = 8;
 export const API_KEY_MAX_ACTIVE = 10;
 export const API_KEY_MAX_NAME = 80;
+export const API_KEY_MAX_SCOPES = 50;
+export const API_KEY_SCOPE_MAX_LENGTH = 120;
 export const API_KEY_SECRET_LENGTH = 32;
 export const API_KEY_LAST_USED_THROTTLE_MS = 60_000;
 
@@ -94,6 +96,34 @@ export function canCreateApiKey(activeCount: number): boolean {
   return activeCount < API_KEY_MAX_ACTIVE;
 }
 
+/** Normalizes an optional permission-scope list; null/empty means "all user permissions". */
+export function normalizeApiKeyScopes(value: unknown): string[] | null {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value)) throw new Error("API key scopes must be an array of permission strings");
+  if (value.length > API_KEY_MAX_SCOPES) throw new Error("At most " + API_KEY_MAX_SCOPES + " API key scopes are allowed");
+  const scopes: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string") throw new Error("API key scopes must be strings");
+    const scope = entry.trim();
+    if (!scope) continue;
+    if (scope.length > API_KEY_SCOPE_MAX_LENGTH) throw new Error("API key scope must be at most " + API_KEY_SCOPE_MAX_LENGTH + " characters");
+    if (!scopes.includes(scope)) scopes.push(scope);
+  }
+  return scopes.length ? scopes : null;
+}
+
+export function parseApiKeyScopes(value: unknown): string[] | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (Array.isArray(value)) return normalizeApiKeyScopes(value);
+  if (typeof value !== "string") return null;
+  try { return normalizeApiKeyScopes(JSON.parse(value)); } catch { return null; }
+}
+
+/** True when a key scope set permits a permission (null/empty scopes = inherit all). */
+export function apiKeyScopesAllow(scopes: readonly string[] | null | undefined, permission: string): boolean {
+  return !scopes || scopes.length === 0 || scopes.includes(permission);
+}
+
 /** Records returned by the list/create/revoke routes never include hash or secret. */
 export interface ApiKeyRecord {
   id: string;
@@ -104,9 +134,11 @@ export interface ApiKeyRecord {
   lastUsedAt: string | null;
   expiresAt: string | null;
   revokedAt: string | null;
+  rotatedFromId: string | null;
+  scopes: string[] | null;
 }
 
-export function toApiKeyRecord(row: { id: string; name: string; prefix: string; createdAt: Date | number | string; lastUsedAt: Date | number | string | null; expiresAt: Date | number | string | null; revokedAt: Date | number | string | null }): ApiKeyRecord {
+export function toApiKeyRecord(row: { id: string; name: string; prefix: string; scopes?: string | string[] | null; rotatedFromId?: string | null; createdAt: Date | number | string; lastUsedAt: Date | number | string | null; expiresAt: Date | number | string | null; revokedAt: Date | number | string | null }): ApiKeyRecord {
   const iso = (value: Date | number | string | null) => value === null || value === undefined ? null : new Date(value instanceof Date ? value.getTime() : typeof value === "number" ? value : String(value)).toISOString();
   return {
     id: row.id,
@@ -117,5 +149,7 @@ export function toApiKeyRecord(row: { id: string; name: string; prefix: string; 
     lastUsedAt: iso(row.lastUsedAt),
     expiresAt: iso(row.expiresAt),
     revokedAt: iso(row.revokedAt),
+    rotatedFromId: row.rotatedFromId ?? null,
+    scopes: parseApiKeyScopes(row.scopes),
   };
 }

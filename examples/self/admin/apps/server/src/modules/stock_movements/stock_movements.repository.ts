@@ -1,10 +1,11 @@
-import { and, asc, avg, count, desc, eq, gt, gte, lt, lte, max, min, sql, sum, like, inArray, or } from "drizzle-orm";
+import { and, asc, avg, count, desc, eq, gt, gte, isNotNull, isNull, lt, lte, max, min, sql, sum, like, inArray, or } from "drizzle-orm";
 import { db } from "../../db";
  import { stock_movements, auditEvents, realtimeOutbox } from "../../schema";
 import type { FilterClause, FilterExpression, Stock_movementsRepository as Stock_movementsRepositoryContract } from "./stock_movements.contract";
 
 
-export const Stock_movementsRepository: Stock_movementsRepositoryContract = {
+const notDeleted = undefined;
+const qiyBaseStock_movementsRepository: Stock_movementsRepositoryContract = {
   async aggregate(field, operator, scope) {
     if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
     const columns: Record<string, any> = { "quantity": stock_movements.quantity };
@@ -14,7 +15,7 @@ export const Stock_movementsRepository: Stock_movementsRepositoryContract = {
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
-    const [row] = await db.select({ value: expression }).from(stock_movements).where(and(scopeCondition));
+    const [row] = await db.select({ value: expression }).from(stock_movements).where(and(notDeleted, scopeCondition));
     const value = row?.value === null || row?.value === undefined ? null : Number(row.value);
     return { value: value === null || Number.isFinite(value) ? value : null, operator };
   },
@@ -25,7 +26,22 @@ export const Stock_movementsRepository: Stock_movementsRepositoryContract = {
     const scopeColumns: Record<string, any> = { "id": stock_movements.id, "productId": stock_movements.productId, "warehouseId": stock_movements.warehouseId, "binId": stock_movements.binId, "type": stock_movements.type, "quantity": stock_movements.quantity, "reference": stock_movements.reference, "occurredAt": stock_movements.occurredAt };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
-    return db.select({ value: column, count: count() }).from(stock_movements).where(and(scopeCondition)).groupBy(column);
+    return db.select({ value: column, count: count() }).from(stock_movements).where(and(notDeleted, scopeCondition)).groupBy(column);
+  },
+  async grouped(groupBy, metric, operator, scope) {
+    if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
+    const groupColumns: Record<string, any> = { "type": stock_movements.type };
+    const metricColumns: Record<string, any> = { "quantity": stock_movements.quantity };
+    const group = groupColumns[groupBy];
+    const column = metricColumns[metric];
+    if (!group) throw new Error("Unsupported distribution field");
+    if (!column) throw new Error("Unsupported aggregate field");
+    const scopeColumns: Record<string, any> = { "id": stock_movements.id, "productId": stock_movements.productId, "warehouseId": stock_movements.warehouseId, "binId": stock_movements.binId, "type": stock_movements.type, "quantity": stock_movements.quantity, "reference": stock_movements.reference, "occurredAt": stock_movements.occurredAt };
+    const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
+    
+    const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
+    const rows = await db.select({ value: group, count: expression }).from(stock_movements).where(and(notDeleted, scopeCondition)).groupBy(group);
+    return rows.map((row) => ({ value: row.value === null ? null : String(row.value), count: Number(row.count ?? 0) }));
   },
   async trend(field, days, scope) {
     const columns: Record<string, any> = { "occurredAt": stock_movements.occurredAt };
@@ -39,7 +55,7 @@ export const Stock_movementsRepository: Stock_movementsRepositoryContract = {
     const start = new Date(today - (days - 1) * 86400000);
     const end = new Date(today + 86400000);
     const day = sql<string>`strftime('%Y-%m-%d', ${column} / 1000, 'unixepoch')`;
-    return db.select({ day, count: count() }).from(stock_movements).where(and(gte(column, start), lt(column, end), scopeCondition)).groupBy(day).orderBy(day);
+    return db.select({ day, count: count() }).from(stock_movements).where(and(notDeleted, gte(column, start), lt(column, end), scopeCondition)).groupBy(day).orderBy(day);
   },
   async list(page, pageSize, options = {}) {
     const searchableColumns: any[] = [stock_movements.type, stock_movements.reference];
@@ -83,7 +99,7 @@ export const Stock_movementsRepository: Stock_movementsRepositoryContract = {
     const scopeColumns: Record<string, any> = { "id": stock_movements.id, "productId": stock_movements.productId, "warehouseId": stock_movements.warehouseId, "binId": stock_movements.binId, "type": stock_movements.type, "quantity": stock_movements.quantity, "reference": stock_movements.reference, "occurredAt": stock_movements.occurredAt };
     const scopeCondition = options.scope && scopeColumns[options.scope.field] ? eq(scopeColumns[options.scope.field], options.scope.value) : undefined;
     
-    const whereCondition = and(searchCondition, scopeCondition, ...(filters as FilterExpression[]).map(filterExpression));
+    const whereCondition = and(notDeleted, searchCondition, scopeCondition, ...(filters as FilterExpression[]).map(filterExpression));
     const [data, totalRows] = await Promise.all([
       db.select().from(
 stock_movements
@@ -100,7 +116,7 @@ stock_movements
     
     const [record] = await db.select().from(
 stock_movements
-).where(and(eq(
+).where(and(notDeleted, eq(
 stock_movements
 .id, id), scopeCondition)).limit(1);
     return record;
@@ -121,7 +137,7 @@ stock_movements
       const scopeColumns: Record<string, any> = { "id": stock_movements.id, "productId": stock_movements.productId, "warehouseId": stock_movements.warehouseId, "binId": stock_movements.binId, "type": stock_movements.type, "quantity": stock_movements.quantity, "reference": stock_movements.reference, "occurredAt": stock_movements.occurredAt };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
-      const record = tx.update(stock_movements).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(eq(stock_movements.id, id), scopeCondition)).returning().get();
+      const record = tx.update(stock_movements).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(notDeleted, eq(stock_movements.id, id), scopeCondition)).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "stock_movements.updated", resource: "stock_movements", resourceId: id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
        if (record) void 0;
       return record;
@@ -132,7 +148,7 @@ stock_movements
       const scopeColumns: Record<string, any> = { "id": stock_movements.id, "productId": stock_movements.productId, "warehouseId": stock_movements.warehouseId, "binId": stock_movements.binId, "type": stock_movements.type, "quantity": stock_movements.quantity, "reference": stock_movements.reference, "occurredAt": stock_movements.occurredAt };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
-      const record = tx.delete(stock_movements).where(and(eq(stock_movements.id, id), scopeCondition)).returning().get();
+      const record = tx.delete(stock_movements).where(and(notDeleted, eq(stock_movements.id, id), scopeCondition)).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "stock_movements.deleted", resource: "stock_movements", resourceId: id, metadata: "{}", createdAt: new Date() }).run();
        if (record) void 0;
       return record;
@@ -143,7 +159,7 @@ stock_movements
       const scopeColumns: Record<string, any> = { "id": stock_movements.id, "productId": stock_movements.productId, "warehouseId": stock_movements.warehouseId, "binId": stock_movements.binId, "type": stock_movements.type, "quantity": stock_movements.quantity, "reference": stock_movements.reference, "occurredAt": stock_movements.occurredAt };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
-      const deletedRows = tx.delete(stock_movements).where(and(inArray(stock_movements.id, ids), scopeCondition)).returning().all();
+      const deletedRows = tx.delete(stock_movements).where(and(notDeleted, inArray(stock_movements.id, ids), scopeCondition)).returning().all();
       if (deletedRows.length) tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "stock_movements.deleted", resource: "stock_movements", resourceId: record.id, metadata: "{}", createdAt: new Date() }))).run();
        if (deletedRows.length) void 0;
       return deletedRows;
@@ -158,3 +174,5 @@ stock_movements
   },
 
 };
+
+export const Stock_movementsRepository: Stock_movementsRepositoryContract = qiyBaseStock_movementsRepository;

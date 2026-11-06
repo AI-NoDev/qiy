@@ -46,7 +46,7 @@ function ` + name + `(column: any, value: string) {
 `;
 }
 import { renderAppTemplate } from "./admin-template";
-import { generatedFieldsOf, validateDatabaseIR } from "./database-ir";
+import { computedExpressionTokens, computedNumericTypes, generatedFieldsOf, validateDatabaseIR } from "./database-ir";
 import { generateDrizzlePostgres } from "./drizzle-pg";
 import { generateDrizzleMysql } from "./drizzle-mysql";
 import { generateDrizzleSqlite } from "./drizzle-sqlite";
@@ -188,6 +188,25 @@ function modelName(entity: EntityIR): string {
  * actually declares. Hardcoding `displayName`/`email` produced server code that
  * did not compile for user entities without those fields.
  */
+/**
+ * Maps principal claims to user columns for sessions whose claims come from the
+ * user row (local password, OTP, API keys). An explicit `claim` mapping in the
+ * auth block wins; otherwise "org.id" falls back to a field named "orgId".
+ */
+function userClaimFields(auth: QiyProject["auth"], userEntity: EntityIR | undefined, scopes: QiyScope[] = []): Array<{ claim: string; field: string; expected: string }> {
+  const claims = [...new Set([...scopes.map((scope) => scope.claim), ...(auth?.claimFields ?? []).map((mapping) => mapping.claim)])];
+  return claims.flatMap((claim) => {
+    const explicit = auth?.claimFields?.find((mapping) => mapping.claim === claim)?.field;
+    const expected = explicit ?? claim.replace(/\.([a-zA-Z0-9])/g, (_match: string, char: string) => char.toUpperCase());
+    const field = userEntity?.fields.find((candidate) => candidate.name === expected || (!explicit && candidate.name === claim));
+    return field ? [{ claim, field: field.name, expected }] : [{ claim, field: "", expected }];
+  });
+}
+
+function renderUserClaimLines(mappings: Array<{ claim: string; field: string }>, row: string): string {
+  return mappings.filter((mapping) => mapping.field).map(({ claim, field }) => `  if (${row}.${field} !== null && ${row}.${field} !== undefined && ${row}.${field} !== "") claims[${JSON.stringify(claim)}] = typeof ${row}.${field} === "boolean" || typeof ${row}.${field} === "number" ? ${row}.${field} : String(${row}.${field});`).join("\n");
+}
+
 function principalNameExpression(entity: EntityIR | undefined, ...candidates: Array<string | undefined>): string {
   const declared = [...new Set(candidates.filter((field): field is string => typeof field === "string" && field.length > 0))]
     .filter((field) => entity?.fields.some((item) => item.name === field));
@@ -387,10 +406,10 @@ function renderGraphQL(database: DatabaseIR, hiddenFields: Record<string, string
   const views = database.views ?? [];
   const viewResolvers = views.map((view) => {
     const hasId = view.columns.includes("id");
-    return `  ${view.name}: async ({ page = 1, pageSize = 20 }: { page?: number; pageSize?: number }) => { const size = Math.min(100, Math.max(1, Math.floor(pageSize))); const current = Math.max(1, Math.floor(page)); const [data, totalRows] = await Promise.all([db.select().from(${view.name}).limit(size).offset((current - 1) * size), db.select({ count: count() }).from(${view.name})]); return { items: data, total: Number(totalRows[0]?.count ?? 0), page: current, pageSize: size }; },${hasId ? `\n  ${view.name}ById: async ({ id }: { id: string }) => { const [row] = await db.select().from(${view.name}).where(eq(${view.name}.id, id)).limit(1); return row ?? null; },` : ""}`;
+    return `  ${view.name}: async ({ page = 1, pageSize = 20 }: { page?: number; pageSize?: number }, viewContext?: { principal?: Principal | null }) => { const access = await viewAccess.${view.name}(viewContext?.principal ?? null); const size = Math.min(100, Math.max(1, Math.floor(pageSize))); const current = Math.max(1, Math.floor(page)); const [data, totalRows] = await Promise.all([db.select().from(${view.name}).where(access.condition).limit(size).offset((current - 1) * size), db.select({ count: count() }).from(${view.name}).where(access.condition)]); return { items: data.map(access.mask), total: Number(totalRows[0]?.count ?? 0), page: current, pageSize: size }; },${hasId ? `\n  ${view.name}ById: async ({ id }: { id: string }, viewContext?: { principal?: Principal | null }) => { const access = await viewAccess.${view.name}(viewContext?.principal ?? null); const [row] = await db.select().from(${view.name}).where(and(eq(${view.name}.id, id), access.condition)).limit(1); return row ? access.mask(row) : null; },` : ""}`;
   }).join("\n");
   const viewImports = views.length
-    ? `import { count, eq } from "drizzle-orm";\nimport { db } from "./db";\nimport { ${views.map((view) => view.name).join(", ")} } from "./schema";\n`
+    ? `import { and, count, eq } from "drizzle-orm";\nimport { db } from "./db";\nimport { ${views.map((view) => view.name).join(", ")} } from "./schema";\nimport { viewAccess } from "./views-routes";\n`
     : "";
   // Subscription roots resolve through the in-process bus that the outbox dispatcher feeds.
   // Subscriptions stream over Server-Sent Events: one `data:` frame per GraphQL result.
@@ -400,7 +419,7 @@ function renderGraphQL(database: DatabaseIR, hiddenFields: Record<string, string
   const policyColumnsLiteral = restrictions.length
     ? `\nconst policyColumns: Record<string, Record<string, unknown>> = {\n${restrictions.map((restriction) => {
       const entity = database.entities.find((candidate) => candidate.name === restriction.resource)!;
-      return `  ${JSON.stringify(restriction.resource)}: { ${entity.fields.map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ")} },`;
+      return `  ${JSON.stringify(restriction.resource)}: { ${entity.fields.filter((field) => field.computed === undefined).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ")} },`;
     }).join("\n")}\n};\n`
     : "";
   const policyContext = restrictions.length
@@ -556,7 +575,7 @@ const scopeDefinitions = ${scopeDefinitions} as Array<{ resource: string; field:
 ${commandHelpers}export async function createGraphQLContext(authenticate: Authenticator, request: Request) {
   const principal = await authenticate(request);
   const scopes = Object.fromEntries(scopeDefinitions.map(({ resource, field, claim }) => [resource, { field, value: String(principal?.claims?.[claim] ?? "") }]));
-  return { request, actorId: principal?.id, scopeFor: (resource: string) => { const scope = scopes[resource]; if (scope && !scope.value) throw new Error("Missing required data scope claim"); return scope; }${policyContext} };
+  return { request, principal, actorId: principal?.id, scopeFor: (resource: string) => { const scope = scopes[resource]; if (scope && !scope.value) throw new Error("Missing required data scope claim"); return scope; }${policyContext} };
 }
 
 function requestedFields(query: string, operationName?: string): Set<string> {
@@ -593,7 +612,7 @@ ${commandSetup}  return new Elysia({ prefix: "/graphql" })
       let fields: Set<string>;
       try { fields = requestedFields(operation.query, operation.operationName); } catch { fields = new Set(); }
       if (scopeDefinitions.some(({ resource }) => [resource, resource + "ById", resource + "Distribution", resource + "Trend", "create" + resource[0]!.toUpperCase() + resource.slice(1), "update" + resource[0]!.toUpperCase() + resource.slice(1), "delete" + resource[0]!.toUpperCase() + resource.slice(1), "delete" + resource[0]!.toUpperCase() + resource.slice(1) + "Many"].some((name) => fields.has(name)) && !scopes[resource]?.value)) return status(403, { error: "Missing required data scope claim" });
-      return graphql({ schema, rootValue: resolvers(services${commandArgument}), contextValue: { request, actorId: principal?.id, scopeFor: (resource: string) => { const scope = scopes[resource]; if (scope && !scope.value) throw new Error("Missing required data scope claim"); return scope; }${policyContext} }, source: operation.query, variableValues: operation.variables, operationName: operation.operationName });
+      return graphql({ schema, rootValue: resolvers(services${commandArgument}), contextValue: { request, principal, actorId: principal?.id, scopeFor: (resource: string) => { const scope = scopes[resource]; if (scope && !scope.value) throw new Error("Missing required data scope claim"); return scope; }${policyContext} }, source: operation.query, variableValues: operation.variables, operationName: operation.operationName });
     }, { body: t.Object({ query: t.String({ minLength: 1 }), variables: t.Optional(t.Record(t.String(), t.Any())), operationName: t.Optional(t.String()) }) })${subscriptionRoute}${websocketRoute};
 }
 
@@ -755,7 +774,8 @@ function renderSqliteScopeTest(database: DatabaseIR, scopes: NonNullable<QiyProj
   if (database.dialect !== "sqlite" || !scopes.length) return undefined;
   const configured = scopes[0]!;
   const entity = database.entities.find((item) => item.name === configured.resource || item.tableName === configured.resource)!;
-  const dateField = entity.fields.find((field) => field.type === "DateTime")?.name;
+  // A @softDelete marker hides the row once written, so it cannot carry the date round-trip check.
+  const dateField = entity.fields.find((field) => field.type === "DateTime" && !field.softDelete && field.computed === undefined)?.name;
   const fields = entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable);
   const values = fields.map((field) => {
     const value = field.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : field.type === "Integer" ? 1 : field.type === "Decimal" || field.type === "Money" ? "1.00" : field.type === "Date" ? "2026-11-30" : field.type === "Time" ? "08:30:00" : field.enumName ? database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name : "Example";
@@ -1123,6 +1143,9 @@ function renderRoutes(entity: EntityIR, database: DatabaseIR, scopes: Array<{ re
   const sanitize = hiddenFields.length ? `const privateFields = ${JSON.stringify(hiddenFields)} as string[];
 const redact = (record: Record<string, unknown>) => { const safe = { ...record }; for (const field of privateFields) delete safe[field]; return safe; };` : "const redact = (record: Record<string, unknown>) => record;";
   const privateInputGuard = hiddenFields.length ? `.onRequest(async ({ request, status }) => {
+      // Elysia hooks run for every request, so login bodies with a password must not trip this guard.
+      const guardedPath = new URL(request.url).pathname;
+      if (guardedPath !== "/api/v1" + ${route} && !guardedPath.startsWith("/api/v1" + ${route} + "/")) return;
       if (request.method !== "POST" && request.method !== "PATCH") return;
       try {
         const values: unknown = await request.clone().json();
@@ -1140,7 +1163,7 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
       const policy = await resolveResourcePolicy(principal, request);
       if (policy.maskedFields.some((field) => Object.hasOwn(values, field))) return status(400, { error: "Masked fields cannot be written", errorKey: "policy.maskedField" });
     })` : "";
-  const policyColumnEntries = entity.fields.map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
+  const policyColumnEntries = entity.fields.filter((field) => field.computed === undefined).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
   const policyPlumbing = restricted ? `
   const policyColumns: Record<string, any> = { ${policyColumnEntries} };
   const resolveResourcePolicy = async (principal: Principal | null, request?: Request | null, scope?: { field: string; value: string }) => resolvePolicy(${JSON.stringify(entity.name)}, principal, policyColumns, scope ?? (request ? await resolveScope(request) : undefined));` : "";
@@ -1209,6 +1232,18 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
     : `.delete("/", async ({ query, request }) => (await repository.deleteMany(query.ids.split(","), (await authenticate(request))?.id, await resolveScope(request))).map((record) => redactRecord(record)), {
       query: t.Object({ ids: t.String({ minLength: 1 }) }),
     })`;
+  const softDeletes = entity.fields.some((field) => field.softDelete);
+  const restoreHandler = !softDeletes ? "" : restricted
+    ? `.post("/:id/restore", async ({ params, status, request }) => {
+      const principal = await authenticate(request);
+      const policy = await resolveResourcePolicy(principal, request);
+      const record = await repository.restore?.(params.id, principal?.id, await resolveScope(request), policy);
+      return record ? redactRecord(record, policy) : status(404, { error: "Not found" });
+    }, { params: t.Object({ id: t.String({ format: "uuid" }) }) })`
+    : `.post("/:id/restore", async ({ params, status, request }) => {
+      const record = await repository.restore?.(params.id, (await authenticate(request))?.id, await resolveScope(request));
+      return record ? redactRecord(record) : status(404, { error: "Not found" });
+    }, { params: t.Object({ id: t.String({ format: "uuid" }) }) })`;
   const deleteHandler = restricted
     ? `.delete("/:id", async ({ params, status, request }) => {
       const principal = await authenticate(request);
@@ -1241,6 +1276,8 @@ export interface ${name}Repository {
   update(id: string, values: typeof patch${name}.static, actorId?: string, scope?: { field: string; value: string }${restricted ? ", policy?: QiyPolicy" : ""}): Promise<Record<string, unknown> | undefined>;
   delete(id: string, actorId?: string, scope?: { field: string; value: string }${restricted ? ", policy?: QiyPolicy" : ""}): Promise<Record<string, unknown> | undefined>;
   deleteMany(ids: string[], actorId?: string, scope?: { field: string; value: string }${restricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<Record<string, unknown>>>;
+  /** Clears the @softDelete marker; only soft-deleted resources implement it. */
+  restore?(id: string, actorId?: string, scope?: { field: string; value: string }${restricted ? ", policy?: QiyPolicy" : ""}): Promise<Record<string, unknown> | undefined>;
   /** Optional so test doubles and hand-written repositories keep working. */
   recordExportAudit?(input: { rows: number; filters: number; principalId?: string }): Promise<void>;
   recordImportAudit?(input: { rows: number; principalId?: string }): Promise<void>;
@@ -1257,6 +1294,8 @@ export interface ListQuery {
   order?: "asc" | "desc";
   filters?: Record<string, string> | FilterExpression[];
   scope?: { field: string; value: string };
+  /** Lists soft-deleted rows instead of live ones (ignored without @softDelete). */
+  deleted?: boolean;
 ${restricted ? "  policy?: QiyPolicy;" : ""}
 }
 
@@ -1427,7 +1466,7 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
   };
   // The list and export routes share one query path so export cannot diverge from
   // the list's filter validation, scope handling or row policy.
-  const runListQuery = async (query: { page?: number; pageSize?: number; search?: string; sort?: string; order?: "asc" | "desc"; filters?: string }, request: Request, workerContext?: { principal: { id: string; name?: string; role?: string; claims?: Record<string, string | number | boolean | null> }; scope?: { field: string; value: string } }): Promise<{ status: number; error: string } | { result: { data: Array<Record<string, unknown>>; total: number }; clauses: number; policy: ${restricted ? "QiyPolicy" : "undefined"} }> => {
+  const runListQuery = async (query: { page?: number; pageSize?: number; search?: string; sort?: string; order?: "asc" | "desc"; filters?: string; deleted?: string }, request: Request, workerContext?: { principal: { id: string; name?: string; role?: string; claims?: Record<string, string | number | boolean | null> }; scope?: { field: string; value: string } }): Promise<{ status: number; error: string } | { result: { data: Array<Record<string, unknown>>; total: number }; clauses: number; policy: ${restricted ? "QiyPolicy" : "undefined"} }> => {
     let filters: Record<string, string> | FilterExpression[] | undefined;
     if (query.filters) {
       try {
@@ -1453,7 +1492,7 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
     const scope = workerContext ? workerContext.scope : await resolveScope(request);
     const principal = workerContext ? (workerContext.principal as Principal | null) : await authenticate(request);
     const policy = ${restricted ? "await resolveResourcePolicy(principal, request, workerContext ? workerContext.scope : undefined)" : "undefined"};
-    const result = await repository.list(query.page ?? 1, query.pageSize ?? 20, { ...query, filters, scope${restricted ? ", policy" : ""} });
+    const result = await repository.list(query.page ?? 1, query.pageSize ?? 20, { ...query, deleted: query.deleted === "true", filters, scope${restricted ? ", policy" : ""} });
     return { result, clauses: clauses.length, policy };
   };
   return new Elysia({ prefix: ${route} })${privateInputGuard}${maskWriteGuard}\n    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)${policyErrorHandler}${temporalErrorHandler}${generatedErrorHandler}\n    .get("/aggregate", async ({ query, status, request }) => {
@@ -1484,7 +1523,8 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
         search: t.Optional(t.String({ maxLength: 200 })),
         sort: t.Optional(t.String({ maxLength: 64 })),
         order: t.Optional(t.Union([t.Literal("asc"), t.Literal("desc")])),
-        filters: t.Optional(t.String({ maxLength: 2000 })),
+        filters: t.Optional(t.String({ maxLength: 2000 })),${softDeletes ? `
+        deleted: t.Optional(t.Union([t.Literal("true"), t.Literal("false")])),` : ""}
       }),
     })
     .get("/export", async ({ query, status, request }) => {
@@ -1687,6 +1727,7 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
     ${createHandler}
     ${patchHandler}
     ${deleteManyHandler}
+    ${restoreHandler}
     ${deleteHandler}
 }
 
@@ -1735,8 +1776,18 @@ function wrapGeneratedCreateMethods(methods: string, entityName: string, fieldsL
 function renderComputedRepository(entity: EntityIR, baseName: string): string {
   const fields = entity.fields.filter((field) => field.computed !== undefined);
   if (fields.length === 0) return "";
-  const assignments = fields.map((field) => `    ${JSON.stringify(field.name)}: ${computedTemplateExpression(field.computed!)},`).join("\n");
-  return `function qiyComputeRecord(row: Record<string, any> | undefined) {
+  const assignments = fields.map((field) => `    ${JSON.stringify(field.name)}: ${computedNumericTypes.has(field.type) ? computedNumericExpression(field.computed!, field.type === "Integer") : computedTemplateExpression(field.computed!)},`).join("\n");
+  const numericHelpers = fields.some((field) => computedNumericTypes.has(field.type)) ? `/** Null, empty and non-numeric operands make the whole computed value null. */
+function qiyComputedOperand(value: unknown): number {
+  if (value === null || value === undefined || value === "") return Number.NaN;
+  return typeof value === "number" ? value : Number(value);
+}
+function qiyComputedResult(value: number, integer: boolean): number | null {
+  if (!Number.isFinite(value)) return null;
+  return integer ? Math.trunc(value) : value;
+}
+` : "";
+  return `${numericHelpers}function qiyComputeRecord(row: Record<string, any> | undefined) {
   if (!row) return row;
   return {
     ...row,
@@ -1750,9 +1801,15 @@ const qiyComputedRepository: ${modelName(entity)}RepositoryContract = {
   create: async (...args: any[]) => qiyComputeRecord(await (${baseName}.create as any)(...args)) as any,
   update: async (...args: any[]) => qiyComputeRecord(await (${baseName}.update as any)(...args)),
   delete: async (...args: any[]) => qiyComputeRecord(await (${baseName}.delete as any)(...args)),
-  deleteMany: async (...args: any[]) => (await (${baseName}.deleteMany as any)(...args)).map(qiyComputeRecord),
+  deleteMany: async (...args: any[]) => (await (${baseName}.deleteMany as any)(...args)).map(qiyComputeRecord),${entity.fields.some((field) => field.softDelete) ? `
+  restore: async (...args: any[]) => qiyComputeRecord(await (${baseName}.restore as any)(...args)),` : ""}
 };
 `;
+}
+
+function computedNumericExpression(expression: string, integer: boolean): string {
+  const body = computedExpressionTokens(expression)!.map((token) => token.startsWith("{") ? `qiyComputedOperand(row.${token.slice(1, -1)})` : token).join(" ");
+  return `qiyComputedResult(${body}, ${integer})`;
 }
 
 function computedTemplateExpression(template: string): string {
@@ -1813,6 +1870,9 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
   const realtimeWrite = (type: "created" | "updated" | "deleted", payload: string) => realtimeEvents.has(type)
     ? `${database.dialect === "sqlite" ? "" : "await "}tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: ${realtimeChannelExpression(payload)}, type: ${JSON.stringify(type)}, payload: JSON.stringify(${realtimePayload(payload)}), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() })${database.dialect === "sqlite" ? ".run()" : ""};`
     : "";
+  const softDeleteField = entity.fields.find((field) => field.softDelete)?.name;
+  // Soft-deleted resources stamp the marker column instead of removing the row.
+  const removeFrom = softDeleteField ? `update(${entity.name}).set({ ${softDeleteField}: new Date() } as Partial<typeof ${entity.name}.$inferInsert>)` : `delete(${entity.name})`;
   const realtimeDeleteManyWrite = realtimeEvents.has("deleted")
     ? `${database.dialect === "sqlite" ? "" : "await "}tx.insert(realtimeOutbox).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), channel: ${realtimeChannelExpression("record")}, type: "deleted", payload: JSON.stringify(${realtimePayload("record")}), attempts: 0, availableAt: new Date(), deliveredAt: null, lastError: null, createdAt: new Date() })))${database.dialect === "sqlite" ? ".run()" : ""};`
     : "";
@@ -1843,7 +1903,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const record = tx.delete(${entity.name}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).returning().get();
+      const record = tx.${removeFrom}.where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: id, metadata: "{}", createdAt: new Date() }).run();
        if (record) ${realtimeWrite("deleted", "record") || "void 0;"}
       return record;
@@ -1854,7 +1914,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const deletedRows = tx.delete(${entity.name}).where(and(notDeleted, inArray(${entity.name}.id, ids), scopeCondition${policyArg})).returning().all();
+      const deletedRows = tx.${removeFrom}.where(and(notDeleted, inArray(${entity.name}.id, ids), scopeCondition${policyArg})).returning().all();
       if (deletedRows.length) tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: record.id, metadata: "{}", createdAt: new Date() }))).run();
        if (deletedRows.length) ${realtimeDeleteManyWrite || "void 0;"}
       return deletedRows;
@@ -1891,9 +1951,10 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const [record] = await tx.select().from(${entity.name}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).limit(1).for("update");
-      if (!record) return undefined;
-      await tx.delete(${entity.name}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg}));
+      const [${softDeleteField ? "existing" : "record"}] = await tx.select().from(${entity.name}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).limit(1).for("update");
+      if (!${softDeleteField ? "existing" : "record"}) return undefined;
+      await tx.${removeFrom}.where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg}));${softDeleteField ? `
+      const [record] = await tx.select().from(${entity.name}).where(eq(${entity.name}.id, id)).limit(1);` : ""}
       await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: id, metadata: {}, createdAt: Date.now() });
        ${realtimeWrite("deleted", "record")}
       return record;
@@ -1904,9 +1965,10 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const deletedRows = await tx.select().from(${entity.name}).where(and(notDeleted, inArray(${entity.name}.id, ids), scopeCondition${policyArg})).for("update");
+      ${softDeleteField ? "let" : "const"} deletedRows = await tx.select().from(${entity.name}).where(and(notDeleted, inArray(${entity.name}.id, ids), scopeCondition${policyArg})).for("update");
       if (deletedRows.length) {
-        await tx.delete(${entity.name}).where(and(notDeleted, inArray(${entity.name}.id, deletedRows.map((record) => record.id)), scopeCondition${policyArg}));
+        await tx.${removeFrom}.where(and(notDeleted, inArray(${entity.name}.id, deletedRows.map((record) => record.id)), scopeCondition${policyArg}));${softDeleteField ? `
+        deletedRows = await tx.select().from(${entity.name}).where(inArray(${entity.name}.id, deletedRows.map((record) => record.id)));` : ""}
         await tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: record.id, metadata: {}, createdAt: Date.now() })));
          ${realtimeDeleteManyWrite}
       }
@@ -1940,7 +2002,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const [record] = await tx.delete(${entity.name}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).returning();
+      const [record] = await tx.${removeFrom}.where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).returning();
       if (record) await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: id, metadata: {} });
        if (record) ${realtimeWrite("deleted", "record") || "void 0;"}
       return record;
@@ -1951,17 +2013,58 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const deletedRows = await tx.delete(${entity.name}).where(and(notDeleted, inArray(${entity.name}.id, ids), scopeCondition${policyArg})).returning();
+      const deletedRows = await tx.${removeFrom}.where(and(notDeleted, inArray(${entity.name}.id, ids), scopeCondition${policyArg})).returning();
       if (deletedRows.length) await tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.deleted", resource: "${entity.tableName}", resourceId: record.id, metadata: {} })));
        if (deletedRows.length) ${realtimeDeleteManyWrite || "void 0;"}
       return deletedRows;
     });
   },
 `;
+  const restoreAudit = database.dialect === "sqlite"
+    ? `tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.restored", resource: "${entity.tableName}", resourceId: id, metadata: "{}", createdAt: new Date() }).run();`
+    : database.dialect === "mysql"
+      ? `await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.restored", resource: "${entity.tableName}", resourceId: id, metadata: {}, createdAt: Date.now() });`
+      : `await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.restored", resource: "${entity.tableName}", resourceId: id, metadata: {} });`;
+  const restoreScope = `const scopeColumns: Record<string, any> = { ${scopeColumns} };
+      const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
+      ${policyCondition}
+      const deletedCondition = and(isNotNull(${entity.name}.${softDeleteField}), eq(${entity.name}.id, id), scopeCondition${policyArg});
+      const restoredValues = { ${softDeleteField}: null } as Partial<typeof ${entity.name}.$inferInsert>;`;
+  const restoreMethod = !softDeleteField ? "" : database.dialect === "sqlite" ? `  async restore(id, actorId, scope${restricted ? ", policy" : ""}) {
+    return db.transaction((tx) => {
+      ${restoreScope}
+      const record = tx.update(${entity.name}).set(restoredValues).where(deletedCondition).returning().get();
+      if (record) ${restoreAudit}
+      if (record) ${realtimeWrite("updated", "record") || "void 0;"}
+      return record;
+    });
+  },
+` : database.dialect === "mysql" ? `  async restore(id, actorId, scope${restricted ? ", policy" : ""}) {
+    return db.transaction(async (tx) => {
+      ${restoreScope}
+      const [existing] = await tx.select().from(${entity.name}).where(deletedCondition).limit(1).for("update");
+      if (!existing) return undefined;
+      await tx.update(${entity.name}).set(restoredValues).where(deletedCondition);
+      const [record] = await tx.select().from(${entity.name}).where(eq(${entity.name}.id, id)).limit(1);
+      ${restoreAudit}
+      ${realtimeWrite("updated", "record")}
+      return record;
+    });
+  },
+` : `  async restore(id, actorId, scope${restricted ? ", policy" : ""}) {
+    return db.transaction(async (tx) => {
+      ${restoreScope}
+      const [record] = await tx.update(${entity.name}).set(restoredValues).where(deletedCondition).returning();
+      if (record) ${restoreAudit}
+      if (record) ${realtimeWrite("updated", "record") || "void 0;"}
+      return record;
+    });
+  },
+`;
   const generatedCreateFields = generatedFieldsOf(entity, database.relations ?? []);
   const mutationMethods = generatedCreateFields.length
-    ? wrapGeneratedCreateMethods(auditedMutationMethods, entity.name, JSON.stringify(generatedFieldSpecs(entity, database)))
-    : auditedMutationMethods;
+    ? wrapGeneratedCreateMethods(auditedMutationMethods + restoreMethod, entity.name, JSON.stringify(generatedFieldSpecs(entity, database)))
+    : auditedMutationMethods + restoreMethod;
   return `  async aggregate(field, operator, scope${restricted ? ", policy" : ""}) {
     if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
     const columns: Record<string, any> = { ${numericFields} };
@@ -2055,7 +2158,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
     const scopeColumns: Record<string, any> = { ${scopeColumns} };
     const scopeCondition = options.scope && ${restricted ? "!(options.policy && options.policy.usesScope) && " : ""}scopeColumns[options.scope.field] ? ${scopeColumnConditionFor("options.scope")} : undefined;
     ${policyCondition.replace("policy && policy.conditions.length", "options.policy && options.policy.conditions.length").replace("(policy.conditions as any[])", "(options.policy.conditions as any[])")}
-    const whereCondition = and(notDeleted, searchCondition, scopeCondition${policyArg}, ...(filters as FilterExpression[]).map(filterExpression));
+    const whereCondition = and(${softDeleteField ? `options.deleted ? isNotNull(${entity.name}.${softDeleteField}) : notDeleted` : "notDeleted"}, searchCondition, scopeCondition${policyArg}, ...(filters as FilterExpression[]).map(filterExpression));
     const [data, totalRows] = await Promise.all([
       db.select().from(
 ${entity.name}
@@ -4894,12 +4997,10 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
   if (apiKeysEnabled && !auth) errors.push("features apiKeys requires a generated auth block");
   if (apiKeysEnabled && !database.entities.some((entity) => entity.name === auth!.userEntity)) errors.push(`features apiKeys requires the auth user entity ${auth!.userEntity}`);
   const userEntityForScopes = auth ? database.entities.find((entity) => entity.name === auth.userEntity) : undefined;
-  const apiKeyScopeClaims = [...new Set((options.scopes ?? []).map((scope) => scope.claim))].flatMap((claim) => {
-    const fieldName = claim.replace(/\.([a-zA-Z0-9])/g, (_match: string, char: string) => char.toUpperCase());
-    const field = userEntityForScopes?.fields.find((candidate) => candidate.name === claim || candidate.name === fieldName);
-    return field ? [{ claim, field: field.name }] : [];
-  });
-  const apiKeyScopeClaimLines = apiKeyScopeClaims.map(({ claim, field }) => `  if (user.${field} !== null && user.${field} !== undefined && user.${field} !== "") claims[${JSON.stringify(claim)}] = typeof user.${field} === "boolean" || typeof user.${field} === "number" ? user.${field} : String(user.${field});`).join("\n");
+  for (const mapping of auth?.claimFields ?? []) {
+    if (userEntityForScopes && !userEntityForScopes.fields.some((field) => field.name === mapping.field)) errors.push(`Auth claim ${mapping.claim}: unknown field ${userEntityForScopes.name}.${mapping.field}`);
+  }
+  const apiKeyScopeClaimLines = renderUserClaimLines(userClaimFields(auth, userEntityForScopes, options.scopes), "user");
   if (permissions && permissions.fields.length === 0) errors.push("Permission declarations require at least one permission field");
   if (permissions?.claims?.length && oidcProviders.length === 0) errors.push("Permission claim sources require at least one OAuth/OIDC provider");
   for (const claim of permissions?.claims ?? []) {
@@ -5877,7 +5978,7 @@ export async function createApp(repositories: Repositories, authenticate: Authen
 }
 `,
     "api/src/modules/index.ts": database.entities.map((entity) => `export { ${modelName(entity)}Routes } from "./${entity.name}/${entity.name}.routes";`).join("\n") + "\n",
-    ...((database.views ?? []).length ? { "api/src/views-routes.ts": renderViewRoutes(database, auth !== undefined)! } : {}),
+    ...((database.views ?? []).length ? { "api/src/views-routes.ts": renderViewRoutes(scopedDatabase, auth !== undefined)! } : {}),
     "api/src/graphql.ts": renderGraphQL(scopedDatabase, hasLocalAuth ? { [options.auth!.userEntity]: [options.auth!.passwordField!] } : {}, options.dataflows ?? [], options.actions ?? [], (options.realtime?.resources ?? []).flatMap((resource) => {
       const entity = scopedDatabase.entities.find((candidate) => candidate.name === resource.resource || candidate.tableName === resource.resource);
       return entity ? [entity] : [];
@@ -6836,13 +6937,11 @@ export async function verifyAccessToken(token: string, secret: string, issuer: s
       // claim such as "org.id" maps to the user field "orgId" (dotted segments are
       // camel-cased); the mapping is validated at generation time so a broken claim
       // cannot silently produce 403 responses at runtime.
-      const localScopeClaims = [...new Set((options.scopes ?? []).map((scope) => scope.claim))].map((claim) => {
-        const fieldName = claim.replace(/\.([a-zA-Z0-9])/g, (_match: string, char: string) => char.toUpperCase());
-        const field = userEntity.fields.find((candidate) => candidate.name === claim || candidate.name === fieldName);
-        if (!field) throw new Error(`Data scope claim ${claim} needs a matching field on ${userEntity.name} (expected ${fieldName}) to resolve local password sessions`);
-        return { claim, field: field.name };
-      });
-      const localScopeClaimLines = localScopeClaims.map(({ claim, field }) => `  if (row.${field} !== null && row.${field} !== undefined && row.${field} !== "") claims[${JSON.stringify(claim)}] = typeof row.${field} === "boolean" || typeof row.${field} === "number" ? row.${field} : String(row.${field});`).join("\n");
+      const localScopeClaims = userClaimFields(options.auth, userEntity, options.scopes);
+      for (const mapping of localScopeClaims) {
+        if (!mapping.field) throw new Error(`Data scope claim ${mapping.claim} needs a matching field on ${userEntity.name} (expected ${mapping.expected}) to resolve local password sessions; add that field or map it with \`claim ${mapping.claim} <field>;\` in auth`);
+      }
+      const localScopeClaimLines = renderUserClaimLines(localScopeClaims, "row");
       files["api/src/auth/session-revocations.ts"] = `import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { qiySessionRevocations } from "../schema";
@@ -7078,6 +7177,11 @@ test("revokes tokens issued before the revocation watermark", async () => {
     if (auth.provider === "otp") {
       const usernameField = auth.usernameField!;
       const userEntity = database.entities.find((entity) => entity.name === auth.userEntity)!;
+      const otpClaimFields = userClaimFields(auth, userEntity, options.scopes);
+      for (const mapping of otpClaimFields) {
+        if (!mapping.field) throw new Error(`Data scope claim ${mapping.claim} needs a matching field on ${userEntity.name} (expected ${mapping.expected}) to resolve OTP sessions; add that field or map it with \`claim ${mapping.claim} <field>;\` in auth`);
+      }
+      const otpClaimLines = renderUserClaimLines(otpClaimFields, "row");
       files["api/src/auth/otp.ts"] = `import { createHmac, timingSafeEqual } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { eq } from "drizzle-orm";
@@ -7093,7 +7197,7 @@ function otpHash(identifier: string, code: string, key: string): string { return
 function matchesHash(left: string, right: string): boolean { const a = Buffer.from(left, "hex"); const b = Buffer.from(right, "hex"); return a.length === b.length && timingSafeEqual(a, b); }
 function randomCode(): string { return String(crypto.getRandomValues(new Uint32Array(1))[0]! % 1_000_000).padStart(6, "0"); }
 async function findUser(identifier: string) { const rows = await db.select().from(${auth.userEntity}).where(eq(${auth.userEntity}.${usernameField}, identifier)).limit(2); return rows.length === 1 ? rows[0]! : null; }
-async function findPrincipal(id: string): Promise<Principal | null> { const rows = await db.select().from(${auth.userEntity}).where(eq(${auth.userEntity}.id, id)).limit(1); const row = rows[0]; if (!row || typeof row.id !== "string" || !roles.has(String(row.${auth.roleField}))) return null; return { id: row.id, name: ${principalNameExpression(userEntity, "displayName", usernameField)}, role: row.${auth.roleField} as Principal["role"] }; }
+async function findPrincipal(id: string): Promise<Principal | null> { const rows = await db.select().from(${auth.userEntity}).where(eq(${auth.userEntity}.id, id)).limit(1); const row = rows[0]; if (!row || typeof row.id !== "string" || !roles.has(String(row.${auth.roleField}))) return null;${otpClaimLines ? ` const claims: Record<string, string | number | boolean | null> = {};\n${otpClaimLines}\n` : ""} return { id: row.id, name: ${principalNameExpression(userEntity, "displayName", usernameField)}, role: row.${auth.roleField} as Principal["role"]${otpClaimLines ? ", ...(Object.keys(claims).length ? { claims } : {})" : ""} }; }
 class OtpDeliveryError extends Error {}
 async function deliver(identifier: string, code: string): Promise<void> {
   const endpoint = Bun.env.QIY_OTP_DELIVERY_URL;
@@ -7175,7 +7279,7 @@ test("verifies issuer, audience and rotating JWKS keys before resolving subject"
     const generatedEntityFields = generatedFieldsOf(publicEntity, database.relations ?? []);
     const generatedRepositoryImport = generatedEntityFields.length ? 'import { qiyCreateWithGeneratedValues, type QiyGeneratedField } from "../../generated-values";\n' : "";
     const generatedRepositoryDeclaration = generatedEntityFields.length ? `const qiyGeneratedFields = ${JSON.stringify(generatedFieldSpecs(publicEntity, database))} as QiyGeneratedField[];\n` : "";
-    files[`${moduleRoot}/${entity.name}.repository.ts`] = `import { and, asc, avg, count, desc, eq, gt, gte, isNull, lt, lte, max, min, sql, sum, ${database.dialect === "postgresql" ? "ilike" : "like"}, inArray, or } from "drizzle-orm";
+    files[`${moduleRoot}/${entity.name}.repository.ts`] = `import { and, asc, avg, count, desc, eq, gt, gte, isNotNull, isNull, lt, lte, max, min, sql, sum, ${database.dialect === "postgresql" ? "ilike" : "like"}, inArray, or } from "drizzle-orm";
 import { db } from "../../db";
  import { ${entity.name}, auditEvents${realtimeSubscription ? ", realtimeOutbox" : ""}${resolveScopeTree(scopedDatabase, publicEntity) && resolveScopeTree(scopedDatabase, publicEntity)!.table.name !== entity.name ? `, ${resolveScopeTree(scopedDatabase, publicEntity)!.table.name}` : ""} } from "../../schema";
 import type { FilterClause, FilterExpression, ${modelName(entity)}Repository as ${modelName(entity)}RepositoryContract } from "./${entity.name}.contract";
@@ -7185,15 +7289,8 @@ ${generatedRepositoryDeclaration}${renderScopeTreeHelper(scopedDatabase, publicE
 ${renderRepositoryMethods(publicEntity, scopedDatabase, realtimeEvents, entityRestricted, realtimeMasked, realtimeClaim)}
 };
 ${renderComputedRepository(publicEntity, `qiyBase${modelName(entity)}Repository`)}
-const qiyReadRepository: ${modelName(entity)}RepositoryContract = ${publicEntity.fields.some((field) => field.computed !== undefined) ? "qiyComputedRepository" : `qiyBase${modelName(entity)}Repository`};
-${publicEntity.fields.find((field) => field.softDelete) ? `const qiySoftDeletedAt = ${JSON.stringify(publicEntity.fields.find((field) => field.softDelete)!.name)};
-export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = {
-  ...qiyReadRepository,
-  delete: (...args: any[]) => (qiyReadRepository.update as any)(args[0], { [qiySoftDeletedAt]: new Date() }, ...args.slice(1)),
-  deleteMany: async (...args: any[]) => { const rows = []; for (const id of args[0] as string[]) { const row = await (qiyReadRepository.update as any)(id, { [qiySoftDeletedAt]: new Date() }, ...args.slice(1)); if (row) rows.push(row); } return rows; },
-};
-` : `export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = qiyReadRepository;
-`}`;
+export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = ${publicEntity.fields.some((field) => field.computed !== undefined) ? "qiyComputedRepository" : `qiyBase${modelName(entity)}Repository`};
+`;
     files[`${moduleRoot}/${entity.name}.contract.ts`] = `${generatedDocumentation(entity)}${entityRestricted ? 'import type { QiyPolicy } from "../../security/policy";\n' : ""}export interface ${modelName(entity)}Repository {
   distribution(field: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<{ value: string | null; count: number }>>;
   grouped?(groupBy: string, metric: string, operator: "sum" | "avg" | "min" | "max", scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<{ value: string | null; count: number }>>;
@@ -7206,6 +7303,8 @@ export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContr
   update(id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Record<string, unknown> | undefined>;
   delete(id: string, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Record<string, unknown> | undefined>;
   deleteMany(ids: string[], actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<Record<string, unknown>>>;
+  /** Clears the @softDelete marker; only soft-deleted resources implement it. */
+  restore?(id: string, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Record<string, unknown> | undefined>;
   /** Optional so test doubles and hand-written repositories keep working. */
   recordExportAudit?(input: { rows: number; filters: number; principalId?: string }): Promise<void>;
   recordImportAudit?(input: { rows: number; principalId?: string }): Promise<void>;
@@ -7222,6 +7321,8 @@ export interface ListQuery {
   order?: "asc" | "desc";
   filters?: Record<string, string> | FilterExpression[];
   scope?: { field: string; value: string };
+  /** Lists soft-deleted rows instead of live ones (ignored without @softDelete). */
+  deleted?: boolean;
 ${entityRestricted ? "  policy?: QiyPolicy;" : ""}
 }
 `;
@@ -7277,7 +7378,8 @@ ${generatedDocumentation(entity)}export function create${modelName(entity)}Servi
     create: ${createEntry},
     update: ${updateEntry},
     delete: ${realtimeEvents.has("deleted") ? `async (id: string, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const record = await repository.delete(id, actorId, ${scopedArgs}); if (record) await dispatchCommitted(); return record; }` : `(id: string, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.delete(id, actorId, ${scopedArgs})`},
-    deleteMany: ${realtimeEvents.has("deleted") ? `async (ids: string[], actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const records = await repository.deleteMany(ids, actorId, scope${entityRestricted ? ", policy" : ""}); if (records.length) await dispatchCommitted(); return records; }` : `(ids: string[], actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.deleteMany(ids, actorId, scope${entityRestricted ? ", policy" : ""})`},
+    deleteMany: ${realtimeEvents.has("deleted") ? `async (ids: string[], actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const records = await repository.deleteMany(ids, actorId, scope${entityRestricted ? ", policy" : ""}); if (records.length) await dispatchCommitted(); return records; }` : `(ids: string[], actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => repository.deleteMany(ids, actorId, scope${entityRestricted ? ", policy" : ""})`},${entity.fields.some((field) => field.softDelete) ? `
+    restore: async (id: string, actorId?: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}) => { const record = await repository.restore?.(id, actorId, ${scopedArgs});${realtimeEvents.has("updated") ? " if (record) await dispatchCommitted();" : ""} return record; },` : ""}
   };
 }
 `;
@@ -8681,6 +8783,7 @@ function renderDocsModule(database: DatabaseIR, options: NonNullable<Parameters<
         label: field.label ?? field.name,
         labelKey: "qiy.resources." + tableName + ".fields." + field.name + ".label",
         type: field.type,
+        ...(field.type === "Array" && field.itemType ? { itemType: field.itemType } : {}),
         nullable: Boolean(field.nullable),
         ...(field.primaryKey ? { primaryKey: true } : {}),
         ...(field.unique ? { unique: true } : {}),
@@ -8781,6 +8884,7 @@ export interface DocsField {
   label: string;
   labelKey: string;
   type: string;
+  itemType?: string;
   nullable: boolean;
   primaryKey?: boolean;
   unique?: boolean;

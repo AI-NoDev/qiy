@@ -69,7 +69,7 @@ describe("ERP Admin project", () => {
     expect(ordersRepository).toContain('action: "orders.updated"');
     expect(ordersRepository).toContain('action: "orders.deleted"');
     expect(ordersRepository).toContain("actorId: actorId ?? null");
-    expect(files["apps/server/src/graphql.ts"]).toContain("contextValue: { request, actorId:");
+    expect(files["apps/server/src/graphql.ts"]).toContain("contextValue: { request, principal, actorId:");
     expect(files["apps/server/src/schema.ts"]).toContain('pgTable("audit_events"');
     expect(files["apps/server/src/storage/routes.ts"]).toContain('"products.datasheet"');
     expect(files["apps/server/src/storage/routes.ts"]).toContain('"maxBytes": 10485760');

@@ -1,10 +1,11 @@
-import { and, asc, avg, count, desc, eq, gt, gte, lt, lte, max, min, sql, sum, like, inArray, or } from "drizzle-orm";
+import { and, asc, avg, count, desc, eq, gt, gte, isNotNull, isNull, lt, lte, max, min, sql, sum, like, inArray, or } from "drizzle-orm";
 import { db } from "../../db";
  import { sales_order_lines, auditEvents } from "../../schema";
 import type { FilterClause, FilterExpression, Sales_order_linesRepository as Sales_order_linesRepositoryContract } from "./sales_order_lines.contract";
 
 
-export const Sales_order_linesRepository: Sales_order_linesRepositoryContract = {
+const notDeleted = undefined;
+const qiyBaseSales_order_linesRepository: Sales_order_linesRepositoryContract = {
   async aggregate(field, operator, scope) {
     if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
     const columns: Record<string, any> = { "quantity": sales_order_lines.quantity, "unitPrice": sales_order_lines.unitPrice, "allocated": sales_order_lines.allocated };
@@ -14,7 +15,7 @@ export const Sales_order_linesRepository: Sales_order_linesRepositoryContract = 
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
     const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
-    const [row] = await db.select({ value: expression }).from(sales_order_lines).where(and(scopeCondition));
+    const [row] = await db.select({ value: expression }).from(sales_order_lines).where(and(notDeleted, scopeCondition));
     const value = row?.value === null || row?.value === undefined ? null : Number(row.value);
     return { value: value === null || Number.isFinite(value) ? value : null, operator };
   },
@@ -25,7 +26,22 @@ export const Sales_order_linesRepository: Sales_order_linesRepositoryContract = 
     const scopeColumns: Record<string, any> = { "id": sales_order_lines.id, "salesOrderId": sales_order_lines.salesOrderId, "productId": sales_order_lines.productId, "quantity": sales_order_lines.quantity, "unitPrice": sales_order_lines.unitPrice, "allocated": sales_order_lines.allocated };
     const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
     
-    return db.select({ value: column, count: count() }).from(sales_order_lines).where(and(scopeCondition)).groupBy(column);
+    return db.select({ value: column, count: count() }).from(sales_order_lines).where(and(notDeleted, scopeCondition)).groupBy(column);
+  },
+  async grouped(groupBy, metric, operator, scope) {
+    if (!["sum", "avg", "min", "max"].includes(operator)) throw new Error("Unsupported aggregate operator");
+    const groupColumns: Record<string, any> = {  };
+    const metricColumns: Record<string, any> = { "quantity": sales_order_lines.quantity, "unitPrice": sales_order_lines.unitPrice, "allocated": sales_order_lines.allocated };
+    const group = groupColumns[groupBy];
+    const column = metricColumns[metric];
+    if (!group) throw new Error("Unsupported distribution field");
+    if (!column) throw new Error("Unsupported aggregate field");
+    const scopeColumns: Record<string, any> = { "id": sales_order_lines.id, "salesOrderId": sales_order_lines.salesOrderId, "productId": sales_order_lines.productId, "quantity": sales_order_lines.quantity, "unitPrice": sales_order_lines.unitPrice, "allocated": sales_order_lines.allocated };
+    const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
+    
+    const expression = operator === "sum" ? sum(column) : operator === "avg" ? avg(column) : operator === "min" ? min(column) : max(column);
+    const rows = await db.select({ value: group, count: expression }).from(sales_order_lines).where(and(notDeleted, scopeCondition)).groupBy(group);
+    return rows.map((row) => ({ value: row.value === null ? null : String(row.value), count: Number(row.count ?? 0) }));
   },
   async trend(field, days, scope) {
     const columns: Record<string, any> = {  };
@@ -39,7 +55,7 @@ export const Sales_order_linesRepository: Sales_order_linesRepositoryContract = 
     const start = new Date(today - (days - 1) * 86400000);
     const end = new Date(today + 86400000);
     const day = sql<string>`strftime('%Y-%m-%d', ${column} / 1000, 'unixepoch')`;
-    return db.select({ day, count: count() }).from(sales_order_lines).where(and(gte(column, start), lt(column, end), scopeCondition)).groupBy(day).orderBy(day);
+    return db.select({ day, count: count() }).from(sales_order_lines).where(and(notDeleted, gte(column, start), lt(column, end), scopeCondition)).groupBy(day).orderBy(day);
   },
   async list(page, pageSize, options = {}) {
     const searchableColumns: any[] = [];
@@ -83,7 +99,7 @@ export const Sales_order_linesRepository: Sales_order_linesRepositoryContract = 
     const scopeColumns: Record<string, any> = { "id": sales_order_lines.id, "salesOrderId": sales_order_lines.salesOrderId, "productId": sales_order_lines.productId, "quantity": sales_order_lines.quantity, "unitPrice": sales_order_lines.unitPrice, "allocated": sales_order_lines.allocated };
     const scopeCondition = options.scope && scopeColumns[options.scope.field] ? eq(scopeColumns[options.scope.field], options.scope.value) : undefined;
     
-    const whereCondition = and(searchCondition, scopeCondition, ...(filters as FilterExpression[]).map(filterExpression));
+    const whereCondition = and(notDeleted, searchCondition, scopeCondition, ...(filters as FilterExpression[]).map(filterExpression));
     const [data, totalRows] = await Promise.all([
       db.select().from(
 sales_order_lines
@@ -100,7 +116,7 @@ sales_order_lines
     
     const [record] = await db.select().from(
 sales_order_lines
-).where(and(eq(
+).where(and(notDeleted, eq(
 sales_order_lines
 .id, id), scopeCondition)).limit(1);
     return record;
@@ -121,7 +137,7 @@ sales_order_lines
       const scopeColumns: Record<string, any> = { "id": sales_order_lines.id, "salesOrderId": sales_order_lines.salesOrderId, "productId": sales_order_lines.productId, "quantity": sales_order_lines.quantity, "unitPrice": sales_order_lines.unitPrice, "allocated": sales_order_lines.allocated };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
-      const record = tx.update(sales_order_lines).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(eq(sales_order_lines.id, id), scopeCondition)).returning().get();
+      const record = tx.update(sales_order_lines).set({ ...values, ...(scope ? { [scope.field]: scope.value } : {}) }).where(and(notDeleted, eq(sales_order_lines.id, id), scopeCondition)).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "sales_order_lines.updated", resource: "sales_order_lines", resourceId: id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
        if (record) void 0;
       return record;
@@ -132,7 +148,7 @@ sales_order_lines
       const scopeColumns: Record<string, any> = { "id": sales_order_lines.id, "salesOrderId": sales_order_lines.salesOrderId, "productId": sales_order_lines.productId, "quantity": sales_order_lines.quantity, "unitPrice": sales_order_lines.unitPrice, "allocated": sales_order_lines.allocated };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
-      const record = tx.delete(sales_order_lines).where(and(eq(sales_order_lines.id, id), scopeCondition)).returning().get();
+      const record = tx.delete(sales_order_lines).where(and(notDeleted, eq(sales_order_lines.id, id), scopeCondition)).returning().get();
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "sales_order_lines.deleted", resource: "sales_order_lines", resourceId: id, metadata: "{}", createdAt: new Date() }).run();
        if (record) void 0;
       return record;
@@ -143,7 +159,7 @@ sales_order_lines
       const scopeColumns: Record<string, any> = { "id": sales_order_lines.id, "salesOrderId": sales_order_lines.salesOrderId, "productId": sales_order_lines.productId, "quantity": sales_order_lines.quantity, "unitPrice": sales_order_lines.unitPrice, "allocated": sales_order_lines.allocated };
       const scopeCondition = scope && scopeColumns[scope.field] ? eq(scopeColumns[scope.field], scope.value) : undefined;
       
-      const deletedRows = tx.delete(sales_order_lines).where(and(inArray(sales_order_lines.id, ids), scopeCondition)).returning().all();
+      const deletedRows = tx.delete(sales_order_lines).where(and(notDeleted, inArray(sales_order_lines.id, ids), scopeCondition)).returning().all();
       if (deletedRows.length) tx.insert(auditEvents).values(deletedRows.map((record) => ({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "sales_order_lines.deleted", resource: "sales_order_lines", resourceId: record.id, metadata: "{}", createdAt: new Date() }))).run();
        if (deletedRows.length) void 0;
       return deletedRows;
@@ -158,3 +174,5 @@ sales_order_lines
   },
 
 };
+
+export const Sales_order_linesRepository: Sales_order_linesRepositoryContract = qiyBaseSales_order_linesRepository;

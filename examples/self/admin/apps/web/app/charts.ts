@@ -1,17 +1,17 @@
-export type ChartViewKind = "const" | "pie" | "bar" | "line" | "table";
+export type ChartViewKind = "const" | "pie" | "bar" | "line" | "area" | "scatter" | "stacked" | "table";
 export type ChartAggregate = "sum" | "avg" | "min" | "max";
 export type ChartDataOperation = "count" | "sum" | "avg" | "min" | "max" | "trend" | "list";
 export interface ChartDataDefinition { operation: ChartDataOperation; entity: string; field?: string; groupBy?: string; days?: number; columns?: string[]; }
 export interface ChartLabelValue { value: string; label: string; labelKey: string; }
 export interface ChartLabelsDefinition { field?: string; values: ChartLabelValue[]; }
-export interface ChartViewDefinition { kind: ChartViewKind; label: string; labelKey: string; data: ChartDataDefinition; labels?: ChartLabelsDefinition; }
+export interface ChartViewDefinition { kind: ChartViewKind; label: string; labelKey: string; data: ChartDataDefinition; labels?: ChartLabelsDefinition; color?: string; legend?: boolean; }
 export interface ChartDefinition { name: string; title: string; labelKey: string; icon?: string; views: ChartViewDefinition[]; }
 export type ChartVariant = "larger" | "xl" | "lg" | "large" | "medium" | "md" | "small" | "sm" | "xs";
 export interface ChartPlacement { variant: ChartVariant; x: number; y: number; w: number; h: number; }
 export interface ChartPanelChart { name: string; placements: ChartPlacement[]; }
 export interface ChartPanelDefinition { name: string; title: string; labelKey: string; grid: { columns: number; rows: number }; charts: ChartPanelChart[]; }
 export type ChartViewportCategory = "larger" | "medium" | "small";
-export const chartViewKinds: ChartViewKind[] = ["const", "pie", "bar", "line", "table"];
+export const chartViewKinds: ChartViewKind[] = ["const", "pie", "bar", "line", "area", "scatter", "stacked", "table"];
 export const chartVariantNames: ChartVariant[] = ["larger","xl","lg","large","medium","md","small","sm","xs"];
 export const chartVariantBreakpoint: Record<ChartVariant, ChartViewportCategory> = { larger: "larger", xl: "larger", lg: "larger", large: "larger", medium: "medium", md: "medium", small: "small", sm: "small", xs: "small" };
 export const chartViewportBreakpoints = { larger: 1200, medium: 768 } as const;

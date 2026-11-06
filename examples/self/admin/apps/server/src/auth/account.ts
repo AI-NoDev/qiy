@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { db } from "../db";
 import { users } from "../schema";
+import { revokeUserSessions } from "./session-revocations";
 import type { Authenticator } from "./guard";
 
 interface QiyProviderIdentitySummary { id: string; label: string; bound: boolean; subject?: string; email?: string; name?: string }
@@ -43,5 +44,12 @@ export function createAccountRoutes(authenticate: Authenticator) {
     });
     const loginMethodCount = providers.filter((provider) => provider.bound).length + (passwordSet ? 1 : 0);
     return { user: { id: String(record.id), username, email, name, role: String(record[ROLE_FIELD] ?? "") }, password: { set: passwordSet }, providers, loginMethodCount };
-  });
+  })
+    .post("/logout-all", async (context: any) => {
+      const { request, set } = context;
+      const principal = await authenticate(request);
+      if (!principal) { set.status = 401; return { error: "Authentication required" }; }
+      const revokedBefore = await revokeUserSessions(principal.id);
+      return { ok: true, revokedBefore: revokedBefore.toISOString() };
+    });
 }

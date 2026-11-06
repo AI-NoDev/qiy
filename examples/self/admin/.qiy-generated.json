@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "qiyVersion": "0.2.4",
+  "qiyVersion": "0.36.0",
   "projectName": "qiy-supply-chain-erp-wms",
   "mode": "standalone",
   "files": [
@@ -69,10 +69,12 @@
     "apps/server/src/auth/oidc.ts",
     "apps/server/src/auth/hybrid.ts",
     "apps/server/src/auth/password.ts",
+    "apps/server/src/auth/session-revocations.ts",
     "apps/server/src/auth/local.ts",
     "apps/server/src/auth/set-password.ts",
     "apps/server/src/auth/bootstrap-admin.ts",
     "apps/server/tests/local-auth.test.ts",
+    "apps/server/tests/session-revocation.test.ts",
     "apps/server/src/auth/account.ts",
     "apps/server/tests/hybrid-auth.test.ts",
     "apps/server/tests/auth.test.ts",

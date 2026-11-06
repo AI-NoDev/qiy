@@ -72,6 +72,8 @@ qiy schema
 qiy mcp
 qiy agent [--port <n>]
 bun run load:test --url http://127.0.0.1:3000/api/v1/health --requests 200 --concurrency 20
+bun run load:test --url <url> --duration 30 --concurrency 50 --p95 500 --max-error-rate 0.001 --out a.json
+bun run load:test --merge a.json b.json --p99 1000   # combine concurrent load generators
 bun run lint
 qiy explain --errors [--json]
 qiy skill install [name] [--all] [--force] [--global] [--dir <path>]

@@ -62,6 +62,7 @@ auth {
   usernameField email;           // local / otp login identifier
   passwordField passwordHash;    // local password hash
   profileField oauthProfiles;    // optional: per-provider profile JSON
+  claim tenant.id organizationId; // optional: users column behind a scope/@tenant claim
   provider okta { subjectField oktaSubject; }
   provider google { subjectField googleSubject; claim sub; }
 }
@@ -115,7 +116,7 @@ entity users table users @label("Users") {
 | per-provider column | exists, Text, nullable, unique | `Auth: provider okta subjectField oktaSubject must be nullable ...` |
 | `profileField` | nullable Text | `Auth: profileField must be a nullable Text field storing per-provider profile metadata` |
 | onboarding | every other required column must be nullable | `Auth: OAuth onboarding cannot populate required user fields: ...; make them nullable` |
-| scope claim column (local/hybrid) | users needs a matching column (`org.id` -> `orgId`) | `Data scope claim org.id needs a matching field on users (expected orgId) ...` |
+| scope claim column (local/hybrid) | users needs a matching column: `org.id` -> `orgId` by default, or any column via `claim org.id <field>;` in `auth` | ``Data scope claim org.id needs a matching field on users (expected orgId) ...; add that field or map it with `claim org.id <field>;` in auth`` |
 
 Identity write rules (not configurable):
 
@@ -463,7 +464,7 @@ scope warehouses orgId claim org.id tree organizations parentId;
 | field | `UUID` or `Text`; not a database-enforced restriction on primary keys, but use a tenant/FK column |
 | claim | `^[a-zA-Z_][a-zA-Z0-9_.-]*$`, read from `principal.claims` |
 | `tree <entity> <parentField>` | Entity must exist; parent field UUID/Text; types must match the scope field, tree primary key and parent. Generates a `WITH RECURSIVE` subtree CTE (64-level cap) and an organization tree page at `/<treeResource>/tree`; missing parents/self-references/cycles are surfaced as orphans |
-| local/hybrid auth | Every scope claim needs a matching users column (`org.id` -> `orgId`), otherwise generation fails: `Data scope claim org.id needs a matching field on users ...` |
+| local/hybrid auth | Every scope claim needs a users column: `org.id` -> `orgId` by default or an explicit `auth { claim org.id <field>; }` mapping, otherwise generation fails: `Data scope claim org.id needs a matching field on users ...`. Local, OTP and API-key sessions derive the claim from that column. |
 
 Runtime:
 

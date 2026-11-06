@@ -175,7 +175,15 @@ Attributes follow the type, any order, and booleans accept `@x` or `@x(false)`.
 | `@column("name")` | all | field name | Physical column name |
 | `@dimension/@precision/@scale` | Vector / Decimal / Money | type parameter | Alternative spelling |
 
-There is no `@required`, no `@default`, no `@length`/`@min`/`@max`/`@format`, no `@searchable`/`@hidden`/`@readonly`, no `@computed`/`@transient`. Required is the default; use `@nullable` for optional. Defaults and business validation belong in migrations, seeds or server extensions.
+There is no `@required`, no `@default`, no `@length`/`@min`/`@max`/`@format`, no `@searchable`/`@hidden`/`@readonly`, no `@transient`. Required is the default; use `@nullable` for optional. Defaults and business validation belong in migrations, seeds or server extensions.
+
+Lifecycle and derived fields:
+
+| Attribute | Types | Behavior |
+| --- | --- | --- |
+| `@softDelete` | `DateTime @nullable` | DELETE stamps the time and audits `<table>.deleted`; reads hide deleted rows; `GET /<table>?deleted=true` lists the trash, `POST /<table>/:id/restore` clears the stamp and audits `<table>.restored`; the web list gets a Trash page. Trash and restore require the resource's delete permission. |
+| `@tenant("claim")` | UUID / Text / Integer, not nullable | Synthesizes a principal scope from the claim; writes force the claim value. Local/OTP/API-key sessions read the claim from a users column: `org.id` → `orgId` by default, or `auth { claim org.id organizationId; }`. |
+| `@computed("…")` | Text (not nullable): `{field}` template. Integer / Decimal / Money (must be `@nullable`): `{field}`, numbers, `+ - * /`, parentheses | No column; computed in every API response; read-only in forms, not sortable/filterable. Numeric references must be numeric; a null operand or division by zero yields null; Integer results truncate toward zero. Cannot reference another computed field. |
 
 ## Generated values and business codes
 
@@ -327,7 +335,7 @@ include expansion -> lexer/parser -> IR validation -> generation validation -> w
 
 Modeling limits (do not promise these):
 
-- No expressions, functions, template strings, default values, computed/transient fields or Text length constraints.
+- No functions, default values, transient fields or Text length constraints; expressions exist only inside `@computed` (Text templates and `+ - * /` arithmetic over numeric fields).
 - One database dialect per model; no cross-database joins.
 - No implicit many-to-many: model an explicit join entity with two `one` relations.
 - No business workflow inference from fields/relations. Use `workflow orderInventory` (fixed, PostgreSQL, exact field contract) or an explicit `dataflow` ([dataflows-actions.md](dataflows-actions.md)).

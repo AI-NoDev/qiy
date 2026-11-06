@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHandler } from "../src/http";
 
 describe("same-origin API and SPA hosting", () => {
-  const root = mkdtempSync(join(tmpdir(), "qiy-static-"));
+  const root = mkdtempSync(join(import.meta.dir, ".qiy-static-"));
   const handle = createHandler(() => new Response("api"), root);
   test("API wins over SPA fallback", async () => {
     await Bun.write(join(root, "index.html"), "<h1>Qiy</h1>");

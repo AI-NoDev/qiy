@@ -10,12 +10,53 @@ Releases before `0.2.0` are listed on the
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-11-06
+
+### Added
+
+- `@softDelete` restore: `GET /<table>?deleted=true` lists the trash,
+  `POST /<table>/:id/restore` clears the marker (scope/policy aware, 404
+  otherwise), GraphQL/services expose `restore`, and the web admin gets a
+  per-resource Trash page. Both require the resource's delete permission.
+- Numeric `@computed` fields: nullable Integer/Decimal/Money fields accept
+  `{field}`/number arithmetic with `+ - * /` and parentheses; null operands or
+  division by zero yield null and Integer results truncate toward zero.
+- `auth { claim <claim> <field>; }` maps a scope/`@tenant` claim to any users
+  column for local, OTP and API-key sessions (default stays `org.id` → `orgId`).
+  OTP sessions now carry those claims too.
+- Pixel-level visual regression: `bun run e2e:visual` renders light/dark
+  screenshots in the pinned `mcr.microsoft.com/playwright` image via
+  `run-server` + `exposeNetwork`, so local and CI share one PNG baseline. CI
+  runs it and uploads `test-results` on failure.
+- Load tool: `--duration`, `--warmup`, `--p99`, `--max-error-rate`,
+  `--min-rps`, `--out` and `--merge` (exact percentiles across concurrent load
+  generators). CI adds a 10s database list-endpoint gate.
+
 ### Changed
 
+- Soft deletes are audited as `<table>.deleted` (was `updated`); restores as
+  `<table>.restored`.
+- DB view REST/GraphQL reads inherit the source entity's soft delete,
+  `scope`/`@tenant`, `restrict when` and `restrict mask` rules. A view whose
+  source has any of those row rules must select `id` (generation error
+  otherwise).
+- The regenerated `examples/self/admin` workspace keeps test scratch files
+  next to its tests, so its root `turbo run test` passes with an unwritable
+  `%TEMP%`; `tests/generated-temp-dirs.test.ts` guards generated tests.
 - User docs no longer expose repository-internal verification scripts:
   real-service/IdP acceptance moved to `MAINTAINER_VERIFICATION.md`, internal
   commands to `CONTRIBUTING.md`, and auth/deployment/project-structure pages
   now use public commands and production checklists.
+
+### Fixed
+
+- Generated private-field guards only inspect requests for their own resource;
+  a `password` field on one entity no longer rejects `/auth/login` bodies.
+- Computed fields are excluded from policy column maps (generated server
+  typecheck failed when a restricted entity had a computed field).
+- MySQL soft delete returns the stamped row instead of the pre-update row.
+- The generated SQLite scope test no longer picks the soft-delete marker as
+  its date round-trip field.
 
 ## [0.35.0] - 2026-11-04
 

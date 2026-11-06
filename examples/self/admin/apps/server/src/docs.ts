@@ -9,6 +9,7 @@ export interface DocsField {
   label: string;
   labelKey: string;
   type: string;
+  itemType?: string;
   nullable: boolean;
   primaryKey?: boolean;
   unique?: boolean;
@@ -70,6 +71,7 @@ export interface GeneratedOpenApiDocument {
   components: { securitySchemes: Record<string, Record<string, unknown>> };
   "x-qiy-generated": true;
   "x-qiy-principal": { role: DocsRole; permissions: string[] };
+  "x-qiy-hidden": Array<{ method: string; path: string; reason: "verification"; verification: string; label?: string }>;
 }
 
 export const docsMeta: DocsMeta = {
@@ -3202,7 +3204,11 @@ function jsonSchemaForField(field: DocsField): Record<string, unknown> {
   const base: Record<string, unknown> = field.type === "Integer" ? { type: "integer" }
     : field.type === "Decimal" || field.type === "Money" ? { type: "number" }
       : field.type === "Boolean" ? { type: "boolean" }
-        : field.type === "Vector" ? { type: "array", items: { type: "number" } }
+        : field.type === "JSON" ? { type: "object", additionalProperties: true }
+        : field.type === "Array" ? { type: "array", items: { type: field.itemType === "Integer" ? "integer" : "string" } }
+          : field.type === "Email" ? { type: "string", format: "email" }
+            : field.type === "URL" ? { type: "string", format: "uri" }
+              : field.type === "Vector" ? { type: "array", items: { type: "number" } }
           : field.type === "File" || field.type === "Files" ? { type: "string", format: "binary" }
             : { type: "string" };
   if (field.enumValues?.length) base.enum = field.enumValues.map((value) => value.name);
@@ -3223,6 +3229,7 @@ function requestSchema(entity: DocsEntity): Record<string, unknown> {
 
 export function buildOpenApiDocument(principal: DocsPrincipal): GeneratedOpenApiDocument {
   const permissions = principal.permissions ?? [];
+  const hiddenOperations: Array<{ method: string; path: string; reason: "verification"; verification: string; label?: string }> = [];
   const security: Array<Record<string, string[]>> = [{ bearerSession: [] }, { apiKey: [] }];
   const paths: Record<string, Record<string, unknown>> = {};
   const tags: Array<{ name: string; description: string }> = [];
@@ -3272,7 +3279,14 @@ export function buildOpenApiDocument(principal: DocsPrincipal): GeneratedOpenApi
     }
   }
   for (const flow of docsMeta.dataflows) {
-    if (!flowAllowed(flow, principal)) continue;
+    if (!flowAllowed(flow, principal)) {
+      // Verification-gated commands need runtime inputs the docs cannot provide;
+      // non-admins see them listed as hidden instead of silently missing.
+      if (principal.role !== "admin" && flow.verification) {
+        hiddenOperations.push({ method: "post", path: "/api/v1/commands/" + flow.name, reason: "verification", verification: flow.verification, label: flow.label });
+      }
+      continue;
+    }
     const properties: Record<string, unknown> = {};
     const required: string[] = [];
     for (const input of flow.inputs) {
@@ -3308,6 +3322,7 @@ export function buildOpenApiDocument(principal: DocsPrincipal): GeneratedOpenApi
     tags,
     security,
     paths,
+    "x-qiy-hidden": hiddenOperations,
     components: {
       securitySchemes: {
         bearerSession: { type: "http", scheme: "bearer", bearerFormat: "JWT", description: "Session access token from /api/v1/auth/login or an OAuth provider" },

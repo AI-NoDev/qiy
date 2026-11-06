@@ -40,6 +40,13 @@ test("generates local username/password auth without OIDC configuration", () => 
   expect(files["apps/server/.env.example"]).toContain("QIY_AUTH_SECRET");
 });
 
+test("the private-field guard only inspects its own resource so login bodies pass", () => {
+  const project = parseQiyProject(source.replaceAll("passwordHash", "password"));
+  const routes = generateProject(project.database, project.name, { auth: project.auth })["apps/server/src/modules/users/users.routes.ts"]!;
+  const guard = routes.slice(routes.indexOf(".onRequest("), routes.indexOf("privateFields.some("));
+  expect(guard).toContain('if (guardedPath !== "/api/v1" + "/users" && !guardedPath.startsWith("/api/v1" + "/users" + "/")) return;');
+});
+
 test("rejects a local auth model without a username or password hash field", () => {
   expect(() => parseQiyProject(`qiy v0; application invalid-local { database sqlite {} auth { provider local; user users; roleField role; usernameField email; } }`)).toThrow("requires usernameField and passwordField");
 });
