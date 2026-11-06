@@ -190,6 +190,33 @@ export function renderJobLeaseSchema(dialect: Dialect): string {
 export const sqliteDeliveryDdl = "CREATE TABLE IF NOT EXISTS qiy_deliveries (id text primary key, target text not null, event text not null, payload text not null, status text not null, attempts integer not null, nextAttemptAt integer not null, lastError text, createdAt integer not null, deliveredAt integer)";
 export const sqliteJobLeaseDdl = "CREATE TABLE IF NOT EXISTS qiy_job_leases (name text primary key, tick integer not null, claimedAt integer not null)";
 
+/** Test DDL matching the Drizzle tables; generated suites run against an empty disposable database. */
+const deliveryDdl: Record<Dialect, string> = {
+  sqlite: sqliteDeliveryDdl,
+  postgresql: 'CREATE TABLE IF NOT EXISTS "qiy_deliveries" ("id" text primary key, "target" text not null, "event" text not null, "payload" text not null, "status" text not null, "attempts" integer not null, "nextAttemptAt" timestamp with time zone not null, "lastError" text, "createdAt" timestamp with time zone not null, "deliveredAt" timestamp with time zone)',
+  mysql: "CREATE TABLE IF NOT EXISTS `qiy_deliveries` (`id` varchar(36) primary key, `target` varchar(160) not null, `event` varchar(190) not null, `payload` text not null, `status` varchar(16) not null, `attempts` int not null, `nextAttemptAt` datetime(3) not null, `lastError` text, `createdAt` datetime(3) not null, `deliveredAt` datetime(3))",
+};
+const jobLeaseDdl: Record<Dialect, string> = {
+  sqlite: sqliteJobLeaseDdl,
+  postgresql: 'CREATE TABLE IF NOT EXISTS "qiy_job_leases" ("name" text primary key, "tick" timestamp with time zone not null, "claimedAt" timestamp with time zone not null)',
+  mysql: "CREATE TABLE IF NOT EXISTS `qiy_job_leases` (`name` varchar(160) primary key, `tick` datetime(3) not null, `claimedAt` datetime(3) not null)",
+};
+
+/** Creates and empties `table` before the suite; database tests skip without QIY_TEST_DATABASE_URL outside SQLite. */
+function renderTestTable(dialect: Dialect, ddl: string, table: string): string {
+  const exec = dialect === "sqlite" ? "client.exec(ddl)" : dialect === "postgresql" ? "await client.unsafe(ddl)" : "await client.query(ddl)";
+  return `const available = ${dialect === "sqlite" ? "true" : "Boolean(Bun.env.QIY_TEST_DATABASE_URL)"};
+const dbTest = available ? test : test.skip;
+const ddl = ${JSON.stringify(ddl)};
+
+beforeAll(async () => {
+  if (!available) return;
+  const { client } = await import("../src/db");
+  ${exec};
+  await db.delete(${table});
+});`;
+}
+
 /** Statement for a dataflow transaction: one pending delivery per subscribed target. */
 export function renderDeliveryInsert(dialect: Dialect, targets: readonly string[], event: string, payload: string): string {
   const rows = targets.map((target) => `{ id: crypto.randomUUID(), target: ${JSON.stringify(target)}, event: ${JSON.stringify(event)}, payload: deliveryPayload, status: "pending", attempts: 0, nextAttemptAt: deliveryNow, createdAt: deliveryNow }`).join(", ");
@@ -500,12 +527,10 @@ export function renderScheduledDataflowTest(jobs: readonly QiyCronJob[], dialect
   return `import { beforeAll, expect, test } from "bun:test";
 import { claimJobTick, scheduledTick } from "../src/jobs/lease";
 import { runScheduledDataflow, scheduledPrincipals } from "../src/jobs/scheduled";
-${dialect === "sqlite" ? `import { client } from "../src/db";
-
-beforeAll(() => { client.exec(${JSON.stringify(sqliteJobLeaseDdl)}); });` : `import { db } from "../src/db";
+import { db } from "../src/db";
 import { qiyJobLeases } from "../src/schema";
 
-beforeAll(async () => { await db.delete(qiyJobLeases); });`}
+${renderTestTable(dialect, jobLeaseDdl[dialect], "qiyJobLeases")}
 
 test("scheduled ticks round down to the cron resolution", () => {
   const now = new Date("2026-01-02T03:04:05.678Z");
@@ -513,7 +538,7 @@ test("scheduled ticks round down to the cron resolution", () => {
   expect(scheduledTick("*/10 * * * * *", now).toISOString()).toBe("2026-01-02T03:04:05.000Z");
 });
 
-test("only one claim wins each tick", async () => {
+dbTest("only one claim wins each tick", async () => {
   const name = "lease-" + crypto.randomUUID();
   const tick = new Date("2026-01-02T03:04:00.000Z");
   expect(await claimJobTick(name, tick)).toBe(true);
@@ -522,7 +547,7 @@ test("only one claim wins each tick", async () => {
   expect(await claimJobTick(name, new Date(tick.getTime() + 60_000))).toBe(true);
 });
 
-test(${JSON.stringify(`${job.name} posts ${job.dataflow} once per tick as the scheduled principal`)}, async () => {
+dbTest(${JSON.stringify(`${job.name} posts ${job.dataflow} once per tick as the scheduled principal`)}, async () => {
   const tick = new Date(Date.UTC(2026, 0, 2, 3, Math.floor(Math.random() * 60)));
   const calls: Array<{ request: Request; principal: unknown }> = [];
   const invoke = async (request: Request, principal: unknown) => {
@@ -541,7 +566,7 @@ test(${JSON.stringify(`${job.name} posts ${job.dataflow} once per tick as the sc
   expect(principal).toEqual(scheduledPrincipals[${JSON.stringify(job.name)}]);
 });
 
-test("a failed command surfaces its status", async () => {
+dbTest("a failed command surfaces its status", async () => {
   const tick = new Date(Date.UTC(2027, 0, 2, 3, Math.floor(Math.random() * 60)));
   const invoke = async () => Response.json({ error: "Ticket is already closed" }, { status: 409 });
   await expect(runScheduledDataflow(${JSON.stringify(job.name)}, ${JSON.stringify(job.dataflow)}, tick, invoke)).rejects.toThrow("responded 409");
@@ -563,7 +588,7 @@ async function row(id: string) {
   return (await db.select().from(qiyDeliveries).where(eq(qiyDeliveries.id, id)))[0]!;
 }`;
   const webhookTests = webhook ? `
-test("webhook deliveries are signed and marked delivered", async () => {
+dbTest("webhook deliveries are signed and marked delivered", async () => {
   const id = await pending(${JSON.stringify(`webhook:${webhook.name}`)}, { flow: "test", id: "42" });
   const requests: Array<{ url: string; init: RequestInit }> = [];
   const result = await dispatchDeliveries({
@@ -579,7 +604,7 @@ test("webhook deliveries are signed and marked delivered", async () => {
   expect((await row(id)).status).toBe("delivered");
 });
 
-test("failed webhook deliveries back off and finally give up", async () => {
+dbTest("failed webhook deliveries back off and finally give up", async () => {
   const id = await pending(${JSON.stringify(`webhook:${webhook.name}`)}, { flow: "test" });
   const env = { ${JSON.stringify(webhook.urlEnv)}: "https://hooks.example.test/qiy", ${JSON.stringify(webhook.secretEnv)}: "test-secret" };
   const failing = async () => new Response("unavailable", { status: 503 });
@@ -600,7 +625,7 @@ test("failed webhook deliveries back off and finally give up", async () => {
   expect((await row(id)).status).toBe("failed");
 });
 
-test("unconfigured webhooks wait without spending attempts", async () => {
+dbTest("unconfigured webhooks wait without spending attempts", async () => {
   const id = await pending(${JSON.stringify(`webhook:${webhook.name}`)}, { flow: "test" });
   const result = await dispatchDeliveries({ env: {}, fetch: async () => { throw new Error("must not send"); } });
   expect(result.waiting).toContain(${JSON.stringify(webhook.urlEnv)});
@@ -610,7 +635,7 @@ test("unconfigured webhooks wait without spending attempts", async () => {
 });
 ` : "";
   const notificationTests = notification ? `
-test("notifications render the payload through the console provider", async () => {
+dbTest("notifications render the payload through the console provider", async () => {
   const payload = { flow: "test" } as Record<string, unknown>;
   for (const field of ${JSON.stringify(notification.to.flatMap((recipient) => recipient.kind === "payload" ? [recipient.field] : []))}) payload[field] = "owner@example.com";
   const id = await pending(${JSON.stringify(`notification:${notification.name}`)}, payload);
@@ -627,7 +652,7 @@ test("notifications render the payload through the console provider", async () =
   expect((await row(id)).status).toBe("delivered");
 });
 
-test("smtp notifications go through the configured transport", async () => {
+dbTest("smtp notifications go through the configured transport", async () => {
   const payload = { flow: "test" } as Record<string, unknown>;
   for (const field of ${JSON.stringify(notification.to.flatMap((recipient) => recipient.kind === "payload" ? [recipient.field] : []))}) payload[field] = "owner@example.com";
   const id = await pending(${JSON.stringify(`notification:${notification.name}`)}, payload);
@@ -642,14 +667,11 @@ test("smtp notifications go through the configured transport", async () => {
 ` : "";
   return `import { beforeAll, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
-import { ${dialect === "sqlite" ? "client, " : ""}db } from "../src/db";
+import { db } from "../src/db";
 import { qiyDeliveries } from "../src/schema";
 import { DELIVERY_MAX_ATTEMPTS, dispatchDeliveries, renderDeliveryTemplate, retryDelayMs, signDeliveryBody } from "../src/delivery";
 
-beforeAll(async () => {
-  ${dialect === "sqlite" ? `client.exec(${JSON.stringify(sqliteDeliveryDdl)});` : ""}
-  await db.delete(qiyDeliveries);
-});
+${renderTestTable(dialect, deliveryDdl[dialect], "qiyDeliveries")}
 
 ${insertHelper}
 
@@ -660,7 +682,7 @@ test("templates and backoff", () => {
   expect(retryDelayMs(40)).toBe(6 * 60 * 60 * 1000);
 });
 
-test("unknown targets fail without retrying", async () => {
+dbTest("unknown targets fail without retrying", async () => {
   const id = await pending("webhook:removed", { flow: "test" });
   const previous = console.error;
   console.error = () => {};
