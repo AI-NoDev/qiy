@@ -197,7 +197,7 @@
 - [x] 多对多关系与多选 UI：`relation ... many` 生成连接表、id 数组字段（事务内校验并替换、软删/数据范围感知、`eq`/`in` 过滤、CSV、审计）与多选关联下拉
 - [x] 声明式状态机：`statemachine` 拥有一个枚举字段，每个 transition 编译为带守卫、幂等的 dataflow 与 action；`workflow orderInventory` 已删除（见 `docs/guide/migration-0.38.md`）
 - [ ] Dataflow 应用资源的 `restrict` 行策略（目前带行策略的资源不能被 Dataflow 使用）
-- [ ] Webhook、通知适配器（SMTP 默认 / Resend / webhook / 开发环境 console）；cron 调用 Dataflow 并加分布式锁
+- [x] Webhook 与通知：`webhook` / `notification` 订阅 `emit` 事件，事务内写投递记录，提交后签名投递或经 SMTP（默认）/ Resend / webhook / console 发送，抢占 + 退避重试；cron `job … dataflow <name>` 以租约保证每个 tick 只执行一次
 - [ ] 拆分 `tools/generate-server.ts`；计算字段落为数据库生成列；view IN 子查询性能
 - [ ] 本地 E2E 对陈旧服务的鲁棒性
 - [ ] 英文用户文档

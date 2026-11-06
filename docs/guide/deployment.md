@@ -109,6 +109,12 @@ deploy/kubernetes/
 
 Realtime 是自托管 SSE（`GET /api/v1/realtime/stream`），不需要额外服务或密钥。生成的 `deploy/nginx.conf` 无需改动：nginx 遵循响应里的 `X-Accel-Buffering: no` 关闭缓冲，默认 60 秒读超时也大于 25 秒保活间隔；换用其他反向代理或 CDN 时，需要为 `/api/v1/realtime/stream` 与 `/graphql/subscribe` 关闭响应缓冲并放宽读超时。多副本时各实例尾随同一张 outbox 表，跨副本事件延迟由 `QIY_REALTIME_POLL_MS` 决定。详见 [realtime](../dsl/realtime.md)。
 
+## 投递与定时任务
+
+声明了 `webhook` / `notification` 时，每个 Server 实例都运行投递 worker：投递记录先被抢占再发送，多副本不会重复发送同一条。只想让部分实例发送时，在其余实例上设置 `QIY_DELIVERY_DISABLED=1`。生产环境必须设置每个 webhook 的 URL/secret 变量和所选通知 provider 的变量（`QIY_SMTP_URL`、`QIY_RESEND_API_KEY` 或 `QIY_NOTIFY_WEBHOOK_URL`/`QIY_NOTIFY_WEBHOOK_SECRET`）；缺失时记录保持待发送，日志里会出现 `[qiy:delivery] … is not configured`。
+
+cron 需要 `QIY_CRON_ENABLED=1`。所有副本都可以开启：每个 tick 通过 `qiy_job_leases` 表只由一个实例执行，前提是各实例时钟同步（NTP）。详见 [通知与 Webhook](../dsl/notifications.md)。
+
 ## Nginx 反向代理
 
 前端是纯 SPA，不使用 HashRouter，服务器需要把未知路径回退到 `index.html`，同时把 API 前缀转发给 Elysia：
@@ -141,6 +147,7 @@ location /         { try_files $uri $uri/ /index.html; }
 - 已运行迁移，`/api/v1/health` 返回 200；
 - 未认证请求返回 401，错误凭据返回 4xx；
 - 对象存储（local/S3）可读写，附件下载正常；
+- 有 webhook/notification 时，相关环境变量已设置，`qiy_deliveries` 中没有长期 `pending` 或 `failed` 的记录；
 - 反向代理把 `/api/v1/*` 与 `/graphql` 转发到 Elysia，静态资源回退到 `index.html`。
 
 数据库、容器和 Kubernetes 的维护者验收脚本见 [CONTRIBUTING](https://github.com/AI-NoDev/qiy/blob/main/CONTRIBUTING.md)，不在用户文档内。

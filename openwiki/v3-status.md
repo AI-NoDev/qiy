@@ -16,6 +16,7 @@
 | 权限 | 自定义角色（`full`/`write`/`read` 访问级别）、原子权限/权限组、provider、校验块；`scope`、tree scope、`restrict` 记录条件（AND/OR/NOT）与字段脱敏；`pages` 页面与路由守卫 | [permissions](../docs/dsl/permissions.md) |
 | 业务流程 | Dataflow（typed input、context、require/allow、事务写入、audit/emit、result）与 `app.test.qiy` 声明式场景；Action 按钮；`statemachine` 状态机（每个 transition 编译为带守卫、幂等的 dataflow + action） | [dataflow](../docs/dsl/dataflow.md)、[actions](../docs/dsl/actions.md)、[statemachine](../docs/dsl/statemachine.md) |
 | 存储 | local / S3-compatible；单文件与多文件、分片续传、MIME/大小策略、孤儿对象扫描 | [storage](../docs/dsl/storage.md) |
+| 事件投递与定时任务 | `webhook` / `notification` 订阅 `emit` 事件：事务内写 `qiy_deliveries`，提交后由每个副本的 worker 抢占发送（HMAC 签名、退避重试、缺配置时等待）；通知 provider 为 SMTP/Resend/webhook/console；cron 可定时运行 dataflow，`qiy_job_leases` 保证每个 tick 只执行一次 | [通知与 Webhook](../docs/dsl/notifications.md) |
 | 实时 | 数据库 outbox + SSE（REST `GET /api/v1/realtime/stream`、GraphQL `GET /graphql/subscribe`），频道权限与记录级订阅，无外部服务依赖 | [realtime](../docs/dsl/realtime.md) |
 | 生成与集成 | `standalone` / `integration`（宿主 API 适配器）两种模式；`--sync` manifest 保护手写代码；生成器插件；`qiy diff`/增量生成；`qiy dev --watch` | [CLI](../docs/guide/cli.md) |
 | AI 入口 | 官方 Agent Skill（`qiy skill install`）、`qiy mcp`、`qiy agent` HTTP API、`llms.txt` / `llms-dsl.txt` / `llms-guides.txt` | [Agent Skill](../docs/guide/agent-skill.md) |
@@ -26,7 +27,8 @@
 - GraphQL 的 `QiyFilterInput` 是平铺的顶层 AND；嵌套条件树只在 REST 上可用。
 - SQLite 的 Money 映射为 `REAL`，没有十进制精确语义。
 - `workflow orderInventory` 已在 0.38.0 删除，改用 `statemachine`；库存预留等副作用需要自己写 dataflow（见 [迁移指南](../docs/guide/migration-0.38.md)）。
-- Cron 任务没有分布式锁，只能在单个专用副本上启用。
+- 通知只发纯文本邮件，模板取默认语言文案；投递是至少一次，接收方需按 `X-Qiy-Delivery` 去重。
+- 定时 dataflow 以第一个 `full` 角色运行，不能使用数据范围资源；cron 租约依赖各实例时钟同步。
 - 真实 IdP tenant、生产 S3 bucket、邮件/短信供应商由使用方按 [MAINTAINER_VERIFICATION](../MAINTAINER_VERIFICATION.md) 的步骤自行验收；本地 preview 不能公开部署。
 
 ## 0.37.0：删除冗余（进行中）
@@ -46,7 +48,7 @@
 3. ~~**全量 fixture 与示例漂移检查**~~（已完成）：一个覆盖全部语法的 kitchen-sink 模型在三方言上生成并测试；CI 检查 `examples/*/admin` 与生成器输出一致。
 3a. ~~**自定义角色**~~（已完成）：`auth { roles { ... } }` 声明角色名与访问级别；生成的 `auth/roles.ts` 是服务端所有角色判断的唯一来源，前端访问控制嵌入同一张表；kitchen-sink 使用 `owner`/`agent`/`auditor` 证明没有残留的固定角色名。
 4. ~~**多对多关系**与多选 UI~~（已完成）：`relation ... many` 生成连接表与虚拟 id 数组字段，写入在主记录事务内校验目标（存在、未软删、同数据范围）后整体替换；表单为多选关联下拉。
-5. **声明式状态机 / 审批流转**。
-6. **Webhook 与通知**：通知适配器（SMTP 默认、Resend、webhook，开发环境 console）与定时任务。
+5. ~~**声明式状态机 / 审批流转**~~（已完成）：`statemachine` 拥有一个枚举字段，每个 transition 编译为带守卫、幂等的 dataflow 与 action。
+6. ~~**Webhook 与通知**~~（已完成）：`webhook` / `notification` + 通知 provider（SMTP 默认、Resend、webhook，开发环境 console），投递记录与事务同成同败；cron 定时运行 dataflow，租约防止多副本重复执行。
 7. **工程优化**：按领域拆分 `tools/generate-server.ts`；计算字段落为数据库生成列；view 的 IN 子查询性能与索引；本地 E2E 对陈旧服务的鲁棒性。
 8. **英文用户文档**。

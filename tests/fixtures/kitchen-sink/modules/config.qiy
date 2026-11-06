@@ -37,9 +37,16 @@ elysia {
   jwt { name accessToken; secretEnv QIY_ACCESS_SECRET; }
   static { assets "public"; prefix "/public-assets"; }
   graphqlAdapter adapter yoga;
-  cron { job attachmentCleanup pattern "0 3 * * *" task cleanupMissingAttachments; }
+  cron {
+    job attachmentCleanup pattern "0 3 * * *" task cleanupMissingAttachments;
+    job dailyDigest pattern "0 7 * * 1-5" dataflow postDailyDigest;
+  }
 }
 storage { provider s3; }
+notifications {
+  provider smtp;
+  from "Kitchen Desk <desk@example.com>";
+}
 auth {
   providers local, okta, corp;
   user users;

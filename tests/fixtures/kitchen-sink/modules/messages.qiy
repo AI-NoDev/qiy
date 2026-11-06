@@ -18,6 +18,7 @@ messages {
     "kitchen.announcement.publishConfirm" "确认发布该公告？";
     "state.invalidTransition" "当前状态不允许此操作";
     "qiy.new" "新建";
+    "kitchen.notify.closedBody" "工单 {ticketId} 已关闭。";
   }
   locale "en-US" {
     "kitchen.application" "Kitchen-sink fixture";
@@ -37,5 +38,6 @@ messages {
     "kitchen.announcement.publishConfirm" "Publish this announcement?";
     "state.invalidTransition" "This action is not allowed in the current state";
     "qiy.new" "New";
+    "kitchen.notify.closedBody" "Ticket {ticketId} has been closed.";
   }
 }

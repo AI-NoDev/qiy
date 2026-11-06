@@ -18,6 +18,7 @@ Canonical reference: https://ai-nodev.github.io/qiy/dsl/dataflow (`/dsl/statemac
 - [Actions: exposing commands and pages](#actions-exposing-commands-and-pages)
 - [Manual extension pages](#manual-extension-pages)
 - [statemachine](#statemachine)
+- [Webhooks, notifications and scheduled dataflows](#webhooks-notifications-and-scheduled-dataflows)
 - [app.test.qiy scenarios](#apptestqiy-scenarios)
 - [Pitfalls](#pitfalls)
 - [Non-goals](#non-goals)
@@ -27,7 +28,9 @@ Canonical reference: https://ai-nodev.github.io/qiy/dsl/dataflow (`/dsl/statemac
 | Need | Use | Notes |
 | --- | --- | --- |
 | Atomic multi-record business operation (approve, receive, ship, archive) | `dataflow` + `action` | Recommended general mechanism |
-| Transactional event after commit | `dataflow` `emit` | Writes outbox rows; does not publish directly |
+| Transactional event after commit | `dataflow` `emit` | Writes outbox rows; subscribed `webhook`/`notification` targets get delivery rows sent after commit |
+| Signed HTTP callback / email on an event | `webhook` / `notification` | Retried, at-least-once; see [below](#webhooks-notifications-and-scheduled-dataflows) |
+| Run a command on a schedule | `elysia { cron { job ... dataflow <flow>; } }` | One instance per tick; runs as the first `full` role |
 | Read-only custom screen | `action ... navigate` + `page manual @comment(...)` | Implement under `app/extensions/`, preserved by `--sync` |
 | Record moves between enum states with guarded buttons | `statemachine` | Compiles to dataflows + actions; owns the field |
 | Host API business logic | Host code | `mode integration` rejects `dataflow` |
@@ -202,7 +205,7 @@ create review = entity reviews {
 | Binding | Enters the context namespace; usable by later `require`/`update`/`delete`/`result`; cannot collide with another binding or `input` |
 | Primary key | Generated; explicit assignment is rejected (`create primary key ... is generated automatically`) |
 | Scope fields | Derived from the authenticated principal; client input cannot override |
-| Required columns | Every non-null, non-PK, non-scope field must be assigned; nullable may be omitted (`create requires value for <entity>.<field>`) |
+| Required columns | Every non-null, non-PK, non-scope field must be assigned. May be omitted: nullable fields, `@default` fields (default value), `@version` fields (start at 1) and statemachine fields (`initial`). Otherwise `create requires value for <entity>.<field>` |
 | Value source | Literals only `Text`/enum; `input.<field>` supports `UUID`/`Text`/`Integer`/`Decimal` and a same-named enum |
 | Password field | Rejected |
 
@@ -234,6 +237,7 @@ emit "order.approved" {
 | Forbidden | Local password fields; deleted/unknown context; unknown input/field |
 | Persistence | `dataflow_outbox` (event name, actor, payload JSON, created time) in the same transaction |
 | Realtime | With `realtime` declared, also writes `qiy_realtime_outbox` with channel `qiy:event:<event>`, committed/rolled back together |
+| Deliveries | Each subscribed `webhook`/`notification` gets a `qiy_deliveries` row in the same transaction |
 
 `emit` only persists; it does not publish to a broker. Consumers, idempotency and dead letters are your responsibility. An idempotent replay does not duplicate events.
 
@@ -403,6 +407,41 @@ statemachine orderLifecycle {
 - A transition only changes the state. Put other writes (stock, tracking numbers) in a separate dataflow gated by `when status == "..."`.
 - `workflow orderInventory;` was removed in 0.38.0 and now fails with a pointer to docs/guide/migration-0.38.md.
 
+## Webhooks, notifications and scheduled dataflows
+
+```qiy
+notifications { provider smtp; from "Support Desk <desk@example.com>"; }   # after storage
+
+webhook ticketFeed {
+  event "ticket.closed", "announcements.publish";
+  url env TICKET_WEBHOOK_URL;
+  secret env TICKET_WEBHOOK_SECRET;
+}
+
+notification ticketClosedMail {
+  event "ticket.closed";
+  to "desk@example.com", payload.contactEmail;
+  subject "Ticket {ticketId} closed";
+  body t("notify.ticketClosed");
+}
+
+elysia { cron { job dailyDigest pattern "0 7 * * 1-5" dataflow postDailyDigest; } }
+```
+
+| Topic | Contract |
+| --- | --- |
+| Events | Dataflow `emit "x" { ... }` → payload `{ flow, ... }`; statemachine transition → `<table>.<transition>` with `{ flow, id, <field> }`. Subscribing to an event nobody emits fails |
+| Payload references | `payload.<field>` recipients and `{field}` placeholders must exist in **every** emit of the event; `t()` uses the default-locale text |
+| Writes | The emitting transaction inserts one `qiy_deliveries` row per subscriber (`webhook:<name>` / `notification:<name>`); rollback writes none |
+| Worker | Every server process polls (`QIY_DELIVERY_POLL_MS`, default 5000) and claims rows before sending, so replicas never send the same row twice; `QIY_DELIVERY_DISABLED=1` turns an instance off |
+| Retries | Backoff `min(30s·2^(n-1), 6h)`, 8 attempts, then `failed`; a missing env setting keeps the row pending without spending attempts; delivered rows pruned after 7 days. At-least-once: receivers dedupe on `X-Qiy-Delivery` |
+| Webhook request | POST JSON `{ id, event, createdAt, data }`, headers `X-Qiy-Delivery`, `X-Qiy-Event`, `X-Qiy-Timestamp`, `X-Qiy-Signature: sha256=HMAC(secret, "<timestamp>.<body>")`; 2xx only, no redirects, 10s timeout |
+| Notification providers | `smtp` (`QIY_SMTP_URL`, nodemailer), `resend` (`QIY_RESEND_API_KEY`), `webhook` (`QIY_NOTIFY_WEBHOOK_URL`/`_SECRET`), `console`; `QIY_NOTIFY_PROVIDER` overrides, development defaults to `console` |
+| Cron dataflow | One instance per tick (`qiy_job_leases`), runs as the first `full` role with idempotency key `cron:<job>:<tickISO>`; needs `QIY_CRON_ENABLED=1` and synchronized clocks |
+| Cron constraints | No required input, no `allow permission`/`allow verification`, `allow roles` must include a `full` role, no `scope`/`@tenant` resources |
+
+Generated: `src/delivery/index.ts`, `src/jobs/lease.ts`, `src/jobs/scheduled.ts`, `tests/delivery.test.ts`, `tests/scheduled.test.ts`; `nodemailer` when notifications exist. Canonical doc: docs/dsl/notifications.md.
+
 ## app.test.qiy scenarios
 
 When the entry model is `app.qiy`, the CLI looks for `app.test.qiy` in the same directory and compiles `given -> when dataflow -> expect` into Bun tests for the generated server.
@@ -430,7 +469,7 @@ scenario approve-review {
 | --- | --- |
 | `application` | Must equal the main model's application name |
 | `given` | At least one fixture; every non-null field must be provided; values must match types (`Date` `"YYYY-MM-DD"`, `Time` `"HH:mm:ss"`, `DateTime` millisecond timestamp, enum name) |
-| `identity` | Optional. `identity anonymous;` or `identity { id = "..."; role = "operator"; claims { "tenant.id" = review.tenantId; } }`; id non-empty, role one of the three, claims may reference fixtures |
+| `identity` | Optional. `identity anonymous;` or `identity { id = "..."; role = "operator"; claims { "tenant.id" = review.tenantId; } }`; id non-empty, role must be a declared role, claims may reference fixtures |
 | `when dataflow` | Only declared flows; every required input present; inputs may reference fixture fields |
 | `expect status` | **Required** (100-599) |
 | `expect errorKey == "..."` | Optional stable error key assertion |
@@ -466,7 +505,7 @@ bun test tests/qiy-scenarios.test.ts
 | 404 `Not found` + `resource` | `context` cannot load the record (bad id or out of scope) | Check the id and data scope |
 | 403 `command.forbidden` | `allow permission`/`allow verification` denied | Inspect `/auth/me` `permissions`/`groups` |
 | `cannot update scope field` | Command writes a scope column | Scope columns derive from the principal |
-| `create requires value for <e>.<f>` | Non-null field not assigned | Assign it or make it `@nullable` |
+| `create requires value for <e>.<f>` | Non-null field not assigned | Assign it, or add `@default`/`@nullable` |
 | `Dataflow <n> requires input, context, and result blocks` | Missing block, even when empty | Write `input {}`, `context {}` |
 | `result must return a declared context binding` | Returned an undeclared name | Return a context/create binding |
 | `literal updates currently support Text and enum fields only` | Literal used for Integer/Decimal/Date | Use a matching `input.<f>` or a `call` adapter |
@@ -484,12 +523,11 @@ Do not promise these:
 
 - Arbitrary expressions, arithmetic, function calls, loops, dynamic SQL, reflection, embedded JS/TS.
 - Arbitrary `where` loading, joins or aggregate reads inside a flow (use resource REST/GraphQL for queries).
-- Async/external side effects: `call` must be synchronous and network-free; use `emit` plus a post-commit worker.
-- Direct broker publishing, consumer idempotency or dead-letter handling.
+- External side effects inside the transaction: `call` must be synchronous and network-free. HTTP callbacks and email go through `emit` + `webhook`/`notification` (post-commit, retried); other integrations consume `dataflow_outbox` themselves.
+- Direct message-broker publishing.
 - Optional context, field-to-field comparisons, Decimal/Boolean conditions, dynamic Decimal writes.
 - Nested transactions, cross-command compensation or distributed transactions.
 - Generated commands in `mode integration` (rejected).
-- Custom roles in `allow roles` (only admin/operator); use `allow permission` for finer control.
 
 ## Related references
 

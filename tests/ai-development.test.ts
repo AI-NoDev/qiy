@@ -137,7 +137,7 @@ test("official skill is a compact router with complete, keyword-covered referenc
     "references/modeling-and-generation.md": ["@code", "relation", "index", "display template", "include"],
     "references/auth-permissions.md": ["permissions", "verify", "restrict", "scope", "API key", "onboarding"],
     "references/refine-providers.md": ["DataProvider", "AuthProvider", "can()", "LiveProvider", "AuditLogProvider"],
-    "references/dataflows-actions.md": ["statemachine", "dataflow", "app.test.qiy", "idempotency", "state.invalidTransition"],
+    "references/dataflows-actions.md": ["statemachine", "dataflow", "app.test.qiy", "idempotency", "state.invalidTransition", "webhook", "notification", "qiy_deliveries", "X-Qiy-Signature"],
     "references/ui-charts-i18n.md": ["charts", "chart panels", "messages", "menu", "colorMode"],
     "references/system-features.md": ["features", "apiKeys", "OpenAPI", "qiy_api_keys"],
     "references/storage-realtime.md": ["storage", "realtime", "attachments", "outbox"],

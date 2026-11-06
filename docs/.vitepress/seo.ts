@@ -19,6 +19,7 @@ export const pageDescriptions: Record<string, string> = {
   "dsl/dataflow.md": "dataflow 事务命令参考：input/context/step、require/update/create/delete/emit/call/audit、幂等、批量与结果。",
   "dsl/statemachine.md": "statemachine 状态机参考：拥有枚举字段、initial、transition 的 from/to/allow/confirm，编译为带守卫的幂等 dataflow 与 action。",
   "dsl/actions.md": "action 参考：命令按钮、列表/详情放置、手动页面、批处理、条件与数据流目标。",
+  "dsl/notifications.md": "通知与 Webhook 参考：订阅 emit 事件，事务内写投递记录，提交后 HMAC 签名投递或经 SMTP/Resend/webhook/console 发送，重试退避与 cron 定时运行 dataflow。",
   "dsl/realtime.md": "realtime 参考：订阅模式、事件、角色、资源声明、transport 与 outbox 运维接口。",
   "dsl/storage.md": "storage 参考：本地/S3 provider、File/Files 字段、上传与分片/断点续传、权限、环境变量与清理。",
   "dsl/features.md": "features 参考：功能总览、API 文档、访问密钥三个开发者页面的开关、菜单/路由与 OpenAPI 过滤。",

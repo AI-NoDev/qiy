@@ -77,7 +77,7 @@ Then, before any deployment claim: apply migrations to a real database, start th
 
 The generated `apps/server/tests/` and `apps/web/tests/` suites scale with the model and enabled features. Typical coverage (file names vary by model):
 
-- Server: per-resource CRUD/contract tests, pagination, filtering, distribution/trend/aggregate, GraphQL schema and queries, `dataflow.test.ts` (success, permission denial, idempotent replay/conflict, rollback, audit, outbox), `generated-values.test.ts`, `data-scope.test.ts`, `permissions.test.ts`, `auth.test.ts`, `local-auth.test.ts`, `hybrid-auth.test.ts`, `api-keys.test.ts`, `storage.test.ts`, `storage-metadata.test.ts`, `realtime.test.ts`, `realtime-outbox-transaction.test.ts`, `saved-views.test.ts`, `docs.test.ts`, `schema-drift.test.ts`, `backup-codec.test.ts`, `bins.test.ts`.
+- Server: per-resource CRUD/contract tests, pagination, filtering, distribution/trend/aggregate, GraphQL schema and queries, `dataflow.test.ts` (success, permission denial, idempotent replay/conflict, rollback, audit, outbox), `generated-values.test.ts`, `data-scope.test.ts`, `permissions.test.ts`, `auth.test.ts`, `local-auth.test.ts`, `hybrid-auth.test.ts`, `api-keys.test.ts`, `storage.test.ts`, `storage-metadata.test.ts`, `realtime.test.ts`, `realtime-outbox-transaction.test.ts`, `delivery.test.ts` (signing, backoff, unconfigured waits, notification providers), `cron.test.ts` and `scheduled.test.ts` (tick leases, scheduled principal), `saved-views.test.ts`, `docs.test.ts`, `schema-drift.test.ts`, `backup-codec.test.ts`, `bins.test.ts`.
 - Web: `data-provider.test.ts`, `auth.test.ts`, `menu-tree.test.ts`, `column-visibility.test.ts`, `field-rules.test.ts`, `display-template.test.ts`, `relation-batch.test.ts`, `relation-options.test.ts`, `download-file.test.ts`, `export.test.ts`, `views.test.ts`, `i18n.test.ts`, `model-i18n.test.ts`, `chrome-i18n.test.ts`, `project-messages.test.ts`, `charts.test.ts`, `charts-render.test.tsx`, `features.test.ts`, `api-docs.test.ts`, `api-docs-render.test.tsx`, `api-keys.test.ts`, `api-keys-render.test.tsx`, `audit-provider.test.ts`, `tree.test.ts`, `date-fields.test.ts`, `generated-fields.test.ts`, `live-provider.test.ts`, `sider-state.test.ts`, `record-details.test.tsx`, `relation-cell.test.tsx`, `actions.test.ts`.
 - `app.test.qiy` scenarios compile into `apps/server/tests/qiy-scenarios.test.ts`; run them in the server package. See [dataflows-actions.md](dataflows-actions.md) for grammar, database requirements and isolation rules.
 - Server tests force `QIY_REALTIME_DISABLED=1` by default; the realtime tests enable it explicitly and drive the real SSE route in-process.
@@ -152,6 +152,8 @@ Other targets: `deploy/vercel.json` for Vercel; AWS via the Dockerfile + ECR/ECS
 | `QIY_AUTH_SECRET` (>= 32 chars) | Sessions, OTP challenges, onboarding tokens, API-key pepper; rotation invalidates all sessions and keys |
 | `QIY_STORAGE_METADATA=database` | In-memory attachment metadata loses ownership across restarts/replicas and fails the production startup check |
 | `QIY_S3_*` (when `provider s3`) | Bucket, region, endpoint, credentials; server only |
+| Webhook URL/secret env, `QIY_SMTP_URL` / `QIY_RESEND_API_KEY` / `QIY_NOTIFY_WEBHOOK_*` (when webhooks/notifications exist) | Missing values keep deliveries pending and log `[qiy:delivery] ... is not configured` |
+| `QIY_CRON_ENABLED=1` (when cron jobs exist) | Cron is off by default; every replica may enable it because ticks are leased, but clocks must be synchronized |
 | `QIY_CORS_ORIGINS` (when cross-origin) | Exact origins including ports; wildcards are rejected |
 | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | Bun `fetch` proxy for IdP token endpoints in restricted networks |
 | Reverse-proxy TLS, SPA fallback, API forwarding | Browser routing and secure cookies/headers |
@@ -190,7 +192,7 @@ Before saying "ready to deploy", verify in the target environment:
 4. **Storage**: bucket/permissions, upload size/MIME modes, signed URL TTL, ownership 404s, orphan/missing-object cleanup, retention, failure recovery.
 5. **Realtime**: only granted channels reach each role, claim channels segment tenants, masked fields are absent, the reverse proxy does not buffer SSE.
 6. **API contract**: generated endpoints against the real web build, host adapters (integration mode), CORS, CSV import/export limits, saved views.
-7. **Operations**: TLS, SPA fallback, health checks, secrets injection/rotation, logging without secrets, metrics/alerts, backups, rollback runbook, multi-replica safety (storage metadata database, migration lock, import/export job claiming).
+7. **Operations**: TLS, SPA fallback, health checks, secrets injection/rotation, logging without secrets, metrics/alerts, backups, rollback runbook, multi-replica safety (storage metadata database, migration lock, import/export job claiming, delivery claiming, cron tick leases), no long-pending or failed rows in `qiy_deliveries`.
 
 Anything outside CRUD (connector authorization, queues, token encryption, revocation, audit policy, synchronization) belongs in domain services and must be tested independently. CRUD generation does not implement it.
 

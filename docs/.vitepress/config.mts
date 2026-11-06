@@ -192,6 +192,7 @@ export default defineConfig({
             { text: "statemachine（状态机）", link: "/dsl/statemachine" },
             { text: "dataflow", link: "/dsl/dataflow" },
             { text: "action", link: "/dsl/actions" },
+            { text: "通知与 Webhook", link: "/dsl/notifications" },
             { text: "realtime", link: "/dsl/realtime" },
             { text: "storage（文件存储）", link: "/dsl/storage" },
             { text: "features（系统管理功能开关）", link: "/dsl/features" },

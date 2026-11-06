@@ -30,6 +30,7 @@ app.qiy + include 片段
 | `tools/database-ir.ts` | 方言无关的数据模型校验 |
 | `tools/roles.ts` | 角色声明校验、默认角色、`RoleContext`，以及生成的 `api/src/auth/roles.ts` |
 | `tools/generate-server.ts` | 服务端生成（最大的文件，计划按领域拆分） |
+| `tools/delivery.ts` | webhook / notification / cron dataflow：校验、`qiy_deliveries` 与 `qiy_job_leases` schema、投递 worker、租约与定时执行模块及其生成测试 |
 | `tools/generate-relation-links.ts` | 多对多：连接表读写模块 `api/src/relation-links.ts`、repository 注入、数据范围校验 |
 | `tools/generate-web.ts` | 前端生成 |
 | `tools/generate-project.ts` | 生成编排、workspace 组装、插件钩子 |
@@ -54,6 +55,7 @@ app.qiy + include 片段
 │   ├── auth/                      roles.ts（声明的角色与访问级别）/ local / oidc / hybrid / API Key / 权限 provider / 会话吊销
 │   ├── dataflows/                 声明式业务命令（事务、审计、emit）
 │   ├── realtime.ts / realtime-bus.ts  outbox 轮询 + SSE
+│   ├── delivery/ / jobs/          webhook 与通知投递 worker；cron 租约与定时 dataflow
 │   ├── import-jobs.ts / export-jobs.ts / storage/
 │   └── db-migrate / db-check / db-backup / db-restore / db-rollback
 ├── apps/web/app/
@@ -76,6 +78,7 @@ app.qiy + include 片段
 - **方言差异显式化**：方言不支持的能力在生成前报错，不静默降级。
 - **单一 UI adapter**：当前只生成 Ant Design；其他 adapter 在完整实现前不提供。
 - **实时无外部依赖**：mutation 与 outbox 写入同一事务，进程内轮询 outbox 后用 SSE 推送；频道授权与 REST 共用同一策略。
+- **外部投递在提交之后**：事务内只写投递记录，网络调用由 worker 在提交后执行并重试；业务事务不等待、也不因外部服务失败而回滚。
 
 ## 系统管理功能：功能总览、OpenAPI 与 API Key
 

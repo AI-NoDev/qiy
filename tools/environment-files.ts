@@ -2,10 +2,11 @@ import { randomBytes } from "node:crypto";
 import type { DatabaseIR } from "./database-ir";
 import type { QiyEnvironmentVariable, QiyProject } from "./qiy-project";
 import { authHasLocal, authIsHybrid, authOAuthProviders, authProviderPreset, authUsesProviderChooser, type QiyAuthProvider, type QiyOidcPreset } from "./qiy-project";
+import { deliveryEnvironment, deliveryEnvironmentComments } from "./delivery";
 import { leastPrivilegedRole } from "./roles";
 
 type Mode = "development" | "production" | "example";
-type EnvOptions = Pick<QiyProject, "apiClient" | "corsOrigins" | "elysiaPlugins" | "realtime" | "storageProvider" | "auth" | "environment">;
+type EnvOptions = Pick<QiyProject, "apiClient" | "corsOrigins" | "elysiaPlugins" | "realtime" | "storageProvider" | "auth" | "environment" | "webhooks" | "notifications" | "notificationSettings">;
 
 const generatedSecret = "__QIY_GENERATE_SECRET__";
 const isOidcAuth = (provider: NonNullable<QiyProject["auth"]>["provider"]): boolean => provider !== "local" && provider !== "otp";
@@ -109,6 +110,7 @@ function defaults(database: DatabaseIR, options: EnvOptions, mode: Mode): Map<st
     values.set("QIY_S3_SECRET_ACCESS_KEY", "");
     values.set("QIY_S3_SESSION_TOKEN", "");
   }
+  for (const [name, value] of deliveryEnvironment(options, mode, generatedSecret)) values.set(name, value);
   return values;
 }
 
@@ -146,6 +148,7 @@ function serverEnvironment(database: DatabaseIR, options: EnvOptions, mode: Mode
   if (options.auth?.provider === "otp") lines.push("", "# OTP uses QIY_AUTH_SECRET to sign challenges and access tokens. Configure an HTTPS delivery adapter in production; QIY_OTP_DEV_CODE is development-only.");
   if (options.elysiaPlugins?.jwt) lines.push("", `# ${options.elysiaPlugins.jwt.secretEnv} is required by the configured Elysia JWT plugin.`);
   if (options.storageProvider === "s3") lines.push("", "# Set the QIY_S3_* values above for Bun's S3-compatible storage adapter.");
+  lines.push(...deliveryEnvironmentComments(options));
   for (const variable of options.environment ?? []) {
     if (variable.secret) lines.push(`# ${variable.name} is secret; supply it through a secret manager in production.`);
     if (variable.production?.kind === "required") lines.push(`# ${variable.name} must be configured before production startup.`);

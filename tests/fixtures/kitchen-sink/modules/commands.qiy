@@ -21,7 +21,10 @@ dataflow closeTicket @label(t("kitchen.flow.close")) @confirm(t("kitchen.flow.cl
       ticketId = input.ticketId;
       body = input.reason;
     }
-    emit "ticket.closed" { ticketId = input.ticketId; }
+    emit "ticket.closed" {
+      ticketId = input.ticketId;
+      contactEmail = ticket.contactEmail;
+    }
     call notifyRequester { ticketId = input.ticketId; reason = input.reason; }
   }
   result { return ticket; }
@@ -54,6 +57,37 @@ dataflow retitleAnnouncement {
   context { announcement = entity announcements by id input.announcementId @required; }
   step retitle { update announcement { title = input.title; } }
   result { return announcement; }
+}
+
+dataflow postDailyDigest {
+  allow roles owner;
+  idempotency required;
+  input { }
+  context { }
+  step post {
+    create digest = entity announcements {
+      title = "Daily digest";
+      queue = "support";
+    }
+    emit "announcement.digest" {
+      id = digest.id;
+      title = digest.title;
+    }
+  }
+  result { return digest; }
+}
+
+webhook announcementFeed {
+  event "announcement.digest", "announcements.publish";
+  url env ANNOUNCEMENT_WEBHOOK_URL;
+  secret env ANNOUNCEMENT_WEBHOOK_SECRET;
+}
+
+notification ticketClosedMail {
+  event "ticket.closed";
+  to "desk@example.com", payload.contactEmail;
+  subject "Ticket {ticketId} closed";
+  body t("kitchen.notify.closedBody");
 }
 
 statemachine announcementLifecycle {

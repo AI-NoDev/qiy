@@ -1,3 +1,4 @@
+import { deliveryTargetsByEvent, isDataflowCronJob, renderDeliveryInsert, renderDeliveryModule, renderDeliverySchema, renderDeliveryTest, renderJobLeaseModule, renderJobLeaseSchema, renderScheduledDataflowModule, renderScheduledDataflowTest, sqliteDeliveryDdl, usesDeliveries } from "./delivery";
 import type { DatabaseIR, EntityIR, FieldIR, FilterMode } from "./database-ir";
 import { manyRelations } from "./database-ir";
 import { injectLinkWrites, linkBodySchema, sqliteLinkTestTables, renderLinkedRepository, renderRelationLinksModule, renderRepositoryLinks, repositoryLinkImports, validateRelationLinkScopes } from "./generate-relation-links";
@@ -3226,7 +3227,7 @@ ${adapters.map((adapter) => `  ${JSON.stringify(adapter)}: () => ({ ok: false, e
 `;
 }
 
-function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, scopes: NonNullable<QiyProject["scopes"]> = [], qiyActions: NonNullable<QiyProject["actions"]> = [], realtimeEnabled = false, permissions?: QiyPermissionModel): string | undefined {
+function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, scopes: NonNullable<QiyProject["scopes"]> = [], qiyActions: NonNullable<QiyProject["actions"]> = [], realtimeEnabled = false, permissions?: QiyPermissionModel, deliveryTargets: Map<string, string[]> = new Map()): string | undefined {
   if (!dataflows.length) return undefined;
   const usesPermissions = dataflows.some((flow) => flow.permission || flow.verification);
   if (usesPermissions && !permissions) throw new Error("Dataflow permission rules require permission declarations");
@@ -3326,7 +3327,9 @@ function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullable<QiyPr
         const payload = `JSON.stringify({ flow: ${JSON.stringify(flow.name)}${payloadFields.length ? `, ${payloadFields.join(", ")}` : ""} })`;
         const insert = `tx.insert(dataflowOutbox).values({ id: crypto.randomUUID(), actorId: principal?.id ?? null, event: ${JSON.stringify(action.event)}, payload: ${payload}, createdAt: new Date() })`;
         const realtimeInsert = `tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: ${JSON.stringify(`qiy:event:${action.event}`)}, type: ${JSON.stringify(action.event)}, payload: ${payload}, createdAt: new Date() })`;
-        return `        ${database.dialect === "sqlite" ? `${insert}.run();${realtimeEnabled ? `\n        ${realtimeInsert}.run();` : ""}` : `await ${insert};${realtimeEnabled ? `\n        await ${realtimeInsert};` : ""}`}`;
+        const targets = deliveryTargets.get(action.event) ?? [];
+        const deliveries = targets.length ? `\n${renderDeliveryInsert(database.dialect, targets, action.event, payload)}` : "";
+        return `        ${database.dialect === "sqlite" ? `${insert}.run();${realtimeEnabled ? `\n        ${realtimeInsert}.run();` : ""}` : `await ${insert};${realtimeEnabled ? `\n        await ${realtimeInsert};` : ""}`}${deliveries}`;
       }
       if (action.kind === "call") {
         const payloadFields = (action.payload ?? []).map((value) => {
@@ -3493,6 +3496,7 @@ ${inputSchema}
   const usesAudit = dataflows.some((flow) => flow.audit !== undefined);
   const usesOutbox = dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit")));
   const usesRealtimeOutbox = realtimeEnabled && usesOutbox;
+  const usesDeliveryRows = dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit" && deliveryTargets.has(action.event))));
   const usesCalls = dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "call")));
   const dataflowEntities = dataflows.flatMap((flow) => [
     ...flow.context.map((binding) => binding.entity),
@@ -3501,7 +3505,7 @@ ${inputSchema}
   return `import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db";
- import { ${[...new Set([...dataflowEntities, ...(usesIdempotency ? ["dataflowIdempotency"] : []), ...(usesAudit ? ["auditEvents"] : []), ...(usesOutbox ? ["dataflowOutbox"] : []), ...(usesRealtimeOutbox ? ["realtimeOutbox"] : [])])].join(", ")} } from "../schema";
+ import { ${[...new Set([...dataflowEntities, ...(usesIdempotency ? ["dataflowIdempotency"] : []), ...(usesAudit ? ["auditEvents"] : []), ...(usesOutbox ? ["dataflowOutbox"] : []), ...(usesRealtimeOutbox ? ["realtimeOutbox"] : []), ...(usesDeliveryRows ? ["qiyDeliveries"] : [])])].join(", ")} } from "../schema";
 import type { Authenticator } from "../auth/guard";
 ${usesPermissions ? 'import { evaluatePermissionVerification, loadPermissions } from "../auth/permissions";\n' : ""}
 ${usesCalls ? 'import { invokeDataflowCall } from "./calls";\n' : ""}
@@ -3537,12 +3541,21 @@ function sqliteColumnType(field: FieldIR): string {
   }
 }
 
+/** Mirrors the Drizzle column default so test tables accept inserts that omit the column. */
+function sqliteTestDefault(field: FieldIR): string {
+  if (field.version) return " default 1";
+  const value = field.defaultValue;
+  if (value?.kind !== "literal") return "";
+  if (typeof value.value === "boolean") return value.value ? " default 1" : " default 0";
+  return typeof value.value === "number" ? ` default ${value.value}` : ` default '${String(value.value).replaceAll("'", "''")}'`;
+}
+
 function renderSqliteRealtimeOutboxTest(database: DatabaseIR, realtime: NonNullable<QiyProject["realtime"]>): string | undefined {
   if (database.dialect !== "sqlite") return undefined;
   const subscription = realtime.resources[0];
   const entity = database.entities.find((candidate) => candidate.name === subscription?.resource || candidate.tableName === subscription?.resource);
   if (!entity) return undefined;
-  const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `${JSON.stringify(field.columnName ?? field.name)} ${sqliteColumnType(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
+  const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `${JSON.stringify(field.columnName ?? field.name)} ${sqliteColumnType(field)}${sqliteTestDefault(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
   const fixture = (variant: 1 | 2) => entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable).map((field) => {
     const enumeration = database.enums?.find((item) => item.name === field.enumName);
     const value = enumeration ? JSON.stringify(enumeration.values[Math.min(variant - 1, enumeration.values.length - 1)]!.name)
@@ -3614,7 +3627,7 @@ function dataflowFixtureValue(field: FieldIR, requires: Array<{ field: string; o
   return "null";
 }
 
-function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, roles: RoleContext, qiyActions: NonNullable<QiyProject["actions"]> = [], realtimeEnabled = false, permissions?: QiyPermissionModel): string | undefined {
+function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, roles: RoleContext, qiyActions: NonNullable<QiyProject["actions"]> = [], realtimeEnabled = false, permissions?: QiyPermissionModel, deliveryTargets: Map<string, string[]> = new Map()): string | undefined {
   if (database.dialect !== "sqlite" || !dataflows.length) return undefined;
   // Command authorization may be role-, permission- or verification-based. The
   // generated happy-path actor holds every declared permission so the fixture
@@ -3631,7 +3644,7 @@ function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<Q
     : "") + (tenantClaims.length ? `, claims: ${JSON.stringify(Object.fromEntries(tenantClaims.map((claim) => [claim, "00000000-0000-4000-8000-000000000001"])))}` : "");
   const imports = usedEntities.map((entity) => entity.name).join(", ");
   const schema = usedEntities.map((entity) => {
-    const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `${JSON.stringify(field.columnName ?? field.name)} ${sqliteColumnType(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
+    const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `${JSON.stringify(field.columnName ?? field.name)} ${sqliteColumnType(field)}${sqliteTestDefault(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
     return `client.exec(${JSON.stringify(`CREATE TABLE IF NOT EXISTS ${entity.tableName} (${columns})`)});`;
   }).join("\n");
   const auxiliarySchema = [
@@ -3639,6 +3652,7 @@ function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<Q
     ...(dataflows.some((flow) => flow.idempotency?.required) ? [`client.exec("CREATE TABLE IF NOT EXISTS dataflow_idempotency (id text primary key, actorId text not null, flow text not null, requestKeyHash text not null, requestHash text not null, response text not null, UNIQUE(actorId, flow, requestKeyHash))");`] : []),
     ...(dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) ? [`client.exec("CREATE TABLE IF NOT EXISTS dataflow_outbox (id text primary key, actorId text, event text not null, payload text not null, createdAt integer not null)");`] : []),
     ...(realtimeEnabled && dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) ? [`client.exec("CREATE TABLE IF NOT EXISTS qiy_realtime_outbox (id text primary key, channel text not null, type text not null, payload text not null, createdAt integer not null)");`] : []),
+    ...(deliveryTargets.size ? [`client.exec(${JSON.stringify(sqliteDeliveryDdl)});`] : []),
   ].join("\n");
   const cleanup = [
     ...usedEntities.map((entity) => `client.exec(${JSON.stringify(`DELETE FROM ${entity.tableName}`)});`),
@@ -3646,6 +3660,7 @@ function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<Q
     ...(dataflows.some((flow) => flow.idempotency?.required) ? ["client.exec('DELETE FROM dataflow_idempotency');"] : []),
     ...(dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) ? ["client.exec('DELETE FROM dataflow_outbox');"] : []),
     ...(realtimeEnabled && dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) ? ["client.exec('DELETE FROM qiy_realtime_outbox');"] : []),
+    ...(deliveryTargets.size ? ["client.exec('DELETE FROM qiy_deliveries');"] : []),
   ].join("\n");
   const tests = dataflows.map((flow) => {
     const input = Object.fromEntries(flow.input.map((field) => [field.name, database.enums?.find((item) => item.name === field.type)?.values.at(-1)?.name ?? (field.type === "UUID" ? "00000000-0000-4000-8000-000000000001" : field.type === "Text" ? "Qiy fixture reason" : field.type === "Integer" ? 7 : field.type === "Boolean" ? true : "1.00")]));
@@ -3714,6 +3729,9 @@ function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<Q
     const outboxCheck = emittedEvents.length ? `
     expect(client.query<{ total: number }, []>("select count(*) as total from dataflow_outbox").get()?.total).toBe(${emittedEvents.length});
     expect(client.query<{ event: string }, []>("select event from dataflow_outbox limit 1").get()?.event).toBe(${JSON.stringify(emittedEvents[0]!.event)});` : "";
+    const deliveryCount = emittedEvents.reduce((total, action) => total + (deliveryTargets.get(action.event)?.length ?? 0), 0);
+    const deliveryCheck = deliveryCount ? `
+    expect(client.query<{ total: number }, []>("select count(*) as total from qiy_deliveries where status = 'pending'").get()?.total).toBe(${deliveryCount});` : "";
     const realtimeOutboxCheck = realtimeEnabled && emittedEvents.length ? `
     expect(client.query<{ total: number }, []>("select count(*) as total from qiy_realtime_outbox").get()?.total).toBe(${emittedEvents.length});
     expect(client.query<{ channel: string; type: string }, []>("select channel, type from qiy_realtime_outbox limit 1").get()).toEqual({ channel: ${JSON.stringify(`qiy:event:${emittedEvents[0]!.event}`)}, type: ${JSON.stringify(emittedEvents[0]!.event)} });` : "";
@@ -3866,7 +3884,7 @@ ${missingKeyCheck}
     expect(response.status).toBe(200);
     const result = await response.json();
     ${assertions || "expect(result).toHaveProperty(\"id\");"}${resultMutationCheck}
-    ${replayCheck}${auditCheck}${outboxCheck}${realtimeOutboxCheck}
+    ${replayCheck}${auditCheck}${outboxCheck}${deliveryCheck}${realtimeOutboxCheck}
   });${graphqlCommandTest}${authorizationTest}${rollbackTests}${businessRollbackTest}${callRollbackTest}${inputValidationTests}${numericGuardTests}${batchTest}`;
   }).join("\n\n");
   return `import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
@@ -3920,7 +3938,7 @@ function scenarioPermissionPrincipal(permissions?: QiyPermissionModel): string {
     : "";
 }
 
-function renderQiyScenarioTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, roles: RoleContext, suite?: QiyTestSuite, permissions?: QiyPermissionModel): string | undefined {
+function renderQiyScenarioTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, roles: RoleContext, suite?: QiyTestSuite, permissions?: QiyPermissionModel, deliveryTargets: Map<string, string[]> = new Map()): string | undefined {
   if (!suite) return undefined;
   if (database.dialect === "postgresql" || database.dialect === "mysql") return renderServerQiyScenarioTest(database, dataflows, roles, suite, permissions);
   if (database.dialect !== "sqlite") throw new Error("Declarative app.test.qiy scenarios require sqlite, postgresql or mysql");
@@ -3934,23 +3952,26 @@ function renderQiyScenarioTest(database: DatabaseIR, dataflows: NonNullable<QiyP
   }
   const usedEntities = [...entityNames].map((name) => entities.get(name)!);
   const schema = usedEntities.map((entity) => {
-    const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `${sqliteTestIdentifier(field.columnName ?? field.name)} ${sqliteColumnType(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
+    const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `${sqliteTestIdentifier(field.columnName ?? field.name)} ${sqliteColumnType(field)}${sqliteTestDefault(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
     return `client.exec(${JSON.stringify(`CREATE TABLE IF NOT EXISTS ${sqliteTestIdentifier(entity.tableName)} (${columns})`)});`;
   }).join("\n");
   const usesAudit = selectedFlows.some((flow) => flow.audit !== undefined);
   const usesIdempotency = selectedFlows.some((flow) => flow.idempotency?.required);
   const usesOutbox = selectedFlows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) || suite.scenarios.some((scenario) => scenario.expectedOutbox?.length);
+  const usesDeliveryRows = selectedFlows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit" && deliveryTargets.has(action.event))));
   const callAdapters = dataflowCallAdapters(selectedFlows);
   const auxiliary = [
     ...(usesAudit ? [`client.exec("CREATE TABLE IF NOT EXISTS audit_events (id text primary key, actorId text, action text not null, resource text not null, resourceId text, metadata text, createdAt integer not null)");`] : []),
     ...(usesIdempotency ? [`client.exec("CREATE TABLE IF NOT EXISTS dataflow_idempotency (id text primary key, actorId text not null, flow text not null, requestKeyHash text not null, requestHash text not null, response text not null, UNIQUE(actorId, flow, requestKeyHash))");`] : []),
     ...(usesOutbox ? [`client.exec("CREATE TABLE IF NOT EXISTS dataflow_outbox (id text primary key, actorId text, event text not null, payload text not null, createdAt integer not null)");`] : []),
+    ...(usesDeliveryRows ? [`client.exec(${JSON.stringify(sqliteDeliveryDdl)});`] : []),
   ].join("\n");
   const cleanup = [
     ...[...usedEntities].reverse().map((entity) => `client.exec(${JSON.stringify(`DELETE FROM ${sqliteTestIdentifier(entity.tableName)}`)});`),
     ...(usesAudit ? ["client.exec('DELETE FROM audit_events');"] : []),
     ...(usesIdempotency ? ["client.exec('DELETE FROM dataflow_idempotency');"] : []),
     ...(usesOutbox ? ["client.exec('DELETE FROM dataflow_outbox');"] : []),
+    ...(usesDeliveryRows ? ["client.exec('DELETE FROM qiy_deliveries');"] : []),
   ].join("\n");
   const tests = suite.scenarios.map((scenario) => {
     const flow = dataflows.find((item) => item.name === scenario.dataflow)!;
@@ -4504,7 +4525,7 @@ describe("generated /auth/me permission metadata", () => {
 `;
 }
 
-export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "comment" | "commentKey" | "storageProvider" | "auth" | "permissions" | "scopes" | "restrictions" | "pages" | "corsOrigins" | "elysiaPlugins" | "dataflows" | "actions" | "realtime" | "features"> & { testSuite?: QiyTestSuite; appName?: string } = {}): Record<string, string> {
+export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "comment" | "commentKey" | "storageProvider" | "auth" | "permissions" | "scopes" | "restrictions" | "pages" | "corsOrigins" | "elysiaPlugins" | "dataflows" | "actions" | "realtime" | "features" | "webhooks" | "notifications" | "notificationSettings"> & { testSuite?: QiyTestSuite; appName?: string } = {}): Record<string, string> {
   if (options.realtime && !options.auth) throw new Error("Realtime requires generated authentication");
   const roles = roleContext(options.auth);
   if (options.dataflows) options = { ...options, dataflows: withDefaultCommandRoles(options.dataflows, options.auth) };
@@ -4632,7 +4653,8 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
     if (cronNames.has(job.name)) errors.push(`Cron: duplicate job name ${job.name}`);
     cronNames.add(job.name);
     if (!/^\S+(?:\s+\S+){4,5}$/.test(job.pattern)) errors.push(`Cron ${job.name}: pattern must have 5 or 6 fields`);
-    if (job.task !== "cleanupMissingAttachments") errors.push(`Cron ${job.name}: unsupported task ${job.task}`);
+    if ("task" in job && job.task !== "cleanupMissingAttachments") errors.push(`Cron ${job.name}: unsupported task ${job.task}`);
+    if (isDataflowCronJob(job) && !(options.dataflows ?? []).some((flow) => flow.name === job.dataflow)) errors.push(`Cron ${job.name}: unknown dataflow ${job.dataflow}`);
   }
   const staticConfig = options.elysiaPlugins?.static;
   if (staticConfig) {
@@ -4840,7 +4862,9 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
   const repositoryImports = database.entities.map((entity) => `import { ${modelName(entity)}Repository } from "./modules/${entity.name}/${entity.name}.repository";`).join("\n");
   const apps = database.entities.map((entity) => `    .use(${modelName(entity)}Routes(repositories.${entity.name}, authenticateRequest))`).join("\n");
   const interfaces = database.entities.map((entity) => `  ${entity.name}: import("./modules/${entity.name}/${entity.name}.contract").${modelName(entity)}Repository;`).join("\n");
-  const dataflowRoutes = renderDataflowRoutes(database, options.dataflows ?? [], options.scopes ?? [], options.actions ?? [], options.realtime !== undefined, permissions);
+  const deliveryTargets = deliveryTargetsByEvent(options.webhooks, options.notifications);
+  const cronJobs = options.elysiaPlugins?.cron ?? [];
+  const dataflowRoutes = renderDataflowRoutes(database, options.dataflows ?? [], options.scopes ?? [], options.actions ?? [], options.realtime !== undefined, permissions, deliveryTargets);
   const protectedResources = JSON.stringify([
     ...database.entities.map((entity) => ({ path: entity.tableName, query: entity.name })),
     ...(database.views ?? []).map((view) => ({ path: view.name, query: view.name })),
@@ -4859,11 +4883,14 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
     + ((options.dataflows ?? []).some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit"))) ? renderDataflowOutboxSchema(database.dialect) : "")
     + (options.realtime ? renderRealtimeOutboxSchema(database.dialect) : "")
     + (apiKeysEnabled ? renderApiKeySchema(database.dialect) : "")
-    + (hasLocalAuth ? renderSessionRevocationSchema(database.dialect) : "");
+    + (hasLocalAuth ? renderSessionRevocationSchema(database.dialect) : "")
+    + (usesDeliveries(options) ? renderDeliverySchema(database.dialect) : "")
+    + (cronJobs.length ? renderJobLeaseSchema(database.dialect) : "");
   const pluginDependencies: Record<string, string> = {};
   if (options.elysiaPlugins?.bearer) pluginDependencies["@elysia/bearer"] = "1.4.4";
   if (options.elysiaPlugins?.serverTiming) pluginDependencies["@elysia/server-timing"] = "1.4.1";
   if (options.elysiaPlugins?.cron?.length) pluginDependencies["@elysia/cron"] = "1.4.2";
+  if (options.notifications?.length) pluginDependencies.nodemailer = "10.3.1";
   if (options.elysiaPlugins?.jwt) pluginDependencies["@elysia/jwt"] = "1.4.2";
   if (options.elysiaPlugins?.static) pluginDependencies["@elysia/static"] = "1.4.11";
   if (options.elysiaPlugins?.html) pluginDependencies["@elysia/html"] = "1.4.1";
@@ -5787,7 +5814,7 @@ ${uploadField ? "test" : "test.skip"}("protects file storage endpoints and rejec
     "api/src/plugins/index.ts": `import type { Elysia } from "elysia";
 ${options.elysiaPlugins?.bearer ? 'import { bearer } from "@elysia/bearer";' : ""}
 ${options.elysiaPlugins?.serverTiming ? 'import { serverTiming } from "@elysia/server-timing";' : ""}
-${options.elysiaPlugins?.cron?.length ? 'import { cron } from "@elysia/cron";' : ""}
+${cronJobs.length ? 'import { cron } from "@elysia/cron";\nimport { claimJobTick, scheduledTick } from "../jobs/lease";' : ""}${cronJobs.some(isDataflowCronJob) ? '\nimport { runScheduledDataflow } from "../jobs/scheduled";' : ""}
 ${options.elysiaPlugins?.jwt ? 'import { jwt } from "@elysia/jwt";' : ""}
 ${options.elysiaPlugins?.static ? 'import { staticPlugin } from "@elysia/static";' : ""}
 ${options.elysiaPlugins?.html ? 'import { html } from "@elysia/html";' : ""}
@@ -5795,7 +5822,7 @@ ${options.elysiaPlugins?.graphqlAdapter === "yoga" ? 'import { yoga } from "@ely
 ${options.elysiaPlugins?.graphqlAdapter === "apollo" ? 'import { apollo } from "@elysia/apollo";' : ""}
 ${options.elysiaPlugins?.graphqlAdapter && options.elysiaPlugins.graphqlAdapter !== "native" ? 'import { createGraphQLContext, graphqlTypeDefs } from "../graphql";\nimport { createGraphQLAdapterResolvers } from "../graphql-adapter";' : ""}
 ${options.elysiaPlugins?.drizzle ? 'import { db } from "../db";' : ""}
-${options.elysiaPlugins?.cron?.some((job) => job.task === "cleanupMissingAttachments") ? 'import { cleanupMissingAttachmentObjects } from "../storage/routes";' : ""}
+${cronJobs.some((job) => !isDataflowCronJob(job)) ? 'import { cleanupMissingAttachmentObjects } from "../storage/routes";' : ""}
 
 export interface PluginContext {
   repositories: import("../app").Repositories;
@@ -5805,14 +5832,24 @@ export interface QiyPlugin {
   name: string;
   setup(app: any, context?: PluginContext): any;
 }
-${options.elysiaPlugins?.cron?.length ? `export function createCleanupCronJob(name: string, pattern: string, cleanup = cleanupMissingAttachmentObjects) {
+${cronJobs.some((job) => !isDataflowCronJob(job)) ? `export function createCleanupCronJob(name: string, pattern: string, cleanup = cleanupMissingAttachmentObjects, claim = claimJobTick) {
   return cron({ name, pattern, unref: true, protect: true,
     catch: (error) => console.error(\`[qiy:cron:\${name}] failed\`, error),
     async run() {
+    if (!(await claim(name, scheduledTick(pattern)))) return;
     const limit = Number(Bun.env.QIY_ATTACHMENT_CLEANUP_LIMIT ?? 1000);
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10000) throw new Error("QIY_ATTACHMENT_CLEANUP_LIMIT must be an integer from 1 to 10000");
     const result = await cleanup({ dryRun: false, limit });
     console.info(\`[qiy:cron:\${name}]\`, result);
+  } });
+}` : ""}${cronJobs.some(isDataflowCronJob) ? `
+/** Every instance schedules the job; the tick lease lets exactly one of them run the dataflow. */
+export function createDataflowCronJob(name: string, pattern: string, flow: string, run = runScheduledDataflow) {
+  return cron({ name, pattern, unref: true, protect: true,
+    catch: (error) => console.error(\`[qiy:cron:\${name}] failed\`, error),
+    async run() {
+    const outcome = await run(name, flow, scheduledTick(pattern));
+    if (!outcome.skipped) console.info(\`[qiy:cron:\${name}] \${flow} completed\`);
   } });
 }` : ""}
 export const plugins: QiyPlugin[] = [
@@ -5826,9 +5863,9 @@ ${options.elysiaPlugins?.jwt ? `  { name: "jwt", setup: (app) => {
     return app.use(jwt({ name: ${JSON.stringify(options.elysiaPlugins.jwt.name)}, secret }));
   } },` : ""}
 ${options.elysiaPlugins?.static ? `  { name: "static", setup: async (app) => app.use(await staticPlugin({ assets: ${JSON.stringify(options.elysiaPlugins.static.assets)}, prefix: ${JSON.stringify(options.elysiaPlugins.static.prefix)} })) },` : ""}
-${options.elysiaPlugins?.graphqlAdapter === "yoga" ? `  { name: "graphql-yoga", setup: (app, context) => context ? app.use(yoga({ path: "/graphql", graphiql: false, landingPage: false, typeDefs: graphqlTypeDefs, resolvers: createGraphQLAdapterResolvers(context.repositories, context.authenticate) as any, context: ({ request }) => ({ request }) })) : app },` : ""}
+${options.elysiaPlugins?.graphqlAdapter === "yoga" ? `  { name: "graphql-yoga", setup: (app, context) => context ? app.use(yoga({ path: "/graphql", graphiql: false, landingPage: false, typeDefs: graphqlTypeDefs as string, resolvers: createGraphQLAdapterResolvers(context.repositories, context.authenticate) as any, context: ({ request }) => ({ request }) })) : app },` : ""}
 ${options.elysiaPlugins?.graphqlAdapter === "apollo" ? `  { name: "graphql-apollo", setup: async (app, context) => context ? app.use(await apollo({ path: "/graphql", enablePlayground: false, typeDefs: graphqlTypeDefs, resolvers: createGraphQLAdapterResolvers(context.repositories, context.authenticate) as any, context: async ({ request }: any) => ({ request }) })) : app },` : ""}
-${(options.elysiaPlugins?.cron ?? []).map((job) => `  { name: ${JSON.stringify(job.name)}, setup: (app) => Bun.env.QIY_CRON_ENABLED === "1" ? app.use(createCleanupCronJob(${JSON.stringify(job.name)}, ${JSON.stringify(job.pattern)})) : app },`).join("\n")}
+${cronJobs.map((job) => `  { name: ${JSON.stringify(job.name)}, setup: (app) => Bun.env.QIY_CRON_ENABLED === "1" ? app.use(${isDataflowCronJob(job) ? `createDataflowCronJob(${JSON.stringify(job.name)}, ${JSON.stringify(job.pattern)}, ${JSON.stringify(job.dataflow)})` : `createCleanupCronJob(${JSON.stringify(job.name)}, ${JSON.stringify(job.pattern)})`}) : app },`).join("\n")}
 ];
 export async function registerPlugins(app: Elysia, context?: PluginContext): Promise<Elysia> {
   let configured: any = app;
@@ -5904,9 +5941,23 @@ ${options.elysiaPlugins?.drizzle ? '    hasDb: (context as unknown as { db: unkn
 ${options.elysiaPlugins?.serverTiming ? '  expect(response.headers.get("server-timing")).toMatch(/total;dur=/);' : ""}
 });
 ` } : {}),
-    ...(options.elysiaPlugins?.cron?.length ? { "api/tests/cron.test.ts": `import { Elysia } from "elysia";
+    ...(cronJobs.length ? { "api/tests/cron.test.ts": `import { Elysia } from "elysia";
 import { expect, mock, test } from "bun:test";
-import { createCleanupCronJob, registerPlugins } from "../src/plugins";
+import { ${[cronJobs.some((job) => !isDataflowCronJob(job)) ? "createCleanupCronJob" : "", cronJobs.some(isDataflowCronJob) ? "createDataflowCronJob" : "", "registerPlugins"].filter(Boolean).join(", ")} } from "../src/plugins";
+
+type CapturedJob = { stop(): void; trigger(): Promise<void> };
+
+async function capture(plugin: Parameters<Elysia["use"]>[0], name: string): Promise<CapturedJob> {
+  const captured: { job?: CapturedJob } = {};
+  const app = new Elysia().use(plugin).get("/capture", ({ store }) => {
+    captured.job = (store as { cron: Record<string, CapturedJob> }).cron[name];
+    return "ok";
+  });
+  await app.handle(new Request("http://localhost/capture"));
+  if (!captured.job) throw new Error("Cron plugin did not register " + name);
+  captured.job.stop();
+  return captured.job;
+}
 
 test("does not start Cron unless explicitly enabled", async () => {
   const previous = Bun.env.QIY_CRON_ENABLED;
@@ -5921,18 +5972,9 @@ test("does not start Cron unless explicitly enabled", async () => {
   }
 });
 
-test("triggers the configured attachment cleanup task", async () => {
+${cronJobs.some((job) => !isDataflowCronJob(job)) ? `test("triggers the configured attachment cleanup task", async () => {
   const cleanup = mock(async () => ({ checked: 1, removed: 1, dryRun: false }));
-  const captured: { job?: { stop(): void; trigger(): Promise<void> } } = {};
-  const app = new Elysia().use(createCleanupCronJob("testCleanup", "0 0 * * *", cleanup))
-    .get("/capture-cron", ({ store }) => {
-      captured.job = (store as { cron: Record<string, { stop(): void; trigger(): Promise<void> }> }).cron.testCleanup;
-      return "ok";
-    });
-  await app.handle(new Request("http://localhost/capture-cron"));
-  const job = captured.job;
-  if (!job) throw new Error("Cron plugin did not register the cleanup job");
-  job.stop();
+  const job = await capture(createCleanupCronJob("testCleanup", "0 0 * * *", cleanup, async () => true), "testCleanup");
   const previous = console.info;
   console.info = () => {};
   try {
@@ -5943,18 +5985,16 @@ test("triggers the configured attachment cleanup task", async () => {
   }
 });
 
+test("skips cleanup when another instance claimed the tick", async () => {
+  const cleanup = mock(async () => ({ checked: 0, removed: 0, dryRun: false }));
+  const job = await capture(createCleanupCronJob("claimedCleanup", "0 0 * * *", cleanup, async () => false), "claimedCleanup");
+  await job.trigger();
+  expect(cleanup).not.toHaveBeenCalled();
+});
+
 test("reports cleanup failures without a silent cron callback", async () => {
   const cleanup = mock(async () => { throw new Error("storage unavailable"); });
-  const captured: { job?: { stop(): void; trigger(): Promise<void> } } = {};
-  const app = new Elysia().use(createCleanupCronJob("failedCleanup", "0 0 * * *", cleanup))
-    .get("/capture-failed-cron", ({ store }) => {
-      captured.job = (store as { cron: Record<string, { stop(): void; trigger(): Promise<void> }> }).cron.failedCleanup;
-      return "ok";
-    });
-  await app.handle(new Request("http://localhost/capture-failed-cron"));
-  const job = captured.job;
-  if (!job) throw new Error("Cron plugin did not register the failure test job");
-  job.stop();
+  const job = await capture(createCleanupCronJob("failedCleanup", "0 0 * * *", cleanup, async () => true), "failedCleanup");
   const previous = console.error;
   const errors: unknown[][] = [];
   console.error = (...args: unknown[]) => { errors.push(args); };
@@ -5966,7 +6006,26 @@ test("reports cleanup failures without a silent cron callback", async () => {
     console.error = previous;
   }
 });
-` } : {}),
+` : ""}${cronJobs.some(isDataflowCronJob) ? `
+test("dataflow jobs run their command for the current tick", async () => {
+  const run = mock(async (_job: string, _flow: string, _tick: Date) => ({ skipped: false as const, result: null }));
+  const job = await capture(createDataflowCronJob("testFlow", "*/5 * * * *", "someFlow", run), "testFlow");
+  const previous = console.info;
+  console.info = () => {};
+  try {
+    await job.trigger();
+  } finally {
+    console.info = previous;
+  }
+  expect(run).toHaveBeenCalledTimes(1);
+  const [name, flow, tick] = run.mock.calls[0]!;
+  expect([name, flow]).toEqual(["testFlow", "someFlow"]);
+  expect(tick.getUTCSeconds()).toBe(0);
+});
+` : ""}` } : {}),
+    ...(usesDeliveries(options) ? { "api/src/delivery/index.ts": renderDeliveryModule(database.dialect, options), "api/tests/delivery.test.ts": renderDeliveryTest(database.dialect, options) } : {}),
+    ...(cronJobs.length ? { "api/src/jobs/lease.ts": renderJobLeaseModule(database.dialect) } : {}),
+    ...(cronJobs.some(isDataflowCronJob) ? { "api/src/jobs/scheduled.ts": renderScheduledDataflowModule(cronJobs, options.auth), "api/tests/scheduled.test.ts": renderScheduledDataflowTest(cronJobs, database.dialect) } : {}),
     "api/src/hooks/index.ts": `export interface ServerHooks {
   beforeRequest?(request: Request): void | Promise<void>;
   afterResponse?(request: Request, response: Response): void | Promise<void>;
@@ -5980,7 +6039,7 @@ test("reports cleanup failures without a silent cron callback", async () => {
 import { createApp } from "./app";
 import { createHandler } from "./http";
 ${auth ? `import { createProductionAuthenticator } from ${hybridAuth ? '"./auth/hybrid"' : hasLocalAuth ? '"./auth/local"' : auth.provider === "otp" ? '"./auth/otp"' : '"./auth/oidc"'};` : ''}
-${options.realtime ? 'import { startRealtimeOutboxCleanup } from "./realtime";' : ''}
+${options.realtime ? 'import { startRealtimeOutboxCleanup } from "./realtime";' : ''}${usesDeliveries(options) ? '\nimport { startDeliveryWorker } from "./delivery";' : ''}
 ${repositoryImports}
 
 ${auth ? '' : 'if (Bun.env.QIY_DEV_MODE !== "1") {'}
@@ -5989,7 +6048,7 @@ ${auth ? '' : '}'}
 
 if (Bun.env.QIY_STORAGE_METADATA !== "database") throw new Error("QIY_STORAGE_METADATA=database is required for production file metadata");
 const app = await createApp({ ${database.entities.map((entity) => `${entity.name}: ${modelName(entity)}Repository`).join(", ")} }, ${auth ? 'createProductionAuthenticator()' : 'async () => ({ id: "dev", name: "Local Admin", role: "admin" })'});
-${options.realtime ? 'startRealtimeOutboxCleanup();' : ''}
+${options.realtime ? 'startRealtimeOutboxCleanup();' : ''}${usesDeliveries(options) ? '\nstartDeliveryWorker();' : ''}
 const clientRoot = resolve(import.meta.dir, "../../web/build/client");
 const server = Bun.serve({ hostname: Bun.env.HOST ?? "127.0.0.1", port: Number(Bun.env.PORT ?? 3000), fetch: createHandler((request) => app.handle(request), clientRoot) });
 console.log(\`Qiy app listening on http://localhost:\${server.port}\`);
@@ -6014,7 +6073,7 @@ console.log(\`Local-only Qiy preview: http://127.0.0.1:\${server.port}\`);
   if (dataflowCallExtensions) files["api/src/extensions/dataflow-calls.ts"] = dataflowCallExtensions;
   const realtimeOutboxTest = options.realtime ? renderSqliteRealtimeOutboxTest(database, options.realtime) : undefined;
   if (realtimeOutboxTest) files["api/tests/realtime-outbox-transaction.test.ts"] = realtimeOutboxTest;
-  const dataflowTest = renderSqliteDataflowTest(database, options.dataflows ?? [], roles, options.actions ?? [], options.realtime !== undefined, permissions);
+  const dataflowTest = renderSqliteDataflowTest(database, options.dataflows ?? [], roles, options.actions ?? [], options.realtime !== undefined, permissions, deliveryTargets);
   if (dataflowTest) {
     files["api/tests/dataflow.test.ts"] = dataflowTest;
     const failureFlows = (options.dataflows ?? []).map((flow) => {
@@ -6036,7 +6095,7 @@ console.log(\`Local-only Qiy preview: http://127.0.0.1:\${server.port}\`);
     files["api/tests/fixtures/dataflow-failure.ts"] = renderDataflowRoutes(database, failureFlows, options.scopes ?? [], [], options.realtime !== undefined, permissions)!
       .replaceAll('"../db"', '"../../src/db"').replaceAll('"../schema"', '"../../src/schema"').replaceAll('"../auth/guard"', '"../../src/auth/guard"').replaceAll('"../auth/permissions"', '"../../src/auth/permissions"').replaceAll('"./calls"', '"../../src/dataflows/calls"');
   }
-  const scenarioTest = renderQiyScenarioTest(database, options.dataflows ?? [], roles, options.testSuite, permissions);
+  const scenarioTest = renderQiyScenarioTest(database, options.dataflows ?? [], roles, options.testSuite, permissions, deliveryTargets);
   if (scenarioTest) files["api/tests/qiy-scenarios.test.ts"] = scenarioTest;
   files["api/src/storage/index.ts"] = files["api/src/storage/index.ts"]!.replaceAll("__QIY_STORAGE_PROVIDER__", options.storageProvider ?? "local");
   files["api/src/storage/routes.ts"] = files["api/src/storage/routes.ts"]!.replace("__QIY_UPLOAD_POLICIES__", JSON.stringify(Object.fromEntries(database.entities.flatMap((entity) => entity.fields.filter((field) => field.type === "File" || field.type === "Files").map((field) => [`${entity.tableName}.${field.name}`, { mode: field.uploadMode ?? "binary", maxBytes: field.maxBytes ?? 25 * 1024 * 1024, mimeTypes: field.mimeTypes ?? ["*/*"], maxFiles: field.type === "Files" ? field.maxFiles ?? 6 : 1 }]))), null, 2));

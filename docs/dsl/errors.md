@@ -48,7 +48,7 @@ qiy explain broken.qiy --json   # { valid: false, error, code?, title?, fix?, do
 
 **意外 token / 声明顺序。** 最常见原因是 application 内块顺序写错。
 
-修复：按固定顺序书写：`database` → `mode` → `integration` → `workspace` → `ui` → `api` → `features` → `realtime` → `elysia` → `storage` → `auth` → `env` → `messages` → `permission` → `enum` → `entity` → `relation` → `scope`/`restrict`/`pages` → `menu` → `chart` → `statemachine`/`dataflow`/`action`（这三类之间可任意交错）。错误信息里的 token N 可帮助定位。
+修复：按固定顺序书写：`database` → `mode` → `integration` → `workspace` → `ui` → `api` → `features` → `realtime` → `elysia` → `storage` → `notifications` → `auth` → `env` → `messages` → `permission` → `enum` → `entity` → `relation` → `scope`/`restrict`/`pages` → `menu` → `chart` → `statemachine`/`dataflow`/`action`/`webhook`/`notification`（这几类之间可任意交错）。错误信息里的 token N 可帮助定位。
 
 ## QIY1004 {#qiy1004}
 
@@ -96,7 +96,7 @@ qiy explain broken.qiy --json   # { valid: false, error, code?, title?, fix?, do
 
 **integration 模式限制。** 在 `mode integration` 中使用了仅适用于生成服务器的块。
 
-修复：集成模式删除 `auth`、`scope`、`restrict`、`statemachine`、`dataflow`、`storage`、`elysia`、`env`；这些由宿主负责。
+修复：集成模式删除 `auth`、`scope`、`restrict`、`statemachine`、`dataflow`、`webhook`、`notifications`、`storage`、`elysia`、`env`；这些由宿主负责。
 
 ## QIY1012 {#qiy1012}
 

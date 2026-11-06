@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import type { DatabaseDialect, DatabaseIR, EntityIR, EnumIR, EnumValueIR, FieldIR, FieldType, FilterMode, IndexIR, RelationIR } from "../tools/database-ir";
 import { renderAppFiles } from "../tools/commands/generate-app";
+import type { QiyCronJob, QiyNotification, QiyNotificationProvider, QiyWebhook } from "../tools/delivery";
 import { loadQiyProjectSource } from "../tools/qiy-include";
 import { parseQiyProject, type DataflowIR, type QiyAction, type QiyChartDataOperation, type QiyChartView, type QiyChartViewKind, type QiyProject, type QiyStateMachine, type QiyStateTransition } from "../tools/qiy-project";
 
@@ -16,7 +17,7 @@ const projectCoverage: Coverage<QiyProject> = {
   workspace: true, ui: true, apiClient: true, corsOrigins: true, elysiaPlugins: true, storageProvider: true, features: true,
   auth: true, environment: true, messages: true, menuGroups: true, charts: true, chartPanels: true, realtime: true,
   scopes: true, restrictions: true, pages: true,
-  permissions: true, dataflows: true, actions: true, stateMachines: true,
+  permissions: true, dataflows: true, actions: true, stateMachines: true, notificationSettings: true, webhooks: true, notifications: true,
 };
 const databaseCoverage: Coverage<DatabaseIR> = { comment: true, commentKey: true, dialect: true, extensions: true, entities: true, enums: true, relations: true, views: true };
 const entityCoverage: Coverage<EntityIR> = {
@@ -46,6 +47,11 @@ const stateMachineCoverage: Coverage<QiyStateMachine> = { name: true, resource: 
 const stateTransitionCoverage: Coverage<QiyStateTransition> = {
   name: true, from: true, to: true, label: true, labelKey: true, confirm: true, confirmKey: true, roles: true, permission: true, verification: "same allow clause as dataflows; verification is exercised by dataflow closeTicket",
 };
+const webhookCoverage: Coverage<QiyWebhook> = { name: true, events: true, urlEnv: true, secretEnv: true };
+const notificationCoverage: Coverage<QiyNotification> = {
+  name: true, event: true, to: true, subject: true, body: true, bodyKey: true,
+  subjectKey: "same t() parsing as body; bodyKey is exercised by notification ticketClosedMail",
+};
 const chartViewCoverage: Coverage<QiyChartView> = { kind: true, title: true, icon: true, data: true, labels: true, color: true, legend: true };
 
 const fieldTypes: Record<FieldType, true> = { UUID: true, Text: true, Email: true, URL: true, JSON: true, Integer: true, Boolean: true, Decimal: true, Money: true, Date: true, Time: true, DateTime: true, Array: true, File: true, Files: true, Vector: true };
@@ -55,6 +61,14 @@ const onDeleteModes: Record<NonNullable<RelationIR["onDelete"]>, true> = { restr
 const chartKinds: Record<QiyChartViewKind, true> = { const: true, pie: true, bar: true, line: true, area: true, scatter: true, stacked: true, table: true };
 const chartOperations: Record<QiyChartDataOperation, true> = { count: true, sum: true, avg: true, min: true, max: true, trend: true, list: true };
 const statementKinds: Record<DataflowIR["steps"][number]["actions"][number]["kind"], true> = { require: true, update: true, create: true, delete: true, emit: true, call: true };
+const recipientKinds: Record<QiyNotification["to"][number]["kind"], true> = { address: true, payload: true };
+const cronJobKinds: Record<"task" | "dataflow", true> = { task: true, dataflow: true };
+const notificationProviders: Record<QiyNotificationProvider, true | string> = {
+  smtp: true,
+  resend: "QIY_NOTIFY_PROVIDER switches the adapter at runtime; covered by tests/delivery.test.ts",
+  webhook: "QIY_NOTIFY_PROVIDER switches the adapter at runtime; covered by tests/delivery.test.ts",
+  console: "the development default; covered by the generated delivery test",
+};
 const dialects: Record<DatabaseDialect, true> = { postgresql: true, mysql: true, sqlite: true };
 
 const fixture = join(import.meta.dir, "fixtures/kitchen-sink");
@@ -92,7 +106,9 @@ describe("kitchen-sink fixture", () => {
       stateMachine: uncovered(stateMachineCoverage, all().flatMap((project) => project.stateMachines ?? [])),
       stateTransition: uncovered(stateTransitionCoverage, all().flatMap((project) => project.stateMachines ?? []).flatMap((machine) => machine.transitions)),
       chartView: uncovered(chartViewCoverage, all().flatMap((project) => project.charts ?? []).flatMap((chart) => chart.views)),
-    }).toEqual({ project: [], database: [], entity: [], field: [], index: [], relation: [], enum: [], enumValue: [], dataflow: [], action: [], stateMachine: [], stateTransition: [], chartView: [] });
+      webhook: uncovered(webhookCoverage, all().flatMap((project) => project.webhooks ?? [])),
+      notification: uncovered(notificationCoverage, all().flatMap((project) => project.notifications ?? [])),
+    }).toEqual({ project: [], database: [], entity: [], field: [], index: [], relation: [], enum: [], enumValue: [], dataflow: [], action: [], stateMachine: [], stateTransition: [], chartView: [], webhook: [], notification: [] });
   });
 
   test("uses every value of the closed vocabularies", () => {
@@ -108,7 +124,13 @@ describe("kitchen-sink fixture", () => {
       chartKinds: missing(chartKinds, all().flatMap((project) => project.charts ?? []).flatMap((chart) => chart.views.map((view) => view.kind))),
       chartOperations: missing(chartOperations, all().flatMap((project) => project.charts ?? []).flatMap((chart) => chart.views.map((view) => view.data.operation))),
       statements: missing(statementKinds, all().flatMap((project) => project.dataflows ?? []).flatMap((flow) => flow.steps.flatMap((step) => step.actions.map((action) => action.kind)))),
-    }).toEqual({ fieldTypes: [], filterModes: [], indexMethods: [], onDelete: [], chartKinds: [], chartOperations: [], statements: [] });
+      recipients: missing(recipientKinds, all().flatMap((project) => project.notifications ?? []).flatMap((notification) => notification.to.map((recipient) => recipient.kind))),
+      cronJobs: missing(cronJobKinds, all().flatMap((project) => project.elysiaPlugins?.cron ?? []).map((job: QiyCronJob) => "task" in job ? "task" : "dataflow")),
+      notificationProviders: missing(notificationProviders as Record<QiyNotificationProvider, true>, [
+        ...all().map((project) => project.notificationSettings?.provider),
+        ...(Object.keys(notificationProviders) as QiyNotificationProvider[]).filter((provider) => notificationProviders[provider] !== true),
+      ]),
+    }).toEqual({ fieldTypes: [], filterModes: [], indexMethods: [], onDelete: [], chartKinds: [], chartOperations: [], statements: [], recipients: [], cronJobs: [], notificationProviders: [] });
   });
 
   test("renders a complete workspace for every dialect", async () => {

@@ -102,27 +102,29 @@ theme blue
 | 8 | `realtime { … }` | 实时订阅 | [realtime](/dsl/realtime) |
 | 9 | `elysia { … }` | 服务端插件 | [application · elysia](/dsl/application#elysia) |
 | 10 | `storage { provider …; }` | 文件存储 | [storage](/guide/storage) |
-| 11 | `auth { … }` | 认证与身份映射 | [auth](/dsl/auth) |
-| 12 | `env { variable … { … } }` | 自定义环境变量 | [application · env](/dsl/application#env) |
-| 13 | `messages { … }` | 多语言词典 | [多语言](/dsl/i18n) |
-| 14 | `permission …` | 原子权限/组/来源/校验 | [权限](/dsl/permissions) |
-| 15 | `enum … { value …; }` | 枚举 | [enum/menu](/dsl/enum-menu-dashboard#enum) |
-| 16 | `entity … { field …; index …; }` | 实体与字段/索引 | [entity 与 field](/dsl/entity) |
-| 17 | `relation …;` | 外键与关联 | [relation 与 index](/dsl/relation-index) |
-| 18 | `scope …;` | 数据范围 | [application · scope](/dsl/application#scope) |
-| 19 | `restrict … { … }` | 行级/字段级策略 | [application · restrict](/dsl/application#restrict) |
-| 20 | `pages … { … }` | 页面级角色规则 | [application · pages](/dsl/application#pages) |
-| 21 | `menu { group … { resource …; } }` | 侧边栏 | [enum/menu · menu](/dsl/enum-menu-dashboard#menu) |
-| 22 | `chart …` / `chart panels …` | 概览页 | [chart](/dsl/charts) |
-| 23 | `statemachine … { … }` | 状态字段与 transition 命令 | [statemachine](/dsl/statemachine) |
-| 24 | `dataflow … { … }` | 事务型命令 | [dataflow](/dsl/dataflow) |
-| 25 | `action … { … }` | 命令按钮/手写页 | [action](/dsl/actions) |
+| 11 | `notifications { provider …; from …; }` | 通知发送 adapter 与发件人 | [通知与 Webhook](/dsl/notifications) |
+| 12 | `auth { … }` | 认证与身份映射 | [auth](/dsl/auth) |
+| 13 | `env { variable … { … } }` | 自定义环境变量 | [application · env](/dsl/application#env) |
+| 14 | `messages { … }` | 多语言词典 | [多语言](/dsl/i18n) |
+| 15 | `permission …` | 原子权限/组/来源/校验 | [权限](/dsl/permissions) |
+| 16 | `enum … { value …; }` | 枚举 | [enum/menu](/dsl/enum-menu-dashboard#enum) |
+| 17 | `entity … { field …; index …; }` | 实体与字段/索引 | [entity 与 field](/dsl/entity) |
+| 18 | `relation …;` | 外键与关联 | [relation 与 index](/dsl/relation-index) |
+| 19 | `scope …;` | 数据范围 | [application · scope](/dsl/application#scope) |
+| 20 | `restrict … { … }` | 行级/字段级策略 | [application · restrict](/dsl/application#restrict) |
+| 21 | `pages … { … }` | 页面级角色规则 | [application · pages](/dsl/application#pages) |
+| 22 | `menu { group … { resource …; } }` | 侧边栏 | [enum/menu · menu](/dsl/enum-menu-dashboard#menu) |
+| 23 | `chart …` / `chart panels …` | 概览页 | [chart](/dsl/charts) |
+| 24 | `statemachine … { … }` | 状态字段与 transition 命令 | [statemachine](/dsl/statemachine) |
+| 25 | `dataflow … { … }` | 事务型命令 | [dataflow](/dsl/dataflow) |
+| 26 | `action … { … }` | 命令按钮/手写页 | [action](/dsl/actions) |
+| 27 | `webhook … { … }` / `notification … { … }` | 订阅事件，提交后签名投递或发邮件 | [通知与 Webhook](/dsl/notifications) |
 
 ## 顺序即语法
 
 解析器是**单遍递归下降**：它按固定顺序 `expect` 下一个关键字，看到不认识的东西就报 `Expected <关键字> near token N`。所以：
 
-- 块必须按上表顺序出现；`enum` 必须在 `entity` 之前，`entity` 必须在 `relation` 之前，`menu` 在 `pages` 之后、`chart` 之前。`statemachine`、`dataflow`、`action` 位于最后，三者之间可以任意交错。
+- 块必须按上表顺序出现；`enum` 必须在 `entity` 之前，`entity` 必须在 `relation` 之前，`menu` 在 `pages` 之后、`chart` 之前。`statemachine`、`dataflow`、`action`、`webhook`、`notification` 位于最后，彼此之间可以任意交错。
 - `database` 必须是 `application {` 后的第一个声明。
 - `permission` 必须紧跟在 `messages` 之后（在 `enum` 之前）。
 - `chart` 与 `chart panels` 共享同一位置，可以交替书写；`menu` 最多一个。

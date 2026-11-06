@@ -40,7 +40,7 @@ draft --submit--> submitted --approve--> approved --ship--> shipped
 
 ## dataflow
 
-状态机只改状态。一次命令要写多个字段、创建子记录、调用外部 adapter 时，用 `dataflow`：input、按主键 context 加载、`require`、同事务 `create`/`update`/`delete`/`emit`/`call`、审计、幂等回执和 `result`，批量执行再加 `/batch`。`emit` 只写事务性 outbox，不直接调用消息 broker。
+状态机只改状态。一次命令要写多个字段、创建子记录、调用外部 adapter 时，用 `dataflow`：input、按主键 context 加载、`require`、同事务 `create`/`update`/`delete`/`emit`/`call`、审计、幂等回执和 `result`，批量执行再加 `/batch`。`emit` 写事务性 outbox；被 [`webhook` / `notification`](/dsl/notifications) 订阅的事件在提交后签名投递或发邮件，失败自动重试。需要定时执行时，用 `elysia { cron { job … dataflow <name>; } }`。
 
 ```qiy
 dataflow recordShipment @label("登记物流") {
@@ -91,6 +91,7 @@ action recordShipment {
 - [DSL：statemachine](/dsl/statemachine)：状态字段归属、生成结果与校验错误。
 - [DSL：dataflow](/dsl/dataflow)：通用事务命令、幂等、事件、批量。
 - [DSL：actions](/dsl/actions)：把命令挂到列表/详情按钮。
+- [通知与 Webhook](/dsl/notifications)：订阅命令事件、发邮件、定时运行 dataflow。
 - [权限（permission）](/dsl/permissions)：`allow permission` / `allow verification`、`restrict`/`scope`。
 - [迁移到 0.38](/guide/migration-0.38)：从 `workflow orderInventory` 迁移。
 - 示例：[examples/erpadmin/app.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/erpadmin/app.qiy)。

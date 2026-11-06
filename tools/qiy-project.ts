@@ -17,6 +17,7 @@ import {
   type QiyPermissionVerificationIR,
 } from "./permissions";
 import { stateMachineArtifacts, validateStateMachines } from "./state-machines";
+import { NOTIFICATION_PROVIDERS, validateCronDataflows, validateDeliveries, type QiyCronJob, type QiyNotification, type QiyNotificationProvider, type QiyNotificationRecipient, type QiyNotificationSettings, type QiyWebhook } from "./delivery";
 /**
  * Declarative contract for an existing host API. It describes only what the
  * generated Refine admin needs in order to talk to that API automatically: the
@@ -126,7 +127,7 @@ export interface QiyProject {
   corsOrigins?: string[];
   elysiaPlugins?: {
     bearer?: boolean;
-    cron?: { name: string; pattern: string; task: "cleanupMissingAttachments" }[];
+    cron?: QiyCronJob[];
     serverTiming?: boolean;
     graphqlAdapter?: "native" | "yoga" | "apollo";
     jwt?: { name: string; secretEnv: string };
@@ -175,6 +176,12 @@ export interface QiyProject {
   actions?: QiyAction[];
   /** `statemachine` blocks; each transition compiles to a dataflow command and a list/detail action. */
   stateMachines?: QiyStateMachine[];
+  /** `notifications { provider ...; from "..."; }`: the adapter every `notification` sends through. */
+  notificationSettings?: QiyNotificationSettings;
+  /** `webhook` declarations: signed POSTs for emitted events, delivered after commit with retries. */
+  webhooks?: QiyWebhook[];
+  /** `notification` declarations: messages rendered from an emitted event's payload. */
+  notifications?: QiyNotification[];
 }
 
 /** The only way `resource.field` changes: records start at `initial` and move through `transitions`. */
@@ -1073,6 +1080,76 @@ export function parseQiyProject(source: string): QiyProject {
       steps,
       result,
     };
+  }
+  /** `webhook <name> { event "a", "b"; url env NAME; secret env NAME; }` */
+  function webhook(): QiyWebhook {
+    expect("webhook");
+    const name = identifier();
+    const events: string[] = [];
+    let urlEnv: string | undefined;
+    let secretEnv: string | undefined;
+    expect("{");
+    while (peek() !== "}") {
+      const property = identifier();
+      if (property === "event") {
+        if (events.length) throw new Error(`Webhook ${name}: duplicate event`);
+        do {
+          events.push(stringLiteral());
+          if (peek() !== ",") break;
+          expect(",");
+        } while (true);
+      } else if (property === "url" || property === "secret") {
+        if ((property === "url" ? urlEnv : secretEnv) !== undefined) throw new Error(`Webhook ${name}: duplicate ${property}`);
+        expect("env");
+        if (property === "url") urlEnv = identifier();
+        else secretEnv = identifier();
+      } else throw new Error(`Webhook ${name}: unsupported property ${property}; expected event, url or secret`);
+      expect(";");
+    }
+    expect("}");
+    if (!events.length) throw new Error(`Webhook ${name}: event is required`);
+    if (!urlEnv) throw new Error(`Webhook ${name}: url env is required`);
+    if (!secretEnv) throw new Error(`Webhook ${name}: secret env is required`);
+    return { name, events, urlEnv, secretEnv };
+  }
+  /** `notification <name> { event "e"; to "a@b.c", payload.field; subject ...; body ...; }` */
+  function notification(): QiyNotification {
+    expect("notification");
+    const name = identifier();
+    let event: string | undefined;
+    const to: QiyNotificationRecipient[] = [];
+    let subject: { comment: string; commentKey?: string } | undefined;
+    let body: { comment: string; commentKey?: string } | undefined;
+    expect("{");
+    while (peek() !== "}") {
+      const property = identifier();
+      if (property === "event") {
+        if (event !== undefined) throw new Error(`Notification ${name}: duplicate event`);
+        event = stringLiteral();
+      } else if (property === "to") {
+        if (to.length) throw new Error(`Notification ${name}: duplicate to`);
+        do {
+          if (peek() === "payload") {
+            expect("payload"); expect(".");
+            to.push({ kind: "payload", field: identifier() });
+          } else to.push({ kind: "address", address: stringLiteral() });
+          if (peek() !== ",") break;
+          expect(",");
+        } while (true);
+      } else if (property === "subject") {
+        if (subject) throw new Error(`Notification ${name}: duplicate subject`);
+        subject = documentation("notification subject");
+      } else if (property === "body") {
+        if (body) throw new Error(`Notification ${name}: duplicate body`);
+        body = documentation("notification body");
+      } else throw new Error(`Notification ${name}: unsupported property ${property}; expected event, to, subject or body`);
+      expect(";");
+    }
+    expect("}");
+    if (event === undefined) throw new Error(`Notification ${name}: event is required`);
+    if (!subject) throw new Error(`Notification ${name}: subject is required`);
+    if (!body) throw new Error(`Notification ${name}: body is required`);
+    return { name, event, to, subject: subject.comment, ...(subject.commentKey && { subjectKey: subject.commentKey }), body: body.comment, ...(body.commentKey && { bodyKey: body.commentKey }) };
   }
   function stateMachine(): QiyStateMachine {
     expect("statemachine");
@@ -2453,19 +2530,23 @@ function enumeration(): import("./database-ir").EnumIR {
       }
       if (plugin === "cron") {
         expect("{");
-        const jobs: Array<{ name: string; pattern: string; task: "cleanupMissingAttachments" }> = [];
+        const jobs: QiyCronJob[] = [];
         while (peek() !== "}") {
           expect("job");
           const name = identifier();
           expect("pattern");
           const pattern = value();
-          expect("task");
-          const task = identifier();
-          if (task !== "cleanupMissingAttachments") throw new Error(
-            `Unsupported Cron task ${task}`
-          );
+          const kind = peek();
+          if (kind !== "task" && kind !== "dataflow") throw new Error(`Cron job ${name}: expected task or dataflow`);
+          identifier();
+          if (kind === "dataflow") {
+            jobs.push({ name, pattern, dataflow: identifier() });
+          } else if (kind === "task") {
+            const task = identifier();
+            if (task !== "cleanupMissingAttachments") throw new Error(`Unsupported Cron task ${task}`);
+            jobs.push({ name, pattern, task });
+          }
           expect(";");
-          jobs.push({ name, pattern, task });
         }
         expect("}"); result.cron = jobs; continue;
       }
@@ -2479,6 +2560,28 @@ function enumeration(): import("./database-ir").EnumIR {
     if (provider !== "local" && provider !== "s3") throw new Error(`Unsupported storage provider ${provider}`);
     storageProvider = provider;
     expect(";"); expect("}");
+  }
+  let notificationSettings: QiyNotificationSettings | undefined;
+  if (peek() === "notifications") {
+    expect("notifications"); expect("{");
+    let provider: QiyNotificationProvider | undefined;
+    let from: string | undefined;
+    while (peek() !== "}") {
+      const setting = identifier();
+      if (setting === "provider") {
+        if (provider) throw new Error("Duplicate notifications provider");
+        const value = identifier();
+        if (!(NOTIFICATION_PROVIDERS as readonly string[]).includes(value)) throw new Error(`Unsupported notifications provider ${value}; expected ${NOTIFICATION_PROVIDERS.join(", ")}`);
+        provider = value as QiyNotificationProvider;
+      } else if (setting === "from") {
+        if (from !== undefined) throw new Error("Duplicate notifications from");
+        from = stringLiteral();
+      } else throw new Error(`Unsupported notifications setting ${setting}; expected provider or from`);
+      expect(";");
+    }
+    expect("}");
+    if (!from) throw new Error("notifications requires from");
+    notificationSettings = { provider: provider ?? "smtp", from };
   }
   let auth: QiyProject["auth"];
   if (peek() === "auth") {
@@ -2874,9 +2977,13 @@ function enumeration(): import("./database-ir").EnumIR {
   const stateMachines: QiyStateMachine[] = [];
   const dataflows: DataflowIR[] = [];
   const actions: QiyAction[] = [];
-  for (let next = peek(); next === "statemachine" || next === "dataflow" || next === "action"; next = peek()) {
+  const webhooks: QiyWebhook[] = [];
+  const notifications: QiyNotification[] = [];
+  for (let next = peek(); next === "statemachine" || next === "dataflow" || next === "action" || next === "webhook" || next === "notification"; next = peek()) {
     if (next === "statemachine") stateMachines.push(stateMachine());
     else if (next === "dataflow") dataflows.push(dataflow());
+    else if (next === "webhook") webhooks.push(webhook());
+    else if (next === "notification") notifications.push(notification());
     else actions.push(action());
   }
   validateStateMachines(stateMachines, entities, enums, { dataflows, actions });
@@ -2885,6 +2992,7 @@ function enumeration(): import("./database-ir").EnumIR {
   const machineArtifacts = stateMachineArtifacts(stateMachines, entities, enums);
   const allDataflows = [...dataflows, ...machineArtifacts.dataflows];
   const allActions = [...actions, ...machineArtifacts.actions];
+  validateDeliveries({ webhooks, notifications, ...(notificationSettings && { notificationSettings }) }, allDataflows);
   const dataflowNames = new Set<string>();
   for (const flow of allDataflows) {
     if (dataflowNames.has(flow.name)) throw new Error(`Duplicate dataflow ${flow.name}`);
@@ -2995,7 +3103,8 @@ function enumeration(): import("./database-ir").EnumIR {
           written.add(value.field);
         }
         for (const field of entity.fields) {
-          if (field.primaryKey || field.nullable || field.name === scope?.field) continue;
+          if (field.primaryKey || field.nullable || field.name === scope?.field || field.defaultValue || field.version) continue;
+          if (stateMachines.some((machine) => (machine.resource === entity.name || machine.resource === entity.tableName) && machine.field === field.name)) continue;
           if (!written.has(field.name)) throw new Error(`Dataflow ${flow.name}: create requires value for ${entity.name}.${field.name}`);
         }
         contextByName.set(action.context, { entity: entity.name });
@@ -3127,6 +3236,7 @@ function enumeration(): import("./database-ir").EnumIR {
   expect("}");
   expect("<end>");
   validateRoleReferences(auth, { restrictions, pages, realtime, dataflows: allDataflows, actions: allActions });
+  validateCronDataflows(elysiaPlugins?.cron ?? [], allDataflows, entities, scopes, auth);
   for (const view of views) {
     const source = entities.find((entity) => entity.name === view.from || entity.tableName === view.from);
     if (!source) throw new Error(`view ${view.name}: unknown source entity ${view.from}`);
@@ -3139,13 +3249,13 @@ function enumeration(): import("./database-ir").EnumIR {
     }
     if (new Set(view.columns).size !== view.columns.length) throw new Error(`view ${view.name}: duplicate column`);
   }
-  if (mode === "integration" && (corsOrigins || elysiaPlugins || storageProvider || auth || environment || scopes.length || restrictions.length || dataflows.length || stateMachines.length || permissions)) {
+  if (mode === "integration" && (corsOrigins || elysiaPlugins || storageProvider || auth || environment || scopes.length || restrictions.length || dataflows.length || stateMachines.length || webhooks.length || notificationSettings || permissions)) {
     throw new Error("application mode integration cannot configure generated server features; use integration auth and host adapters instead.");
   }
   if (entities.some((entity) => entity.fields.some((field) => field.tenantClaim !== undefined)) && !auth) {
     throw new Error("@tenant requires an auth declaration so the tenant claim can be resolved");
   }
-  return { name: packageName, ...(applicationDescription && applicationDescription), database: { ...(databaseDescription && databaseDescription), dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}), ...(views.length ? { views } : {}) }, ...(mode && { mode }), ...(integration && { integration }), ...(workspace && { workspace }), ...(ui && { ui }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(features && { features }), ...(auth && { auth }), ...(environment && { environment }), ...(messages && { messages }), ...(permissions && { permissions }), ...(scopes.length ? { scopes } : {}), ...(restrictions.length ? { restrictions } : {}), ...(pages.length ? { pages } : {}), ...(menuGroups.length && { menuGroups }), ...(charts.length && { charts }), ...(chartPanels.length && { chartPanels }), ...(realtime && { realtime }), ...(dataflows.length && { dataflows }), ...(actions.length && { actions }), ...(stateMachines.length && { stateMachines }) };
+  return { name: packageName, ...(applicationDescription && applicationDescription), database: { ...(databaseDescription && databaseDescription), dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}), ...(views.length ? { views } : {}) }, ...(mode && { mode }), ...(integration && { integration }), ...(workspace && { workspace }), ...(ui && { ui }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(features && { features }), ...(auth && { auth }), ...(environment && { environment }), ...(messages && { messages }), ...(permissions && { permissions }), ...(scopes.length ? { scopes } : {}), ...(restrictions.length ? { restrictions } : {}), ...(pages.length ? { pages } : {}), ...(menuGroups.length && { menuGroups }), ...(charts.length && { charts }), ...(chartPanels.length && { chartPanels }), ...(realtime && { realtime }), ...(dataflows.length && { dataflows }), ...(actions.length && { actions }), ...(stateMachines.length && { stateMachines }), ...(notificationSettings && { notificationSettings }), ...(webhooks.length && { webhooks }), ...(notifications.length && { notifications }) };
 }
 
 /** Every role reference must name a declared role; commands additionally need write access. */
@@ -3331,11 +3441,13 @@ export function serializeQiyProject(project: QiyProject): string {
     if (project.elysiaPlugins.graphqlAdapter) lines.push(`    graphqlAdapter adapter ${project.elysiaPlugins.graphqlAdapter};`);
     if (project.elysiaPlugins.cron?.length) {
       lines.push("    cron {");
-      for (const job of project.elysiaPlugins.cron) lines.push(`      job ${qiyIdentifier(job.name, "Cron job name")} pattern ${qiyString(job.pattern)} task ${job.task};`);
+      for (const job of project.elysiaPlugins.cron) lines.push(`      job ${qiyIdentifier(job.name, "Cron job name")} pattern ${qiyString(job.pattern)} ${"dataflow" in job ? `dataflow ${qiyIdentifier(job.dataflow, "Cron dataflow")}` : `task ${job.task}`};`);
       lines.push("    }");
     }
     lines.push("  }");
-  }  if (project.storageProvider) lines.push(`  storage { provider ${project.storageProvider}; }`);
+  }
+  if (project.storageProvider) lines.push(`  storage { provider ${project.storageProvider}; }`);
+  if (project.notificationSettings) lines.push(`  notifications { provider ${project.notificationSettings.provider}; from ${qiyString(project.notificationSettings.from)}; }`);
   if (project.auth) {
     lines.push("  auth {");
   const providerList = project.auth.local ? ["local", ...(project.auth.providers ?? [])] : project.auth.providers ?? [];
@@ -3588,6 +3700,21 @@ export function serializeQiyProject(project: QiyProject): string {
       for (const placement of chart.placements) lines.push(`      ${placement.variant} ${placement.x} ${placement.y} ${placement.w} ${placement.h};`);
       lines.push("    }");
     }
+    lines.push("  }");
+  }
+  for (const webhook of project.webhooks ?? []) {
+    lines.push(`  webhook ${qiyIdentifier(webhook.name, "Webhook name")} {`);
+    lines.push(`    event ${webhook.events.map((event) => qiyString(event)).join(", ")};`);
+    lines.push(`    url env ${qiyIdentifier(webhook.urlEnv, "Webhook url env")};`);
+    lines.push(`    secret env ${qiyIdentifier(webhook.secretEnv, "Webhook secret env")};`);
+    lines.push("  }");
+  }
+  for (const notification of project.notifications ?? []) {
+    lines.push(`  notification ${qiyIdentifier(notification.name, "Notification name")} {`);
+    lines.push(`    event ${qiyString(notification.event)};`);
+    lines.push(`    to ${notification.to.map((recipient) => recipient.kind === "address" ? qiyString(recipient.address) : `payload.${qiyIdentifier(recipient.field, "Notification payload field")}`).join(", ")};`);
+    lines.push(`    subject ${qiyComment({ comment: notification.subject, commentKey: notification.subjectKey })};`);
+    lines.push(`    body ${qiyComment({ comment: notification.body, commentKey: notification.bodyKey })};`);
     lines.push("  }");
   }
   for (const machine of project.stateMachines ?? []) {

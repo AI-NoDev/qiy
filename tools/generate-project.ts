@@ -4,12 +4,11 @@ import { generateEnvironmentFiles } from "./environment-files";
 import { generateServer } from "./generate-server";
 import { generateWeb } from "./generate-web";
 import type { QiyProject } from "./qiy-project";
-import { authHasLocal, authIsHybrid, authOAuthProviders, authUsesProviderChooser } from "./qiy-project";
-import { leastPrivilegedRole } from "./roles";
+import { authHasLocal } from "./qiy-project";
 import { applyStateMachines, stateMachineArtifacts } from "./state-machines";
 import type { QiyTestSuite } from "./qiy-test";
 
-type ProjectOptions = Pick<QiyProject, "comment" | "commentKey" | "mode" | "integration" | "ui" | "messages" | "dataflows" | "actions" | "apiClient" | "corsOrigins" | "elysiaPlugins" | "menuGroups" | "charts" | "chartPanels" | "realtime" | "storageProvider" | "auth" | "permissions" | "environment" | "scopes" | "restrictions" | "pages" | "features" | "stateMachines"> & { testSuite?: QiyTestSuite };
+type ProjectOptions = Pick<QiyProject, "comment" | "commentKey" | "mode" | "integration" | "ui" | "messages" | "dataflows" | "actions" | "apiClient" | "corsOrigins" | "elysiaPlugins" | "menuGroups" | "charts" | "chartPanels" | "realtime" | "storageProvider" | "auth" | "permissions" | "environment" | "scopes" | "restrictions" | "pages" | "features" | "stateMachines" | "webhooks" | "notifications" | "notificationSettings"> & { testSuite?: QiyTestSuite };
 
 /** Every project setting the generators read, so CLI entry points cannot drift apart. */
 export function projectGenerationOptions(project: QiyProject, testSuite?: QiyTestSuite): ProjectOptions {
@@ -38,6 +37,9 @@ export function projectGenerationOptions(project: QiyProject, testSuite?: QiyTes
     restrictions: project.restrictions,
     pages: project.pages,
     stateMachines: project.stateMachines,
+    webhooks: project.webhooks,
+    notifications: project.notifications,
+    notificationSettings: project.notificationSettings,
     ...(testSuite && { testSuite }),
   };
 }
@@ -60,7 +62,6 @@ export function generateProject(model: DatabaseIR, name: string, projectOptions:
       template[path] = `${JSON.stringify(packageJson, null, 2)}\n`;
     }
   }
-  template["apps/server/.env.example"] = renderEnvironmentExample(database, options);
   const testDatabaseUrl = database.dialect === "sqlite"
     ? ":memory:"
     : database.dialect === "mysql"
@@ -97,7 +98,7 @@ export function generateProject(model: DatabaseIR, name: string, projectOptions:
   }
   apps["apps/server/tests/setup.ts"] = template["apps/server/tests/setup.ts"]!;
   if (options.elysiaPlugins?.static) apps[`apps/server/${options.elysiaPlugins.static.assets}/.gitkeep`] = "";
-  if (options.elysiaPlugins && Object.keys(options.elysiaPlugins).length > 0) {
+  if ((options.elysiaPlugins && Object.keys(options.elysiaPlugins).length > 0) || options.notifications?.length) {
     const serverPackage = JSON.parse(apps["apps/server/package.json"]!) as { dependencies: Record<string, string> };
     const generatedServerPackage = JSON.parse(files["api/package.json"]!) as { dependencies?: Record<string, string> };
     serverPackage.dependencies = { ...serverPackage.dependencies, ...generatedServerPackage.dependencies };
@@ -380,95 +381,4 @@ export default defineConfig({ plugins: [reactRouter()] });
   return apps;
 }
 
-function renderEnvironmentExample(
-  database: DatabaseIR,
-  options: Pick<QiyProject, "corsOrigins" | "elysiaPlugins" | "realtime" | "storageProvider" | "auth">,
-): string {
-  const databaseUrl = database.dialect === "sqlite"
-    ? "./qiy.sqlite"
-    : database.dialect === "mysql"
-      ? "mysql://qiy:qiy@127.0.0.1:3306/qiy"
-      : "postgres://qiy:qiy@127.0.0.1:5432/qiy";
-  const values = new Map<string, string>([
-    ["DATABASE_URL", databaseUrl],
-    ["HOST", "127.0.0.1"],
-    ["PORT", "3000"],
-    ["QIY_DEV_MODE", "0"],
-    ["QIY_STORAGE_METADATA", "database"],
-    ["QIY_STORAGE_PROVIDER", options.storageProvider ?? "local"],
-    ["QIY_STORAGE_ROOT", "./storage"],
-  ]);
-  const auth = options.auth;
-  const authOAuth = auth ? authOAuthProviders(auth) : [];
-  const providerChooser = Boolean(auth && authUsesProviderChooser(auth));
-  if (auth && authHasLocal(auth)) values.set("QIY_AUTH_SECRET", "");
-  if (auth?.provider === "otp") {
-    values.set("QIY_OTP_DELIVERY_URL", "");
-    values.set("QIY_OTP_DELIVERY_TOKEN", "");
-    values.set("QIY_OTP_DELIVERY_TIMEOUT_MS", "10000");
-    values.set("QIY_OTP_DEV_CODE", "");
-  }
-  if (auth && authOAuth.length > 0) {
-    values.set("QIY_OIDC_JWKS_TIMEOUT_MS", "5000");
-    values.set("QIY_OIDC_JWKS_COOLDOWN_MS", "30000");
-    values.set("QIY_OIDC_JWKS_CACHE_MAX_AGE_MS", "600000");
-  }
-  if (auth && providerChooser) {
-    for (const provider of authOAuth) {
-      const suffix = provider.toUpperCase().replace(/[^A-Z0-9]/g, "_");
-      values.set(`QIY_OIDC_${suffix}_ISSUER`, "");
-      values.set(`QIY_OIDC_${suffix}_AUDIENCE`, "");
-      values.set(`QIY_OIDC_${suffix}_JWKS_URL`, "");
-      values.set(`QIY_OIDC_${suffix}_AUTHORIZATION_URL`, "");
-      values.set(`QIY_OIDC_${suffix}_TOKEN_URL`, "");
-      values.set(`QIY_OIDC_${suffix}_CLIENT_ID`, "");
-      values.set(`QIY_OIDC_${suffix}_SCOPE`, "openid profile email");
-      values.set(`QIY_OIDC_${suffix}_REDIRECT_URI`, "");
-    }
-    if (authIsHybrid(auth)) values.set("QIY_OIDC_DEFAULT_ROLE", leastPrivilegedRole(auth));
-  } else if (auth && authOAuth.length === 1) {
-    values.set("QIY_OIDC_ISSUER", "");
-    values.set("QIY_OIDC_AUDIENCE", "");
-    values.set("QIY_OIDC_JWKS_URL", "");
-  }
-  if (options.corsOrigins?.length) values.set("QIY_CORS_ORIGINS", options.corsOrigins.join(","));
-  if (options.elysiaPlugins?.jwt) values.set(options.elysiaPlugins.jwt.secretEnv, "");
-  if (options.elysiaPlugins?.cron?.length) values.set("QIY_CRON_ENABLED", "0");
-  if (options.realtime) {
-    values.set("QIY_REALTIME_DISABLED", "0");
-    values.set("QIY_REALTIME_POLL_MS", "1000");
-    values.set("QIY_REALTIME_RETENTION_DAYS", "1");
-    values.set("QIY_REALTIME_CLEANUP_MS", "3600000");
-  }
-
-  const lines = [
-    "# Copy this file to .env for local development.",
-    "# Docker Compose also loads this file; use a database hostname reachable from the container.",
-    ...[...values].map(([key, value]) => `${key}=${value}`),
-  ];
-  if (auth && authHasLocal(auth)) {
-    lines.push("", "# Required for local password auth and OAuth onboarding tokens. Generate a unique value with: openssl rand -hex 32");
-  }
-  if (auth?.provider === "otp") {
-    lines.push("", "# Required for OTP auth. Use an HTTPS delivery adapter in production; never set QIY_OTP_DEV_CODE there.");
-  }
-  if (auth && providerChooser) {
-    lines.push("", "# Required for each configured OAuth/OIDC provider (QIY_OIDC_<PROVIDER>_*). Set CLIENT_SECRET server-side only for confidential clients.", ...(authIsHybrid(auth) ? [`# QIY_OIDC_DEFAULT_ROLE is the role of accounts created by first-time OAuth onboarding (default ${leastPrivilegedRole(auth)}).`] : []));
-  } else if (auth && authOAuth.length === 1) {
-    lines.push("", "# Required for OIDC/OAuth2/SSO access-token verification. These are issuer/JWKS settings, not OAuth client credentials.");
-  }
-  if (options.elysiaPlugins?.jwt) lines.push("", "# Required by the configured Elysia JWT plugin.");
-  lines.push(
-    "",
-    "# Optional S3-compatible storage credentials. Keep secrets out of source control.",
-    "# QIY_S3_BUCKET=",
-    "# QIY_S3_REGION=",
-    "# QIY_S3_ENDPOINT=",
-    "# QIY_S3_ACCESS_KEY_ID=",
-    "# QIY_S3_SECRET_ACCESS_KEY=",
-    "# QIY_S3_SESSION_TOKEN=",
-    "",
-  );
-  return lines.join("\n");
-}
 

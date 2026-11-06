@@ -71,18 +71,18 @@ dataflow <Name> ( "@label" "(" doc ")" | "@confirm" "(" doc ")" | "@comment" "("
 ## 授权：`allow`
 
 ```qiy
-allow roles admin, operator;                 // 仅 admin/operator
+allow roles admin, operator;                 // 只允许列出的角色
 allow permission InventoryReceivePermission;  // 需持有展开后的全部权限值
 allow verification CanShipOrders;             // 用 flow input 求值校验式
 ```
 
 | 形式 | 允许值 | 运行期行为 | 生成期校验 |
 | --- | --- | --- | --- |
-| `roles` | `admin`、`operator`（**不接受** `viewer`） | 未认证 401；不在白名单 403 `Command execution is restricted` | 空列表、重复、未知角色、重复 `allow` 都报错 |
+| `roles` | `auth { roles { … } }` 中 `full`/`write` 级别的角色（默认 `admin`、`operator`；**不接受** `read` 角色） | 未认证 401；不在白名单 403 `Command execution is restricted` | 空列表、重复、未知角色、重复 `allow` 都报错 |
 | `permission` | 权限字段名或权限组名，逗号分隔 | 展开为权限值；缺任一 → 403 `errorKey: "command.forbidden"` + `missing` | 必须有 `permission` 声明；未知引用报错 |
 | `verification` | 校验块名 | 用 flow 输入求值；不满足 → 403 `errorKey: "command.forbidden"` | 校验块存在；每个 input 必须在 flow `input` 中有同名 `@required` 的 `Text` 或 enum 字段 |
 
-- 每个 dataflow 只允许**一种** `allow`（重复声明报 `duplicate allow declaration`）；未声明时默认 `admin, operator`。
+- 每个 dataflow 只允许**一种** `allow`（重复声明报 `duplicate allow declaration`）；未声明时默认所有 `full`/`write` 角色（默认角色下即 `admin, operator`）。
 - **admin 不绕过**显式白名单；`allow permission` / `allow verification` 的成功与否只看权限集合，不看角色。
 - 检查发生在幂等回执查询与事务**之前**：拒绝不写业务数据、审计、回执。
 - 完整权限语义见 [权限（permission）](/dsl/permissions#命令策略allow)。
@@ -203,7 +203,7 @@ create review = entity reviews {
 | 绑定名 | 进入 context 命名空间，后续可 `require`/`update`/`delete`/`result` 引用；不能与已有 binding 或 `input` 重名 |
 | 主键 | 自动生成（UUID）；**禁止**显式赋值（`create primary key ... is generated automatically`） |
 | scope 字段 | 由已认证 principal 的 claim 推导，禁止通过输入覆盖 |
-| 必填列 | 所有非空、非主键、非 scope 字段**必须**赋值；nullable 可省略。漏写报 `create requires value for <entity>.<field>` |
+| 必填列 | 所有非空、非主键、非 scope 字段**必须**赋值；以下字段可省略：nullable、带 `@default` 的字段（取默认值）、`@version` 字段（从 1 开始）、状态机字段（取 `initial`）。漏写报 `create requires value for <entity>.<field>` |
 | 值来源 | 字面量仅 `Text`/enum；`input.<field>` 支持 `UUID`/`Text`/`Integer`/`Decimal` 与同名 enum |
 | 密码字段 | 禁止写本地认证的 `passwordField` |
 
@@ -237,8 +237,9 @@ emit "order.approved" {
 | 禁止 | 本地认证密码字段；已删除/未知 context；未知 input/字段 |
 | 落库 | 当前事务写入 `dataflow_outbox`（事件名、actor、payload JSON 文本、创建时间） |
 | 实时联动 | 声明了 `realtime` 时**同时**写 `qiy_realtime_outbox`，channel 为 `qiy:event:<event>`，与业务写入同生共死 |
+| 投递 | 被 `webhook` / `notification` 订阅时，同一事务为每个订阅者写一行 `qiy_deliveries`，提交后由 worker 签名发送并重试（见 [通知与 Webhook](/dsl/notifications)） |
 
-- `emit` 只持久化事件，**不**直接投递 broker；worker/消费者幂等/死信要另行实现。
+- 没有订阅者的事件只落 outbox；接入消息 broker 等其他消费者时，自行尾随 `dataflow_outbox`。
 - 启用幂等的同键成功回放**不会**重复写事件。
 
 ### `call`：受控同步本地校验
@@ -506,7 +507,7 @@ bun test tests/qiy-scenarios.test.ts
 | 404 `Not found` + `resource` | `context` 加载不到记录（ID 不存在或跨 scope） | 检查 ID 与数据范围 |
 | 403 `command.forbidden` | `allow permission` / `allow verification` 不满足 | 检查 `/auth/me` 的 `permissions`/`groups`；见 [权限](/dsl/permissions) |
 | `cannot update scope field` | 命令试图写 scope 租户列 | scope 列只能由 principal 推导；改设计 |
-| `create requires value for <e>.<f>` | 漏写非空字段 | 补齐赋值或把字段改成 `@nullable` |
+| `create requires value for <e>.<f>` | 漏写非空字段 | 补齐赋值，或给字段加 `@default` / `@nullable` |
 | `Dataflow <n> requires input, context, and result blocks` | 缺块（即使为空也要写 `input {}`） | 补空块 |
 | `result must return a declared context binding` | `return` 了未声明名字 | 用 context/create 绑定名 |
 | `literal updates currently support Text and enum fields only` | 用字面量写 Integer/Decimal/Date | 改用 `input.<f>`（类型一致）或改由 `call` 处理 |
@@ -518,12 +519,11 @@ bun test tests/qiy-scenarios.test.ts
 
 - ❌ 任意表达式、算术、函数调用、循环、动态 SQL、反射式字段访问、内嵌 JS/TS。
 - ❌ 任意 `where` 加载、join、聚合读取（需要查询时用资源 REST/GraphQL 接口）。
-- ❌ 异步/外部副作用：`call` 必须同步且无网络；HTTP、支付、消息发送请写 `emit` + 提交后 worker。
-- ❌ 直接投递 broker / 消费者幂等 / 死信：`emit` 只落 outbox。
+- ❌ 事务内的外部副作用：`call` 必须同步且无网络；HTTP 回调与邮件用 `emit` + [`webhook` / `notification`](/dsl/notifications)（提交后投递、自动重试），支付等其他外部调用请自行消费 outbox。
+- ❌ 直接投递消息 broker：`emit` 只写 outbox 与订阅者的投递记录。
 - ❌ 可选 context（`@required` 目前必须写）、字段间比较、Decimal/Boolean 条件、Decimal 动态写入。
 - ❌ 嵌套事务、跨命令补偿、分布式事务。
 - ❌ 在 integration（宿主 API）模式下生成命令：含 `dataflow` 的 integration 模型会被明确拒绝，避免生成第二套业务实现。
-- ❌ 自定义角色：命令 `allow roles` 只有 `admin`/`operator`；需要更细粒度请用 `allow permission`。
 
 ## 相关
 
@@ -531,6 +531,7 @@ bun test tests/qiy-scenarios.test.ts
 - [权限（permission）](/dsl/permissions)：`allow permission` / `allow verification` 语义与 provider 来源。
 - [application](/dsl/application#restrict)：`restrict` / `scope` 与命令的互斥关系。
 - [realtime](/dsl/realtime)：`emit` 与实时 outbox、订阅通道。
+- [通知与 Webhook](/dsl/notifications)：订阅 `emit` 事件，提交后签名投递或发邮件；cron 定时运行 dataflow。
 - [statemachine](/dsl/statemachine)：编译成 dataflow 的状态流转。
 - [业务工作流](/guide/workflow)：何时用状态机、何时用 dataflow。
 - [多语言（messages）](/dsl/application#messages)：`t("key")` 字典。
