@@ -29,6 +29,7 @@ const fieldCoverage: Coverage<FieldIR> = {
   tenantClaim: true, computed: true, primaryKey: true, unique: true, extension: true, dimension: true, precision: true, scale: true,
   enumName: true, label: true, icon: true, visible: true, listVisible: true, formVisible: true, showVisible: true, sortable: true,
   filterable: true, filterModes: true, uploadMode: true, maxBytes: true, mimeTypes: true, maxFiles: true, codeTemplate: true, generatedValue: true,
+  min: true, max: true, minLength: true, maxLength: true, pattern: true, defaultValue: true,
 };
 const indexCoverage: Coverage<IndexIR> = { name: true, comment: true, commentKey: true, method: true, columns: true, unique: true, concurrently: true };
 const relationCoverage: Coverage<RelationIR> = { name: true, comment: true, commentKey: true, fromEntity: true, fromField: true, toEntity: true, toField: true, cardinality: true, onDelete: true };

@@ -52,6 +52,7 @@ import { generateDrizzleMysql } from "./drizzle-mysql";
 import { generateDrizzleSqlite } from "./drizzle-sqlite";
 import { generateAudit } from "./generate-audit";
 import { generatedFieldSpecs, renderGeneratedValuesModule, renderGeneratedValuesTest, usesGeneratedValues } from "./generate-values";
+import { entityFieldRules, renderFieldRulesModule, ruleSample, ruleViolations } from "./field-rules";
 import { generatedDocumentation } from "./generated-documentation";
 
 function apiFieldSchema(field: FieldIR, database: DatabaseIR): string {
@@ -168,7 +169,8 @@ function createFields(entity: EntityIR, database: DatabaseIR): string {
     const value = field.nullable ? `t.Optional(t.Union([${apiField(field, database)}, t.Null()], ${JSON.stringify(field.comment !== undefined ? { description: field.comment } : {})}))` : apiField(field, database);
     // Generated fields are filled by the server, so the client may omit them even
     // when the column is NOT NULL. Client-supplied values are ignored on write.
-    return `  ${JSON.stringify(field.name)}: ${generated.has(field.name) ? `t.Optional(${value})` : value},`;
+    // A @default column fills an omitted value the same way.
+    return `  ${JSON.stringify(field.name)}: ${generated.has(field.name) || field.defaultValue ? `t.Optional(${value})` : value},`;
   }).join("\n");
 }
 
@@ -243,8 +245,8 @@ function graphqlType(field: FieldIR, required = true): string {
 
 function graphqlInputFields(entity: EntityIR, patch: boolean, hiddenFields: string[] = [], generatedFields: string[] = []): string {
   return entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !hiddenFields.includes(field.name)).map((field) => {
-    // Generated fields are optional on create: the server renders them.
-    const required = !patch && !field.primaryKey && !field.nullable && !generatedFields.includes(field.name);
+    // Generated and @default fields are optional on create: the server or the column fills them.
+    const required = !patch && !field.primaryKey && !field.nullable && !generatedFields.includes(field.name) && !field.defaultValue;
     return `${graphqlDescription(field.comment, "  ")}  ${field.name}: ${graphqlType(field, required)}`;
   }).join("\n");
 }
@@ -606,7 +608,8 @@ function renderGraphQLTest(database: DatabaseIR, hiddenFields: string[] = []): s
   // generated schema, so neither the selection set nor the input may reference them.
   const creatableFields = visibleFields.filter((field) => !generatedFieldsOf(entity, database.relations ?? []).some((generated) => generated.field.name === field.name));
   const values = visibleFields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable && creatableFields.includes(field)).map((field) => {
-    const example = field.type === "Integer" ? "1" : field.type === "Boolean" ? "true" : field.type === "Array" ? (field.itemType === "Integer" ? "[1]" : '["Example"]') : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
+    const constrained = ruleSample(field);
+    const example = constrained !== undefined ? JSON.stringify(constrained) : field.type === "Integer" ? "1" : field.type === "Boolean" ? "true" : field.type === "Array" ? (field.itemType === "Integer" ? "[1]" : '["Example"]') : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
       : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
         : field.enumName ? JSON.stringify(database.enums?.find((enumeration) => enumeration.name === field.enumName)?.values[0]?.name ?? "") : field.type === "Email" ? '"user@example.com"' : field.type === "URL" ? '"https://example.com"' : '"Example"';
     return `${JSON.stringify(field.name)}: ${example}`;
@@ -732,7 +735,7 @@ function renderSqliteScopeTest(database: DatabaseIR, scopes: NonNullable<QiyProj
   const dateField = entity.fields.find((field) => field.type === "DateTime" && !field.softDelete && field.computed === undefined)?.name;
   const fields = entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable);
   const values = fields.map((field) => {
-    const value = field.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : field.type === "Integer" ? 1 : field.type === "Decimal" || field.type === "Money" ? "1.00" : field.type === "Date" ? "2026-11-30" : field.type === "Time" ? "08:30:00" : field.enumName ? database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name : "Example";
+    const value = ruleSample(field) ?? (field.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : field.type === "Integer" ? 1 : field.type === "Decimal" || field.type === "Money" ? "1.00" : field.type === "Date" ? "2026-11-30" : field.type === "Time" ? "08:30:00" : field.enumName ? database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name : "Example");
     return `${JSON.stringify(field.name)}: ${field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : JSON.stringify(value)}`;
   }).join(", ");
   const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `"${field.columnName ?? field.name}" ${field.type === "Integer" || field.type === "DateTime" ? "integer" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
@@ -1089,7 +1092,7 @@ export function resolvePolicy(resource: string, principal: Principal | null, col
 `;
 }
 
-function renderRoutes(entity: EntityIR, database: DatabaseIR, scopes: Array<{ resource: string; field: string; claim: string }> = [], hiddenFields: string[] = [], restricted = false, temporalErrorClass = ""): string {
+function renderRoutes(entity: EntityIR, database: DatabaseIR, scopes: Array<{ resource: string; field: string; claim: string }> = [], hiddenFields: string[] = [], restricted = false, temporalErrorClass = "", fieldRuled = false): string {
   const temporal = temporalFieldsOf(entity);
   const name = modelName(entity);
   const route = JSON.stringify(`/${entity.tableName}`);
@@ -1133,6 +1136,10 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
   // generic 500 or TypeBox 422; the class comes from api/src/temporal.ts.
   const temporalErrorHandler = temporalErrorClass
     ? `.onError(({ error, status }) => error instanceof ${temporalErrorClass} ? status(400, { error: error.message }) : undefined)`
+    : "";
+  // @min/@max/@length/@pattern violations come from api/src/field-rules.ts.
+  const fieldRuleErrorHandler = fieldRuled
+    ? `.onError(({ error, status }) => error instanceof QiyFieldRuleError ? status(400, { error: error.message, errorKey: error.errorKey, field: error.field }) : undefined)`
     : "";
   // Exhausted unique-constraint retries mean the model cannot allocate a distinct
   // code; the write is rejected with a documented 409 instead of a 500.
@@ -1281,7 +1288,9 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
   // Import accepts plain scalar columns only; vectors and key lists need the API.
   const importTypes = ${JSON.stringify(Object.fromEntries(entity.fields.filter((field) => !field.primaryKey && field.type !== "Vector" && field.type !== "Files").map((field) => [field.name, field.type])))} as Record<string, string>;
   const importArrayItems = ${JSON.stringify(Object.fromEntries(entity.fields.filter((field) => field.type === "Array").map((field) => [field.name, field.itemType]))) } as Record<string, string | undefined>;
-  const importColumns = Object.keys(importTypes);
+${entity.fields.some((field) => field.defaultValue) ? `  // An empty cell leaves a @default column to its declared default.
+  const importDefaulted = new Set(${JSON.stringify(entity.fields.filter((field) => field.defaultValue).map((field) => field.name))});
+` : ""}  const importColumns = Object.keys(importTypes);
   const importMaxRows = () => { const value = Number(Bun.env.QIY_IMPORT_MAX_ROWS ?? 1000); return Number.isSafeInteger(value) && value >= 1 && value <= 100000 ? value : 1000; };
   /** RFC 4180 reader: quoted fields, doubled quotes and CRLF line endings. */
   const parseCsv = (input: string): string[][] => {
@@ -1303,7 +1312,7 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
     return rows.filter((cells) => cells.some((cell) => cell.length > 0));
   };
   const importValue = (field: string, value: string) => {
-    if (value === "") return null;
+    if (value === "") return ${entity.fields.some((field) => field.defaultValue) ? "importDefaulted.has(field) ? undefined : null" : "null"};
     if (importTypes[field] === "Integer") { const parsed = Number(value); if (!Number.isFinite(parsed)) throw new Error("Column " + field + " must be an integer"); return parsed; }
     if (importTypes[field] === "Boolean") { if (!["true", "false", "1", "0"].includes(value.toLowerCase())) throw new Error("Column " + field + " must be true or false"); return value === "1" || value.toLowerCase() === "true"; }
     if (importTypes[field] === "JSON" || importTypes[field] === "Array") {
@@ -1454,7 +1463,7 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
     const result = await repository.list(query.page ?? 1, query.pageSize ?? 20, { ...query, deleted: query.deleted === "true", filters, scope${restricted ? ", policy" : ""} });
     return { result, clauses: clauses.length, policy };
   };
-  return new Elysia({ prefix: ${route} })${privateInputGuard}${maskWriteGuard}\n    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)${policyErrorHandler}${temporalErrorHandler}${generatedErrorHandler}\n    .get("/aggregate", async ({ query, status, request }) => {
+  return new Elysia({ prefix: ${route} })${privateInputGuard}${maskWriteGuard}\n    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)${policyErrorHandler}${temporalErrorHandler}${fieldRuleErrorHandler}${generatedErrorHandler}\n    .get("/aggregate", async ({ query, status, request }) => {
       ${restricted ? "const principal = await authenticate(request);\n      const policy = await resolveResourcePolicy(principal, request);\n      if (policy.maskedFields.includes(query.field)) return status(403, { error: \"Aggregating a masked field is not permitted\", errorKey: \"policy.maskedField\" });\n      " : ""}if (!["sum", "avg", "min", "max"].includes(query.op)) return status(400, { error: "Unsupported aggregate operator" });
       if (!(${JSON.stringify(entity.fields.filter((field) => ["Integer", "Decimal", "Money"].includes(field.type)).map((field) => field.name))} as string[]).includes(query.field)) return status(400, { error: "Unsupported aggregate field" });
       return repository.aggregate ? repository.aggregate(query.field, query.op as "sum" | "avg" | "min" | "max", await resolveScope(request)${restricted ? ", policy" : ""}) : { value: null, operator: query.op };
@@ -2153,7 +2162,8 @@ function renderRouteTest(entity: EntityIR, database: DatabaseIR, scopes: NonNull
   const name = modelName(entity);
   const claims = JSON.stringify(Object.fromEntries(scopes.map((scope) => [scope.claim, database.entities.find((item) => item.name === scope.resource || item.tableName === scope.resource)?.fields.find((field) => field.name === scope.field)?.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : "Example"])));
   const values = entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable).map((field) => {
-    const example = field.type === "Integer" ? "1" : field.type === "Boolean" ? "true" : field.type === "Array" ? (field.itemType === "Integer" ? "[1]" : '["Example"]') : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
+    const constrained = ruleSample(field);
+    const example = constrained !== undefined ? JSON.stringify(constrained) : field.type === "Integer" ? "1" : field.type === "Boolean" ? "true" : field.type === "Array" ? (field.itemType === "Integer" ? "[1]" : '["Example"]') : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
       : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
         : field.enumName ? JSON.stringify(database.enums?.find((enumeration) => enumeration.name === field.enumName)?.values[0]?.name ?? "") : field.type === "Email" ? '"user@example.com"' : field.type === "URL" ? '"https://example.com"' : '"Example"';
     return `${JSON.stringify(field.name)}: ${example}`;
@@ -2215,6 +2225,21 @@ function renderRouteTest(entity: EntityIR, database: DatabaseIR, scopes: NonNull
     : "";
   // Non-temporal resources keep the previous generated output byte-for-byte.
   const temporalSection = temporalTests || temporalNormalizationTest ? `\n${temporalTests}${temporalNormalizationTest}` : "";
+  // Each declared @min/@max/@length/@pattern rule is a documented 400 on create and update.
+  const ruleTests = entity.fields.filter((field) => !hiddenFields.includes(field.name)).flatMap((field) => ruleViolations(field).map(({ rule, value }) => `
+  test("rejects ${field.name} values that break its ${rule} rule", async () => {
+    records.clear();
+    const invalid = await app.handle(new Request(endpoint + "/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...({ ${values} } as Record<string, unknown>), ${JSON.stringify(field.name)}: ${JSON.stringify(value)} }) }));
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toMatchObject({ errorKey: ${JSON.stringify(`validation.${rule}`)}, field: ${JSON.stringify(field.name)} });
+    expect(records.size).toBe(0);
+    const created = await app.handle(new Request(endpoint + "/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ${values} }) }));
+    expect(created.status).toBe(201);
+    const record = await created.json() as { id: string };
+    const patched = await app.handle(new Request(endpoint + "/" + record.id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ${JSON.stringify(field.name)}: ${JSON.stringify(value)} }) }));
+    expect(patched.status).toBe(400);
+  });`)).join("\n");
+  const ruleSection = ruleTests ? `\n${ruleTests}` : "";
   return `import { describe, expect, test } from "bun:test";
 import { Elysia } from "elysia";
 import { ${name}Routes, type ${name}Repository } from "../src/routes/${entity.name}";
@@ -2317,7 +2342,7 @@ describe("${entity.tableName} CRUD", () => {
   });
 
 ${unsupportedQueryTests}
-${hiddenFieldTests}${temporalSection}
+${hiddenFieldTests}${temporalSection}${ruleSection}
 });
 `;
 }
@@ -4908,6 +4933,7 @@ export const orderIdempotency = pgTable("order_idempotency", {
     "api/src/export-jobs.ts": renderExportJobsModule(database.dialect),
     "api/src/db.ts": database.dialect === "postgresql" ? `import { SQL } from "bun";\nimport { drizzle } from "drizzle-orm/bun-sql";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = new SQL(url);\nexport const db = drizzle({ client, schema });\n` : database.dialect === "sqlite" ? `import { Database } from "bun:sqlite";\nimport { drizzle } from "drizzle-orm/bun-sqlite";\nimport * as schema from "./schema";\n\nconst filename = Bun.env.DATABASE_URL ?? "./qiy.sqlite";\nexport const client = new Database(filename);\nexport const db = drizzle(client, { schema });\n` : `import mysql from "mysql2/promise";\nimport { drizzle } from "drizzle-orm/mysql2";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = mysql.createPool({ uri: url, timezone: "Z" });\nexport const db = drizzle({ client, schema, mode: "default" });\n`,
     ...(database.entities.some((entity) => temporalFieldsOf(entity).length) ? { "api/src/temporal.ts": renderTemporalModule() } : {}),
+    ...(database.entities.some((entity) => Object.keys(entityFieldRules(entity.fields)).length) ? { "api/src/field-rules.ts": renderFieldRulesModule() } : {}),
     "api/src/schema-drift.ts": `import { isTable } from "drizzle-orm";
 import { getTableConfig } from "drizzle-orm/${database.dialect === "postgresql" ? "pg-core" : database.dialect === "mysql" ? "mysql-core" : "sqlite-core"}";
 import * as schema from "./schema";
@@ -6694,7 +6720,10 @@ ${entityRestricted ? "  policy?: QiyPolicy;" : ""}
     const temporalFields = temporalFieldsOf(entity);
     const temporalImport = temporalFields.length ? 'import { normalizeTemporalValues } from "../../temporal";\n' : "";
     const temporalDeclaration = temporalFields.length ? `const temporalFields = ${JSON.stringify(Object.fromEntries(temporalFields))} as Record<string, "Date" | "Time">;\n` : "";
-    const normalizeWrite = (expression: string) => temporalFields.length ? `normalizeDates(normalizeTemporalValues(${expression}, temporalFields))` : `normalizeDates(${expression})`;
+    const fieldRules = entityFieldRules(entity.fields);
+    const ruled = Object.keys(fieldRules).length > 0;
+    const checkRules = (expression: string) => ruled ? `qiyCheckFieldRules(${expression})` : expression;
+    const normalizeWrite = (expression: string) => temporalFields.length ? `normalizeDates(normalizeTemporalValues(${checkRules(expression)}, temporalFields))` : `normalizeDates(${checkRules(expression)})`;
     // Generated fields are never written from a request body: create strips the
     // client values before the repository fills them, and update strips them so a
     // PATCH of only generated fields is a documented no-op.
@@ -6723,9 +6752,9 @@ ${entityRestricted ? "  policy?: QiyPolicy;" : ""}
       if (Object.keys(prepared).length === 0) return repository.one(id, ${scopedArgs});
       return repository.update(id, prepared, actorId, ${scopedArgs});
     }`;
-    files[`${moduleRoot}/${entity.name}.service.ts`] = `${temporalImport}${entityRestricted ? 'import type { QiyPolicy } from "../../security/policy";\n' : ""}${generatedServiceImport}import type { ${modelName(entity)}Repository, ListQuery } from "./${entity.name}.contract";
+    files[`${moduleRoot}/${entity.name}.service.ts`] = `${temporalImport}${ruled ? 'import { checkFieldRules, type QiyFieldRules } from "../../field-rules";\n' : ""}${entityRestricted ? 'import type { QiyPolicy } from "../../security/policy";\n' : ""}${generatedServiceImport}import type { ${modelName(entity)}Repository, ListQuery } from "./${entity.name}.contract";
  ${realtimeSubscription ? 'import { pollRealtimeOutbox } from "../../realtime";' : ""}
-${temporalDeclaration}${generatedServiceDeclaration}const dateFields = ${JSON.stringify(entity.fields.filter((field) => field.type === "DateTime").map((field) => field.name))} as string[];
+${temporalDeclaration}${generatedServiceDeclaration}${ruled ? `const fieldRules = ${JSON.stringify(fieldRules)} as Record<string, QiyFieldRules>;\nfunction qiyCheckFieldRules(values: Record<string, unknown>): Record<string, unknown> {\n  checkFieldRules(values, fieldRules);\n  return values;\n}\n` : ""}const dateFields = ${JSON.stringify(entity.fields.filter((field) => field.type === "DateTime").map((field) => field.name))} as string[];
 function normalizeDates(values: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(values).map(([field, value]) => [field, dateFields.includes(field) && typeof value === "string" ? new Date(value) : value]));
 }
@@ -6750,12 +6779,12 @@ ${generatedDocumentation(entity)}export function create${modelName(entity)}Servi
 `;
     files[`${moduleRoot}/${entity.name}.routes.ts`] = `import { Elysia, t } from "elysia";
 import type { Authenticator${entityRestricted ? "" : ", Principal"} } from "../../auth/guard";
-${temporalFields.length ? 'import { QiyTemporalValueError } from "../../temporal";\n' : ""}${generatedEntityFields.length ? 'import { QiyGeneratedValueConflict } from "../../generated-values";\n' : ""}import { create${modelName(entity)}Service } from "./${entity.name}.service";
+${temporalFields.length ? 'import { QiyTemporalValueError } from "../../temporal";\n' : ""}${Object.keys(entityFieldRules(entity.fields)).length ? 'import { QiyFieldRuleError } from "../../field-rules";\n' : ""}${generatedEntityFields.length ? 'import { QiyGeneratedValueConflict } from "../../generated-values";\n' : ""}import { create${modelName(entity)}Service } from "./${entity.name}.service";
 import { claimImportJob, createImportJob, isImportJobCancelled, listImportJobs, readImportJob, releaseStaleImportJobs, requestImportJobCancel, updateImportJob } from "../../import-jobs";
 import { claimExportJob, createExportJob, listExportJobs, readExportJob, updateExportJob } from "../../export-jobs";
 import type { ${modelName(entity)}Repository as ${modelName(entity)}RepositoryPort } from "./${entity.name}.contract";
 ${entityRestricted ? 'import { QiyPolicyError, resolvePolicy, type QiyPolicy } from "../../security/policy";\nimport { ' + entity.name + ' } from "../../schema";\nimport type { Principal } from "../../auth/guard";\n' : ""}
-${renderRoutes(publicEntity, database, options.scopes, hiddenFields, entityRestricted, temporalFields.length ? "QiyTemporalValueError" : "").replace(`repository: ${modelName(entity)}Repository`, `repository: ${modelName(entity)}RepositoryPort`).replace("  return new Elysia({", `  const service = create${modelName(entity)}Service(repository);\n  return new Elysia({`).replaceAll("repository.list(", "service.list(").replaceAll("repository.one(", "service.one(").replaceAll("repository.create(", "service.create(").replaceAll("repository.update(", "service.update(").replaceAll("repository.delete(", "service.delete(")}`;
+${renderRoutes(publicEntity, database, options.scopes, hiddenFields, entityRestricted, temporalFields.length ? "QiyTemporalValueError" : "", Object.keys(entityFieldRules(entity.fields)).length > 0).replace(`repository: ${modelName(entity)}Repository`, `repository: ${modelName(entity)}RepositoryPort`).replace("  return new Elysia({", `  const service = create${modelName(entity)}Service(repository);\n  return new Elysia({`).replaceAll("repository.list(", "service.list(").replaceAll("repository.one(", "service.one(").replaceAll("repository.create(", "service.create(").replaceAll("repository.update(", "service.update(").replaceAll("repository.delete(", "service.delete(")}`;
     files[`api/src/routes/${entity.name}.ts`] = `export { ${modelName(entity)}Routes } from "../modules/${entity.name}/${entity.name}.routes";\nexport type { ${modelName(entity)}Repository } from "../modules/${entity.name}/${entity.name}.contract";\n`;
     files[`api/tests/${entity.name}.test.ts`] = renderRouteTest(publicEntity, database, options.scopes ?? [], hiddenFields);
   }
@@ -6796,7 +6825,7 @@ ${database.entities.map((entity) => {
       : "Example";
     const adapterRecord = Object.fromEntries(adapterEntity.fields.map((field) => {
       if (field.nullable && !field.primaryKey) return [field.name, null];
-      const value = field.enumName ? database.enums?.find((enumeration) => enumeration.name === field.enumName)?.values[0]?.name ?? ""
+      const value = ruleSample(field) ?? (field.enumName ? database.enums?.find((enumeration) => enumeration.name === field.enumName)?.values[0]?.name ?? ""
         : field.type === "Integer" ? 1
           : field.type === "Decimal" || field.type === "Money" ? "1.00"
             : field.type === "DateTime" ? "2026-10-06T00:00:00.000Z"
@@ -6805,7 +6834,7 @@ ${database.entities.map((entity) => {
                   : field.type === "UUID" ? "00000000-0000-4000-8000-000000000002"
                   : field.type === "Vector" ? Array(field.dimension).fill(0)
                   : field.type === "Files" ? ["uploads/sample.pdf"]
-                    : "Example";
+                    : "Example");
       return [field.name, value];
     }));
     const providerSortField = adapterEntity.fields.find((field) => field.sortable !== false && !field.primaryKey) ?? adapterEntity.fields.find((field) => field.sortable !== false)!;

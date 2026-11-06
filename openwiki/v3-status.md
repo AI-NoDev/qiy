@@ -40,9 +40,9 @@
 
 ## 下一步顺序
 
-1. **字段校验与默认值**：`@min`、`@max`、`@length`、`@pattern`、`@default`，服务端校验与前端表单规则同源生成。
+1. ~~**字段校验与默认值**~~（已完成）：`@min`、`@max`、`@length`、`@pattern`、`@default`，service 层统一校验（REST / GraphQL / CSV 导入），表单规则同源生成。
 2. **乐观锁**：`@version`，更新冲突返回 409，表单提示刷新。
-3. **全量 fixture 与示例漂移检查**：一个覆盖全部语法的 kitchen-sink 模型在三方言上生成并测试；CI 检查 `examples/*/admin` 与生成器输出一致。
+3. ~~**全量 fixture 与示例漂移检查**~~（已完成）：一个覆盖全部语法的 kitchen-sink 模型在三方言上生成并测试；CI 检查 `examples/*/admin` 与生成器输出一致。
 4. **多对多关系**与多选 UI。
 5. **声明式状态机 / 审批流转**。
 6. **Webhook 与通知**：通知适配器（SMTP 默认、Resend、webhook，开发环境 console）与定时任务。

@@ -191,7 +191,7 @@
 0.37.0 删除了冗余写法（v1 语法、MPS、OIDC 厂商关键字、Ably、dashboard 指标、llms-full.txt）。之后按顺序推进：
 
 - [x] kitchen-sink 全语法 fixture（三方言）+ CI 示例漂移检查
-- [ ] 字段校验与默认值：`@min`/`@max`/`@length`/`@pattern`/`@default`，服务端与表单同源
+- [x] 字段校验与默认值：`@min`/`@max`/`@length`/`@pattern`/`@default`，服务端与表单同源
 - [ ] 乐观锁 `@version`（冲突 409）
 - [ ] 自定义角色（替代固定的 `admin`/`operator`/`viewer`）
 - [ ] 多对多关系与多选 UI（`relation ... many` 目前解析后被拒绝）

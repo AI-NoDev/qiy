@@ -1,4 +1,5 @@
 import { validateCodeTemplate } from "./code-template";
+import { fieldRuleErrors } from "./field-rules";
 
 export type DatabaseDialect = "postgresql" | "mysql" | "sqlite";
 export type FieldType = "UUID" | "Text" | "Email" | "URL" | "JSON" | "Integer" | "Boolean" | "Decimal" | "Money" | "Date" | "Time" | "DateTime" | "Array" | "File" | "Files" | "Vector";
@@ -58,7 +59,19 @@ export interface FieldIR {
   codeTemplate?: string;
   /** `@generated(uuid)`/`@generated`: the server fills the value on create. */
   generatedValue?: "uuid";
+  /** `@min(n)` / `@max(n)`: inclusive bounds for Integer, Decimal and Money values. */
+  min?: number;
+  max?: number;
+  /** `@length(max)` / `@length(min, max)`: character bounds for Text, Email and URL values. */
+  minLength?: number;
+  maxLength?: number;
+  /** `@pattern("regex", "example")`: Text values must match; the example documents and samples the format. */
+  pattern?: { source: string; example: string };
+  /** `@default(...)`: column default; also pre-fills create forms and makes the create field optional. */
+  defaultValue?: FieldDefaultIR;
 }
+
+export type FieldDefaultIR = { kind: "literal"; value: string | number | boolean } | { kind: "now" };
 
 export interface IndexColumnIR {
   fieldName: string;
@@ -445,6 +458,7 @@ export function validateDatabaseIR(database: DatabaseIR): string[] {
         if (field.type !== "UUID") errors.push(`${entity.name}.${field.name}: @generated(uuid) requires a UUID field`);
         if (field.primaryKey) errors.push(`${entity.name}.${field.name}: @generated is not needed on a primary key; ids are always generated`);
       }
+      errors.push(...fieldRuleErrors(field, database).map((message) => `${entity.name}.${field.name}: ${message}`));
       if (field.extension && !extensions.has(field.extension)) {
         errors.push(`${entity.name}.${field.name}: undeclared extension ${field.extension}`);
       }

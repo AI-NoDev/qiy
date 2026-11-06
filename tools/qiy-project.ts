@@ -511,6 +511,16 @@ export function parseQiyProject(source: string): QiyProject {
     if (!/^\d+$/.test(value)) throw new Error(`Expected integer near token ${position}`);
     return Number(value);
   }
+  /** `-12`, `0.5` or `-1.25` as written; the tokenizer splits decimals around ".". */
+  function numberLiteral(): string {
+    const whole = take();
+    if (!/^-?\d+$/.test(whole)) throw new Error(`Expected number near token ${position}`);
+    if (peek() !== ".") return whole;
+    expect(".");
+    const fraction = take();
+    if (!/^\d+$/.test(fraction)) throw new Error(`Expected number near token ${position}`);
+    return `${whole}.${fraction}`;
+  }
   function dottedPath(): string {
     const parts = [identifier()];
     while (peek() === ".") { expect("."); parts.push(identifier()); }
@@ -1271,6 +1281,35 @@ export function parseQiyProject(source: string): QiyProject {
         if (result.codeTemplate !== undefined) throw new Error(`Field ${name}: @generated and @code cannot be combined`);
         if (type !== "UUID") throw new Error(`Field ${name}: @generated(uuid) requires a UUID field`);
         result.generatedValue = "uuid";
+      } else if (attribute === "min" || attribute === "max") {
+        if (result[attribute] !== undefined) throw new Error(`Field ${name}: duplicate @${attribute} annotation`);
+        expect("("); result[attribute] = Number(numberLiteral()); expect(")");
+      } else if (attribute === "length") {
+        if (result.maxLength !== undefined) throw new Error(`Field ${name}: duplicate @length annotation`);
+        expect("(");
+        const first = integer();
+        if (peek() === ",") { expect(","); result.minLength = first; result.maxLength = integer(); }
+        else result.maxLength = first;
+        expect(")");
+      } else if (attribute === "pattern") {
+        if (result.pattern) throw new Error(`Field ${name}: duplicate @pattern annotation`);
+        expect("("); const source = stringLiteral();
+        if (peek() !== ",") throw new Error(`Field ${name}: @pattern requires an example value, for example @pattern("^[A-Z]{3}$", "ABC")`);
+        expect(","); const example = stringLiteral(); expect(")");
+        result.pattern = { source, example };
+      } else if (attribute === "default") {
+        if (result.defaultValue) throw new Error(`Field ${name}: duplicate @default annotation`);
+        expect("(");
+        const token = peek();
+        if (/^-?\d+$/.test(token)) {
+          const literal = numberLiteral();
+          result.defaultValue = { kind: "literal", value: type === "Decimal" || type === "Money" ? literal : Number(literal) };
+        } else if (token.startsWith("\"") || token.startsWith("'")) result.defaultValue = { kind: "literal", value: stringLiteral() };
+        else {
+          const word = identifier();
+          result.defaultValue = word === "now" ? { kind: "now" } : { kind: "literal", value: word === "true" ? true : word === "false" ? false : word };
+        }
+        expect(")");
       } else if (attribute === "column") {
         expect("(");
         const columnName = value();
@@ -3264,6 +3303,15 @@ export function serializeQiyProject(project: QiyProject): string {
       if (field.maxFiles !== undefined) declaration += ` @maxFiles(${field.maxFiles})`;
       if (field.codeTemplate !== undefined) declaration += ` @code(${qiyString(field.codeTemplate)})`;
       if (field.generatedValue !== undefined) declaration += ` @generated(${field.generatedValue})`;
+      if (field.min !== undefined) declaration += ` @min(${field.min})`;
+      if (field.max !== undefined) declaration += ` @max(${field.max})`;
+      if (field.maxLength !== undefined) declaration += ` @length(${field.minLength !== undefined ? `${field.minLength}, ` : ""}${field.maxLength})`;
+      if (field.pattern) declaration += ` @pattern(${qiyString(field.pattern.source)}, ${qiyString(field.pattern.example)})`;
+      if (field.defaultValue?.kind === "now") declaration += " @default(now)";
+      else if (field.defaultValue) {
+        const value = field.defaultValue.value;
+        declaration += ` @default(${typeof value === "string" && !field.enumName && field.type !== "Decimal" && field.type !== "Money" ? qiyString(value) : value})`;
+      }
       lines.push(`${declaration};`);
     }
     for (const index of entity.indexes ?? []) {

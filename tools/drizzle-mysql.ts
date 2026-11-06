@@ -1,5 +1,6 @@
 import type { DatabaseIR, EntityIR, FieldIR, RelationIR } from "./database-ir";
 import { generatedFieldsOf, validateDatabaseIR } from "./database-ir";
+import { drizzleDefault } from "./field-rules";
 import { generatedDocumentation } from "./generated-documentation";
 
 function column(field: FieldIR, relation?: RelationIR, indexed = false): string {
@@ -27,6 +28,7 @@ function column(field: FieldIR, relation?: RelationIR, indexed = false): string 
   if (field.primaryKey) declaration += ".primaryKey()";
   if (relation) declaration += reference(relation);
   if (!field.nullable && !field.primaryKey) declaration += ".notNull()";
+  declaration += drizzleDefault(field, "mysql");
   if (field.unique && !field.primaryKey) declaration += ".unique()";
   return declaration;
 }

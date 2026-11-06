@@ -172,10 +172,21 @@ Attributes follow the type, any order, and booleans accept `@x` or `@x(false)`.
 | `@extension(name)` | Vector | none | DB extension already declared in `database` |
 | `@code("template")` | Text, non-enum, non-PK | none | Server-rendered business code (see below) |
 | `@generated(uuid)` | UUID, non-PK | none | Server UUIDv4 |
+| `@min(n)` / `@max(n)` | Integer/Decimal/Money | none | Inclusive bounds; may be negative or decimal (decimals within `scale`; integers on Integer) |
+| `@length(max)` / `@length(min, max)` | Text/Email/URL, non-enum | none | Character bounds counted in code points; Email max >= 6, URL max >= 12 |
+| `@pattern("regex", "example")` | Text, non-enum | none | Unicode regex; the example is required, must satisfy every rule, and becomes the form placeholder and test sample |
+| `@default(...)` | scalar types | none | String, number, `true`/`false`, enum member, or `now` (DateTime only). Column default, optional create input, pre-filled create form |
 | `@column("name")` | all | field name | Physical column name |
 | `@dimension/@precision/@scale` | Vector / Decimal / Money | type parameter | Alternative spelling |
 
-There is no `@required`, no `@default`, no `@length`/`@min`/`@max`/`@format`, no `@searchable`/`@hidden`/`@readonly`, no `@transient`. Required is the default; use `@nullable` for optional. Defaults and business validation belong in migrations, seeds or server extensions.
+There is no `@required`, no `@format` (use `@pattern` or the `Email`/`URL` types), no `@searchable`/`@hidden`/`@readonly`, no `@transient`. Required is the default; use `@nullable` for optional. Cross-field or stateful business rules belong in dataflow `require` statements or server extensions.
+
+Value rules and defaults (`@min`, `@max`, `@length`, `@pattern`, `@default`):
+
+- The rules are rendered into `api/src/field-rules.ts` and checked in each resource service, so REST, GraphQL and CSV import share one check. A violation is a 400 `{ error, errorKey, field }` with `errorKey` `validation.min|max|minLength|maxLength|pattern`; GraphQL errors carry the same `status`/`errorKey`/`field` in `extensions`. Null and omitted values are skipped, so PATCH checks only submitted fields.
+- The generated form applies the same rules with the `qiy.validation.*` messages (overridable in `messages`), shows a character count for `@length` Text inputs and uses the `@pattern` example as the placeholder. The server stays authoritative.
+- `@default` renders a column default (MySQL TEXT columns and `now` are filled by Drizzle on insert because MySQL cannot store those as literal defaults), makes the field optional on REST/GraphQL create, pre-fills create forms with literals, lets an empty CSV cell fall back to the default, and allows hiding a required field from the create form. Rules and defaults are rejected on primary keys and `@computed`/`@code`/`@generated` fields; `@default` is also rejected on `@softDelete`/`@tenant` fields.
+- Generated route tests post one violating value per rule and expect the 400; generated fixtures use rule-aware samples (the `@pattern` example, bounded numbers, length-fitted text).
 
 Lifecycle and derived fields:
 
