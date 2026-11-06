@@ -30,7 +30,7 @@ Releases before `0.2.0` are listed on the
 - MySQL: business-code allocation retries InnoDB deadlocks and lock-wait timeouts when concurrent first inserts race on a new sequence row, and duplicate-key detection also recognises driver errors that Drizzle wraps as `cause`.
 - Generated tests no longer break on models that combine features: `@computed` fields are left out of test DDL and `WritableFields`; Dataflow tests carry the tenant claims their entities need; stub-repository API tests skip resources with row policies; the SQLite tree-scope test creates the tree table; the realtime outbox test expects claim-segmented channels; the GraphQL adapter test expects structured filters and the scope-stamped create; the action role test covers role-only actions; `t()` labels pass the i18n key test; MySQL API-key test tables use indexable columns and `DATETIME` literals.
 - Generated `actions.ts` no longer emits the raw `permission`/`verification` keys, which failed the web type-check.
-- `examples:check` ignores files the generated `.gitignore` excludes (`.env.development`, `.env.production`) and prints the first differing line.
+- `.qiy-generated.json` lists files in sorted order, so the manifest is identical on every OS. `examples:check` ignores files the generated `.gitignore` excludes (`.env.development`, `.env.production`) and prints the first differing line.
 
 ## [0.37.0] - 2026-11-06
 

@@ -8772,7 +8772,7 @@ async function insertKey(input: { id: string; userId: string; name: string; pref
   await exec("INSERT INTO " + identifier("qiy_api_keys") + " (" + ["id", "userId", "name", "prefix", "hash", "scopes", "rotatedFromId", "createdAt", "lastUsedAt", "expiresAt", "revokedAt"].map((column) => identifier(column)).join(", ") + ") VALUES (" + [literal(input.id), literal(input.userId), literal(input.name), literal(input.prefix), literal(input.hash), literal(input.scopes ?? null), literal(input.rotatedFromId ?? null), timestampLiteral(input.createdAt), "NULL", timestampLiteral(input.expiresAt), timestampLiteral(input.revokedAt)].join(", ") + ")");
 }
 
-async function keyRows(): Promise<Array<Record<string, unknown>>> { return rows("SELECT id, userId, name, prefix, hash, scopes, rotatedFromId, lastUsedAt, expiresAt, revokedAt FROM qiy_api_keys"); }
+async function keyRows(): Promise<Array<Record<string, unknown>>> { return rows("SELECT " + ["id", "userId", "name", "prefix", "hash", "scopes", "rotatedFromId", "lastUsedAt", "expiresAt", "revokedAt"].map((column) => identifier(column)).join(", ") + " FROM " + identifier("qiy_api_keys")); }
 
 const session = async (request: Request) => {
   const header = request.headers.get("authorization");

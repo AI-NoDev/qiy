@@ -16,7 +16,7 @@ export interface GeneratedManifest {
 }
 
 export function createGeneratedManifest(projectName: string, mode: GeneratedManifest["mode"], files: string[]): GeneratedManifest {
-  return { schemaVersion: GENERATED_MANIFEST_SCHEMA_VERSION, qiyVersion: QIY_VERSION, projectName, mode, files };
+  return { schemaVersion: GENERATED_MANIFEST_SCHEMA_VERSION, qiyVersion: QIY_VERSION, projectName, mode, files: [...files].sort() };
 }
 
 export function generatedPath(output: string, relativePath: string): string {
