@@ -43,6 +43,8 @@ Releases before `0.2.0` are listed on the
 - The regenerated `examples/self/admin` workspace keeps test scratch files
   next to its tests, so its root `turbo run test` passes with an unwritable
   `%TEMP%`; `tests/generated-temp-dirs.test.ts` guards generated tests.
+- The release matrix verifies darwin-arm64 on `macos-15`; GitHub retired the
+  `macos-14` runner image.
 - User docs no longer expose repository-internal verification scripts:
   real-service/IdP acceptance moved to `MAINTAINER_VERIFICATION.md`, internal
   commands to `CONTRIBUTING.md`, and auth/deployment/project-structure pages
