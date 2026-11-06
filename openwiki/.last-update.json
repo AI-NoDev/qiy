@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-10-12T10:15:00+08:00",
+  "updatedAt": "2026-11-06T12:35:00.000Z",
   "command": "update",
-  "gitHead": "01d3d368a0f95f9a92ebbf41a05efb147e996f6f",
-  "model": "codex"
+  "gitHead": "9189d0913e501b8d1add1dfc5af3efd4bb1da271",
+  "model": "claude-code"
 }

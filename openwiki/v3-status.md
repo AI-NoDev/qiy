@@ -1,5 +1,27 @@
 # V3 实施状态与验收规划
 
+## v0.36.0：关闭 v0.35.0 审计登记的 7 个产品边界（2026-11-06 完成）
+
+**生成器（`tools/`）：**
+
+- 软删除：`renderRepositoryMethods` 在有 `@softDelete` 时把 `delete(E)` 换成 `update(E).set({ <field>: new Date() })`，审计动作 `<table>.deleted`；新增 `restore(id, actorId, scope[, policy])`（只恢复 `isNotNull(marker)` 且在 scope/policy 内的行，审计 `<table>.restored`，realtime 发 `updated`）；list 查询 `deleted=true` 时只返回已删除行。路由 `POST /:id/restore`；`templates/admin/apps/server/src/auth/guard.ts` 的 `restAction` 把「`?deleted=true` 列表」和「restore」都映射为 delete 权限。MySQL 没有 `RETURNING`，删除后需重新 select。
+- Web（`tools/generate-web.ts`）：`ResourceDefinition.softDelete`、列表页「回收站」按钮（需 delete 权限）、`routes/trash.tsx`（`renderTrashPage()`），i18n 键 `qiy.trash` / `qiy.restore` / `qiy.confirmRestore` / `qiy.restored` / `qiy.trashDenied` / `qiy.trashUnavailable`。
+- DB view（`tools/generate-view-routes.ts`）：生成 `viewAccess.<view>(principal)`，把源实体软删除、scope/tenant、`restrict when` 编成 `view.id IN (SELECT id FROM source WHERE …)`，并返回 mask 函数；REST 与 GraphQL resolver 共用。源实体有这些行规则时视图必须选 `id`（`viewAccessErrors`）。
+- 数值计算字段（`tools/database-ir.ts`）：`computedNumericTypes`（Integer/Decimal/Money）、`computedExpressionTokens`、`computedExpressionError`（递归下降校验）。数值计算字段必须 `@nullable`，引用必须是数值、不能引用其他计算字段；运行时 `qiyComputedOperand` / `qiyComputedResult`（null/除零 → null，Integer `Math.trunc`）。计算字段不进 policy 列映射（否则生成服务端类型检查失败）。
+- 租户 claim 映射（`tools/qiy-project.ts` + `generate-server.ts`）：`auth { claim <claim> <field>; }` → `auth.claimFields`；`userClaimFields()` 显式映射优先，否则按 `org.id` → `orgId` 推导；本地密码、OTP（`findPrincipal` 现在带 claims）和 API Key 共用。
+- 私有字段守卫 `privateInputGuard` 只检查自身资源路径（Elysia 全局 `onRequest` 对所有请求触发，之前会拦截 `/auth/login` 的 `password`）。
+- `docs.ts` 的 `DocsField` 补 `itemType`（Array 字段的 OpenAPI items 类型）。
+
+**测试与工具：**
+
+- 像素视觉回归：`e2e/generated-visual.spec.ts` + `tools/e2e-visual.ts`。浏览器跑在与 `@playwright/test` 同版本的 `mcr.microsoft.com/playwright` 容器里（`run-server`），测试端用 `connectOptions.exposeNetwork: "<loopback>"` 访问宿主机 5173，一份 PNG 基线跨平台通用。`playwright.generated.config.ts` 只在设置 `QIY_VISUAL_WS` 时加入 `visual` 项目；CI 用一次 `bun run e2e:visual --project chromium` 同时跑两个项目，因为第二次 Playwright 启动时，第一次的 turbo 子进程仍占着 5173。
+- `e2e/generated.spec.ts` 新增「软删除 → 回收站 → 恢复」用例。antd 会给两个汉字的按钮加空格（「删 除」），所以确认气泡用 `getByRole("tooltip").getByRole("button").last()`。
+- 负载工具 `tools/load-test.ts`：`--duration`、`--warmup`、`--p99`、`--max-error-rate`、`--min-rps`、`--out` / `--merge`（`mergeReports` 按原始样本重算百分位，吞吐相加）、`evaluateThresholds`。
+- Windows EPERM：模板里的生成测试早已把临时目录放在测试旁边，问题出在 `examples/self/admin` 落后约 90 个文件；重新生成后根目录 `turbo run test` 在 `TEMP` 不可写时也通过。`tests/generated-temp-dirs.test.ts` 防回归。
+- 发布矩阵 darwin-arm64 改用 `macos-15`（GitHub 已停用 `macos-14`）。
+
+**验收：** 449 pass / 0 fail，覆盖率 90.11% / 93.30%；生成应用 E2E 3 + 像素 2 通过；SQLite / PG16 / MySQL 8.4 运行时冒烟通过；dry-run 五平台通过，`v0.36.0` 已发布，已发布二进制验证（release smoke）通过。用户文档见 `docs/dsl/entity.md`、`docs/dsl/views.md`、`docs/dsl/auth.md`、`docs/guide/visual-regression.md`、`docs/guide/load-testing.md`；审计见 `AUDIT.md`。
+
 ## 自动生成值：业务编码 @code、UUID @generated 与自关联（2026-10-25 完成）
 
 **DSL/IR（已完成）：**
