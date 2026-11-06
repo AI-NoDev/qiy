@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { Elysia } from "elysia";
 import { client, db } from "../src/db";
 import { purchase_orders, inventory, stock_movements, sales_orders, shipments, work_orders } from "../src/schema";
@@ -21,7 +21,7 @@ client.exec("CREATE TABLE IF NOT EXISTS qiy_realtime_outbox (id text primary key
 
 });
 
-afterEach(() => {
+const resetTables = () => {
 client.exec("DELETE FROM purchase_orders");
 client.exec("DELETE FROM inventory");
 client.exec("DELETE FROM stock_movements");
@@ -32,7 +32,9 @@ client.exec('DELETE FROM audit_events');
 client.exec('DELETE FROM dataflow_idempotency');
 client.exec('DELETE FROM dataflow_outbox');
 client.exec('DELETE FROM qiy_realtime_outbox');
-});
+};
+beforeEach(resetTables);
+afterEach(resetTables);
 
 const testRoles: Record<string, QiyRole> = {"receiveInventory":"admin","putawayStock":"admin","reserveStock":"admin","adjustStock":"admin","shipSalesOrder":"admin","transferInventory":"admin","completeWorkOrder":"admin","approvePurchaseOrder":"admin"};
 const app = new Elysia().use(createDataflowRoutes(async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: testRoles[new URL(request.url).pathname.split("/").at(-1)!] ?? QIY_ADMIN_ROLE, permissions: ["api:getUser","api:putUser","api:deleteUser","inventory:receive","inventory:putaway","inventory:reserve","inventory:adjust","inventory:transfer","purchasing:approve","sales:ship","workorder:complete","report:read"], groups: ["UserApiPermissionGroup","ManagerRole","SuperAdminManager","admin","operator","viewer"] })));

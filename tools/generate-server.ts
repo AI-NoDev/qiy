@@ -3974,7 +3974,7 @@ ${missingKeyCheck}
     ${replayCheck}${auditCheck}${outboxCheck}${realtimeOutboxCheck}
   });${graphqlCommandTest}${authorizationTest}${rollbackTests}${businessRollbackTest}${callRollbackTest}${inputValidationTests}${numericGuardTests}${batchTest}`;
   }).join("\n\n");
-  return `import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+  return `import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { Elysia } from "elysia";
 import { client, db } from "../src/db";
 import { ${imports} } from "../src/schema";
@@ -3989,9 +3989,11 @@ ${auxiliarySchema}
 ${callAdapters.map((adapter) => `dataflowCallHandlers[${JSON.stringify(adapter)}] = () => ({ ok: true });`).join("\n")}
 });
 
-afterEach(() => {
+const resetTables = () => {
 ${cleanup}
-});
+};
+beforeEach(resetTables);
+afterEach(resetTables);
 
 const testRoles: Record<string, QiyRole> = ${JSON.stringify(Object.fromEntries(dataflows.map((flow) => [flow.name, flow.roles?.[0] ?? roles.admin])))};
 const app = new Elysia().use(createDataflowRoutes(async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: testRoles[new URL(request.url).pathname.split("/").at(-1)!] ?? QIY_ADMIN_ROLE${permissionPrincipal} })));
