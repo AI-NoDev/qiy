@@ -2,7 +2,7 @@
 
 本页是 Qiy DSL 中**全部** `@annotation` 的单一索引：可用位置、参数形态、默认值、i18n 行为、生成效果与校验错误。各构造的完整语法见对应章节，本页只做横向对照。
 
-语言里共有 **47 个注解名**（同一个名字在不同位置含义不同，例如 `@label`、`@comment`、`@icon`、`@unique`、`@field` 出现在多个块中）。注解必须写在解析器允许的位置；写在别处会报 `Unsupported … attribute @X` 或 `Expected …`。
+语言里共有 **48 个注解名**（同一个名字在不同位置含义不同，例如 `@label`、`@comment`、`@icon`、`@unique`、`@field` 出现在多个块中）。注解必须写在解析器允许的位置；写在别处会报 `Unsupported … attribute @X` 或 `Expected …`。
 
 ## 通用规则
 
@@ -15,7 +15,7 @@
   - `identifier`：枚举式取值（`@upload(binary)`、`@type(trend)`）。
 - **`t("key")` 参考**：只有 `documentation` 位置支持。解析时立即到 `messages` 的默认语言里查 key，缺失报 `Missing default locale message for <purpose>: <key>`；因此 `messages` 必须写在实体/枚举之前（`application`/`database` 的注释延后解析）。
 - **i18n**：`@label` 会派生稳定翻译键（见各表）；`@comment` 不派生键，但会把 `i18n: key` 写进生成的 JSDoc，并在元数据里保留 `commentKey`。
-- **重复声明**：多数注解后者覆盖、不报错；显式报重复的是 `@singular`/`@plural`/`@display`/`@tableDisplay`/`@relationDetail`、`@code`、`@generated`、`@min`/`@max`/`@length`/`@pattern`/`@default`、`@filter`（同一 operator）、`@mime`（同一类型），以及 `@comment`（在 enum / menu group / dataflow 等定义处）；`@order` 由步骤顺序唯一性检查兜底（`step order must be a unique positive integer`）。
+- **重复声明**：多数注解后者覆盖、不报错；显式报重复的是 `@singular`/`@plural`/`@display`/`@tableDisplay`/`@relationDetail`、`@code`、`@generated`、`@min`/`@max`/`@length`/`@pattern`/`@default`/`@version`、`@filter`（同一 operator）、`@mime`（同一类型），以及 `@comment`（在 enum / menu group / dataflow 等定义处）；`@order` 由步骤顺序唯一性检查兜底（`step order must be a unique positive integer`）。
 - **未实现的注解一律报错**，不会静默忽略。
 
 ## 文档类注解
@@ -69,6 +69,7 @@
 | `@length(max)` / `@length(min, max)` | Text / Email / URL（非枚举） | 一或两个 `integer` | 无 | 按字符（code point）计长度；服务端 400 `validation.minLength` / `validation.maxLength`，表单显示字数 | 非文本或枚举；min > max；Email 上限 < 6、URL 上限 < 12 |
 | `@pattern("regex", "示例")` | Text（非枚举、非 `@code`/`@computed`） | 两个引号字符串：正则（`u` 模式）与必填示例 | 无 | 服务端 400 `validation.pattern`；示例用作表单占位符和生成测试的样例值 | 缺示例；正则非法；示例不匹配正则或超出 `@length` |
 | `@default(…)` | 标量类型 | 字符串、数字、`true`/`false`、枚举值名；DateTime 只接受 `now` | 无 | 列默认值（MySQL 文本列与 `now` 由 Drizzle 插入时填充）；create 输入变为可选；新建表单预填字面量；CSV 空单元格回落到默认值 | 类型不符；违反 `@min`/`@max`/`@length`/`@pattern`；非枚举成员；用在主键、`@computed`、`@code`、`@generated`、`@softDelete`、`@tenant` 上 |
+| `@version` | Integer（非空） | 布尔（可裸写） | 无 | 乐观锁计数器：新建为 1，每次更新加 1；PATCH 带过期版本返回 409 `version.conflict`；Dataflow `update` 自动递增 | 非 Integer；每实体多于一个；与 `@nullable`、`@id`、`@unique`、`@computed`、`@tenant`、`@softDelete`、`@default`、`@min`、`@max` 同用；Dataflow 显式赋值 |
 | `@column("…")` | 全部 | `string` | 字段名 | 物理列名 | 重名报 `duplicate column name` |
 | `@dimension(n)` | Vector | 整数 | 类型参数 | 维度 | 类型不匹配被忽略，仍受 Vector 校验 |
 | `@precision(n)` | Decimal / Money | 整数 | 类型参数 | 精度 | 同上 |
@@ -138,14 +139,14 @@
 | --- | --- |
 | 文档 | `@comment`、`@label`、`@icon`、`@confirm`、`@error`、`t("key")` 参考 |
 | entity | `@singular`、`@plural`、`@display`、`@tableDisplay`、`@relationDetail` |
-| field | `@id`、`@nullable`、`@unique`、`@visible`、`@listVisible`、`@formVisible`、`@showVisible`、`@sortable`、`@filterable`、`@filter`、`@upload`、`@maxBytes`、`@maxFiles`、`@mime`、`@extension`、`@code`、`@generated`、`@min`、`@max`、`@length`、`@pattern`、`@default`、`@column`、`@dimension`、`@precision`、`@scale` |
+| field | `@id`、`@nullable`、`@unique`、`@visible`、`@listVisible`、`@formVisible`、`@showVisible`、`@sortable`、`@filterable`、`@filter`、`@upload`、`@maxBytes`、`@maxFiles`、`@mime`、`@extension`、`@code`、`@generated`、`@min`、`@max`、`@length`、`@pattern`、`@default`、`@version`、`@column`、`@dimension`、`@precision`、`@scale` |
 | index / relation | `@unique`、`@concurrently`、`@onDelete` |
 | menu | `@label`、`@icon`、`@parent` |
 | permission / dataflow / action | `@label`、`@comment`、`@confirm`、`@required`、`@order`、`@error` |
 
 ## 相关
 
-- [entity 与 field](/dsl/entity)：字段属性矩阵、值校验与默认值、显示模板
+- [entity 与 field](/dsl/entity)：字段属性矩阵、值校验与默认值、乐观锁、显示模板
 - [relation 与 index](/dsl/relation-index)：`@onDelete` / 索引属性
 - [enum / menu](/dsl/enum-menu-dashboard)：枚举值属性与菜单注解
 - [自动生成值与业务编码](/dsl/generated-values)：`@code` / `@generated`

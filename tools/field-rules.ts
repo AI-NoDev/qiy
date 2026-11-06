@@ -251,6 +251,7 @@ export function checkFieldRules(values: Record<string, unknown>, rules: Record<s
  * on insert instead of by the column definition.
  */
 export function drizzleDefault(field: FieldIR, dialect: DatabaseIR["dialect"]): string {
+  if (field.version) return ".default(1)";
   const value = field.defaultValue;
   if (!value) return "";
   if (value.kind === "now") return dialect === "postgresql" ? ".defaultNow()" : ".$defaultFn(() => new Date())";

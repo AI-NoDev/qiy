@@ -142,6 +142,7 @@ entity <Name> [table <tableName>] [@annotation(...)]... {
 | `@length(max)` / `@length(min, max)` | Text / Email / URL（非枚举） | 一或两个整数 | 无 | 字符数上下界（按 code point 计） | 非文本或枚举、min > max、Email 上限 < 6、URL 上限 < 12 |
 | `@pattern("regex", "示例")` | Text（非枚举） | 正则 + 必填示例 | 无 | 值必须匹配正则；示例作为表单占位符与测试样例 | 缺示例、正则非法、示例不满足自身规则 |
 | `@default(…)` | 标量类型 | 字面量；DateTime 用 `now` | 无 | 列默认值；create 可省略；新建表单预填 | 类型不符、违反自身规则、用在主键/生成/计算/租户/软删除字段 |
+| `@version` | Integer（非空） | 无参数 | 无 | 乐观锁计数器：新建为 1、每次更新加 1，PATCH 带旧值返回 409；见[乐观锁](#乐观锁-version) | 非 Integer、同一实体多个、与 nullable/主键/unique/计算/租户/软删除/默认值/范围同用 |
 | `@column("name")` | 全部 | 字符串 | 字段名 | 物理列名 | 与其它列重名报 `duplicate column name` |
 | `@dimension(n)` / `@precision(n)` / `@scale(n)` | Vector / Decimal / Money | 整数 | 见类型参数 | 类型参数的替代写法；重复声明后者覆盖 | 类型不匹配时该属性被忽略（不报错），但仍受类型校验约束 |
 
@@ -194,6 +195,23 @@ entity tickets {
 - **`@pattern` 必须带示例**：示例必须满足正则和 `@length`，生成期校验；它同时是表单占位符和生成测试的样例值，因此不会出现“测试数据过不了自己的校验”。
 - **`@default` 的效果**：生成列默认值（MySQL 的 TEXT 列不支持字面默认值，`now` 也一样，两者都由 Drizzle 在插入时填充）；REST/GraphQL 的 create 输入变为可选；新建表单预填字面量（`now` 留空，由服务端填写）；CSV 导入中该列的空单元格使用默认值；带默认值的非空字段可以 `@formVisible(false)`。
 - **空值与可空字段**：`null` 和缺省值不参与规则检查，PATCH 只检查提交的字段。
+
+### 乐观锁 `@version`
+
+```qiy
+entity announcements {
+  field id UUID @id;
+  field title Text;
+  field revision Integer @version;
+}
+```
+
+- **计数规则**：新建记录时版本为 1，之后每次更新（REST、GraphQL 与 Dataflow `update`）都在数据库里加 1。create 输入不接受该字段。
+- **冲突检测**：PATCH 可以带上读到的版本号（`{ "title": "新标题", "revision": 3 }`）。版本仍是 3 才写入并变成 4；已被别人改成 4 时返回 **409** `{ error, errorKey: "version.conflict" }`，GraphQL 错误的 `extensions` 同样带 `status: 409` 与 `errorKey`。不带版本号的 PATCH 不做检查，但版本照样递增。
+- **实现**：SQLite / PostgreSQL 把 `revision = 期望值` 写进 `UPDATE … WHERE`，MySQL 先 `SELECT … FOR UPDATE` 锁行再比较；三种方言都在同一事务内完成。
+- **Dataflow**：`update` 语句自动写入 `revision = 上下文行.revision + 1`（上下文行已在事务内锁定）；显式给 `@version` 字段赋值会在生成期报错。
+- **Web**：该字段在表单中只读、默认不在列表显示；编辑页提交时自动带上加载时的版本。遇到 409 时提示 `qiy.versionConflict` 并重新加载记录，用户确认后再保存。
+- **限制**：类型必须是 `Integer`；每个实体只能有一个；不能与 `@nullable`、`@id`、`@unique`、`@computed`、`@tenant`、`@softDelete`、`@default`、`@min`、`@max` 同用。
 
 ## 可见性与默认值
 

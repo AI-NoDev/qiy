@@ -176,6 +176,7 @@ Attributes follow the type, any order, and booleans accept `@x` or `@x(false)`.
 | `@length(max)` / `@length(min, max)` | Text/Email/URL, non-enum | none | Character bounds counted in code points; Email max >= 6, URL max >= 12 |
 | `@pattern("regex", "example")` | Text, non-enum | none | Unicode regex; the example is required, must satisfy every rule, and becomes the form placeholder and test sample |
 | `@default(...)` | scalar types | none | String, number, `true`/`false`, enum member, or `now` (DateTime only). Column default, optional create input, pre-filled create form |
+| `@version` | Integer | none | Optimistic-lock counter: starts at 1, incremented by every update, stale PATCH returns 409 |
 | `@column("name")` | all | field name | Physical column name |
 | `@dimension/@precision/@scale` | Vector / Decimal / Money | type parameter | Alternative spelling |
 
@@ -187,6 +188,14 @@ Value rules and defaults (`@min`, `@max`, `@length`, `@pattern`, `@default`):
 - The generated form applies the same rules with the `qiy.validation.*` messages (overridable in `messages`), shows a character count for `@length` Text inputs and uses the `@pattern` example as the placeholder. The server stays authoritative.
 - `@default` renders a column default (MySQL TEXT columns and `now` are filled by Drizzle on insert because MySQL cannot store those as literal defaults), makes the field optional on REST/GraphQL create, pre-fills create forms with literals, lets an empty CSV cell fall back to the default, and allows hiding a required field from the create form. Rules and defaults are rejected on primary keys and `@computed`/`@code`/`@generated` fields; `@default` is also rejected on `@softDelete`/`@tenant` fields.
 - Generated route tests post one violating value per rule and expect the 400; generated fixtures use rule-aware samples (the `@pattern` example, bounded numbers, length-fitted text).
+
+Optimistic locking (`@version`):
+
+- One non-null `Integer` per entity; it cannot be combined with `@nullable`, `@id`, `@unique`, `@computed`, `@tenant`, `@softDelete`, `@default`, `@min` or `@max`.
+- Inserts store 1 and the field is not accepted on create. Every update (REST, GraphQL, Dataflow `update`) increments it in the database.
+- A PATCH that includes the counter only writes when the stored value still matches; otherwise it returns 409 `{ error, errorKey: "version.conflict" }` (GraphQL `extensions.status` is 409). A PATCH without the counter is unchecked but still increments it.
+- SQLite/PostgreSQL put the expected value in the `UPDATE ... WHERE`; MySQL locks the row with `SELECT ... FOR UPDATE` and compares. Dataflow updates write `counter = context.counter + 1` on the locked context row, and assigning the counter in a dataflow fails at generation time.
+- The web edit form sends the loaded counter back, shows it read-only, hides it from lists by default, and on 409 shows `qiy.versionConflict` and reloads the record.
 
 Lifecycle and derived fields:
 

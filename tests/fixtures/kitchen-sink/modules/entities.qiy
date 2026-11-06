@@ -78,6 +78,7 @@ entity announcements table announcements @label("Announcements") @icon(Notificat
   field id UUID @id;
   field title Text;
   field queue Text;
+  field revision Integer @version;
 }
 
 entity ticketComments table ticket_comments @label("Comments") @icon(CommentOutlined) {

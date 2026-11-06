@@ -45,6 +45,18 @@ dataflow reopenTicket @label("Reopen ticket") {
   result { return ticket; }
 }
 
+dataflow retitleAnnouncement {
+  allow roles admin;
+  idempotency required;
+  input {
+    field announcementId UUID @required;
+    field title Text @required;
+  }
+  context { announcement = entity announcements by id input.announcementId @required; }
+  step retitle { update announcement { title = input.title; } }
+  result { return announcement; }
+}
+
 action closeTicket {
   resource tickets;
   dataflow closeTicket;

@@ -1184,6 +1184,10 @@ export function parseQiyProject(source: string): QiyProject {
       const attribute = identifier();
       if (attribute === "id") result.primaryKey = booleanAttribute();
       else if (attribute === "softDelete") result.softDelete = booleanAttribute();
+      else if (attribute === "version") {
+        if (result.version !== undefined) throw new Error(`Field ${name}: duplicate @version annotation`);
+        result.version = booleanAttribute();
+      }
       else if (attribute === "computed") { expect("("); result.computed = value(); expect(")"); }
       else if (attribute === "tenant") {
         if (peek() === "(") {
@@ -2820,6 +2824,7 @@ function enumeration(): import("./database-ir").EnumIR {
           const field = entity?.fields.find((candidate) => candidate.name === value.field);
           if (!field) throw new Error(`Dataflow ${flow.name}: unknown update field ${binding.entity}.${value.field}`);
           if (field.primaryKey) throw new Error(`Dataflow ${flow.name}: cannot update primary key ${binding.entity}.${value.field}`);
+          if (field.version) throw new Error(`Dataflow ${flow.name}: ${binding.entity}.${value.field} is a @version counter and cannot be assigned`);
           if (scopes.some((scope) => (scope.resource === entity?.name || scope.resource === entity?.tableName) && scope.field === value.field)) throw new Error(`Dataflow ${flow.name}: cannot update scope field ${binding.entity}.${value.field}`);
           if (auth?.provider === "local" && auth.userEntity === binding.entity && auth.passwordField === value.field) throw new Error(`Dataflow ${flow.name}: cannot update password field ${binding.entity}.${value.field}`);
           if (value.source === "input") {
@@ -3278,6 +3283,7 @@ export function serializeQiyProject(project: QiyProject): string {
       if (field.primaryKey !== undefined) declaration += ` @id${field.primaryKey ? "" : "(false)"}`;
       if (field.nullable !== undefined) declaration += ` @nullable${field.nullable ? "" : "(false)"}`;
       if (field.softDelete) declaration += ` @softDelete`;
+      if (field.version) declaration += " @version";
       if (field.tenantClaim !== undefined) declaration += ` @tenant(${qiyString(field.tenantClaim)})`;
       if (field.computed !== undefined) declaration += ` @computed(${qiyString(field.computed)})`;
       if (field.unique !== undefined) declaration += ` @unique${field.unique ? "" : "(false)"}`;

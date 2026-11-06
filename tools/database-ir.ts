@@ -69,6 +69,8 @@ export interface FieldIR {
   pattern?: { source: string; example: string };
   /** `@default(...)`: column default; also pre-fills create forms and makes the create field optional. */
   defaultValue?: FieldDefaultIR;
+  /** `@version`: optimistic-lock counter; starts at 1, every update increments it, a stale value is a 409. */
+  version?: boolean;
 }
 
 export type FieldDefaultIR = { kind: "literal"; value: string | number | boolean } | { kind: "now" };
@@ -417,6 +419,7 @@ export function validateDatabaseIR(database: DatabaseIR): string[] {
 
     const fields = new Map<string, FieldIR>();
     const columnNames = new Set<string>();
+    if (entity.fields.filter((field) => field.version).length > 1) errors.push(`Entity ${entity.name}: only one @version field is allowed`);
     for (const field of entity.fields) {
       if (!identifier.test(field.name) || fields.has(field.name)) {
         errors.push(`${entity.name}.${field.name}: invalid or duplicate field name`);
@@ -459,6 +462,12 @@ export function validateDatabaseIR(database: DatabaseIR): string[] {
         if (field.primaryKey) errors.push(`${entity.name}.${field.name}: @generated is not needed on a primary key; ids are always generated`);
       }
       errors.push(...fieldRuleErrors(field, database).map((message) => `${entity.name}.${field.name}: ${message}`));
+      if (field.version) {
+        if (field.type !== "Integer" || field.enumName) errors.push(`${entity.name}.${field.name}: @version requires an Integer field`);
+        if (field.nullable || field.primaryKey || field.unique || field.computed !== undefined || field.tenantClaim !== undefined || field.softDelete || field.defaultValue || field.min !== undefined || field.max !== undefined) {
+          errors.push(`${entity.name}.${field.name}: @version cannot be combined with @nullable, @id, @unique, @computed, @tenant, @softDelete, @default, @min or @max`);
+        }
+      }
       if (field.extension && !extensions.has(field.extension)) {
         errors.push(`${entity.name}.${field.name}: undeclared extension ${field.extension}`);
       }

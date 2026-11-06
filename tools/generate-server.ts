@@ -151,6 +151,26 @@ export function normalizeTemporalValues<T extends Record<string, unknown>>(value
 `;
 }
 
+function renderConcurrencyModule(): string {
+  return `/** An update carried a stale @version counter: someone else changed the record first. */
+export class QiyVersionConflict extends Error {
+  readonly resource: string;
+  readonly id: string;
+  readonly errorKey = "version.conflict";
+  /** graphql-js copies an original error's extensions into the GraphQL response. */
+  readonly extensions: { status: 409; errorKey: string };
+
+  constructor(resource: string, id: string) {
+    super("The record was changed by someone else; reload it and try again");
+    this.name = "QiyVersionConflict";
+    this.resource = resource;
+    this.id = id;
+    this.extensions = { status: 409, errorKey: this.errorKey };
+  }
+}
+`;
+}
+
 /** The declared Date/Time fields of an entity, in declaration order. */
 function temporalFieldsOf(entity: EntityIR): Array<[string, "Date" | "Time"]> {
   return entity.fields
@@ -165,7 +185,7 @@ function apiField(field: FieldIR, database: DatabaseIR): string {
 
 function createFields(entity: EntityIR, database: DatabaseIR): string {
   const generated = new Set(generatedFieldsOf(entity, database.relations ?? []).map((field) => field.field.name));
-  return entity.fields.filter((field) => !field.primaryKey && !field.softDelete && field.tenantClaim === undefined && field.computed === undefined).map((field) => {
+  return entity.fields.filter((field) => !field.primaryKey && !field.softDelete && field.tenantClaim === undefined && field.computed === undefined && !field.version).map((field) => {
     const value = field.nullable ? `t.Optional(t.Union([${apiField(field, database)}, t.Null()], ${JSON.stringify(field.comment !== undefined ? { description: field.comment } : {})}))` : apiField(field, database);
     // Generated fields are filled by the server, so the client may omit them even
     // when the column is NOT NULL. Client-supplied values are ignored on write.
@@ -244,7 +264,7 @@ function graphqlType(field: FieldIR, required = true): string {
 }
 
 function graphqlInputFields(entity: EntityIR, patch: boolean, hiddenFields: string[] = [], generatedFields: string[] = []): string {
-  return entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !hiddenFields.includes(field.name)).map((field) => {
+  return entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !hiddenFields.includes(field.name) && (patch || !field.version)).map((field) => {
     // Generated and @default fields are optional on create: the server or the column fills them.
     const required = !patch && !field.primaryKey && !field.nullable && !generatedFields.includes(field.name) && !field.defaultValue;
     return `${graphqlDescription(field.comment, "  ")}  ${field.name}: ${graphqlType(field, required)}`;
@@ -607,7 +627,7 @@ function renderGraphQLTest(database: DatabaseIR, hiddenFields: string[] = []): s
   // Hidden fields (for example the local-auth password column) are absent from the
   // generated schema, so neither the selection set nor the input may reference them.
   const creatableFields = visibleFields.filter((field) => !generatedFieldsOf(entity, database.relations ?? []).some((generated) => generated.field.name === field.name));
-  const values = visibleFields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable && creatableFields.includes(field)).map((field) => {
+  const values = visibleFields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable && !field.version && creatableFields.includes(field)).map((field) => {
     const constrained = ruleSample(field);
     const example = constrained !== undefined ? JSON.stringify(constrained) : field.type === "Integer" ? "1" : field.type === "Boolean" ? "true" : field.type === "Array" ? (field.itemType === "Integer" ? "[1]" : '["Example"]') : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
       : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
@@ -724,6 +744,36 @@ test("order workflows reject missing scope claims before database access", async
   }
 });
 ` : ""}
+`;
+}
+
+function renderSqliteVersionTest(database: DatabaseIR): string | undefined {
+  if (database.dialect !== "sqlite") return undefined;
+  const entity = database.entities.find((item) => item.fields.some((field) => field.version));
+  if (!entity) return undefined;
+  const version = entity.fields.find((field) => field.version)!.name;
+  const values = entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable && !field.version && field.tenantClaim === undefined).map((field) => {
+    const value = ruleSample(field) ?? (field.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : field.type === "Integer" ? 1 : field.type === "Boolean" ? true : field.type === "Decimal" || field.type === "Money" ? "1.00" : field.type === "Date" ? "2026-11-30" : field.type === "Time" ? "08:30:00" : field.enumName ? database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name : "Example");
+    return `${JSON.stringify(field.name)}: ${field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : JSON.stringify(value)}`;
+  }).join(", ");
+  const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `"${field.columnName ?? field.name}" ${field.type === "Integer" || field.type === "DateTime" || field.type === "Boolean" ? "integer" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
+  return `import { expect, test } from "bun:test";
+
+test("SQLite rejects updates carrying a stale @version", async () => {
+  Bun.env.DATABASE_URL = ":memory:";
+  const { client } = await import("../src/db");
+  const { QiyVersionConflict } = await import("../src/concurrency");
+  const { ${modelName(entity)}Repository: repository } = await import("../src/modules/${entity.name}/${entity.name}.repository");
+  client.exec(${JSON.stringify(`DROP TABLE IF EXISTS "${entity.tableName}"; DROP TABLE IF EXISTS "audit_events"; DROP TABLE IF EXISTS "qiy_realtime_outbox"; CREATE TABLE "${entity.tableName}" (${columns}); CREATE TABLE "audit_events" ("id" text primary key, "actorId" text, "action" text not null, "resource" text not null, "resourceId" text, "metadata" text, "createdAt" integer not null); CREATE TABLE "qiy_realtime_outbox" ("id" text primary key, "channel" text not null, "type" text not null, "payload" text not null, "createdAt" integer not null);`)});
+  const created = await repository.create({ ${values} }, "actor");
+  const id = String(created.id);
+  expect(created.${version}).toBe(1);
+  expect((await repository.update(id, { ${version}: 1 }, "actor"))?.${version}).toBe(2);
+  await expect(repository.update(id, { ${version}: 1 }, "actor")).rejects.toBeInstanceOf(QiyVersionConflict);
+  expect((await repository.one(id))?.${version}).toBe(2);
+  expect((await repository.update(id, {}, "actor"))?.${version}).toBe(3);
+  expect(await repository.update(crypto.randomUUID(), { ${version}: 3 }, "actor")).toBeUndefined();
+});
 `;
 }
 
@@ -1137,6 +1187,10 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
   const temporalErrorHandler = temporalErrorClass
     ? `.onError(({ error, status }) => error instanceof ${temporalErrorClass} ? status(400, { error: error.message }) : undefined)`
     : "";
+  // A stale @version counter is a documented 409; the class comes from api/src/concurrency.ts.
+  const versionErrorHandler = entity.fields.some((field) => field.version)
+    ? `.onError(({ error, status }) => error instanceof QiyVersionConflict ? status(409, { error: error.message, errorKey: error.errorKey }) : undefined)`
+    : "";
   // @min/@max/@length/@pattern violations come from api/src/field-rules.ts.
   const fieldRuleErrorHandler = fieldRuled
     ? `.onError(({ error, status }) => error instanceof QiyFieldRuleError ? status(400, { error: error.message, errorKey: error.errorKey, field: error.field }) : undefined)`
@@ -1463,7 +1517,7 @@ ${entity.fields.some((field) => field.defaultValue) ? `  // An empty cell leaves
     const result = await repository.list(query.page ?? 1, query.pageSize ?? 20, { ...query, deleted: query.deleted === "true", filters, scope${restricted ? ", policy" : ""} });
     return { result, clauses: clauses.length, policy };
   };
-  return new Elysia({ prefix: ${route} })${privateInputGuard}${maskWriteGuard}\n    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)${policyErrorHandler}${temporalErrorHandler}${fieldRuleErrorHandler}${generatedErrorHandler}\n    .get("/aggregate", async ({ query, status, request }) => {
+  return new Elysia({ prefix: ${route} })${privateInputGuard}${maskWriteGuard}\n    .onError(({ error, status }) => error instanceof Error && error.message.startsWith("Missing required data scope claim:") ? status(403, { error: error.message }) : undefined)${policyErrorHandler}${temporalErrorHandler}${fieldRuleErrorHandler}${versionErrorHandler}${generatedErrorHandler}\n    .get("/aggregate", async ({ query, status, request }) => {
       ${restricted ? "const principal = await authenticate(request);\n      const policy = await resolveResourcePolicy(principal, request);\n      if (policy.maskedFields.includes(query.field)) return status(403, { error: \"Aggregating a masked field is not permitted\", errorKey: \"policy.maskedField\" });\n      " : ""}if (!["sum", "avg", "min", "max"].includes(query.op)) return status(400, { error: "Unsupported aggregate operator" });
       if (!(${JSON.stringify(entity.fields.filter((field) => ["Integer", "Decimal", "Money"].includes(field.type)).map((field) => field.name))} as string[]).includes(query.field)) return status(400, { error: "Unsupported aggregate field" });
       return repository.aggregate ? repository.aggregate(query.field, query.op as "sum" | "avg" | "min" | "max", await resolveScope(request)${restricted ? ", policy" : ""}) : { value: null, operator: query.op };
@@ -1839,6 +1893,17 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
     ? `${database.dialect === "sqlite" ? "" : "await "}tx.insert(realtimeOutbox).values({ id: crypto.randomUUID(), channel: ${realtimeChannelExpression(payload)}, type: ${JSON.stringify(type)}, payload: JSON.stringify(${realtimePayload(payload)}), createdAt: new Date() })${database.dialect === "sqlite" ? ".run()" : ""};`
     : "";
   const softDeleteField = entity.fields.find((field) => field.softDelete)?.name;
+  // @version: inserts start at 1; an update carrying the counter must match it, and every update increments it.
+  const versionField = entity.fields.find((field) => field.version)?.name;
+  const versionStart = versionField ? `, ${versionField}: 1` : "";
+  const versionPrelude = versionField ? `const { ${versionField}: expectedVersionValue, ...changes } = values as Record<string, unknown>;
+      const expectedVersion = expectedVersionValue === undefined || expectedVersionValue === null ? undefined : Number(expectedVersionValue);
+      ` : "";
+  const versionCondition = versionField ? `, expectedVersion === undefined ? undefined : eq(${entity.name}.${versionField}, expectedVersion)` : "";
+  const updateSet = versionField ? `{ ...changes, ${versionField}: sql\`\${${entity.name}.${versionField}} + 1\`, ${scopeWriteSpread} }` : `{ ...values, ${scopeWriteSpread} }`;
+  // A missed versioned update is a conflict only when the row is still visible to the caller.
+  const versionConflict = (lookup: string) => versionField ? `
+      if (!record && expectedVersion !== undefined && ${lookup}) throw new QiyVersionConflict(${JSON.stringify(entity.tableName)}, id);` : "";
   // Soft-deleted resources stamp the marker column instead of removing the row.
   const removeFrom = softDeleteField ? `update(${entity.name}).set({ ${softDeleteField}: new Date() } as Partial<typeof ${entity.name}.$inferInsert>)` : `delete(${entity.name})`;
   const realtimeDeleteManyWrite = realtimeEvents.has("deleted")
@@ -1847,7 +1912,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
   const auditedMutationMethods = database.dialect === "sqlite" ? `  async create(values, actorId, scope${restricted ? ", policy" : ""}) {
     return db.transaction((tx) => {
       ${policyCondition}
-      const record = tx.insert(${entity.name}).values({ ...values, ${scopeWriteSpread}, id: crypto.randomUUID() } as typeof ${entity.name}.$inferInsert).returning().get();
+      const record = tx.insert(${entity.name}).values({ ...values, ${scopeWriteSpread}, id: crypto.randomUUID()${versionStart} } as typeof ${entity.name}.$inferInsert).returning().get();
       if (!record) throw new Error("Insert returned no record");
       ${restricted ? "const visible = tx.select().from(" + entity.name + ").where(and(eq(" + entity.name + ".id, record.id)" + policyArg + ")).get(); if (!visible) throw new QiyPolicyError(\"Write is outside the record policy\", 403, \"policy.outsideScope\");" : ""}
       tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.created", resource: "${entity.tableName}", resourceId: record.id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
@@ -1860,7 +1925,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const record = tx.update(${entity.name}).set({ ...values, ${scopeWriteSpread} }).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).returning().get();
+      ${versionPrelude}const record = tx.update(${entity.name}).set(${updateSet}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg}${versionCondition})).returning().get();${versionConflict(`tx.select({ id: ${entity.name}.id }).from(${entity.name}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).get()`)}
       if (record) tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.updated", resource: "${entity.tableName}", resourceId: id, metadata: JSON.stringify({ fields: Object.keys(values) }), createdAt: new Date() }).run();
        if (record) ${realtimeWrite("updated", "record") || "void 0;"}
       return record;
@@ -1892,7 +1957,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
     return db.transaction(async (tx) => {
       ${policyCondition}
       const id = crypto.randomUUID();
-      await tx.insert(${entity.name}).values({ ...values, ${scopeWriteSpread}, id } as typeof ${entity.name}.$inferInsert);
+      await tx.insert(${entity.name}).values({ ...values, ${scopeWriteSpread}, id${versionStart} } as typeof ${entity.name}.$inferInsert);
       const [record] = await tx.select().from(${entity.name}).where(and(eq(${entity.name}.id, id)${policyArg})).limit(1);
       if (!record) throw new Error("Insert returned no record");
       await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.created", resource: "${entity.tableName}", resourceId: id, metadata: { fields: Object.keys(values) }, createdAt: Date.now() });
@@ -1905,9 +1970,10 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const [existing] = await tx.select().from(${entity.name}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).limit(1).for("update");
-      if (!existing) return undefined;
-      await tx.update(${entity.name}).set({ ...values, ${scopeWriteSpread} }).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg}));
+      ${versionPrelude}const [existing] = await tx.select().from(${entity.name}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).limit(1).for("update");
+      if (!existing) return undefined;${versionField ? `
+      if (expectedVersion !== undefined && existing.${versionField} !== expectedVersion) throw new QiyVersionConflict(${JSON.stringify(entity.tableName)}, id);` : ""}
+      await tx.update(${entity.name}).set(${updateSet}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg}));
       const [record] = await tx.select().from(${entity.name}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).limit(1);
       if (record) await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.updated", resource: "${entity.tableName}", resourceId: id, metadata: { fields: Object.keys(values) }, createdAt: Date.now() });
        if (record) ${realtimeWrite("updated", "record") || "void 0;"}
@@ -1946,7 +2012,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
 ` : `  async create(values, actorId, scope${restricted ? ", policy" : ""}) {
     return db.transaction(async (tx) => {
       ${policyCondition}
-      const [record] = await tx.insert(${entity.name}).values({ ...values, ${scopeWriteSpread}, id: crypto.randomUUID() } as typeof ${entity.name}.$inferInsert).returning();
+      const [record] = await tx.insert(${entity.name}).values({ ...values, ${scopeWriteSpread}, id: crypto.randomUUID()${versionStart} } as typeof ${entity.name}.$inferInsert).returning();
       if (!record) throw new Error("Insert returned no record");
       ${restricted ? "const [visible] = await tx.select().from(" + entity.name + ").where(and(eq(" + entity.name + ".id, record.id)" + policyArg + ")).limit(1); if (!visible) throw new QiyPolicyError(\"Write is outside the record policy\", 403, \"policy.outsideScope\");" : ""}
       await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.created", resource: "${entity.tableName}", resourceId: record.id, metadata: { fields: Object.keys(values) } });
@@ -1959,7 +2025,7 @@ function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtim
       const scopeColumns: Record<string, any> = { ${scopeColumns} };
       const scopeCondition = scope && scopeColumns[scope.field] ? ${scopeColumnCondition} : undefined;
       ${policyCondition}
-      const [record] = await tx.update(${entity.name}).set({ ...values, ${scopeWriteSpread} }).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).returning();
+      ${versionPrelude}const [record] = await tx.update(${entity.name}).set(${updateSet}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg}${versionCondition})).returning();${versionConflict(`(await tx.select({ id: ${entity.name}.id }).from(${entity.name}).where(and(notDeleted, eq(${entity.name}.id, id), scopeCondition${policyArg})).limit(1))[0]`)}
       if (record) await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: actorId ?? null, action: "${entity.tableName}.updated", resource: "${entity.tableName}", resourceId: id, metadata: { fields: Object.keys(values) } });
        if (record) ${realtimeWrite("updated", "record") || "void 0;"}
       return record;
@@ -2161,7 +2227,7 @@ ${mutationMethods}
 function renderRouteTest(entity: EntityIR, database: DatabaseIR, scopes: NonNullable<QiyProject["scopes"]> = [], hiddenFields: string[] = []): string {
   const name = modelName(entity);
   const claims = JSON.stringify(Object.fromEntries(scopes.map((scope) => [scope.claim, database.entities.find((item) => item.name === scope.resource || item.tableName === scope.resource)?.fields.find((field) => field.name === scope.field)?.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : "Example"])));
-  const values = entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable).map((field) => {
+  const values = entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable && !field.version).map((field) => {
     const constrained = ruleSample(field);
     const example = constrained !== undefined ? JSON.stringify(constrained) : field.type === "Integer" ? "1" : field.type === "Boolean" ? "true" : field.type === "Array" ? (field.itemType === "Integer" ? "[1]" : '["Example"]') : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
       : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
@@ -3320,7 +3386,8 @@ function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullable<QiyPr
         const entity = entityName ? entities.get(entityName) : undefined;
         const variable = contextNames.get(action.context);
         if (!entity || !variable) throw new Error(`Dataflow ${flow.name}: invalid update context ${action.context}`);
-        const values = `{ ${action.values.map((value) => `${JSON.stringify(value.field)}: ${value.source === "input" ? `body[${JSON.stringify(value.value)}]` : JSON.stringify(value.value)}`).join(", ")} }`;
+        const versionField = entity.fields.find((field) => field.version)?.name;
+        const values = `{ ${[...action.values.map((value) => `${JSON.stringify(value.field)}: ${value.source === "input" ? `body[${JSON.stringify(value.value)}]` : JSON.stringify(value.value)}`), ...(versionField ? [`${JSON.stringify(versionField)}: ${variable}.${versionField} + 1`] : [])].join(", ")} }`;
         const where = `eq(${entity.name}.id, ${variable}.id)`;
         const update = database.dialect === "sqlite"
           ? `const updated = tx.update(${entity.name}).set(${values}).where(${where}).returning().get();\n        if (!updated) return { kind: "not-found" as const, resource: ${JSON.stringify(entity.tableName)} };\n        ${variable} = updated;`
@@ -4934,6 +5001,7 @@ export const orderIdempotency = pgTable("order_idempotency", {
     "api/src/db.ts": database.dialect === "postgresql" ? `import { SQL } from "bun";\nimport { drizzle } from "drizzle-orm/bun-sql";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = new SQL(url);\nexport const db = drizzle({ client, schema });\n` : database.dialect === "sqlite" ? `import { Database } from "bun:sqlite";\nimport { drizzle } from "drizzle-orm/bun-sqlite";\nimport * as schema from "./schema";\n\nconst filename = Bun.env.DATABASE_URL ?? "./qiy.sqlite";\nexport const client = new Database(filename);\nexport const db = drizzle(client, { schema });\n` : `import mysql from "mysql2/promise";\nimport { drizzle } from "drizzle-orm/mysql2";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = mysql.createPool({ uri: url, timezone: "Z" });\nexport const db = drizzle({ client, schema, mode: "default" });\n`,
     ...(database.entities.some((entity) => temporalFieldsOf(entity).length) ? { "api/src/temporal.ts": renderTemporalModule() } : {}),
     ...(database.entities.some((entity) => Object.keys(entityFieldRules(entity.fields)).length) ? { "api/src/field-rules.ts": renderFieldRulesModule() } : {}),
+    ...(database.entities.some((entity) => entity.fields.some((field) => field.version)) ? { "api/src/concurrency.ts": renderConcurrencyModule() } : {}),
     "api/src/schema-drift.ts": `import { isTable } from "drizzle-orm";
 import { getTableConfig } from "drizzle-orm/${database.dialect === "postgresql" ? "pg-core" : database.dialect === "mysql" ? "mysql-core" : "sqlite-core"}";
 import * as schema from "./schema";
@@ -6675,7 +6743,7 @@ import { db } from "../../db";
  import { ${entity.name}, auditEvents${realtimeSubscription ? ", realtimeOutbox" : ""}${resolveScopeTree(scopedDatabase, publicEntity) && resolveScopeTree(scopedDatabase, publicEntity)!.table.name !== entity.name ? `, ${resolveScopeTree(scopedDatabase, publicEntity)!.table.name}` : ""} } from "../../schema";
 import type { FilterClause, FilterExpression, ${modelName(entity)}Repository as ${modelName(entity)}RepositoryContract } from "./${entity.name}.contract";
 ${entityRestricted ? 'import { QiyPolicyError, type QiyPolicy } from "../../security/policy";' : ""}
-${generatedRepositoryImport}${realtimeMasked.length ? `\n// Every role that may subscribe has one of these fields masked, so the shared\n// channel must not carry them.\nfunction qiyRealtimePayload(record: Record<string, unknown>): Record<string, unknown> {\n  const safe = { ...record };\n  for (const field of ${JSON.stringify(realtimeMasked)}) delete safe[field];\n  return safe;\n}\n` : ""}
+${publicEntity.fields.some((field) => field.version) ? 'import { QiyVersionConflict } from "../../concurrency";\n' : ""}${generatedRepositoryImport}${realtimeMasked.length ? `\n// Every role that may subscribe has one of these fields masked, so the shared\n// channel must not carry them.\nfunction qiyRealtimePayload(record: Record<string, unknown>): Record<string, unknown> {\n  const safe = { ...record };\n  for (const field of ${JSON.stringify(realtimeMasked)}) delete safe[field];\n  return safe;\n}\n` : ""}
 ${generatedRepositoryDeclaration}${renderScopeTreeHelper(scopedDatabase, publicEntity)}const notDeleted = ${publicEntity.fields.find((field) => field.softDelete) ? `isNull(${entity.name}.${publicEntity.fields.find((field) => field.softDelete)!.name})` : "undefined"};\nconst qiyBase${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = {
 ${renderRepositoryMethods(publicEntity, scopedDatabase, realtimeEvents, entityRestricted, realtimeMasked, realtimeClaim)}
 };
@@ -6779,7 +6847,7 @@ ${generatedDocumentation(entity)}export function create${modelName(entity)}Servi
 `;
     files[`${moduleRoot}/${entity.name}.routes.ts`] = `import { Elysia, t } from "elysia";
 import type { Authenticator${entityRestricted ? "" : ", Principal"} } from "../../auth/guard";
-${temporalFields.length ? 'import { QiyTemporalValueError } from "../../temporal";\n' : ""}${Object.keys(entityFieldRules(entity.fields)).length ? 'import { QiyFieldRuleError } from "../../field-rules";\n' : ""}${generatedEntityFields.length ? 'import { QiyGeneratedValueConflict } from "../../generated-values";\n' : ""}import { create${modelName(entity)}Service } from "./${entity.name}.service";
+${temporalFields.length ? 'import { QiyTemporalValueError } from "../../temporal";\n' : ""}${Object.keys(entityFieldRules(entity.fields)).length ? 'import { QiyFieldRuleError } from "../../field-rules";\n' : ""}${entity.fields.some((field) => field.version) ? 'import { QiyVersionConflict } from "../../concurrency";\n' : ""}${generatedEntityFields.length ? 'import { QiyGeneratedValueConflict } from "../../generated-values";\n' : ""}import { create${modelName(entity)}Service } from "./${entity.name}.service";
 import { claimImportJob, createImportJob, isImportJobCancelled, listImportJobs, readImportJob, releaseStaleImportJobs, requestImportJobCancel, updateImportJob } from "../../import-jobs";
 import { claimExportJob, createExportJob, listExportJobs, readExportJob, updateExportJob } from "../../export-jobs";
 import type { ${modelName(entity)}Repository as ${modelName(entity)}RepositoryPort } from "./${entity.name}.contract";
@@ -6943,6 +7011,8 @@ for (const [transport, createProvider] of [["REST", createDataProvider], ["Graph
   }
   const sqliteScopeTest = renderSqliteScopeTest(database, options.scopes ?? []);
   if (sqliteScopeTest) files["api/tests/sqlite-scope.test.ts"] = sqliteScopeTest;
+  const sqliteVersionTest = renderSqliteVersionTest(database);
+  if (sqliteVersionTest) files["api/tests/sqlite-version.test.ts"] = sqliteVersionTest;
   const distributionEntity = database.entities.find((entity) => entity.fields.some((field) => field.enumName));
   if (options.elysiaPlugins?.graphqlAdapter === "yoga" || options.elysiaPlugins?.graphqlAdapter === "apollo") {
     const policyFree = rowPolicyFree(database, options.restrictions ?? []);
