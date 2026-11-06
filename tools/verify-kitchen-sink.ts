@@ -59,17 +59,19 @@ import { AnnouncementsRepository as announcements } from "../src/modules/announc
 import { LabelsRepository as labels } from "../src/modules/labels/labels.repository";
 
 const suffix = crypto.randomUUID().slice(0, 8);
+// PostgreSQL stores audit actor ids as UUIDs.
+const actor = crypto.randomUUID();
 
 test("many-to-many links are validated, replaced, filtered and removed with either side", async () => {
-  const first = await labels.create({ name: "first-" + suffix }, "actor");
-  const second = await labels.create({ name: "second-" + suffix }, "actor");
+  const first = await labels.create({ name: "first-" + suffix }, actor);
+  const second = await labels.create({ name: "second-" + suffix }, actor);
   const firstId = String(first.id);
   const secondId = String(second.id);
-  const created = await announcements.create({ title: "Linked", queue: "general", labelIds: [secondId, firstId, firstId] }, "actor");
+  const created = await announcements.create({ title: "Linked", queue: "general", labelIds: [secondId, firstId, firstId] }, actor);
   const id = String(created.id);
   expect(created.labelIds).toEqual([firstId, secondId].sort());
 
-  const replaced = await announcements.update(id, { labelIds: [secondId] }, "actor");
+  const replaced = await announcements.update(id, { labelIds: [secondId] }, actor);
   expect(replaced?.labelIds).toEqual([secondId]);
   expect(replaced?.revision).toBe(2);
   const filtered = await announcements.list(1, 20, { filters: [{ field: "labelIds", operator: "in", value: secondId }] });
@@ -78,19 +80,19 @@ test("many-to-many links are validated, replaced, filtered and removed with eith
   expect(unmatched.data.map((record) => record.id)).not.toContain(id);
 
   const unknown = crypto.randomUUID();
-  await expect(announcements.update(id, { title: "Rolled back", labelIds: [unknown] }, "actor")).rejects.toBeInstanceOf(QiyRelationLinkError);
+  await expect(announcements.update(id, { title: "Rolled back", labelIds: [unknown] }, actor)).rejects.toBeInstanceOf(QiyRelationLinkError);
   const unchanged = await announcements.one(id);
   expect(unchanged?.title).toBe("Linked");
   expect(unchanged?.labelIds).toEqual([secondId]);
 
-  await labels.delete(secondId, "actor");
+  await labels.delete(secondId, actor);
   expect((await announcements.one(id))?.labelIds).toEqual([]);
-  await expect(announcements.update(id, { labelIds: [secondId] }, "actor")).rejects.toBeInstanceOf(QiyRelationLinkError);
+  await expect(announcements.update(id, { labelIds: [secondId] }, actor)).rejects.toBeInstanceOf(QiyRelationLinkError);
 
-  expect((await announcements.update(id, { labelIds: [firstId] }, "actor"))?.labelIds).toEqual([firstId]);
-  expect((await announcements.update(id, { labelIds: null }, "actor"))?.labelIds).toEqual([]);
-  await announcements.update(id, { labelIds: [firstId] }, "actor");
-  await announcements.delete(id, "actor");
+  expect((await announcements.update(id, { labelIds: [firstId] }, actor))?.labelIds).toEqual([firstId]);
+  expect((await announcements.update(id, { labelIds: null }, actor))?.labelIds).toEqual([]);
+  await announcements.update(id, { labelIds: [firstId] }, actor);
+  await announcements.delete(id, actor);
   expect(await db.select().from(announcementLabels).where(eq(announcementLabels.sourceId, id))).toEqual([]);
 });
 `;
