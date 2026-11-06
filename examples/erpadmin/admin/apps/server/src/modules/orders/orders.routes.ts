@@ -81,7 +81,6 @@ export function OrdersRoutes(repository: OrdersRepositoryPort, authenticate: Aut
   // Exports stream in bounded pages so memory does not grow with the result set.
   const EXPORT_PAGE_SIZE = Math.min(250, exportMaxRows());
   // Import accepts plain scalar columns only; vectors and key lists need the API.
-  // Many-to-many link fields travel as JSON id arrays, like Array columns.
   const importTypes = {"orderNumber":"Text","customerId":"UUID","status":"Text","totalAmount":"Money","approvedBy":"UUID","createdAt":"DateTime"} as Record<string, string>;
   const importArrayItems = {} as Record<string, string | undefined>;
   const importColumns = Object.keys(importTypes);
