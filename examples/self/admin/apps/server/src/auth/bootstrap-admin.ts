@@ -1,12 +1,12 @@
 import { createInterface } from "node:readline/promises";
-import { eq } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { db } from "../db";
 import { users } from "../schema";
 import { hashPassword } from "./password";
 
 const terminal = createInterface({ input: process.stdin, output: process.stdout });
 try {
-  if ((await db.select({ id: users.id }).from(users).where(eq(users.role, "admin")).limit(1)).length) throw new Error("An admin account already exists");
+  if ((await db.select({ id: users.id }).from(users).where(inArray(users.role, ["admin"])).limit(1)).length) throw new Error("An admin account already exists");
   const username = (await terminal.question("email: ")).trim();
   if (!username) throw new Error("Username is required");
   

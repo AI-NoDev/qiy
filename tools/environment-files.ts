@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { DatabaseIR } from "./database-ir";
 import type { QiyEnvironmentVariable, QiyProject } from "./qiy-project";
 import { authHasLocal, authIsHybrid, authOAuthProviders, authProviderPreset, authUsesProviderChooser, type QiyAuthProvider, type QiyOidcPreset } from "./qiy-project";
+import { leastPrivilegedRole } from "./roles";
 
 type Mode = "development" | "production" | "example";
 type EnvOptions = Pick<QiyProject, "apiClient" | "corsOrigins" | "elysiaPlugins" | "realtime" | "storageProvider" | "auth" | "environment">;
@@ -90,7 +91,7 @@ function defaults(database: DatabaseIR, options: EnvOptions, mode: Mode): Map<st
     values.set("QIY_OIDC_AUDIENCE", example ? "qiy-admin" : "");
     values.set("QIY_OIDC_JWKS_URL", example ? "https://identity.example.com/.well-known/jwks.json" : "");
   }
-  if (auth && authIsHybrid(auth)) values.set("QIY_OIDC_DEFAULT_ROLE", "viewer");
+  if (auth && authIsHybrid(auth)) values.set("QIY_OIDC_DEFAULT_ROLE", leastPrivilegedRole(auth));
   if (options.corsOrigins?.length) values.set("QIY_CORS_ORIGINS", options.corsOrigins.join(","));
   if (options.elysiaPlugins?.jwt) values.set(options.elysiaPlugins.jwt.secretEnv, development ? generatedSecret : "");
   if (options.elysiaPlugins?.cron?.length) values.set("QIY_CRON_ENABLED", "0");
@@ -139,7 +140,7 @@ function serverEnvironment(database: DatabaseIR, options: EnvOptions, mode: Mode
   if (options.auth && authUsesProviderChooser(options.auth)) {
     lines.push("", "# One QIY_OIDC_<PROVIDER>_* block per configured provider; only complete blocks appear on the public login page.");
     if (mode === "example") lines.push("# These settings validate provider tokens; they are not OAuth client credentials.", "# Set QIY_OIDC_<PROVIDER>_CLIENT_SECRET server-side only for confidential clients; never expose it in VITE_* variables.");
-    if (authIsHybrid(options.auth)) lines.push("# QIY_OIDC_DEFAULT_ROLE is the role for accounts created by first-time OAuth onboarding (default viewer).");
+    if (authIsHybrid(options.auth)) lines.push(`# QIY_OIDC_DEFAULT_ROLE is the role for accounts created by first-time OAuth onboarding (default ${leastPrivilegedRole(options.auth)}).`);
   }
   if (options.auth && authHasLocal(options.auth)) lines.push("", "# QIY_AUTH_SECRET is generated for development. Set a unique 32-byte value in production; it signs password sessions and OAuth onboarding tokens.");
   if (options.auth?.provider === "otp") lines.push("", "# OTP uses QIY_AUTH_SECRET to sign challenges and access tokens. Configure an HTTPS delivery adapter in production; QIY_OTP_DEV_CODE is development-only.");

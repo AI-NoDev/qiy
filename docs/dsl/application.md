@@ -129,7 +129,7 @@ application qiy-erp-admin @comment("Operations administration") {
 | `realtime` | `mode auto\|manual;` | 二选一 | `auto` | Refine LiveProvider 订阅模式 |
 | `realtime` | `resource <table> { … }` | 表名 | 必填 | 每个资源的订阅配置 |
 | `realtime` | `events created, updated, deleted;` | 事件列表 | 必填 | 发布哪些事件 |
-| `realtime` | `roles admin, operator, viewer;` | 角色列表 | 必填 | 可订阅角色（capability token） |
+| `realtime` | `roles admin, operator, viewer;` | 已声明角色列表 | 必填 | 可订阅角色（capability token） |
 | `realtime` | `when <field> claim <claim>;` | 字段 + claim | 无 | 行级通道隔离 |
 | `elysia` | `bearer;` / `serverTiming;` / `html;` / `drizzle;` | 开关 | 关 | 服务端插件 |
 | `elysia` | `jwt { name …; secretEnv …; }` | 标识符 | `jwt` / `QIY_JWT_SECRET` | JWT 插件与 secret 环境变量 |
@@ -141,6 +141,7 @@ application qiy-erp-admin @comment("Operations administration") {
 | `auth` | `provider <id> { subjectField …; claim …; }` | 映射块 | 无 | 每 provider 的标识列/claim |
 | `auth` | `user <entity>;` | 实体名 | 必填 | 用户表 |
 | `auth` | `subjectField` / `roleField` / `usernameField` / `passwordField` / `profileField` | 字段名 | 视 provider | 身份/角色/口令列 |
+| `auth` | `roles { <name> <full\|write\|read>; … }` | 角色 + 访问级别 | `admin full; operator write; viewer read;` | 自定义角色；`roleField` 枚举值必须与之一致 |
 | `env` | `variable NAME { … }` | 大写变量名 | 无 | server/web `.env.*` 文件 |
 | `messages` | `default "…";` / `locale "…" { "k" "v"; }` | BCP 47 + 词典 | 无 | i18n provider 与模型 label 翻译 |
 | `permission` | `field` / `group` / `from` / `verification` | 见 [permissions](/dsl/permissions) | 无 | 权限提供者与守卫 |
@@ -517,7 +518,7 @@ realtime {
   mode <auto|manual> ;
   resource <tableName> {
     events <created|updated|deleted> [, ...] ;
-    roles <admin|operator|viewer> [, ...] ;
+    roles <declared-role> [, ...] ;
     when <field> claim <claim> ;
   }
   ...
@@ -704,6 +705,9 @@ auth {
   user <entity> ;
   subjectField <user-field> ;
   roleField <user-field> ;
+  roles {                                             // 可选；默认 admin full; operator write; viewer read;
+    <role-name> <full|write|read> ;
+  }
   usernameField <user-field> ;                        // local / otp
   passwordField <user-field> ;                        // local
   profileField <user-field> ;                         // 需要至少一个 OAuth/OIDC
@@ -721,6 +725,7 @@ auth {
 | `user` | 实体名 | 必填 | 用户表 |
 | `subjectField` | 用户表字段 | 无 | 外部身份标识列（OAuth 家族必填） |
 | `roleField` | 用户表字段 | 必填 | 角色列 |
+| `roles { … }` | `<name> full\|write\|read;` 列表 | `admin full; operator write; viewer read;` | 自定义角色；第一个 `full` 角色是 bootstrap 管理员，访问最少的第一个角色是 OAuth onboarding 默认角色；详见 [认证指南 · 自定义角色](/guide/auth#自定义角色) |
 | `usernameField` | 用户表字段 | 无 | `local`/`otp` 必填 |
 | `passwordField` | 用户表字段 | 无 | `local` 必填 |
 | `profileField` | 用户表字段 | 无 | 每 provider 的 profile 元数据 |
@@ -736,6 +741,7 @@ auth {
 - `local` 需要 `usernameField` + `passwordField`；`otp` 需要 `usernameField` 且拒绝 `passwordField`；非 local/otp 的 provider 不接受用户名/口令字段。
 - `profileField` 只允许在至少一个 OAuth provider 时声明。
 - provider 映射：`subjectField` 必填；`claim` 必须是**裸标识符**（纯 claim 名，写引号会报 `Expected identifier`）；映射的 provider 必须在已配置列表内；每 provider 只能一个映射。
+- `roles`：角色名以小写字母开头、只含字母数字、不重复；访问级别只能是 `full`/`write`/`read`；至少一个 `full`（`Auth roles: at least one role needs full access to administer users`）。`restrict`/`pages`/`mask`/`realtime`/`action`/`dataflow` 引用未声明角色报 `unknown role X; declared roles are …`；Dataflow 允许 `read` 角色报 `role X has read access and cannot run commands`。
 - 顶层 `claim <claim> <field>`：同一 claim 重复映射报 `Duplicate auth claim mapping <claim>`；生成期字段不存在报 `Auth claim <claim>: unknown field <users>.<field>`。
 
 生成期（`generateServer`）额外校验用户表形态：
@@ -745,7 +751,7 @@ auth {
 | `usernameField`：非空、唯一、`Text` 或 `Email` | `Auth: usernameField must be a required unique Text or Email field` |
 | `passwordField`：可空 `Text`（存 hash） | `Auth: passwordField must be a nullable Text field storing the password hash` |
 | `subjectField`：非空、唯一、`Text` | `Auth: subjectField must be a required unique Text field` |
-| `roleField`：必须是枚举，且值恰好是 `admin`/`operator`/`viewer` | `Auth: roleField must be an enum with admin, operator and viewer values` |
+| `roleField`：必须是枚举，且值恰好是声明的角色 | `Auth: roleField must be an enum whose values are exactly the declared roles (…)` |
 | hybrid（local + OAuth）每 provider 需要独立的可空唯一 `Text` 列 | `Auth: provider X needs its own nullable subjectField mapping …` |
 | hybrid 首次登录要能补齐所有非空列 | `Auth: OAuth onboarding cannot populate required user fields: …; make them nullable` |
 | `profileField`：可空 `Text` | `Auth: profileField must be a nullable Text field storing per-provider profile metadata` |
@@ -793,7 +799,7 @@ auth {
 | `Auth providers cannot include otp` | OTP 用 `provider otp;` 单独声明 |
 | `Auth provider local requires usernameField and passwordField` | 补两个字段 |
 | `Auth provider google does not accept usernameField or passwordField` | 去掉口令字段（只有 local/otp 用） |
-| `Auth: roleField must be an enum with admin, operator and viewer values` | 声明包含这三个值的 enum 并让 `roleField` 引用它 |
+| `Auth: roleField must be an enum whose values are exactly the declared roles (…)` | 让角色枚举的值与 `roles { … }`（默认 admin/operator/viewer）一一对应 |
 | `Provider mapping okta is not part of the configured providers` | provider 必须出现在 `provider`/`providers` 中 |
 
 ## env

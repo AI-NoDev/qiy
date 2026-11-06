@@ -12,6 +12,7 @@ The server owns validation, authorization and database transactions; the browser
 - [apps/server/package.json](../apps/server/package.json)
 - [apps/server/src/app.ts](../apps/server/src/app.ts)
 - [apps/server/src/auth/guard.ts](../apps/server/src/auth/guard.ts)
+- [apps/server/src/auth/roles.ts](../apps/server/src/auth/roles.ts)
 - [apps/server/src/auth/verify.ts](../apps/server/src/auth/verify.ts)
 - [apps/server/src/backup-codec.ts](../apps/server/src/backup-codec.ts)
 - [apps/server/src/db-backup.ts](../apps/server/src/db-backup.ts)

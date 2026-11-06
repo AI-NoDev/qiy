@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { Elysia } from "elysia";
 import type { QiySavedView } from "../src/saved-views";
+import type { QiyRole } from "../src/auth/roles";
 
 const dialect = "sqlite";
 const available = true;
@@ -8,7 +9,7 @@ const resource = "records";
 const ddl = "CREATE TABLE IF NOT EXISTS \"qiy_saved_views\" (\"id\" text primary key, \"resource\" text not null, \"name\" text not null, \"ownerId\" text not null, \"shared\" integer not null, \"search\" text, \"filters\" text, \"sorters\" text, \"columns\" text, \"createdAt\" integer not null, \"updatedAt\" integer not null)";
 const carolRows = "DELETE FROM \"qiy_saved_views\" WHERE \"ownerId\" = '00000000-0000-4000-8000-0000000000c1'";
 
-type Principal = { id: string; name: string; role: "admin" | "operator" | "viewer" };
+type Principal = { id: string; name: string; role: QiyRole };
 const alice: Principal = { id: "00000000-0000-4000-8000-0000000000a1", name: "Alice", role: "admin" };
 const bob: Principal = { id: "00000000-0000-4000-8000-0000000000b1", name: "Bob", role: "operator" };
 const carol: Principal = { id: "00000000-0000-4000-8000-0000000000c1", name: "Carol", role: "operator" };

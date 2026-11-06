@@ -156,7 +156,7 @@ application inventory @comment("Inventory operations console") {
 | `realtime` | `mode`, `resource { events; roles; when }` | see below | `auto` |
 | `elysia` | `bearer`, `serverTiming`, `html`, `drizzle`, `jwt`, `static`, `graphqlAdapter`, `cron` | switches/blocks | off, `native` |
 | `storage` | `provider` | `local`/`s3` | `local` |
-| `auth` | `provider`/`providers`, `user`, `subjectField`, `roleField`, `usernameField`, `passwordField`, `profileField`, provider mappings | see below | required fields |
+| `auth` | `provider`/`providers`, `user`, `subjectField`, `roleField`, `roles { }`, `usernameField`, `passwordField`, `profileField`, provider mappings | see below | required fields |
 | `env` | `variable NAME { secret; development; production; example; }` | literals/`required`/`generate` | empty |
 | `messages` | `default`, `locale` | BCP 47 + dictionaries | `zh-CN`, empty |
 | `permission` | `field`, `group`, `from`, `verification` | see below | none |
@@ -289,7 +289,7 @@ realtime {
   mode <auto|manual> ;
   resource <tableName> {
     events <created|updated|deleted> [, ...] ;
-    roles <admin|operator|viewer> [, ...] ;
+    roles <declared-role> [, ...] ;
     when <field> claim <claim> ;
   }
 }
@@ -352,6 +352,7 @@ auth {
   user <entity> ;
   subjectField <user-field> ;
   roleField <user-field> ;
+  roles { <role-name> <full|write|read> ; ... }   // optional
   usernameField <user-field> ;
   passwordField <user-field> ;
   profileField <user-field> ;
@@ -365,7 +366,8 @@ auth {
 | `providers` | comma list (may include `local`, never `otp`) | one of the two |
 | `user` | declared entity | yes |
 | `subjectField` | required unique Text | OAuth family |
-| `roleField` | enum with exactly admin/operator/viewer | yes |
+| `roleField` | enum whose values are exactly the declared roles | yes |
+| `roles { }` | `<name> full\|write\|read;`, at least one `full`; default `admin full; operator write; viewer read;` | no |
 | `usernameField` | required unique Text or Email | `local`/`otp` |
 | `passwordField` | nullable Text | `local` |
 | `profileField` | nullable Text | optional, OAuth only |

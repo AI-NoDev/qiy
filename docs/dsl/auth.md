@@ -76,7 +76,8 @@ auth {
 | `providers` | 二选一 | — | Provider 列表；不能重复，**不能含 `otp`**，可含 `local`（表示同时开密码登录）；只有一个 OAuth Provider 且不含 `local` 时等价于 `provider` |
 | `user` | 是 | — | 用户实体名；必须是已声明实体，否则 `Auth: unknown user entity` |
 | `subjectField` | OAuth 家族必填 | `""` | 外部身份列：必须是**非空 + 唯一 + Text**；单 Provider 模式写入 `<iss>`\|`<sub>`，映射模式写入该 Provider 的映射列（见下） |
-| `roleField` | 是 | — | 必须是枚举，且枚举值集合**恰好**是 `admin`/`operator`/`viewer`（多一个少一个都报错） |
+| `roleField` | 是 | — | 必须是枚举，且枚举值集合**恰好**是声明的角色（默认 `admin`/`operator`/`viewer`；多一个少一个都报错） |
+| `roles { <name> <full\|write\|read>; … }` | 否 | `admin full; operator write; viewer read;` | 自定义角色与访问级别；规则与示例见 [认证指南 · 自定义角色](/guide/auth#自定义角色) |
 | `usernameField` | `local` 必填；`otp` 必填 | `""` | 登录标识列：必须非空 + 唯一 + `Text` 或 `Email`；不能与 `passwordField` 同名列 |
 | `passwordField` | `local` 必填 | `""` | 密码哈希列：必须 `@nullable` + Text，且不会出现在 API schema（`@listVisible(false)` 之类由生成器隐式隐藏） |
 | `profileField` | 否 | `""` | `@nullable` Text，存 `{ "<provider>": { email, name, sub } }` JSON；只有声明了 OAuth Provider 才允许 |
@@ -126,7 +127,7 @@ entity users table users @label("用户") {
 | `passwordField` | `@nullable` Text | `Auth: passwordField must be a nullable Text field storing the password hash` |
 | 两者不同列 | — | `Auth: usernameField and passwordField must be different fields` |
 | `subjectField` | 非空、唯一、Text（有 OAuth 时） | `Auth: subjectField must be a required unique Text field` |
-| `roleField` | 枚举值恰好 `admin`/`operator`/`viewer` | `Auth: roleField must be an enum with admin, operator and viewer values` |
+| `roleField` | 枚举值恰好是声明的角色 | `Auth: roleField must be an enum whose values are exactly the declared roles (…)` |
 | 每 Provider 映射列 | 存在、Text、`@nullable`、`@unique` | `Auth: provider <p> subjectField <f> must be nullable so accounts can exist without that binding` 等 |
 | `profileField` | `@nullable` Text | `Auth: profileField must be a nullable Text field storing per-provider profile metadata` |
 | onboarding 可创建 | 除自动列（id/username/password/role/subject/profile/各 Provider 身份列/`email`/`displayName`/`name`）外的**必填**字段必须可空 | `Auth: OAuth onboarding cannot populate required user fields: <字段…>; make them nullable` |
@@ -225,7 +226,7 @@ auth { provider otp; user users; usernameField email; roleField role; }
    - 只信任 onboarding token 里的 `provider`/`subject`，**不接受**客户端自报身份；
    - `usernameField` 为 `email` 时校验邮箱格式；用户名/邮箱重复 → 409；
    - 密码走同一套 Argon2id + 8 字符下限；
-   - 角色取 `QIY_OIDC_DEFAULT_ROLE`（默认 `viewer`，非法值启动即报错）；
+   - 角色取 `QIY_OIDC_DEFAULT_ROLE`（默认访问级别最低的第一个已声明角色，默认模型为 `viewer`；非法值启动即报错）；
    - 写入 `displayName`（claims 的 `name` 或用户名）、`profileField` 的该 Provider 元数据、映射身份列与规范 `subjectField = <provider>:<subject>`；
    - 成功返回与密码登录同构的会话。
 5. onboarding token 10 分钟有效、HS256 签名、`iss=aud=qiy-admin`、`typ=qiy-onboarding`；过期/篡改/异 issuer → 401，需要重新走 Provider 登录。
@@ -371,7 +372,7 @@ QIY_OIDC_JWKS_CACHE_MAX_AGE_MS=600000
 | `QIY_OIDC_JWKS_TIMEOUT_MS` | `5000` | 有 OAuth Provider | 单次 JWKS 请求超时，最小 1 |
 | `QIY_OIDC_JWKS_COOLDOWN_MS` | `30000` | 有 OAuth Provider | 未知 `kid` 后重新拉取的最短间隔，最小 0（新密钥立即生效） |
 | `QIY_OIDC_JWKS_CACHE_MAX_AGE_MS` | `600000` | 有 OAuth Provider | 密钥缓存有效期，**同时是撤销的最坏延迟** |
-| `QIY_OIDC_DEFAULT_ROLE` | `viewer` | 仅混合 | onboarding 新账号角色，必须 `admin`/`operator`/`viewer` |
+| `QIY_OIDC_DEFAULT_ROLE` | 访问最少的第一个角色（默认 `viewer`） | 仅混合 | onboarding 新账号角色，必须是已声明角色 |
 | `QIY_OTP_DELIVERY_URL` | 空 | otp | HTTPS 发送适配器；缺失且非开发模式 → 502 |
 | `QIY_OTP_DELIVERY_TOKEN` | 空 | otp | 适配器 Bearer 凭据 |
 | `QIY_OTP_DELIVERY_TIMEOUT_MS` | `10000` | otp | 100–60000 |
@@ -441,7 +442,9 @@ QIY_OIDC_JWKS_CACHE_MAX_AGE_MS=600000
 | `Auth: passwordField must be a nullable Text field storing the password hash` | 列契约 |
 | `Auth: usernameField and passwordField must be different fields` | 同列 |
 | `Auth: subjectField must be a required unique Text field` | 列契约 |
-| `Auth: roleField must be an enum with admin, operator and viewer values` | 角色枚举不匹配 |
+| `Auth: roleField must be an enum whose values are exactly the declared roles (…)` | 角色枚举与 `roles { … }` 不一致 |
+| `Auth roles: at least one role needs full access to administer users` | `roles { … }` 至少声明一个 `full` 角色 |
+| `… unknown role X; declared roles are …` | `restrict`/`pages`/`realtime`/`allow roles` 引用了未声明角色 |
 | `Auth: provider <p> needs its own nullable subjectField mapping when local password login is combined with OAuth` | 混合模式缺映射 |
 | `Auth: provider <p> subjectField <f> must be nullable/unique`、`must be a Text field`、`maps to unknown user field` | 映射列契约 |
 | `Auth: OAuth onboarding cannot populate required user fields: …; make them nullable` | 新账号必填列无法自动填 |

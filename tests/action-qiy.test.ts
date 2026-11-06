@@ -127,7 +127,7 @@ describe("Qiy action DSL", () => {
     expect(auth).toContain('"action":"revokeConnector","roles":["admin"]');
     expect(auth).toContain('"action":"recordReview","roles":["operator"]');
     expect(auth).toContain('"action":"reviewPage","roles":["operator","viewer"]');
-    expect(auth.indexOf('if (command)')).toBeLessThan(auth.indexOf('if (identity.role === "admin")'));
+    expect(auth.indexOf('if (command)')).toBeLessThan(auth.indexOf('if (access === "full")'));
     expect(files["apps/web/tests/auth.test.ts"]).toContain('without an admin bypass');
   });
 

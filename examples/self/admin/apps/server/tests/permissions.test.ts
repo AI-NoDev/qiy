@@ -11,6 +11,7 @@ import {
   permissionVerificationNames,
   resolvePermissionSnapshot,
 } from "../src/auth/permissions";
+import { QIY_ADMIN_ROLE, QIY_DEFAULT_ROLE, type QiyRole } from "../src/auth/roles";
 
 interface PermissionSnapshot { permissions: string[]; groups: string[] }
 interface PermissionCase { role: string; verification: string; input: Record<string, unknown>; expected: { found: true; allowed: boolean; missing: string[] } }
@@ -507,7 +508,7 @@ const dataset = {
   hasDatabaseSource: boolean;
 };
 
-const principal = (role: string) => ({ id: "00000000-0000-4000-8000-000000000010", name: role, role: role as "admin" | "operator" | "viewer" });
+const principal = (role: string) => ({ id: "00000000-0000-4000-8000-000000000010", name: role, role: role as QiyRole });
 const authenticate = async (request: Request) => {
   const role = request.headers.get("x-test-role");
   return role ? principal(role) : null;
@@ -523,11 +524,11 @@ describe("generated permission provider", () => {
   });
 
   test("API-key permission scopes intersect the effective permission set", async () => {
-    const adminPermissions = (await loadPermissions(principal("admin"))).permissions;
+    const adminPermissions = (await loadPermissions(principal(QIY_ADMIN_ROLE))).permissions;
     if (adminPermissions.length > 0) {
-      const scoped = await loadPermissions({ ...principal("admin"), scopes: [adminPermissions[0]!] });
+      const scoped = await loadPermissions({ ...principal(QIY_ADMIN_ROLE), scopes: [adminPermissions[0]!] });
       expect(scoped.permissions).toEqual([adminPermissions[0]!]);
-      const none = await loadPermissions({ ...principal("admin"), scopes: ["qiy-unknown-scope"] });
+      const none = await loadPermissions({ ...principal(QIY_ADMIN_ROLE), scopes: ["qiy-unknown-scope"] });
       expect(none.permissions).toEqual([]);
     }
   });
@@ -548,13 +549,13 @@ describe("generated permission provider", () => {
     expect(normalizeDatabasePermissionColumn(null)).toEqual([]);
   });
   test("verified claim sources are only trusted when the claim is present", () => {
-    expect(resolvePermissionSnapshot({ role: "viewer", claims: { "roles": dataset.positiveValue } }).permissions).toContain(dataset.positiveValue);
-    expect(resolvePermissionSnapshot({ role: "viewer", claims: { "groups": dataset.positiveValue } }).permissions).toContain(dataset.positiveValue);
-    expect(resolvePermissionSnapshot({ role: "viewer", claims: { "roles": dataset.positiveValue } }).permissions).toContain(dataset.positiveValue);
-    expect(resolvePermissionSnapshot({ role: "viewer", claims: { "qiy-unrelated": "x" } })).toEqual(resolvePermissionSnapshot({ role: "viewer" }));
+    expect(resolvePermissionSnapshot({ role: QIY_DEFAULT_ROLE, claims: { "roles": dataset.positiveValue } }).permissions).toContain(dataset.positiveValue);
+    expect(resolvePermissionSnapshot({ role: QIY_DEFAULT_ROLE, claims: { "groups": dataset.positiveValue } }).permissions).toContain(dataset.positiveValue);
+    expect(resolvePermissionSnapshot({ role: QIY_DEFAULT_ROLE, claims: { "roles": dataset.positiveValue } }).permissions).toContain(dataset.positiveValue);
+    expect(resolvePermissionSnapshot({ role: QIY_DEFAULT_ROLE, claims: { "qiy-unrelated": "x" } })).toEqual(resolvePermissionSnapshot({ role: QIY_DEFAULT_ROLE }));
   });  test("database permission entries are unioned with the role group", () => {
-    const expected = resolvePermissionSnapshot({ role: "viewer", databasePermissions: [dataset.positiveValue, "qiy-unknown-group"] });
-    expect(expected).toEqual(resolvePermissionSnapshot({ role: "viewer", databasePermissions: [dataset.positiveValue] }));
+    const expected = resolvePermissionSnapshot({ role: QIY_DEFAULT_ROLE, databasePermissions: [dataset.positiveValue, "qiy-unknown-group"] });
+    expect(expected).toEqual(resolvePermissionSnapshot({ role: QIY_DEFAULT_ROLE, databasePermissions: [dataset.positiveValue] }));
     expect(expected.groups).not.toContain("qiy-unknown-group");
   });
   test("verification truth table matches the declared expressions", () => {
@@ -565,7 +566,7 @@ describe("generated permission provider", () => {
   });
 
   test("unknown verification names are rejected", () => {
-    expect(evaluatePermissionVerification("QiyUnknownVerification", { permissions: [], groups: [], role: "viewer" }, {})).toEqual({ found: false });
+    expect(evaluatePermissionVerification("QiyUnknownVerification", { permissions: [], groups: [], role: QIY_DEFAULT_ROLE }, {})).toEqual({ found: false });
   });
 });
 
@@ -587,7 +588,7 @@ describe("generated permission HTTP routes", () => {
   });
 
   test("POST /api/v1/auth/verify-permission rejects unknown verifications and malformed input", async () => {
-    const post = (body: unknown, role = "admin") => request("/api/v1/auth/verify-permission", role, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const post = (body: unknown, role: string = QIY_ADMIN_ROLE) => request("/api/v1/auth/verify-permission", role, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     expect((await post({ verification: "QiyUnknownVerification", input: {} })).status).toBe(400);
     expect((await post({ verification: "CanAdjustStock", input: {} })).status).toBe(400);
     expect((await post({ verification: "CanAdjustStock", input: {"permission":7} })).status).toBe(400);
@@ -620,6 +621,6 @@ describe("generated /auth/me permission metadata", () => {
 
   test("exposes the declared verification names", async () => {
     expect(permissionVerificationNames).toEqual(["CanAccessUserApi","CanAdjustStock","CanManageUsers","CanShipOrders"]);
-    expect(await loadPermissions(principal("admin"))).toBeTruthy();
+    expect(await loadPermissions(principal(QIY_ADMIN_ROLE))).toBeTruthy();
   });
 });

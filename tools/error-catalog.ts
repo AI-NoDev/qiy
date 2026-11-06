@@ -93,7 +93,7 @@ export const qiyErrorCatalog: QiyErrorCode[] = [
     code: "QIY1010",
     title: "Invalid page/restrict rule",
     description: "A page rule or restrict policy references an undeclared role, action, field or resource.",
-    fix: "Check pages/restrict against the declared resources, fields and roles (admin/operator/viewer); page field rules only hide UI, not authorization.",
+    fix: "Check pages/restrict against the declared resources, fields and the roles declared in auth roles (default admin/operator/viewer); page field rules only hide UI, not authorization.",
     docs: `${docsBase}#qiy1010`,
     match: (message) => /^(pages|restrict) |page rule|restriction/i.test(message),
   },

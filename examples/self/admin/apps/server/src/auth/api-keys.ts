@@ -17,10 +17,10 @@ import {
   validateApiKeyExpiry,
   validateApiKeyName,
 } from "./api-key-hash";
+import { isQiyRole, type QiyRole } from "./roles";
 
-const ROLES = ["admin", "operator", "viewer"] as const;
-type Role = (typeof ROLES)[number];
-function asRole(value: unknown): Role | null { return typeof value === "string" && (ROLES as readonly string[]).includes(value) ? value as Role : null; }
+type Role = QiyRole;
+function asRole(value: unknown): Role | null { return isQiyRole(value) ? value : null; }
 
 type ApiKeyEventAction = "created" | "rotated" | "revoked";
 async function recordApiKeyEvent(keyId: string, userId: string, action: ApiKeyEventAction): Promise<void> {

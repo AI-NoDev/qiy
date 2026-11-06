@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Elysia } from "elysia";
 import { createGraphQLRoutes } from "../src/graphql";
 import type { Repositories } from "../src/app";
+import { QIY_ADMIN_ROLE } from "../src/auth/roles";
 
 const records = new Map<string, Record<string, unknown>>();
 const repository: Repositories["records"] = {
@@ -18,7 +19,7 @@ const repository: Repositories["records"] = {
   async delete(id) { const record = records.get(id); records.delete(id); return record; },
   async deleteMany(ids) { return ids.flatMap((id) => { const record = records.get(id); records.delete(id); return record ? [record] : []; }); },
 };
-const app = new Elysia().use(createGraphQLRoutes({ records: repository } as Repositories, async () => ({ id: "test-user", role: "admin", name: "Test", claims: {"tenant.id":"00000000-0000-4000-8000-000000000002"} })));
+const app = new Elysia().use(createGraphQLRoutes({ records: repository } as Repositories, async () => ({ id: "test-user", role: QIY_ADMIN_ROLE, name: "Test", claims: {"tenant.id":"00000000-0000-4000-8000-000000000002"} })));
 
 describe("GraphQL API", () => {
   test("supports create, list and delete mutations", async () => {

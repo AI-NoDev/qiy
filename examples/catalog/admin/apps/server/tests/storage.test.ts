@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { Elysia } from "elysia";
 import { createLocalStorage, createS3Storage, storageKey } from "../src/storage";
 import { createStorageRoutes } from "../src/storage/routes";
+import { hasFullAccess, QIY_ADMIN_ROLE, QIY_ROLE_NAMES } from "../src/auth/roles";
 
 describe("storage providers", () => {
   test("stores and removes a local object", async () => {
@@ -35,14 +36,16 @@ describe("storage providers", () => {
     Bun.env.QIY_STORAGE_PROVIDER = "local";
     Bun.env.QIY_STORAGE_METADATA = "memory";
     try {
-      const app = new Elysia().use(createStorageRoutes(async (request) => request.headers.get("x-user") ? { id: request.headers.get("x-user")!, role: request.headers.get("x-role") === "admin" ? "admin" : "viewer", name: "Tester" } : null));
+      // Ownership only matters for roles without full access.
+      const member = QIY_ROLE_NAMES.find((role) => !hasFullAccess(role));
+      const app = new Elysia().use(createStorageRoutes(async (request) => request.headers.get("x-user") ? { id: request.headers.get("x-user")!, role: request.headers.get("x-role") === "admin" ? QIY_ADMIN_ROLE : member ?? QIY_ADMIN_ROLE, name: "Tester" } : null));
       const key = "files/" + crypto.randomUUID() + ".txt";
       const endpoint = "http://localhost/api/v1/files?key=" + encodeURIComponent(key) + "&resource=missing&field=missing";
       const signed = endpoint.replace("files?", "files/signed?");
       expect((await app.handle(new Request(signed))).status).toBe(401);
       expect((await app.handle(new Request(signed, { headers: { "x-user": "owner" } }))).status).toBe(404);
       expect((await app.handle(new Request(endpoint, { method: "POST", headers: { "x-user": "owner", "x-role": "admin" }, body: new Blob(["private"], { type: "application/octet-stream" }) }))).status).toBe(200);
-      expect((await app.handle(new Request(signed, { headers: { "x-user": "visitor" } }))).status).toBe(404);
+      if (member) expect((await app.handle(new Request(signed, { headers: { "x-user": "visitor" } }))).status).toBe(404);
       expect(await (await app.handle(new Request(signed, { headers: { "x-user": "owner" } }))).json()).toEqual({ url: null });
       expect((await app.handle(new Request("http://localhost/api/v1/files/signed?key=../secret", { headers: { "x-user": "owner" } }))).status).toBe(400);
       expect((await app.handle(new Request(signed, { headers: { "x-user": "administrator", "x-role": "admin" } }))).status).toBe(200);

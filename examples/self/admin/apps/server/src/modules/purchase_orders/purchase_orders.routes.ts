@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import type { Authenticator, Principal } from "../../auth/guard";
+import { QIY_DEFAULT_ROLE, hasFullAccess, isQiyRole } from "../../auth/roles";
 import { QiyTemporalValueError } from "../../temporal";
 import { QiyGeneratedValueConflict } from "../../generated-values";
 import { createPurchase_ordersService } from "./purchase_orders.service";
@@ -137,7 +138,7 @@ export function Purchase_ordersRoutes(repository: Purchase_ordersRepositoryPort,
     let spec: ExportSpec;
     try { spec = JSON.parse(claimed.payload) as ExportSpec; }
     catch { await updateExportJob(claimed.id, { status: "failed", errors: ["Export job payload is invalid"], releaseLease: true }).catch(() => undefined); return claimed.id; }
-    const principal = { id: spec.principal.id, name: spec.principal.name ?? "", role: (spec.principal.role ?? "viewer") as "admin" | "operator" | "viewer", claims: spec.principal.claims ?? {} };
+    const principal = { id: spec.principal.id, name: spec.principal.name ?? "", role: isQiyRole(spec.principal.role) ? spec.principal.role : QIY_DEFAULT_ROLE, claims: spec.principal.claims ?? {} };
     const requestedIds = spec.ids ? spec.ids.split(",").map((id) => id.trim()).filter(Boolean) : [];
     const requestedColumns = spec.columns ? [...new Set(spec.columns.split(",").map((column) => column.trim()).filter(Boolean))] : [];
     const pageSize = Math.min(EXPORT_PAGE_SIZE, exportMaxRows());
@@ -186,7 +187,7 @@ export function Purchase_ordersRoutes(repository: Purchase_ordersRepositoryPort,
     let payload: ImportPayload;
     try { payload = JSON.parse(claimed.payload) as ImportPayload; }
     catch { await updateImportJob(claimed.id, { status: "failed", errors: ["Import job payload is invalid"], releaseLease: true }).catch(() => undefined); return claimed.id; }
-    const payloadPrincipal = { id: payload.principal.id, name: payload.principal.name ?? "", role: (payload.principal.role ?? "viewer") as "admin" | "operator" | "viewer", claims: payload.principal.claims ?? {} };
+    const payloadPrincipal = { id: payload.principal.id, name: payload.principal.name ?? "", role: isQiyRole(payload.principal.role) ? payload.principal.role : QIY_DEFAULT_ROLE, claims: payload.principal.claims ?? {} };
     const payloadScope = payload.scope;
     
     const createdKeys: string[] = [];
@@ -435,13 +436,13 @@ export function Purchase_ordersRoutes(repository: Purchase_ordersRepositoryPort,
     .get("/import/jobs", async ({ request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
-      if (principal.role !== "admin") return status(403, { error: "Worker dispatch requires the admin role", errorKey: "import.forbidden" });
+      if (!hasFullAccess(principal.role)) return status(403, { error: "Worker dispatch requires a full-access role", errorKey: "import.forbidden" });
       return { items: await listImportJobs("purchase_orders") };
     })
     .post("/import/jobs/:id/run", async ({ params, request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
-      if (principal.role !== "admin") return status(403, { error: "Worker dispatch requires the admin role", errorKey: "import.forbidden" });
+      if (!hasFullAccess(principal.role)) return status(403, { error: "Worker dispatch requires a full-access role", errorKey: "import.forbidden" });
       const job = await readImportJob(params.id);
       if (!job || job.resource !== "purchase_orders") return status(404, { error: "Import job not found" });
       if (job.status !== "queued") return status(409, { error: "Import job is not queued", errorKey: "import.notQueued" });
@@ -453,13 +454,13 @@ export function Purchase_ordersRoutes(repository: Purchase_ordersRepositoryPort,
     .get("/export/jobs", async ({ request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
-      if (principal.role !== "admin") return status(403, { error: "Worker dispatch requires the admin role", errorKey: "export.forbidden" });
+      if (!hasFullAccess(principal.role)) return status(403, { error: "Worker dispatch requires a full-access role", errorKey: "export.forbidden" });
       return { items: await listExportJobs("purchase_orders") };
     })
     .post("/export/jobs/:id/run", async ({ params, request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
-      if (principal.role !== "admin") return status(403, { error: "Worker dispatch requires the admin role", errorKey: "export.forbidden" });
+      if (!hasFullAccess(principal.role)) return status(403, { error: "Worker dispatch requires a full-access role", errorKey: "export.forbidden" });
       const job = await readExportJob(params.id);
       if (!job || job.resource !== "purchase_orders") return status(404, { error: "Export job not found" });
       if (job.status !== "queued") return status(409, { error: "Export job is not queued", errorKey: "export.notQueued" });

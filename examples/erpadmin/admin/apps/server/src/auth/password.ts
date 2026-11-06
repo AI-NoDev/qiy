@@ -1,11 +1,8 @@
 import { jwtVerify, SignJWT } from "jose";
+import { isQiyRole, type QiyRole } from "./roles";
 
-const ROLES = ["admin", "operator", "viewer"] as const;
-export type Role = (typeof ROLES)[number];
-
-export function isRole(value: unknown): value is Role {
-  return typeof value === "string" && (ROLES as readonly string[]).includes(value);
-}
+export type Role = QiyRole;
+export const isRole = isQiyRole;
 
 /**
  * Qiy stores password hashes produced by `Bun.password.hash(password, { algorithm: "argon2id" })`.

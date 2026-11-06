@@ -3,6 +3,7 @@ import { Elysia } from "elysia";
 import { client, db } from "../src/db";
 import { purchase_orders, inventory, stock_movements, sales_orders, shipments, work_orders } from "../src/schema";
 import { createDataflowRoutes } from "../src/dataflows";
+import { QIY_ADMIN_ROLE, isQiyRole, type QiyRole } from "../src/auth/roles";
 import { createApp, type Repositories } from "../src/app";
 import { createDataflowRoutes as createFailureRoutes } from "./fixtures/dataflow-failure";
 
@@ -33,9 +34,9 @@ client.exec('DELETE FROM dataflow_outbox');
 client.exec('DELETE FROM qiy_realtime_outbox');
 });
 
-const testRoles: Record<string, "admin" | "operator"> = {"receiveInventory":"admin","putawayStock":"admin","reserveStock":"admin","adjustStock":"admin","shipSalesOrder":"admin","transferInventory":"admin","completeWorkOrder":"admin","approvePurchaseOrder":"admin"};
-const app = new Elysia().use(createDataflowRoutes(async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: testRoles[new URL(request.url).pathname.split("/").at(-1)!] ?? "admin", permissions: ["api:getUser","api:putUser","api:deleteUser","inventory:receive","inventory:putaway","inventory:reserve","inventory:adjust","inventory:transfer","purchasing:approve","sales:ship","workorder:complete","report:read"], groups: ["UserApiPermissionGroup","ManagerRole","SuperAdminManager","admin","operator","viewer"] })));
-const graphqlApp = await createApp({} as Repositories, async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "GraphQL Dataflow Test", role: (request.headers.get("x-test-role") ?? "admin") as "admin" | "operator", permissions: ["api:getUser","api:putUser","api:deleteUser","inventory:receive","inventory:putaway","inventory:reserve","inventory:adjust","inventory:transfer","purchasing:approve","sales:ship","workorder:complete","report:read"], groups: ["UserApiPermissionGroup","ManagerRole","SuperAdminManager","admin","operator","viewer"] }), false, false, undefined, true);
+const testRoles: Record<string, QiyRole> = {"receiveInventory":"admin","putawayStock":"admin","reserveStock":"admin","adjustStock":"admin","shipSalesOrder":"admin","transferInventory":"admin","completeWorkOrder":"admin","approvePurchaseOrder":"admin"};
+const app = new Elysia().use(createDataflowRoutes(async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: testRoles[new URL(request.url).pathname.split("/").at(-1)!] ?? QIY_ADMIN_ROLE, permissions: ["api:getUser","api:putUser","api:deleteUser","inventory:receive","inventory:putaway","inventory:reserve","inventory:adjust","inventory:transfer","purchasing:approve","sales:ship","workorder:complete","report:read"], groups: ["UserApiPermissionGroup","ManagerRole","SuperAdminManager","admin","operator","viewer"] })));
+const graphqlApp = await createApp({} as Repositories, async (request) => { const role = request.headers.get("x-test-role"); return { id: "00000000-0000-4000-8000-000000000010", name: "GraphQL Dataflow Test", role: isQiyRole(role) ? role : QIY_ADMIN_ROLE, permissions: ["api:getUser","api:putUser","api:deleteUser","inventory:receive","inventory:putaway","inventory:reserve","inventory:adjust","inventory:transfer","purchasing:approve","sales:ship","workorder:complete","report:read"], groups: ["UserApiPermissionGroup","ManagerRole","SuperAdminManager","admin","operator","viewer"] }; }, false, false, undefined, true);
 
 describe("generated dataflow routes", () => {
 test("replays a successful command without a second audit event", async () => {

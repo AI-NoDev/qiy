@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import type { FieldIR } from "./database-ir";
 import type { QiyProject } from "./qiy-project";
+import { roleNames } from "./roles";
 
 export type QiyTestScalar = string | number | boolean;
 
@@ -11,7 +12,7 @@ export type QiyTestValue =
 
 export interface QiyTestScenario {
   name: string;
-  identity?: { kind: "anonymous" } | { kind: "principal"; id: QiyTestValue; role: "admin" | "operator" | "viewer"; claims: Record<string, QiyTestValue> };
+  identity?: { kind: "anonymous" } | { kind: "principal"; id: QiyTestValue; role: string; claims: Record<string, QiyTestValue> };
   given: Array<{ alias: string; entity: string; values: Record<string, QiyTestScalar> }>;
   dataflow: string;
   input: Record<string, QiyTestValue>;
@@ -86,7 +87,8 @@ export function validateQiyTestSuite(suite: QiyTestSuite, project: QiyProject): 
       const identity = scenario.identity;
       const id = resolveQiyTestValue(scenario, identity.id);
       if (typeof id !== "string" || !id.trim()) throw new Error(`Scenario ${scenario.name}: identity id must be nonempty text`);
-      if (!["admin", "operator", "viewer"].includes(identity.role)) throw new Error(`Scenario ${scenario.name}: unknown identity role`);
+      const declared = roleNames(project.auth);
+      if (!declared.includes(identity.role)) throw new Error(`Scenario ${scenario.name}: unknown identity role ${identity.role}; declared roles are ${declared.join(", ")}`);
       for (const [claim, value] of Object.entries(identity.claims)) {
         if (!claim.trim() || ["__proto__", "prototype", "constructor"].includes(claim)) throw new Error(`Scenario ${scenario.name}: invalid identity claim ${claim}`);
         const configured = resolveQiyTestValue(scenario, value);
@@ -216,7 +218,7 @@ export function parseQiyTestSuite(input: string): QiyTestSuite {
       } else {
         expect("{");
         let id: QiyTestValue | undefined;
-        let role: "admin" | "operator" | "viewer" | undefined;
+        let role: string | undefined;
         let claims: Record<string, QiyTestValue> | undefined;
         while (peek() !== "}") {
           const setting = identifier();
@@ -227,7 +229,7 @@ export function parseQiyTestSuite(input: string): QiyTestSuite {
             if (role) throw new Error(`Scenario ${name}: duplicate identity role`);
             expect("=");
             const configured = scalar();
-            if (configured !== "admin" && configured !== "operator" && configured !== "viewer") throw new Error(`Scenario ${name}: unknown identity role`);
+            if (typeof configured !== "string" || !configured) throw new Error(`Scenario ${name}: identity role must be a role name`);
             role = configured; expect(";");
           } else if (setting === "claims") {
             if (claims) throw new Error(`Scenario ${name}: duplicate identity claims`);

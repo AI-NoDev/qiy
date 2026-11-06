@@ -92,7 +92,7 @@ describe("Qiy realtime", () => {
     expect(() => serializeQiyProject({ ...parsed, auth: undefined })).toThrow("Realtime requires generated authentication");
     expect(() => parseQiyProject(source.replace("resource orders", "resource missing"))).toThrow("Realtime: unknown resource missing");
     expect(() => parseQiyProject(source.replace("created, updated, deleted", "created, created"))).toThrow("duplicate event created");
-    expect(() => parseQiyProject(source.replace("roles admin, operator", "roles owner"))).toThrow("unsupported role owner");
+    expect(() => parseQiyProject(source.replace("roles admin, operator", "roles owner"))).toThrow("unknown role owner");
     // GraphQL apps share the outbox tail with the REST stream.
     const graphql = parseQiyProject(source.replace("client rest", "client graphql"));
     const files = generateProject(graphql.database, graphql.name, { apiClient: graphql.apiClient, realtime: graphql.realtime, auth: graphql.auth });

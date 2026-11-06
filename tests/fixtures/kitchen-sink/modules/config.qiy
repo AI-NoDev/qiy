@@ -25,7 +25,7 @@ realtime {
   mode auto;
   resource announcements {
     events created, updated, deleted;
-    roles admin, operator;
+    roles owner, agent;
     when queue claim queue.code;
   }
 }
@@ -45,6 +45,11 @@ auth {
   user users;
   subjectField subject;
   roleField role;
+  roles {
+    owner full;
+    agent write;
+    auditor read;
+  }
   usernameField email;
   passwordField passwordHash;
   profileField oauthProfiles;

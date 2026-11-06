@@ -19,7 +19,7 @@ test("authenticates using username and password", async () => {
   expect((await qiyAuthProvider.check({})).authenticated).toBe(true);
 });
 
-test("matches server admin, operator and viewer role policy", async () => {
+test("matches the server role policy for every declared role", async () => {
   role = "viewer"; clearIdentityCache();
   expect((await qiyAccessControlProvider.can({ resource: "customers", action: "list" })).can).toBe(true);
   expect((await qiyAccessControlProvider.can({ resource: "customers", action: "show" })).can).toBe(true);

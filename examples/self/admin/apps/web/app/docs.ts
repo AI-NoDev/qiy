@@ -2,7 +2,7 @@
 import { qiyAuthToken } from "./auth";
 import { qiyFeatureFlags } from "./features";
 
-export type DocsRole = "admin" | "operator" | "viewer";
+export type DocsRole = string;
 export interface DocsEnumValue { name: string; label: string; labelKey: string }
 export interface DocsField {
   name: string;

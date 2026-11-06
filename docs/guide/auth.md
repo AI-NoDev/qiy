@@ -35,7 +35,8 @@ auth {
 | `local` | 由生成器推导（`providers` 含 `local` 或 `provider local`），DSL 不直接书写 |
 | `user` | 用户实体名，必须存在 |
 | `subjectField` | 外部身份 ID 映射列；有 OAuth 时必须是**非空 + 唯一 + Text** |
-| `roleField` | 角色列，必须是枚举且值恰好 `admin`/`operator`/`viewer` |
+| `roleField` | 角色列，必须是枚举，且枚举值恰好等于声明的角色（默认 `admin`/`operator`/`viewer`） |
+| `roles { <name> <full\|write\|read>; … }` | 可选：自定义角色及其访问级别，见下文[自定义角色](#自定义角色) |
 | `usernameField` | 本地密码/OTP 登录标识列；必须**非空 + 唯一**，类型为 `Text` 或 `Email` |
 | `passwordField` | 密码哈希列；必须 `@nullable` Text，不进 API schema |
 | `profileField` | 可选 `@nullable` Text：保存每个 Provider 的 email/name/sub（JSON），供个人中心展示 |
@@ -63,6 +64,44 @@ entity users table users @label("用户") @icon(SafetyOutlined) {
   field permissions Text @nullable;                           // permission from database field
 }
 ```
+
+## 自定义角色
+
+不写 `roles` 时，角色固定为 `admin full; operator write; viewer read;`。业务需要别的角色名或层级时，在 `auth` 里声明：
+
+```qiy
+auth {
+  provider local;
+  user users;
+  roleField role;
+  usernameField email;
+  passwordField passwordHash;
+  roles {
+    owner full;     // 第一个 full 角色：bootstrap 管理员
+    agent write;
+    auditor read;   // 访问最少的第一个角色：OAuth onboarding 默认角色
+  }
+}
+
+enum userRole {
+  value owner label "所有者" color red;
+  value agent label "客服" color blue;
+  value auditor label "审计" color default;
+}
+```
+
+| 访问级别 | 业务资源 | 用户表、审计历史、导入/导出 worker | Dataflow（未写 `allow` 时） |
+| --- | --- | --- | --- |
+| `full` | 全部动作 | 可访问 | 可执行 |
+| `write` | list/show/create/edit/delete | 拒绝 | 可执行 |
+| `read` | list/show | 拒绝 | 拒绝 |
+
+- 至少声明一个 `full` 角色；角色名以小写字母开头，只含字母和数字，不能重复。
+- `roleField` 枚举的值必须**恰好**是声明的角色名；枚举只负责标签、颜色和图标。
+- `restrict`、`pages`、`mask`、`realtime`、`action` 与 `dataflow` 的 `allow roles` 只能引用已声明角色；Dataflow 不能允许 `read` 角色。
+- 没有 `allow` 的 Dataflow 由全部 `full`/`write` 角色执行。
+- 生成的 `api/src/auth/roles.ts` 导出 `QiyRole`、`QIY_ROLES`、`QIY_ADMIN_ROLE`、`QIY_DEFAULT_ROLE`、`hasFullAccess()` 与 `canWrite()`；服务端的守卫、存储、审计、worker、API Key 与文档模块都读这一张表，前端访问控制使用同一份访问级别表。
+- 改名属于数据迁移：先把 users 表里的旧角色值更新为新名字，再部署新模型；未知角色值的会话按失败关闭处理（401/403）。
 
 - 混合模式下，除自动填充列（id / username / password / role / subject / email / displayName / name / profile / 各 Provider 身份列）以外的**必填**字段必须可空，否则生成期直接报 `Auth: OAuth onboarding cannot populate required user fields: …; make them nullable`。
 - 如果声明了 `scope <resource> <field> claim org.id`，users 必须有 `orgId` 列（本地密码会话与 API Key 用它派生 claim）。
@@ -201,7 +240,7 @@ QIY_OTP_DELIVERY_TIMEOUT_MS=10000
 | 变量 | 说明 |
 | --- | --- |
 | `QIY_AUTH_SECRET` | ≥32 字符；签发密码会话与 onboarding 令牌，并做 API Key pepper；缺失时启动失败 |
-| `QIY_OIDC_DEFAULT_ROLE` | onboarding 新账号角色：`admin`/`operator`/`viewer`，默认 `viewer`（非法值启动失败） |
+| `QIY_OIDC_DEFAULT_ROLE` | onboarding 新账号角色：必须是已声明角色，默认访问级别最低的第一个角色（默认模型为 `viewer`；非法值启动失败） |
 | `QIY_OIDC_<ID>_*` | 每个 Provider 的验签与 PKCE 配置 |
 
 `onboardingToken` 是 HS256 JWT：`iss/aud = qiy-admin`、`typ = qiy-onboarding`、10 分钟有效、`QIY_AUTH_SECRET` 签名；注册接口只信任 token 里的身份，不接受客户端提交的 Provider/subject。

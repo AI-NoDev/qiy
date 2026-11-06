@@ -11,10 +11,12 @@ import {
   type GeneratedOpenApiDocument,
 } from "../src/docs";
 import { createDocsRoutes } from "../src/docs-routes";
+import { QIY_ADMIN_ROLE, QIY_ROLES, QIY_ROLE_NAMES, type QiyRoleAccess } from "../src/auth/roles";
 
-const admin: DocsPrincipal = { role: "admin" };
-const operator: DocsPrincipal = { role: "operator" };
-const viewer: DocsPrincipal = { role: "viewer" };
+const roleWith = (access: QiyRoleAccess) => QIY_ROLE_NAMES.find((role) => QIY_ROLES[role] === access);
+const admin: DocsPrincipal = { role: QIY_ADMIN_ROLE };
+const operator: DocsPrincipal = { role: roleWith("write") ?? QIY_ADMIN_ROLE };
+const viewer: DocsPrincipal = { role: roleWith("read") ?? operator.role };
 const paths = (document: GeneratedOpenApiDocument) => Object.keys(document.paths).sort();
 
 test("generates a valid OpenAPI 3.1 document with session and API-key security", () => {
@@ -59,7 +61,7 @@ test("filters operations by the principal permissions and page rules", () => {
       if (mayUseAction(entity.tableName, action, operator)) continue;
       expect(document.paths[key]?.[method]).toBeUndefined();
     }
-    for (const method of Object.keys(viewerDocument.paths[listPath] ?? {})) expect(method).toBe("get");
+    if (QIY_ROLES[viewer.role] === "read") for (const method of Object.keys(viewerDocument.paths[listPath] ?? {})) expect(method).toBe("get");
   }
   for (const flow of docsMeta.dataflows) {
     const commandPath = "/api/v1/commands/" + flow.name;
@@ -79,7 +81,7 @@ test("lists verification-gated commands as hidden for non-admins", () => {
 });
 
 test("serves the docs endpoints only to authenticated principals", async () => {
-  const app = new Elysia().use(createDocsRoutes(async (request) => request.headers.get("authorization") === "Bearer session-admin" ? { id: "admin", name: "Admin", role: "admin" } : null));
+  const app = new Elysia().use(createDocsRoutes(async (request) => request.headers.get("authorization") === "Bearer session-admin" ? { id: "admin", name: "Admin", role: QIY_ADMIN_ROLE } : null));
   const anonymous = await app.handle(new Request("http://localhost/api/v1/openapi.json"));
   expect(anonymous.status).toBe(401);
   const authorized = await app.handle(new Request("http://localhost/api/v1/openapi.json", { headers: { authorization: "Bearer session-admin" } }));

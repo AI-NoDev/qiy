@@ -5,6 +5,7 @@ import { generateServer } from "./generate-server";
 import { generateWeb } from "./generate-web";
 import type { QiyProject } from "./qiy-project";
 import { authHasLocal, authIsHybrid, authOAuthProviders, authUsesProviderChooser } from "./qiy-project";
+import { leastPrivilegedRole } from "./roles";
 import type { QiyTestSuite } from "./qiy-test";
 
 type ProjectOptions = Pick<QiyProject, "comment" | "commentKey" | "mode" | "integration" | "ui" | "messages" | "dataflows" | "actions" | "apiClient" | "corsOrigins" | "elysiaPlugins" | "menuGroups" | "charts" | "chartPanels" | "realtime" | "storageProvider" | "auth" | "permissions" | "environment" | "scopes" | "restrictions" | "pages" | "workflows" | "features"> & { testSuite?: QiyTestSuite };
@@ -388,7 +389,7 @@ function renderEnvironmentExample(
       values.set(`QIY_OIDC_${suffix}_SCOPE`, "openid profile email");
       values.set(`QIY_OIDC_${suffix}_REDIRECT_URI`, "");
     }
-    if (authIsHybrid(auth)) values.set("QIY_OIDC_DEFAULT_ROLE", "viewer");
+    if (authIsHybrid(auth)) values.set("QIY_OIDC_DEFAULT_ROLE", leastPrivilegedRole(auth));
   } else if (auth && authOAuth.length === 1) {
     values.set("QIY_OIDC_ISSUER", "");
     values.set("QIY_OIDC_AUDIENCE", "");
@@ -416,7 +417,7 @@ function renderEnvironmentExample(
     lines.push("", "# Required for OTP auth. Use an HTTPS delivery adapter in production; never set QIY_OTP_DEV_CODE there.");
   }
   if (auth && providerChooser) {
-    lines.push("", "# Required for each configured OAuth/OIDC provider (QIY_OIDC_<PROVIDER>_*). Set CLIENT_SECRET server-side only for confidential clients.", ...(authIsHybrid(auth) ? ["# QIY_OIDC_DEFAULT_ROLE is the role of accounts created by first-time OAuth onboarding (default viewer)."] : []));
+    lines.push("", "# Required for each configured OAuth/OIDC provider (QIY_OIDC_<PROVIDER>_*). Set CLIENT_SECRET server-side only for confidential clients.", ...(authIsHybrid(auth) ? [`# QIY_OIDC_DEFAULT_ROLE is the role of accounts created by first-time OAuth onboarding (default ${leastPrivilegedRole(auth)}).`] : []));
   } else if (auth && authOAuth.length === 1) {
     lines.push("", "# Required for OIDC/OAuth2/SSO access-token verification. These are issuer/JWKS settings, not OAuth client credentials.");
   }

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { createApp, type Repositories } from "../src/app";
+import { QIY_ADMIN_ROLE } from "../src/auth/roles";
 
 const scoped = { field: "tenantId", value: "tenant-a" };
 const seen: Array<unknown> = [];
@@ -17,7 +18,7 @@ const request = (query: string) => new Request("http://localhost/graphql", { met
 
 test("data scope rejects missing claims without blocking unrelated resources", async () => {
   seen.length = 0;
-  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: "admin" }), false, false);
+  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE }), false, false);
   const graph = await app.handle(request("query { records { total } }"));
   if (graph.status === 200) expect((await graph.json() as { errors?: Array<{ message: string }> }).errors?.length).toBeGreaterThan(0);
   else expect(graph.status).toBe(403);
@@ -28,7 +29,7 @@ test("data scope rejects missing claims without blocking unrelated resources", a
 
 test("REST and GraphQL pass the authorized scope to repository operations", async () => {
   seen.length = 0;
-  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: "admin", claims: { "tenant.id": scoped.value } }), false, false);
+  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE, claims: { "tenant.id": scoped.value } }), false, false);
   const list = await app.handle(request("query { records { total } }"));
   expect(list.status).toBe(200);
   expect((await list.json() as { data: { records: { total: number } } }).data.records.total).toBe(0);

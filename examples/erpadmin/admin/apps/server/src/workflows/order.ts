@@ -3,6 +3,7 @@ import { Elysia, t } from "elysia";
 import { db } from "../db";
 import { auditEvents, inventoryItems, orderIdempotency, orderItems, orderReservations, orders } from "../schema";
 import type { Authenticator } from "../auth/guard";
+import { canWrite, hasFullAccess } from "../auth/roles";
 import { planInventoryAllocation } from "./allocation";
 
 class WorkflowConflict extends Error {}
@@ -19,7 +20,7 @@ export function createOrderWorkflowRoutes(authenticate: Authenticator) {
   return new Elysia({ prefix: "/api/v1/orders" })
     .post("/:id/submit", async ({ params, request, status }) => {
       const principal = await authenticate(request);
-      if (!principal || (principal.role !== "admin" && principal.role !== "operator")) return result(status, 403, "Permission denied");
+      if (!principal || !canWrite(principal.role)) return result(status, 403, "Permission denied");
       const scopeCondition = orderScopeCondition(principal);
       if (scopeCondition === null) return result(status, 403, "Missing required data scope claim");
       const key = request.headers.get("idempotency-key");
@@ -54,7 +55,7 @@ export function createOrderWorkflowRoutes(authenticate: Authenticator) {
     }, { params: t.Object({ id: t.String({ format: "uuid" }) }) })
     .post("/:id/approve", async ({ params, request, status }) => {
       const principal = await authenticate(request);
-      if (!principal || principal.role !== "admin") return result(status, 403, "Only admins can approve orders");
+      if (!principal || !hasFullAccess(principal.role)) return result(status, 403, "Only admins can approve orders");
       const scopeCondition = orderScopeCondition(principal);
       if (scopeCondition === null) return result(status, 403, "Missing required data scope claim");
       try {
@@ -68,7 +69,7 @@ export function createOrderWorkflowRoutes(authenticate: Authenticator) {
     }, { params: t.Object({ id: t.String({ format: "uuid" }) }) })
     .post("/:id/ship", async ({ params, request, status }) => {
       const principal = await authenticate(request);
-      if (!principal || (principal.role !== "admin" && principal.role !== "operator")) return result(status, 403, "Permission denied");
+      if (!principal || !canWrite(principal.role)) return result(status, 403, "Permission denied");
       const scopeCondition = orderScopeCondition(principal);
       if (scopeCondition === null) return result(status, 403, "Missing required data scope claim");
       try {
@@ -91,7 +92,7 @@ export function createOrderWorkflowRoutes(authenticate: Authenticator) {
     }, { params: t.Object({ id: t.String({ format: "uuid" }) }) })
     .post("/:id/cancel", async ({ params, request, status }) => {
       const principal = await authenticate(request);
-      if (!principal || (principal.role !== "admin" && principal.role !== "operator")) return result(status, 403, "Permission denied");
+      if (!principal || !canWrite(principal.role)) return result(status, 403, "Permission denied");
       const scopeCondition = orderScopeCondition(principal);
       if (scopeCondition === null) return result(status, 403, "Missing required data scope claim");
       try {

@@ -112,7 +112,7 @@ test.skip("protects file storage endpoints and rejects traversal", async () => {
   const download = await app.handle(new Request(fileUrl));
   expect(download.status).toBe(200);
   expect(await download.text()).toBe("invoice");
-  const viewer = await createApp(repositories, async () => ({ id: "another-user", name: "Viewer", role: "viewer", claims: {} }));
+  const viewer = await createApp(repositories, async () => ({ id: "another-user", name: "Viewer", role: "operator", claims: {} }));
   expect((await viewer.handle(new Request(fileUrl))).status).toBe(404);
   expect((await viewer.handle(new Request(metadataUrl))).status).toBe(404);
   expect((await app.handle(new Request("http://localhost/api/v1/files?key=../secret"))).status).toBe(400);

@@ -49,13 +49,13 @@ curl -H "Authorization: Bearer $QIY_TOKEN" http://localhost:3000/api/v1/docs/mod
 
 | 规则 | 行为 |
 | --- | --- |
-| admin | 全部资源（含用户资源）与全部命令 |
-| 非 admin | 看不到用户资源 |
+| `full` 角色（默认 admin） | 全部资源（含用户资源）与全部命令 |
+| 其它角色 | 看不到用户资源 |
 | `restrict.roles` | 角色不在列表 → 资源整体不出现 |
 | `pages` | 按页面动作（list/show/create/edit/delete）裁剪操作 |
-| viewer | 资源路径上只保留 `list`/`show` |
-| 命令：admin | 全部 |
-| 命令：`allow verification` | 非 admin 不展示（依赖运行时输入） |
+| `read` 角色（默认 viewer） | 资源路径上只保留 `list`/`show` |
+| 命令：`full` 角色 | 全部 |
+| 命令：`allow verification` | 非 `full` 角色不展示（依赖运行时输入） |
 | 命令：`allow roles` | 角色在列表内才展示 |
 | 命令：`allow permission` | 需持有展开后的全部**权限值**（permission field 的值；group 会递归展开） |
 | 命令：无 allow | 非 admin 不展示 |

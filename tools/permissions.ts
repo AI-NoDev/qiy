@@ -144,11 +144,6 @@ export function requiredPermissionValues(model: QiyPermissionModel, names: reado
   return expandPermissionNames(model, names).permissions;
 }
 
-/** Role groups: groups whose name equals a role string (`admin`, `operator`, `viewer`). */
-export function roleGroupNames(model: QiyPermissionModel): string[] {
-  return model.groups.filter((group) => ["admin", "operator", "viewer"].includes(group.name)).map((group) => group.name);
-}
-
 /** Expansion graph used by the generated runtime module. */
 export function permissionExpansionTables(model: QiyPermissionModel): {
   fieldValues: Record<string, string>;
@@ -213,7 +208,7 @@ export interface QiyPermissionSnapshot {
  * Resolves the effective permissions for a principal. Resolution order is a
  * union (never subtraction), so every configured source can only add access:
  *
- * 1. the role group: a permission group whose name equals `role` (admin/operator/viewer)
+ * 1. the role group: a permission group whose name equals a declared `role`
  * 2. `permission from database field` entries: permission values or group names
  * 3. `permission from claim` entries from the verified id_token claims
  *

@@ -13,7 +13,7 @@ const stream = (app: { handle: (request: Request) => Promise<Response> }) => app
 test("rejects anonymous callers, roles without channels and a disabled transport", async () => {
   Bun.env.QIY_REALTIME_DISABLED = "0";
   expect((await stream(new Elysia().use(createRealtimeRoutes(async () => null)))).status).toBe(401);
-  const denied = (["admin", "operator", "viewer"] as const).find((role) => Object.keys(realtimeCapabilities({ id: "u", name: "U", role } as Principal)).length === 0);
+  const denied = (["admin","operator","viewer"] as const).find((role) => Object.keys(realtimeCapabilities({ id: "u", name: "U", role } as Principal)).length === 0);
   if (denied) {
     const response = await stream(new Elysia().use(createRealtimeRoutes(async () => ({ id: "u", name: "U", role: denied } as Principal))));
     expect(response.status).toBe(403);

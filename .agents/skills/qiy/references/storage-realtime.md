@@ -204,7 +204,7 @@ realtime {
 | `mode` | no | `auto` | Only `auto`/`manual` (`Unsupported realtime mode`) |
 | `resource <r>` | yes (>=1) | - | Entity or table name, normalized to table name; unknown/duplicate rejected |
 | `events` | yes | - | At least one, no duplicates; only `created`/`updated`/`deleted` |
-| `roles` | yes | - | At least one, no duplicates; only admin/operator/viewer; defines who may subscribe to the resource channel |
+| `roles` | yes | - | At least one, no duplicates; declared roles only (default admin/operator/viewer); defines who may subscribe to the resource channel |
 | `when <field> claim <claim>` | no | none | Field must exist, be **non-nullable**, and be `Text` or `Integer`; claim may contain dots |
 | Whole block | - | - | At least one resource; without `auth` -> `Realtime requires generated authentication`; `mode integration` rejected |
 

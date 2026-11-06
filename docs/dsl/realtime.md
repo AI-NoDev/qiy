@@ -72,7 +72,7 @@ realtime "{" [ "mode" ( "auto" | "manual" ) ";" ]
 | `mode` | 否 | `auto` | 只有 `auto`/`manual`；重复或未知报 `Unsupported realtime mode` |
 | `resource <r>` | 是（≥1） | — | 实体名或表名；生成前归一化为表名；未知报 `Realtime: unknown resource`，重复报 `Duplicate realtime resource` |
 | `events` | 是 | — | 至少一个，且不重复；只接受 `created`/`updated`/`deleted` |
-| `roles` | 是 | — | 至少一个，且不重复；只接受 `admin`/`operator`/`viewer`；决定谁能订阅该资源的 channel |
+| `roles` | 是 | — | 至少一个，且不重复；只接受已声明角色（默认 `admin`/`operator`/`viewer`）；决定谁能订阅该资源的 channel |
 | `when <field> claim <claim>` | 否 | 无 | 字段必须存在、**非空**、类型 `Text`/`Integer`；claim 允许点号 |
 | 整个块 | — | — | 至少一个 `resource`；无 `auth` → `Realtime requires generated authentication`；`mode integration` → 拒绝 |
 

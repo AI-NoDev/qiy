@@ -90,7 +90,7 @@ qiy explain broken.qiy --json   # { valid: false, error, code?, title?, fix?, do
 
 **pages / restrict 规则错误。** 引用了未声明的 resource、field、role 或 page action。
 
-修复：核对 `pages`/`restrict` 与实体、字段、`admin|operator|viewer` 角色。注意：`pages`/`when` 的字段规则只影响 UI，服务端授权仍依赖 `allow`/`require`/`restrict`/`scope`。
+修复：核对 `pages`/`restrict` 与实体、字段、`auth roles` 声明的角色（默认 `admin|operator|viewer`）。注意：`pages`/`when` 的字段规则只影响 UI，服务端授权仍依赖 `allow`/`require`/`restrict`/`scope`。
 
 ## QIY1011 {#qiy1011}
 

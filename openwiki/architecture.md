@@ -28,6 +28,7 @@ app.qiy + include 片段
 | `tools/cli.ts`、`tools/commands/` | `qiy` CLI：create/init/generate/check/diff/explain/schema/fmt/add/dev/build/test/preview/skill/mcp/agent/doctor |
 | `tools/qiy-project.ts` | DSL 解析器、类型定义与序列化；语法变化从这里开始 |
 | `tools/database-ir.ts` | 方言无关的数据模型校验 |
+| `tools/roles.ts` | 角色声明校验、默认角色、`RoleContext`，以及生成的 `api/src/auth/roles.ts` |
 | `tools/generate-server.ts` | 服务端生成（最大的文件，计划按领域拆分） |
 | `tools/generate-web.ts` | 前端生成 |
 | `tools/generate-project.ts` | 生成编排、workspace 组装、插件钩子 |
@@ -49,7 +50,7 @@ app.qiy + include 片段
 │   ├── schema.ts / db.ts          Drizzle schema 与连接（按方言）
 │   ├── modules/<table>/           contract / repository / service / routes
 │   ├── graphql.ts                 Yoga 或 Apollo adapter，调用同一 service
-│   ├── auth/                      local / oidc / hybrid / API Key / 权限 provider / 会话吊销
+│   ├── auth/                      roles.ts（声明的角色与访问级别）/ local / oidc / hybrid / API Key / 权限 provider / 会话吊销
 │   ├── dataflows/                 声明式业务命令（事务、审计、emit）
 │   ├── realtime.ts / realtime-bus.ts  outbox 轮询 + SSE
 │   ├── import-jobs.ts / export-jobs.ts / storage/
@@ -83,7 +84,7 @@ app.qiy + include 片段
 - **Web**：`/system/overview`（`app/routes/docs.tsx` + `app/components/docs-page.tsx`）只包含实体系（`app/docs.ts` 的纯函数 `buildEntityDiagram` 输出 Mermaid `classDiagram`）、Dataflow（`buildDataflowDiagram` 输出 `flowchart`）与权限模型；API 文档是独立全页 `app/routes/api-docs.tsx` + `app/components/api-docs-page.tsx`（`groupOpenApiOperations`/`filterOpenApiOperations`，tag 列表带计数、搜索、操作卡含参数/请求体/响应/安全标签/curl 与 Tooltip）；访问密钥是独立全页 `app/routes/api-keys.tsx` + `app/components/api-keys-page.tsx`（`app/api-keys.ts` 的搜索/状态/权限标签/相对时间/curl 纯函数、一次性密钥、撤销确认）。`app/components/mermaid.tsx` 用 `import("mermaid")` 延迟在浏览器渲染（10 秒超时/异常时回退原始源码），SSR 保留 `data-diagram` 源码；`app/features.ts` 保存开关、`qiyMenuLinks`（`menu.tsx` 把它插入「系统管理」子菜单）。两者都关闭时不生成页面/路由/依赖。
 - **Server**：`api/src/docs.ts` 是生成期嵌入的模型元数据与纯函数 `buildOpenApiDocument`/`buildDocsModel`（按 principal 的 role、restrict.roles、pages 规则与 dataflow allow 规则过滤，附 `x-qiy-*` 元数据）；`docs-routes.ts` 提供受认证的 `/api/v1/openapi.json` 与 `/api/v1/docs/model`（Elysia 自带 `/api/v1/openapi` 仍公开，guard 只豁免它）。`auth/api-key-hash.ts` 负责 HMAC-SHA256（`QIY_AUTH_SECRET` pepper）与格式/上限校验；`auth/api-keys.ts` 提供 `qiy_api_keys` 的列出/创建/撤销与 `withApiKeyAuthentication`（在原有 authenticator 之后接受 `Authorization: Bearer qiy_...` / `X-API-Key`，按用户行解析 role/claims、节流更新 `lastUsedAt`）。`createApp` 内部统一用包装后的 authenticator，因此 REST、GraphQL、realtime 与 storage 共享同一 principal。
 - **生成物/测试**：`api/tests/docs.test.ts` 断言 OpenAPI 3.1 合法、过滤规则与端点认证；`api/tests/api-keys.test.ts` 覆盖密钥生命周期、哈希不含明文、过期/撤销、上限与 app guard 继承权限；web `tests/features.test.ts`（开关与菜单链接顺序）、`tests/docs.test.ts`（Mermaid 构建 + 三页签）、`tests/docs-render.test.tsx`（SSR 仅挂载活动页签、单图）、`tests/api-docs.test.ts`/`tests/api-docs-render.test.tsx`（搜索/过滤/curl/操作卡）、`tests/api-keys.test.ts`/`tests/api-keys-render.test.tsx`（搜索/状态/权限标签/一次性密钥 UI）覆盖前端。
-- **限制**：带 `allow verification` 的命令在 OpenAPI 中仅 admin 可见；资源级数据 scope 只影响真实请求；文档页对任意已登录用户开放但内容按权限过滤。
+- **限制**：带 `allow verification` 的命令在 OpenAPI 中仅 `full` 角色可见；资源级数据 scope 只影响真实请求；文档页对任意已登录用户开放但内容按权限过滤。
 
 ## 部署边界
 

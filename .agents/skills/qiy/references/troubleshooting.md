@@ -76,7 +76,8 @@ Canonical reference: https://ai-nodev.github.io/qiy/dsl/overview
 
 | Error / symptom | Cause | Fix |
 | --- | --- | --- |
-| `Auth: roleField must be an enum with admin, operator and viewer values` | Role enum has extra/missing values | Declare exactly those three |
+| `Auth: roleField must be an enum whose values are exactly the declared roles (...)` | Role enum has extra/missing values | Make the enum values match `roles { }` (default admin/operator/viewer) |
+| `unknown role X; declared roles are ...` | A policy, page, realtime or allow rule names an undeclared role | Use a declared role or add it to `auth roles { }` |
 | `Auth: usernameField must be a required unique Text or Email field` | Column contract violated | Make it non-null, unique, Text or Email |
 | `Auth: passwordField must be a nullable Text field ...` | Hash column not nullable | Make it `@nullable` Text |
 | `Auth: subjectField must be a required unique Text field` | Missing/duplicate subject | Non-null unique Text |

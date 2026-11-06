@@ -12,6 +12,7 @@ import {
   type QiyPermissionModel,
 } from "./permissions";
 import { resolveQiyTestValue, type QiyTestSuite, type QiyTestScenario } from "./qiy-test";
+import { fullAccessRoles, renderRolesModule, roleContext, withDefaultCommandRoles, type RoleContext } from "./roles";
 
 /** A data scope, optionally widened to the whole subtree of a self-referencing entity. */
 type QiyScope = NonNullable<QiyProject["scopes"]>[number];
@@ -635,7 +636,7 @@ function renderGraphQLTest(database: DatabaseIR, hiddenFields: string[] = []): s
     return `${JSON.stringify(field.name)}: ${example}`;
   }).join(", ");
   const fields = creatableFields.slice(0, 3).map((field) => field.name).join(" ");
-  return `import { describe, expect, test } from "bun:test";\nimport { Elysia } from "elysia";\nimport { createGraphQLRoutes } from "../src/graphql";\nimport type { Repositories } from "../src/app";\n\nconst records = new Map<string, Record<string, unknown>>();\nconst repository: Repositories["${entity.name}"] = {\n  async distribution(field) { const counts = new Map<string, number>(); for (const record of records.values()) { const value = String(record[field] ?? ""); counts.set(value, (counts.get(value) ?? 0) + 1); } return [...counts].map(([value, count]) => ({ value, count })); },\n  async trend(field, days) { const start = Date.now() - days * 86400000; const counts = new Map<string, number>(); for (const record of records.values()) { const date = new Date(String(record[field] ?? "")); if (date.getTime() >= start) { const day = date.toISOString().slice(0, 10); counts.set(day, (counts.get(day) ?? 0) + 1); } } return [...counts].map(([day, count]) => ({ day, count })); },\n  async list(page, pageSize, options = {}) {\n    const rows = [...records.values()];\n    const filtered = options.search ? rows.filter((record) => Object.values(record).some((value) => String(value ?? "").toLowerCase().includes(options.search!.toLowerCase()))) : rows;\n    return { data: filtered.slice((page - 1) * pageSize, page * pageSize), total: filtered.length };\n  },\n  async one(id) { return records.get(id); },\n  async create(values) { const record = { id: crypto.randomUUID(), ...values }; records.set(record.id, record); return record; },\n  async update(id, values) { const old = records.get(id); if (!old) return undefined; const record = { ...old, ...values }; records.set(id, record); return record; },\n  async delete(id) { const record = records.get(id); records.delete(id); return record; },\n  async deleteMany(ids) { return ids.flatMap((id) => { const record = records.get(id); records.delete(id); return record ? [record] : []; }); },\n};\nconst app = new Elysia().use(createGraphQLRoutes({ ${entity.name}: repository } as Repositories, async () => ({ id: "test-user", role: "admin", name: "Test", claims: ${claims} })));\n\ndescribe("GraphQL API", () => {\n  test("supports create, list and delete mutations", async () => {\n    records.clear();\n    const create = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: "mutation($input: ${name}CreateInput!) { create${name}(input: $input) { id } }", variables: { input: { ${values} } } }) }));\n    expect(create.status).toBe(200);\n    const created = await create.json() as { data: { create${name}: { id: string } } };\n    expect(created.data.create${name}.id).toBeTruthy();\n    const list = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: "query { ${entity.name} { items { ${fields} } total } }" }) }));\n    expect((await list.json() as { data: { ${entity.name}: { total: number } } }).data.${entity.name}.total).toBe(1);\n    const deleted = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: "mutation($id: ID!) { delete${name}(id: $id) { id } }", variables: { id: created.data.create${name}.id } }) }));\n    expect((await deleted.json() as { data: { delete${name}: { id: string } } }).data.delete${name}.id).toBeTruthy();\n  });\n});\n`;
+  return `import { describe, expect, test } from "bun:test";\nimport { Elysia } from "elysia";\nimport { createGraphQLRoutes } from "../src/graphql";\nimport type { Repositories } from "../src/app";\nimport { QIY_ADMIN_ROLE } from "../src/auth/roles";\n\nconst records = new Map<string, Record<string, unknown>>();\nconst repository: Repositories["${entity.name}"] = {\n  async distribution(field) { const counts = new Map<string, number>(); for (const record of records.values()) { const value = String(record[field] ?? ""); counts.set(value, (counts.get(value) ?? 0) + 1); } return [...counts].map(([value, count]) => ({ value, count })); },\n  async trend(field, days) { const start = Date.now() - days * 86400000; const counts = new Map<string, number>(); for (const record of records.values()) { const date = new Date(String(record[field] ?? "")); if (date.getTime() >= start) { const day = date.toISOString().slice(0, 10); counts.set(day, (counts.get(day) ?? 0) + 1); } } return [...counts].map(([day, count]) => ({ day, count })); },\n  async list(page, pageSize, options = {}) {\n    const rows = [...records.values()];\n    const filtered = options.search ? rows.filter((record) => Object.values(record).some((value) => String(value ?? "").toLowerCase().includes(options.search!.toLowerCase()))) : rows;\n    return { data: filtered.slice((page - 1) * pageSize, page * pageSize), total: filtered.length };\n  },\n  async one(id) { return records.get(id); },\n  async create(values) { const record = { id: crypto.randomUUID(), ...values }; records.set(record.id, record); return record; },\n  async update(id, values) { const old = records.get(id); if (!old) return undefined; const record = { ...old, ...values }; records.set(id, record); return record; },\n  async delete(id) { const record = records.get(id); records.delete(id); return record; },\n  async deleteMany(ids) { return ids.flatMap((id) => { const record = records.get(id); records.delete(id); return record ? [record] : []; }); },\n};\nconst app = new Elysia().use(createGraphQLRoutes({ ${entity.name}: repository } as Repositories, async () => ({ id: "test-user", role: QIY_ADMIN_ROLE, name: "Test", claims: ${claims} })));\n\ndescribe("GraphQL API", () => {\n  test("supports create, list and delete mutations", async () => {\n    records.clear();\n    const create = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: "mutation($input: ${name}CreateInput!) { create${name}(input: $input) { id } }", variables: { input: { ${values} } } }) }));\n    expect(create.status).toBe(200);\n    const created = await create.json() as { data: { create${name}: { id: string } } };\n    expect(created.data.create${name}.id).toBeTruthy();\n    const list = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: "query { ${entity.name} { items { ${fields} } total } }" }) }));\n    expect((await list.json() as { data: { ${entity.name}: { total: number } } }).data.${entity.name}.total).toBe(1);\n    const deleted = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: "mutation($id: ID!) { delete${name}(id: $id) { id } }", variables: { id: created.data.create${name}.id } }) }));\n    expect((await deleted.json() as { data: { delete${name}: { id: string } } }).data.delete${name}.id).toBeTruthy();\n  });\n});\n`;
 }
 
 function renderGraphQLListOptionsTest(database: DatabaseIR): string | undefined {
@@ -659,6 +660,7 @@ function renderGraphQLListOptionsTest(database: DatabaseIR): string | undefined 
 import { Elysia } from "elysia";
 import { createGraphQLRoutes } from "../src/graphql";
 import type { Repositories } from "../src/app";
+import { QIY_ADMIN_ROLE } from "../src/auth/roles";
 
 const repository = {
   async distribution() { return []; },
@@ -671,7 +673,7 @@ const repository = {
   async deleteMany() { return []; },
 };
 const repositories = Object.fromEntries(${resources}.map((name) => [name, repository])) as unknown as Repositories;
-const app = new Elysia().use(createGraphQLRoutes(repositories, async () => ({ id: "admin", role: "admin", name: "Admin", claims: ${claims} })));
+const app = new Elysia().use(createGraphQLRoutes(repositories, async () => ({ id: "admin", role: QIY_ADMIN_ROLE, name: "Admin", claims: ${claims} })));
 const request = (query: string, variables: Record<string, unknown>) => new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, variables }) });
 
 ${cases.join("\n\n")}
@@ -698,6 +700,7 @@ function renderDataScopeTest(database: DatabaseIR, scopes: NonNullable<QiyProjec
     ? "00000000-0000-4000-8000-000000000002" : "tenant-a";
   return `import { expect, test } from "bun:test";
 import { createApp, type Repositories } from "../src/app";
+import { QIY_ADMIN_ROLE } from "../src/auth/roles";
 
 const scoped = { field: ${JSON.stringify(configured.field)}, value: ${JSON.stringify(value)} };
 const seen: Array<unknown> = [];
@@ -715,7 +718,7 @@ const request = (query: string) => new Request("http://localhost/graphql", { met
 
 test("data scope rejects missing claims without blocking unrelated resources", async () => {
   seen.length = 0;
-  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: "admin" }), false, false);
+  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE }), false, false);
   const graph = await app.handle(request("query { ${entity.name} { total } }"));
   if (graph.status === 200) expect((await graph.json() as { errors?: Array<{ message: string }> }).errors?.length).toBeGreaterThan(0);
   else expect(graph.status).toBe(403);
@@ -726,7 +729,7 @@ test("data scope rejects missing claims without blocking unrelated resources", a
 
 test("REST and GraphQL pass the authorized scope to repository operations", async () => {
   seen.length = 0;
-  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: "admin", claims: { ${JSON.stringify(configured.claim)}: scoped.value } }), false, false);
+  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE, claims: { ${JSON.stringify(configured.claim)}: scoped.value } }), false, false);
   const list = await app.handle(request("query { ${entity.name} { total } }"));
   expect(list.status).toBe(200);
   expect((await list.json() as { data: { ${entity.name}: { total: number } } }).data.${entity.name}.total).toBe(0);
@@ -736,7 +739,7 @@ test("REST and GraphQL pass the authorized scope to repository operations", asyn
 });
 ${orderWorkflowEnabled && database.dialect === "postgresql" && entity.name === "orders" ? `
 test("order workflows reject missing scope claims before database access", async () => {
-  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: "admin" }), true, false);
+  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE }), true, false);
   for (const command of ["submit", "approve", "ship", "cancel"]) {
     const response = await app.handle(new Request("http://localhost/api/v1/orders/00000000-0000-4000-8000-000000000001/" + command, { method: "POST" }));
     expect(response.status).toBe(403);
@@ -950,8 +953,9 @@ function renderPolicyModule(restrictions: QiyResourceRestriction[], database: Da
   const roleLiteral = JSON.stringify(Object.fromEntries(restrictions.filter((restriction) => restriction.roles?.length).map((restriction) => [restriction.resource, restriction.roles!])));
   return `import { and, eq, gt, gte, inArray, lt, lte, ne, not, notInArray, or${treeHelpers.length ? ", sql" : ""} } from "drizzle-orm";
 import type { Principal } from "../auth/guard";
+import type { QiyRole } from "../auth/roles";
 
-export type QiyRole = "admin" | "operator" | "viewer";
+export type { QiyRole };
 
 export interface QiyRowPredicate {
   field: string;
@@ -1397,7 +1401,7 @@ ${entity.fields.some((field) => field.defaultValue) ? `  // An empty cell leaves
     let spec: ExportSpec;
     try { spec = JSON.parse(claimed.payload) as ExportSpec; }
     catch { await updateExportJob(claimed.id, { status: "failed", errors: ["Export job payload is invalid"], releaseLease: true }).catch(() => undefined); return claimed.id; }
-    const principal = { id: spec.principal.id, name: spec.principal.name ?? "", role: (spec.principal.role ?? "viewer") as "admin" | "operator" | "viewer", claims: spec.principal.claims ?? {} };
+    const principal = { id: spec.principal.id, name: spec.principal.name ?? "", role: isQiyRole(spec.principal.role) ? spec.principal.role : QIY_DEFAULT_ROLE, claims: spec.principal.claims ?? {} };
     const requestedIds = spec.ids ? spec.ids.split(",").map((id) => id.trim()).filter(Boolean) : [];
     const requestedColumns = spec.columns ? [...new Set(spec.columns.split(",").map((column) => column.trim()).filter(Boolean))] : [];
     const pageSize = Math.min(EXPORT_PAGE_SIZE, exportMaxRows());
@@ -1446,7 +1450,7 @@ ${entity.fields.some((field) => field.defaultValue) ? `  // An empty cell leaves
     let payload: ImportPayload;
     try { payload = JSON.parse(claimed.payload) as ImportPayload; }
     catch { await updateImportJob(claimed.id, { status: "failed", errors: ["Import job payload is invalid"], releaseLease: true }).catch(() => undefined); return claimed.id; }
-    const payloadPrincipal = { id: payload.principal.id, name: payload.principal.name ?? "", role: (payload.principal.role ?? "viewer") as "admin" | "operator" | "viewer", claims: payload.principal.claims ?? {} };
+    const payloadPrincipal = { id: payload.principal.id, name: payload.principal.name ?? "", role: isQiyRole(payload.principal.role) ? payload.principal.role : QIY_DEFAULT_ROLE, claims: payload.principal.claims ?? {} };
     const payloadScope = payload.scope;
     ${restricted ? "const payloadPolicy = await resolveResourcePolicy(payloadPrincipal as never, null, payloadScope);" : ""}
     const createdKeys: string[] = [];
@@ -1693,13 +1697,13 @@ ${entity.fields.some((field) => field.defaultValue) ? `  // An empty cell leaves
     .get("/import/jobs", async ({ request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
-      if (principal.role !== "admin") return status(403, { error: "Worker dispatch requires the admin role", errorKey: "import.forbidden" });
+      if (!hasFullAccess(principal.role)) return status(403, { error: "Worker dispatch requires a full-access role", errorKey: "import.forbidden" });
       return { items: await listImportJobs(${JSON.stringify(entity.tableName)}) };
     })
     .post("/import/jobs/:id/run", async ({ params, request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
-      if (principal.role !== "admin") return status(403, { error: "Worker dispatch requires the admin role", errorKey: "import.forbidden" });
+      if (!hasFullAccess(principal.role)) return status(403, { error: "Worker dispatch requires a full-access role", errorKey: "import.forbidden" });
       const job = await readImportJob(params.id);
       if (!job || job.resource !== ${JSON.stringify(entity.tableName)}) return status(404, { error: "Import job not found" });
       if (job.status !== "queued") return status(409, { error: "Import job is not queued", errorKey: "import.notQueued" });
@@ -1711,13 +1715,13 @@ ${entity.fields.some((field) => field.defaultValue) ? `  // An empty cell leaves
     .get("/export/jobs", async ({ request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
-      if (principal.role !== "admin") return status(403, { error: "Worker dispatch requires the admin role", errorKey: "export.forbidden" });
+      if (!hasFullAccess(principal.role)) return status(403, { error: "Worker dispatch requires a full-access role", errorKey: "export.forbidden" });
       return { items: await listExportJobs(${JSON.stringify(entity.tableName)}) };
     })
     .post("/export/jobs/:id/run", async ({ params, request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
-      if (principal.role !== "admin") return status(403, { error: "Worker dispatch requires the admin role", errorKey: "export.forbidden" });
+      if (!hasFullAccess(principal.role)) return status(403, { error: "Worker dispatch requires a full-access role", errorKey: "export.forbidden" });
       const job = await readExportJob(params.id);
       if (!job || job.resource !== ${JSON.stringify(entity.tableName)}) return status(404, { error: "Export job not found" });
       if (job.status !== "queued") return status(409, { error: "Export job is not queued", errorKey: "export.notQueued" });
@@ -2309,6 +2313,7 @@ function renderRouteTest(entity: EntityIR, database: DatabaseIR, scopes: NonNull
   return `import { describe, expect, test } from "bun:test";
 import { Elysia } from "elysia";
 import { ${name}Routes, type ${name}Repository } from "../src/routes/${entity.name}";
+import { QIY_ADMIN_ROLE } from "../src/auth/roles";
 
 const records = new Map<string, Record<string, unknown>>();
 const repository: ${name}Repository = {
@@ -2363,7 +2368,7 @@ const repository: ${name}Repository = {
     return deleted;
   },
 };
-  const app = new Elysia({ prefix: "/api/v1" }).use(${name}Routes(repository, async () => ({ id: "00000000-0000-4000-8000-000000000001", name: "Scoped User", role: "admin", claims: ${claims} })));
+  const app = new Elysia({ prefix: "/api/v1" }).use(${name}Routes(repository, async () => ({ id: "00000000-0000-4000-8000-000000000001", name: "Scoped User", role: QIY_ADMIN_ROLE, claims: ${claims} })));
 const endpoint = "http://localhost/api/v1/${entity.tableName}";
 
 describe("${entity.tableName} CRUD", () => {
@@ -2441,6 +2446,7 @@ import { Elysia, t } from "elysia";
 import { db } from "../db";
 import { auditEvents, inventoryItems, orderIdempotency, orderItems, orderReservations, orders } from "../schema";
 import type { Authenticator } from "../auth/guard";
+import { canWrite, hasFullAccess } from "../auth/roles";
 import { planInventoryAllocation } from "./allocation";
 
 class WorkflowConflict extends Error {}
@@ -2457,7 +2463,7 @@ export function createOrderWorkflowRoutes(authenticate: Authenticator) {
   return new Elysia({ prefix: "/api/v1/orders" })
     .post("/:id/submit", async ({ params, request, status }) => {
       const principal = await authenticate(request);
-      if (!principal || (principal.role !== "admin" && principal.role !== "operator")) return result(status, 403, "Permission denied");
+      if (!principal || !canWrite(principal.role)) return result(status, 403, "Permission denied");
       const scopeCondition = orderScopeCondition(principal);
       if (scopeCondition === null) return result(status, 403, "Missing required data scope claim");
       const key = request.headers.get("idempotency-key");
@@ -2492,7 +2498,7 @@ export function createOrderWorkflowRoutes(authenticate: Authenticator) {
     }, { params: t.Object({ id: t.String({ format: "uuid" }) }) })
     .post("/:id/approve", async ({ params, request, status }) => {
       const principal = await authenticate(request);
-      if (!principal || principal.role !== "admin") return result(status, 403, "Only admins can approve orders");
+      if (!principal || !hasFullAccess(principal.role)) return result(status, 403, "Only admins can approve orders");
       const scopeCondition = orderScopeCondition(principal);
       if (scopeCondition === null) return result(status, 403, "Missing required data scope claim");
       try {
@@ -2506,7 +2512,7 @@ export function createOrderWorkflowRoutes(authenticate: Authenticator) {
     }, { params: t.Object({ id: t.String({ format: "uuid" }) }) })
     .post("/:id/ship", async ({ params, request, status }) => {
       const principal = await authenticate(request);
-      if (!principal || (principal.role !== "admin" && principal.role !== "operator")) return result(status, 403, "Permission denied");
+      if (!principal || !canWrite(principal.role)) return result(status, 403, "Permission denied");
       const scopeCondition = orderScopeCondition(principal);
       if (scopeCondition === null) return result(status, 403, "Missing required data scope claim");
       try {
@@ -2529,7 +2535,7 @@ export function createOrderWorkflowRoutes(authenticate: Authenticator) {
     }, { params: t.Object({ id: t.String({ format: "uuid" }) }) })
     .post("/:id/cancel", async ({ params, request, status }) => {
       const principal = await authenticate(request);
-      if (!principal || (principal.role !== "admin" && principal.role !== "operator")) return result(status, 403, "Permission denied");
+      if (!principal || !canWrite(principal.role)) return result(status, 403, "Permission denied");
       const scopeCondition = orderScopeCondition(principal);
       if (scopeCondition === null) return result(status, 403, "Missing required data scope claim");
       try {
@@ -2695,6 +2701,7 @@ import { Elysia, t } from "elysia";
 import { db } from "./db";
 import { qiySavedViews } from "./schema";
 import type { Authenticator, Principal } from "./auth/guard";
+import { hasFullAccess } from "./auth/roles";
 
 export interface QiySavedView {
   id: string;
@@ -2777,7 +2784,7 @@ export async function deleteSavedView(id: string, principal: Principal): Promise
   ${sqlite ? "const row = db.select().from(qiySavedViews).where(eq(qiySavedViews.id, id)).get();" : "const [row] = await db.select().from(qiySavedViews).where(eq(qiySavedViews.id, id)).limit(1);"}
   if (!row) return "missing";
   // Owners delete their own rows; an admin may remove another user's shared row during cleanup.
-  if (row.ownerId !== principal.id && principal.role !== "admin") return "forbidden";
+  if (row.ownerId !== principal.id && !hasFullAccess(principal.role)) return "forbidden";
   ${sqlite ? "db.delete(qiySavedViews).where(eq(qiySavedViews.id, id)).run();" : "await db.delete(qiySavedViews).where(eq(qiySavedViews.id, id));"}
   return "deleted";
 }
@@ -2823,7 +2830,7 @@ export function createSavedViewsRoutes(authenticate: Authenticator) {
  * per-user cap only applies to new names. SQLite runs on the in-memory test
  * database; PostgreSQL/MySQL need QIY_TEST_DATABASE_URL with migrations applied.
  */
-function renderSavedViewsTest(dialect: DatabaseIR["dialect"], resources: string[]): string {
+function renderSavedViewsTest(dialect: DatabaseIR["dialect"], resources: string[], roles: RoleContext): string {
   const resource = resources[0]!;
   const exec = dialect === "sqlite" ? "client.exec(statement)" : dialect === "postgresql" ? "client.unsafe(statement)" : "client.query(statement)";
   const ddl = dialect === "sqlite"
@@ -2838,6 +2845,7 @@ function renderSavedViewsTest(dialect: DatabaseIR["dialect"], resources: string[
   return `import { expect, test } from "bun:test";
 import { Elysia } from "elysia";
 import type { QiySavedView } from "../src/saved-views";
+import type { QiyRole } from "../src/auth/roles";
 
 const dialect = ${JSON.stringify(dialect)};
 const available = ${available};
@@ -2845,10 +2853,10 @@ const resource = ${JSON.stringify(resource)};
 const ddl = ${JSON.stringify(ddl)};
 const carolRows = ${JSON.stringify(carolRows)};
 
-type Principal = { id: string; name: string; role: "admin" | "operator" | "viewer" };
-const alice: Principal = { id: "00000000-0000-4000-8000-0000000000a1", name: "Alice", role: "admin" };
-const bob: Principal = { id: "00000000-0000-4000-8000-0000000000b1", name: "Bob", role: "operator" };
-const carol: Principal = { id: "00000000-0000-4000-8000-0000000000c1", name: "Carol", role: "operator" };
+type Principal = { id: string; name: string; role: QiyRole };
+const alice: Principal = { id: "00000000-0000-4000-8000-0000000000a1", name: "Alice", role: ${JSON.stringify(roles.admin)} };
+const bob: Principal = { id: "00000000-0000-4000-8000-0000000000b1", name: "Bob", role: ${JSON.stringify(roles.member ?? roles.admin)} };
+const carol: Principal = { id: "00000000-0000-4000-8000-0000000000c1", name: "Carol", role: ${JSON.stringify(roles.member ?? roles.admin)} };
 
 async function sql(statement: string): Promise<void> {
   const { client } = await import("../src/db");
@@ -2903,7 +2911,7 @@ test.skipIf(!available)("owners and admins delete views while others get 403, 40
   const bobShared = (await (await create(bob, { name: "bob-shared", shared: true })).json()) as QiySavedView;
 
   // A non-owner cannot delete another user's row, even a shared one.
-  expect((await remove(bob, adminView.id)).status).toBe(403);
+${roles.member ? "  expect((await remove(bob, adminView.id)).status).toBe(403);" : ""}
   // An admin may clean up another user's shared row.
   expect((await remove(alice, bobShared.id)).status).toBe(204);
   expect((await list(bob)).some((view) => view.id === bobShared.id)).toBe(false);
@@ -3065,14 +3073,15 @@ export async function releaseStaleImportJobs(now: Date = new Date()): Promise<nu
 `;
 }
 
-function renderRealtime(config: NonNullable<QiyProject["realtime"]>, dataflows: NonNullable<QiyProject["dataflows"]> = []): string {
+function renderRealtime(config: NonNullable<QiyProject["realtime"]>, dataflows: NonNullable<QiyProject["dataflows"]>, roles: RoleContext): string {
   const subscriptions = JSON.stringify(config.resources);
   const eventRoles = new Map<string, Set<string>>();
+  const writers = roles.writers;
   for (const flow of dataflows) {
     for (const action of flow.steps.flatMap((step) => step.actions)) {
       if (action.kind !== "emit") continue;
       const roles = eventRoles.get(action.event) ?? new Set<string>();
-      for (const role of flow.roles ?? ["admin", "operator"]) roles.add(role);
+      for (const role of flow.roles ?? writers) roles.add(role);
       eventRoles.set(action.event, roles);
     }
   }
@@ -3496,7 +3505,7 @@ function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullable<QiyPr
       if (!permissionVerdict.found) return status(403, { error: "Unknown permission verification ${flow.verification}" });
       if ("error" in permissionVerdict) return status(400, { error: permissionVerdict.error });
       if (!permissionVerdict.allowed) return status(403, { error: "Permission verification ${flow.verification} denied this command", errorKey: "command.forbidden", ...(permissionVerdict.missing.length ? { missing: permissionVerdict.missing } : {}) });`
-        : `      if (!${JSON.stringify(flow.roles ?? ["admin", "operator"])}.includes(principal.role)) return status(403, { error: "Command execution is restricted" });`;
+        : `      if (!${JSON.stringify(flow.roles!)}.includes(principal.role)) return status(403, { error: "Command execution is restricted" });`;
     const singleRoute = `${generatedDocumentation(flow, "    ")}    .post(${JSON.stringify(`/${flow.name}`)}, async ({ body, request, status }) => {
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
@@ -3710,7 +3719,7 @@ function dataflowFixtureValue(field: FieldIR, requires: Array<{ field: string; o
   return "null";
 }
 
-function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, qiyActions: NonNullable<QiyProject["actions"]> = [], realtimeEnabled = false, permissions?: QiyPermissionModel): string | undefined {
+function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, roles: RoleContext, qiyActions: NonNullable<QiyProject["actions"]> = [], realtimeEnabled = false, permissions?: QiyPermissionModel): string | undefined {
   if (database.dialect !== "sqlite" || !dataflows.length) return undefined;
   // Command authorization may be role-, permission- or verification-based. The
   // generated happy-path actor holds every declared permission so the fixture
@@ -3786,7 +3795,7 @@ function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<Q
     const graphqlCommandTest = `
   test(${JSON.stringify(`${flow.name} executes through GraphQL with REST-equivalent idempotency`)}, async () => {
     ${seed}
-    const request = (variables: Record<string, unknown>) => new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json", "X-Test-Role": ${JSON.stringify(flow.roles?.[0] ?? "admin")} }, body: JSON.stringify({ query: ${JSON.stringify(graphqlQuery)}, variables }) });
+    const request = (variables: Record<string, unknown>) => new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json", "X-Test-Role": ${JSON.stringify(flow.roles?.[0] ?? roles.admin)} }, body: JSON.stringify({ query: ${JSON.stringify(graphqlQuery)}, variables }) });
     const response = await graphqlApp.handle(request(${JSON.stringify(graphqlVariables)}));
     expect(response.status).toBe(200);
     const payload = await response.json() as { data?: Record<string, { id: string }>; errors?: Array<{ message: string; extensions?: { status?: number; errorKey?: string } }> };
@@ -3829,9 +3838,7 @@ function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<Q
     } finally { dataflowCallHandlers[${JSON.stringify(firstCall.adapter)}] = previous; }
   });` : "";
     const hasMutations = flow.steps.some((step) => step.actions.some((action) => action.kind === "update" || action.kind === "create" || action.kind === "delete" || action.kind === "emit"));
-    const deniedRoles = flow.roles
-      ? ["viewer", ...["admin", "operator"].filter((role) => !flow.roles!.includes(role as "admin" | "operator"))]
-      : ["viewer"];
+    const deniedRoles = flow.roles ? roles.names.filter((role) => !flow.roles!.includes(role)) : roles.readers;
     const authorizationTest = `
   test(${JSON.stringify(`${flow.name} rejects unauthenticated and disallowed roles before writing`)}, async () => {
     ${seed}
@@ -3849,7 +3856,7 @@ function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<Q
   test(${JSON.stringify(`${flow.name} rolls back earlier writes when a later requirement fails`)}, async () => {
     ${seed}
     const before = ${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all());
-    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: ${JSON.stringify(flow.roles?.[0] ?? "admin")}${permissionPrincipal} })));
+    const failureApp = new Elysia().use(createFailureRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: ${JSON.stringify(flow.roles?.[0] ?? roles.admin)}${permissionPrincipal} })));
     const failed = await failureApp.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
     expect(failed.status).toBe(409);
     expect(await failed.json()).toMatchObject({ error: "qiy.test.lateFailure" });
@@ -3899,7 +3906,7 @@ function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<Q
     expect(${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all())).toEqual(before);
     expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM audit_events").get()?.total).toBe(0);
     ${flow.idempotency?.required ? 'expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM dataflow_idempotency").get()?.total).toBe(0);' : ""}
-    ${action.errorKey ? `const graphFailure = await graphqlApp.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json", "X-Test-Role": ${JSON.stringify(flow.roles?.[0] ?? "admin")} }, body: JSON.stringify({ query: ${JSON.stringify(graphqlQuery)}, variables: { ...${JSON.stringify(graphqlVariables)}, input: { ...${JSON.stringify(input)}, ${JSON.stringify(field)}: ${invalid} } } }) }));
+    ${action.errorKey ? `const graphFailure = await graphqlApp.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json", "X-Test-Role": ${JSON.stringify(flow.roles?.[0] ?? roles.admin)} }, body: JSON.stringify({ query: ${JSON.stringify(graphqlQuery)}, variables: { ...${JSON.stringify(graphqlVariables)}, input: { ...${JSON.stringify(input)}, ${JSON.stringify(field)}: ${invalid} } } }) }));
     const graphFailurePayload = await graphFailure.json() as { errors?: Array<{ extensions?: { status?: number; errorKey?: string } }> };
     expect(graphFailurePayload.errors?.[0]?.extensions).toMatchObject(${JSON.stringify({ status: 409, errorKey: action.errorKey })});` : ""}
     const retry = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
@@ -3939,7 +3946,7 @@ ${batchFailureSetup}    const items = [
     expect(await failed.json()).toMatchObject({ item: { index: 1, id: "00000000-0000-4000-8000-000000000002" } });
     expect(${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table + " ORDER BY id").all())).toEqual(before);
     expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM dataflow_idempotency").get()?.total).toBe(0);
-${batchFailureReset}` : ""}    const graphResponse = await graphqlApp.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json", "X-Test-Role": ${JSON.stringify(flow.roles?.[0] ?? "admin")} }, body: JSON.stringify({ query: ${JSON.stringify(`mutation($items: [${graphqlName}CommandInput!]!, $key: String!) { ${graphqlOperation}Batch(items: $items, idempotencyKey: $key) { id } }`)}, variables: { items, key: ${JSON.stringify(`batch-${flow.name}-key`)} } }) }));
+${batchFailureReset}` : ""}    const graphResponse = await graphqlApp.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json", "X-Test-Role": ${JSON.stringify(flow.roles?.[0] ?? roles.admin)} }, body: JSON.stringify({ query: ${JSON.stringify(`mutation($items: [${graphqlName}CommandInput!]!, $key: String!) { ${graphqlOperation}Batch(items: $items, idempotencyKey: $key) { id } }`)}, variables: { items, key: ${JSON.stringify(`batch-${flow.name}-key`)} } }) }));
     expect(graphResponse.status).toBe(200);
     const graphPayload = await graphResponse.json() as { data?: { ${graphqlOperation}Batch?: Array<{ id: unknown }> }; errors?: unknown[] };
     expect(graphPayload.errors).toBeUndefined();
@@ -3972,6 +3979,7 @@ import { Elysia } from "elysia";
 import { client, db } from "../src/db";
 import { ${imports} } from "../src/schema";
 import { createDataflowRoutes } from "../src/dataflows";
+import { QIY_ADMIN_ROLE, isQiyRole, type QiyRole } from "../src/auth/roles";
 ${callAdapters.length ? 'import { dataflowCallHandlers } from "../src/extensions/dataflow-calls";\n' : ""}import { createApp, type Repositories } from "../src/app";
 import { createDataflowRoutes as createFailureRoutes } from "./fixtures/dataflow-failure";
 
@@ -3985,9 +3993,9 @@ afterEach(() => {
 ${cleanup}
 });
 
-const testRoles: Record<string, "admin" | "operator"> = ${JSON.stringify(Object.fromEntries(dataflows.map((flow) => [flow.name, flow.roles?.[0] ?? "admin"])))};
-const app = new Elysia().use(createDataflowRoutes(async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: testRoles[new URL(request.url).pathname.split("/").at(-1)!] ?? "admin"${permissionPrincipal} })));
-const graphqlApp = await createApp({} as Repositories, async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "GraphQL Dataflow Test", role: (request.headers.get("x-test-role") ?? "admin") as "admin" | "operator"${permissionPrincipal} }), false, false, undefined, true);
+const testRoles: Record<string, QiyRole> = ${JSON.stringify(Object.fromEntries(dataflows.map((flow) => [flow.name, flow.roles?.[0] ?? roles.admin])))};
+const app = new Elysia().use(createDataflowRoutes(async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: testRoles[new URL(request.url).pathname.split("/").at(-1)!] ?? QIY_ADMIN_ROLE${permissionPrincipal} })));
+const graphqlApp = await createApp({} as Repositories, async (request) => { const role = request.headers.get("x-test-role"); return { id: "00000000-0000-4000-8000-000000000010", name: "GraphQL Dataflow Test", role: isQiyRole(role) ? role : QIY_ADMIN_ROLE${permissionPrincipal} }; }, false, false, undefined, true);
 
 describe("generated dataflow routes", () => {
 ${tests}
@@ -3999,13 +4007,13 @@ function sqliteTestIdentifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-function scenarioPrincipal(scenario: QiyTestScenario, flow: DataflowIR, permissionPrincipal = ""): string {
+function scenarioPrincipal(scenario: QiyTestScenario, flow: DataflowIR, adminRole: string, permissionPrincipal = ""): string {
   if (scenario.identity?.kind === "anonymous") return "null";
   const identity = scenario.identity;
   const principal = identity ? {
     id: resolveQiyTestValue(scenario, identity.id), name: "Qiy Scenario", role: identity.role,
     claims: Object.fromEntries(Object.entries(identity.claims).map(([claim, value]) => [claim, resolveQiyTestValue(scenario, value)])),
-  } : { id: "00000000-0000-4000-8000-000000000010", name: "Qiy Scenario", role: flow.roles?.[0] ?? "admin" };
+  } : { id: "00000000-0000-4000-8000-000000000010", name: "Qiy Scenario", role: flow.roles?.[0] ?? adminRole };
   return identity ? JSON.stringify(principal) : JSON.stringify(principal).slice(0, -1) + `${permissionPrincipal} }`;
 }
 
@@ -4015,9 +4023,9 @@ function scenarioPermissionPrincipal(permissions?: QiyPermissionModel): string {
     : "";
 }
 
-function renderQiyScenarioTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, suite?: QiyTestSuite, permissions?: QiyPermissionModel): string | undefined {
+function renderQiyScenarioTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, roles: RoleContext, suite?: QiyTestSuite, permissions?: QiyPermissionModel): string | undefined {
   if (!suite) return undefined;
-  if (database.dialect === "postgresql" || database.dialect === "mysql") return renderServerQiyScenarioTest(database, dataflows, suite, permissions);
+  if (database.dialect === "postgresql" || database.dialect === "mysql") return renderServerQiyScenarioTest(database, dataflows, roles, suite, permissions);
   if (database.dialect !== "sqlite") throw new Error("Declarative app.test.qiy scenarios require sqlite, postgresql or mysql");
   const entities = new Map(database.entities.map((entity) => [entity.name, entity]));
   const selectedFlows = suite.scenarios.map((scenario) => dataflows.find((flow) => flow.name === scenario.dataflow)!);
@@ -4080,7 +4088,7 @@ function renderQiyScenarioTest(database: DatabaseIR, dataflows: NonNullable<QiyP
     const outboxExpectations = (scenario.expectedOutbox ?? []).map((expectation) => `expect(client.query<{ total: number }, [string]>("SELECT COUNT(*) AS total FROM dataflow_outbox WHERE event = ?").get(${JSON.stringify(expectation.event)})?.total).toBe(${expectation.count});`).join("\n    ");
     return `  test(${JSON.stringify(scenario.name)}, async () => {
     ${seed}
-    const app = new Elysia().use(createDataflowRoutes(async () => (${scenarioPrincipal(scenario, flow, scenarioPermissionPrincipal(permissions))})));
+    const app = new Elysia().use(createDataflowRoutes(async () => (${scenarioPrincipal(scenario, flow, roles.admin, scenarioPermissionPrincipal(permissions))})));
     const response = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${scenario.dataflow}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
     expect(response.status).toBe(${scenario.expectedStatus});
     const payload = await response.json();${payloadExpectation}
@@ -4110,7 +4118,7 @@ ${tests}
 `;
 }
 
-function renderServerQiyScenarioTest(database: DatabaseIR, dataflows: DataflowIR[], suite: QiyTestSuite, permissions?: QiyPermissionModel): string {
+function renderServerQiyScenarioTest(database: DatabaseIR, dataflows: DataflowIR[], roles: RoleContext, suite: QiyTestSuite, permissions?: QiyPermissionModel): string {
   const orderedEntities: EntityIR[] = [];
   const visiting = new Set<string>();
   const visit = (entity: EntityIR) => {
@@ -4153,7 +4161,7 @@ function renderServerQiyScenarioTest(database: DatabaseIR, dataflows: DataflowIR
     const outboxExpectations = (scenario.expectedOutbox ?? []).map((expectation, index) => `const outbox${index} = await db.select({ total: count() }).from(schema.dataflowOutbox).where(eq(schema.dataflowOutbox.event, ${JSON.stringify(expectation.event)}));\n    expect(Number(outbox${index}[0]?.total)).toBe(${expectation.count});`).join("\n    ");
     return `  test(${JSON.stringify(scenario.name)}, async () => {
     ${seed}
-    const app = new Elysia().use(createDataflowRoutes(async () => (${scenarioPrincipal(scenario, flow, scenarioPermissionPrincipal(permissions))})));
+    const app = new Elysia().use(createDataflowRoutes(async () => (${scenarioPrincipal(scenario, flow, roles.admin, scenarioPermissionPrincipal(permissions))})));
     const response = await app.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${scenario.dataflow}`)}, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(${JSON.stringify(input)}) }));
     expect(response.status).toBe(${scenario.expectedStatus});
     const payload = await response.json();
@@ -4412,8 +4420,8 @@ export function createPermissionRoutes(authenticate: Authenticator) {
  * verdicts are computed at generation time with tools/permissions.ts and asserted
  * against the generated runtime module, so the two implementations cannot drift.
  */
-function renderPermissionTest(database: DatabaseIR, permissions: QiyPermissionModel): string {
-  const roles = ["admin", "operator", "viewer"].filter((role) => permissions.groups.some((group) => group.name === role));
+function renderPermissionTest(database: DatabaseIR, permissions: QiyPermissionModel, declared: RoleContext): string {
+  const roles = declared.names.filter((role) => permissions.groups.some((group) => group.name === role));
   const snapshots = Object.fromEntries(roles.map((role) => [role, resolvePermissionSnapshot(permissions, { role })]));
   const sampleValues = declaredPermissionValues(permissions);
   const positiveValue = sampleValues[0] ?? "qiy:permission";
@@ -4472,6 +4480,7 @@ import {
   permissionVerificationNames,
   resolvePermissionSnapshot,
 } from "../src/auth/permissions";
+import { QIY_ADMIN_ROLE, QIY_DEFAULT_ROLE, type QiyRole } from "../src/auth/roles";
 
 interface PermissionSnapshot { permissions: string[]; groups: string[] }
 interface PermissionCase { role: string; verification: string; input: Record<string, unknown>; expected: { found: true; allowed: boolean; missing: string[] } }
@@ -4485,7 +4494,7 @@ const dataset = ${dataset} as {
   hasDatabaseSource: boolean;
 };
 
-const principal = (role: string) => ({ id: "00000000-0000-4000-8000-000000000010", name: role, role: role as "admin" | "operator" | "viewer" });
+const principal = (role: string) => ({ id: "00000000-0000-4000-8000-000000000010", name: role, role: role as QiyRole });
 const authenticate = async (request: Request) => {
   const role = request.headers.get("x-test-role");
   return role ? principal(role) : null;
@@ -4495,15 +4504,15 @@ const request = (path: string, role: string | undefined, init: RequestInit = {})
 
 describe("generated permission provider", () => {
   test("resolves role-group permissions without any claims or database rows", () => {
-${roles.map((role) => `    expect(resolvePermissionSnapshot({ role: ${JSON.stringify(role)} })).toEqual(${JSON.stringify(snapshots[role])});`).join("\n") || "    expect(resolvePermissionSnapshot({ role: \"admin\" })).toEqual({ permissions: [], groups: [] });"}
+${roles.map((role) => `    expect(resolvePermissionSnapshot({ role: ${JSON.stringify(role)} })).toEqual(${JSON.stringify(snapshots[role])});`).join("\n") || "    expect(resolvePermissionSnapshot({ role: QIY_ADMIN_ROLE })).toEqual({ permissions: [], groups: [] });"}
   });
 
   test("API-key permission scopes intersect the effective permission set", async () => {
-    const adminPermissions = (await loadPermissions(principal("admin"))).permissions;
+    const adminPermissions = (await loadPermissions(principal(QIY_ADMIN_ROLE))).permissions;
     if (adminPermissions.length > 0) {
-      const scoped = await loadPermissions({ ...principal("admin"), scopes: [adminPermissions[0]!] });
+      const scoped = await loadPermissions({ ...principal(QIY_ADMIN_ROLE), scopes: [adminPermissions[0]!] });
       expect(scoped.permissions).toEqual([adminPermissions[0]!]);
-      const none = await loadPermissions({ ...principal("admin"), scopes: ["qiy-unknown-scope"] });
+      const none = await loadPermissions({ ...principal(QIY_ADMIN_ROLE), scopes: ["qiy-unknown-scope"] });
       expect(none.permissions).toEqual([]);
     }
   });
@@ -4524,11 +4533,11 @@ ${roles.map((role) => `    expect(resolvePermissionSnapshot({ role: ${JSON.strin
     expect(normalizeDatabasePermissionColumn(null)).toEqual([]);
   });
 ${permissions.claims?.length ? `  test("verified claim sources are only trusted when the claim is present", () => {
-${permissions.claims.map((claim) => `    expect(resolvePermissionSnapshot({ role: "viewer", claims: { ${JSON.stringify(claim.claim)}: dataset.positiveValue } }).permissions).toContain(dataset.positiveValue);`).join("\n")}
-    expect(resolvePermissionSnapshot({ role: "viewer", claims: { "qiy-unrelated": "x" } })).toEqual(resolvePermissionSnapshot({ role: "viewer" }));
+${permissions.claims.map((claim) => `    expect(resolvePermissionSnapshot({ role: QIY_DEFAULT_ROLE, claims: { ${JSON.stringify(claim.claim)}: dataset.positiveValue } }).permissions).toContain(dataset.positiveValue);`).join("\n")}
+    expect(resolvePermissionSnapshot({ role: QIY_DEFAULT_ROLE, claims: { "qiy-unrelated": "x" } })).toEqual(resolvePermissionSnapshot({ role: QIY_DEFAULT_ROLE }));
   });` : ""}${permissions.database ? `  test("database permission entries are unioned with the role group", () => {
-    const expected = resolvePermissionSnapshot({ role: "viewer", databasePermissions: [dataset.positiveValue, "qiy-unknown-group"] });
-    expect(expected).toEqual(resolvePermissionSnapshot({ role: "viewer", databasePermissions: [dataset.positiveValue] }));
+    const expected = resolvePermissionSnapshot({ role: QIY_DEFAULT_ROLE, databasePermissions: [dataset.positiveValue, "qiy-unknown-group"] });
+    expect(expected).toEqual(resolvePermissionSnapshot({ role: QIY_DEFAULT_ROLE, databasePermissions: [dataset.positiveValue] }));
     expect(expected.groups).not.toContain("qiy-unknown-group");
   });` : ""}
 ${permissions.verifications.length ? `  test("verification truth table matches the declared expressions", () => {
@@ -4539,7 +4548,7 @@ ${permissions.verifications.length ? `  test("verification truth table matches t
   });
 
   test("unknown verification names are rejected", () => {
-    expect(evaluatePermissionVerification("QiyUnknownVerification", { permissions: [], groups: [], role: "viewer" }, {})).toEqual({ found: false });
+    expect(evaluatePermissionVerification("QiyUnknownVerification", { permissions: [], groups: [], role: QIY_DEFAULT_ROLE }, {})).toEqual({ found: false });
   });` : ""}
 });
 
@@ -4561,7 +4570,7 @@ ${permissions.verifications.length ? `  test("POST /api/v1/auth/verify-permissio
   });
 
   test("POST /api/v1/auth/verify-permission rejects unknown verifications and malformed input", async () => {
-    const post = (body: unknown, role = "admin") => request("/api/v1/auth/verify-permission", role, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const post = (body: unknown, role: string = QIY_ADMIN_ROLE) => request("/api/v1/auth/verify-permission", role, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     expect((await post({ verification: "QiyUnknownVerification", input: {} })).status).toBe(400);
     ${invalidInputChecks}
     expect((await request("/api/v1/auth/verify-permission", undefined, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ verification: "QiyUnknownVerification" }) })).status).toBe(401);
@@ -4592,7 +4601,7 @@ describe("generated /auth/me permission metadata", () => {
 
   test("exposes the declared verification names", async () => {
     expect(permissionVerificationNames).toEqual(${JSON.stringify(permissions.verifications.map((verification) => verification.name).sort())});
-    expect(await loadPermissions(principal("admin"))).toBeTruthy();
+    expect(await loadPermissions(principal(QIY_ADMIN_ROLE))).toBeTruthy();
   });
 });
 `;
@@ -4600,6 +4609,8 @@ describe("generated /auth/me permission metadata", () => {
 
 export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "comment" | "commentKey" | "storageProvider" | "auth" | "permissions" | "scopes" | "restrictions" | "pages" | "corsOrigins" | "elysiaPlugins" | "workflows" | "dataflows" | "actions" | "realtime" | "features"> & { testSuite?: QiyTestSuite; appName?: string } = {}): Record<string, string> {
   if (options.realtime && !options.auth) throw new Error("Realtime requires generated authentication");
+  const roles = roleContext(options.auth);
+  if (options.dataflows) options = { ...options, dataflows: withDefaultCommandRoles(options.dataflows, options.auth) };
   const errors = validateDatabaseIR(database);
   if (errors.length) throw new Error(errors.join("\n"));
   const uploadField = database.entities.flatMap((entity) => entity.fields.filter((field) => field.type === "File").map((field) => ({ entity, field }))).at(0);
@@ -4772,7 +4783,7 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
       errors.push(`Restrict ${entity.name}: roles must be unique and non-empty`);
     }
     for (const role of restriction.roles ?? []) {
-      if (!["admin", "operator", "viewer"].includes(role)) errors.push(`Restrict ${entity.name}: unsupported role ${role}`);
+      if (!roles.names.includes(role)) errors.push(`Restrict ${entity.name}: unknown role ${role}; declared roles are ${roles.names.join(", ")}`);
     }
     const rows: QiyRowPredicate[] = [];
     const groups: QiyRowPredicate[][] = [];
@@ -4851,7 +4862,7 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
       if (masks.some((candidate) => candidate.field === mask.field)) errors.push(`Restrict ${entity.name}: duplicate mask for ${mask.field}`);
       if (mask.roles && (new Set(mask.roles).size !== mask.roles.length || !mask.roles.length)) errors.push(`Restrict ${entity.name}: mask roles for ${mask.field} must be unique and non-empty`);
       for (const role of mask.roles ?? []) {
-        if (!["admin", "operator", "viewer"].includes(role)) errors.push(`Restrict ${entity.name}: unsupported mask role ${role}`);
+        if (!roles.names.includes(role)) errors.push(`Restrict ${entity.name}: unknown mask role ${role}; declared roles are ${roles.names.join(", ")}`);
       }
       if (!["omit", "null", "redact"].includes(mask.mode)) errors.push(`Restrict ${entity.name}: unsupported mask mode ${mask.mode}`);
       if (mask.mode === "redact" && typeof mask.replacement !== "string") errors.push(`Restrict ${entity.name}: mask mode redact for ${mask.field} requires a replacement string`);
@@ -4927,7 +4938,7 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
       if (uncovered.length) errors.push(`Auth: OAuth onboarding cannot populate required user fields: ${uncovered.map((field) => field.name).join(", ")}; make them nullable`);
     }
     const roleValues = database.enums?.find((item) => item.name === role?.enumName)?.values.map((item) => item.name);
-    if (!role || !roleValues || !["admin", "operator", "viewer"].every((value) => roleValues.includes(value)) || roleValues.some((value) => !["admin", "operator", "viewer"].includes(value))) errors.push("Auth: roleField must be an enum with admin, operator and viewer values");
+    if (!role || !roleValues || roleValues.length !== roles.names.length || roles.names.some((value) => !roleValues.includes(value))) errors.push(`Auth: roleField must be an enum whose values are exactly the declared roles (${roles.names.join(", ")})`);
   }
   if (errors.length) throw new Error(errors.join("\n"));
   const scopedDatabase = { ...database, scopes: (options.scopes ?? []).map((scope) => ({ ...scope, resource: database.entities.find((entity) => entity.name === scope.resource || entity.tableName === scope.resource)!.name })), restrictions: normalizedRestrictions };
@@ -4996,7 +5007,7 @@ export const orderIdempotency = pgTable("order_idempotency", {
     ...(normalizedRestrictions.length ? { "api/src/security/policy.ts": renderPolicyModule(normalizedRestrictions, database, options.scopes ?? []) } : {}),
     "api/src/import-jobs.ts": renderImportJobsModule(database.dialect),
     "api/src/saved-views.ts": renderSavedViewsModule(database.dialect, database.entities.map((entity) => entity.tableName)),
-    "api/tests/saved-views.test.ts": renderSavedViewsTest(database.dialect, database.entities.map((entity) => entity.tableName)),
+    "api/tests/saved-views.test.ts": renderSavedViewsTest(database.dialect, database.entities.map((entity) => entity.tableName), roles),
     "api/src/export-jobs.ts": renderExportJobsModule(database.dialect),
     "api/src/db.ts": database.dialect === "postgresql" ? `import { SQL } from "bun";\nimport { drizzle } from "drizzle-orm/bun-sql";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = new SQL(url);\nexport const db = drizzle({ client, schema });\n` : database.dialect === "sqlite" ? `import { Database } from "bun:sqlite";\nimport { drizzle } from "drizzle-orm/bun-sqlite";\nimport * as schema from "./schema";\n\nconst filename = Bun.env.DATABASE_URL ?? "./qiy.sqlite";\nexport const client = new Database(filename);\nexport const db = drizzle(client, { schema });\n` : `import mysql from "mysql2/promise";\nimport { drizzle } from "drizzle-orm/mysql2";\nimport * as schema from "./schema";\n\nconst url = Bun.env.DATABASE_URL;\nif (!url) throw new Error("DATABASE_URL is required");\nexport const client = mysql.createPool({ uri: url, timezone: "Z" });\nexport const db = drizzle({ client, schema, mode: "default" });\n`,
     ...(database.entities.some((entity) => temporalFieldsOf(entity).length) ? { "api/src/temporal.ts": renderTemporalModule() } : {}),
@@ -5696,7 +5707,7 @@ export function subscribeRealtimeEvents(listener: Listener): () => void {
   return () => { listeners.delete(listener); };
 }
 `,
-      "api/src/realtime.ts": renderRealtime(options.realtime, options.dataflows ?? []),
+      "api/src/realtime.ts": renderRealtime(options.realtime, options.dataflows ?? [], roles),
       "api/tests/realtime.test.ts": `import { afterEach, expect, test } from "bun:test";
 import { Elysia } from "elysia";
 import type { Principal } from "../src/auth/guard";
@@ -5712,7 +5723,7 @@ const stream = (app: { handle: (request: Request) => Promise<Response> }) => app
 test("rejects anonymous callers, roles without channels and a disabled transport", async () => {
   Bun.env.QIY_REALTIME_DISABLED = "0";
   expect((await stream(new Elysia().use(createRealtimeRoutes(async () => null)))).status).toBe(401);
-  const denied = (["admin", "operator", "viewer"] as const).find((role) => Object.keys(realtimeCapabilities({ id: "u", name: "U", role } as Principal)).length === 0);
+  const denied = (${JSON.stringify(roles.names)} as const).find((role) => Object.keys(realtimeCapabilities({ id: "u", name: "U", role } as Principal)).length === 0);
   if (denied) {
     const response = await stream(new Elysia().use(createRealtimeRoutes(async () => ({ id: "u", name: "U", role: denied } as Principal))));
     expect(response.status).toBe(403);
@@ -5781,7 +5792,7 @@ const repository = {
 
 test("mounts REST and GraphQL at their public paths", async () => {
   const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
-  const app = await createApp(repositories, async () => ({ id: crypto.randomUUID(), name: "Test Admin", role: "admin", claims: ${testClaims} }));
+  const app = await createApp(repositories, async () => ({ id: crypto.randomUUID(), name: "Test Admin", role: ${JSON.stringify(roles.admin)}, claims: ${testClaims} }));
   const handle = createHandler((request) => app.handle(request), "./build/client");
   expect((await handle(new Request("http://localhost/api/v1/health"))).status).toBe(200);
   const specification = await handle(new Request("http://localhost/api/v1/openapi/json"));
@@ -5798,7 +5809,7 @@ test("mounts REST and GraphQL at their public paths", async () => {
 
 test("enables CORS only for explicitly configured origins", async () => {
   const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
-  const app = await createApp(repositories, async () => ({ id: "cors-test", name: "Admin", role: "admin", claims: ${testClaims} }), false, false, ["https://admin.example"]);
+  const app = await createApp(repositories, async () => ({ id: "cors-test", name: "Admin", role: ${JSON.stringify(roles.admin)}, claims: ${testClaims} }), false, false, ["https://admin.example"]);
   const allowed = await app.handle(new Request("http://localhost/api/v1/health", { headers: { Origin: "https://admin.example" } }));
   expect(allowed.headers.get("access-control-allow-origin")).toBe("https://admin.example");
   const preflight = await app.handle(new Request("http://localhost/api/v1/health", { method: "OPTIONS", headers: { Origin: "https://admin.example", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization,content-type" } }));
@@ -5820,10 +5831,10 @@ test("denies anonymous REST and GraphQL and enforces role permissions", async ()
   const anonymous = await createApp(repositories);
   expect((await anonymous.handle(new Request(target))).status).toBe(401);
   expect((await anonymous.handle(new Request(graph, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "{ ${database.entities[0]!.name} { total } }" }) }))).status).toBe(401);
-  const viewer = await createApp(repositories, async () => ({ id: "viewer", name: "Viewer", role: "viewer", claims: ${testClaims} }));
+  ${roles.reader ? `const viewer = await createApp(repositories, async () => ({ id: "viewer", name: "Viewer", role: ${JSON.stringify(roles.reader)}, claims: ${testClaims} }));
   expect((await viewer.handle(new Request(target))).status).toBe(200);
   expect((await viewer.handle(new Request(target, { method: "DELETE" }))).status).toBe(403);
-  expect((await viewer.handle(new Request(graph, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "mutation { delete${modelName(database.entities[0]!)}(id: \\"00000000-0000-4000-8000-000000000002\\") { id } }" }) }))).status).toBe(403);
+  expect((await viewer.handle(new Request(graph, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "mutation { delete${modelName(database.entities[0]!)}(id: \\"00000000-0000-4000-8000-000000000002\\") { id } }" }) }))).status).toBe(403);` : ""}
 });
 
 test("passes the authenticated actor through REST and GraphQL mutations", async () => {
@@ -5831,7 +5842,7 @@ test("passes the authenticated actor through REST and GraphQL mutations", async 
   const id = "00000000-0000-4000-8000-000000000002";
   const tracked = { ...repository, async delete(_id: string, actorId?: string) { actors.push(actorId); return { id }; } };
   const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, tracked])) as unknown as Repositories;
-  const app = await createApp(repositories, async () => ({ id, name: "Admin", role: "admin", claims: ${testClaims} }));
+  const app = await createApp(repositories, async () => ({ id, name: "Admin", role: ${JSON.stringify(roles.admin)}, claims: ${testClaims} }));
   expect((await app.handle(new Request("http://localhost/api/v1/${database.entities[0]!.tableName}/" + id, { method: "DELETE" }))).status).toBe(200);
   const graph = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "mutation { delete${modelName(database.entities[0]!)}(id: \\"" + id + "\\") { id } }" }) }));
   expect(graph.status).toBe(200);
@@ -5843,7 +5854,7 @@ ${uploadField ? "test" : "test.skip"}("protects file storage endpoints and rejec
   Bun.env.QIY_STORAGE_PROVIDER = "local";
   Bun.env.QIY_STORAGE_ROOT = import.meta.dir + "/.qiy-test-storage";
   const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
-  const app = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: "admin", claims: ${testClaims} }));
+  const app = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: ${JSON.stringify(roles.admin)}, claims: ${testClaims} }));
   const resource = ${JSON.stringify(uploadField?.entity.tableName ?? "missing")};
   const field = ${JSON.stringify(uploadField?.field.name ?? "missing")};
   const uploadMode = String(${JSON.stringify(uploadField?.field.uploadMode ?? "binary")}) as "binary" | "base64" | "both";
@@ -5879,9 +5890,9 @@ ${uploadField ? "test" : "test.skip"}("protects file storage endpoints and rejec
   const download = await app.handle(new Request(fileUrl));
   expect(download.status).toBe(200);
   expect(await download.text()).toBe("invoice");
-  const viewer = await createApp(repositories, async () => ({ id: "another-user", name: "Viewer", role: "viewer", claims: ${testClaims} }));
+  ${roles.member ? `const viewer = await createApp(repositories, async () => ({ id: "another-user", name: "Viewer", role: ${JSON.stringify(roles.member)}, claims: ${testClaims} }));
   expect((await viewer.handle(new Request(fileUrl))).status).toBe(404);
-  expect((await viewer.handle(new Request(metadataUrl))).status).toBe(404);
+  expect((await viewer.handle(new Request(metadataUrl))).status).toBe(404);` : ""}
   expect((await app.handle(new Request("http://localhost/api/v1/files?key=../secret"))).status).toBe(400);
   expect((await app.handle(new Request(fileUrl, { method: "DELETE" }))).status).toBe(200);
   expect((await app.handle(new Request(metadataUrl))).status).toBe(404);
@@ -6117,7 +6128,7 @@ import { createHandler } from "./http";
 const repositories: Repositories = {
 ${database.entities.map((entity) => previewRepository(entity, database, options.scopes ?? [])).join("\n")}
 };
-const app = await createApp(repositories, async () => ({ id: "preview", name: "Preview Admin", role: "admin", claims: ${JSON.stringify(Object.fromEntries((options.scopes ?? []).map((scope) => [scope.claim, database.entities.find((entity) => entity.name === scope.resource || entity.tableName === scope.resource)?.fields.find((field) => field.name === scope.field)?.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : `Demo ${database.entities.find((entity) => entity.name === scope.resource || entity.tableName === scope.resource)?.name}`])))} }), false, ${options.storageProvider !== "s3"});
+const app = await createApp(repositories, async () => ({ id: "preview", name: "Preview Admin", role: ${JSON.stringify(roles.admin)}, claims: ${JSON.stringify(Object.fromEntries((options.scopes ?? []).map((scope) => [scope.claim, database.entities.find((entity) => entity.name === scope.resource || entity.tableName === scope.resource)?.fields.find((field) => field.name === scope.field)?.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : `Demo ${database.entities.find((entity) => entity.name === scope.resource || entity.tableName === scope.resource)?.name}`])))} }), false, ${options.storageProvider !== "s3"});
 const clientRoot = resolve(import.meta.dir, "../../web/build/client");
 const server = Bun.serve({ hostname: "127.0.0.1", port: Number(Bun.env.PORT ?? 3000), fetch: createHandler((request) => app.handle(request), clientRoot) });
 console.log(\`Local-only Qiy preview: http://127.0.0.1:\${server.port}\`);
@@ -6130,7 +6141,7 @@ console.log(\`Local-only Qiy preview: http://127.0.0.1:\${server.port}\`);
   if (dataflowCallExtensions) files["api/src/extensions/dataflow-calls.ts"] = dataflowCallExtensions;
   const realtimeOutboxTest = options.realtime ? renderSqliteRealtimeOutboxTest(database, options.realtime) : undefined;
   if (realtimeOutboxTest) files["api/tests/realtime-outbox-transaction.test.ts"] = realtimeOutboxTest;
-  const dataflowTest = renderSqliteDataflowTest(database, options.dataflows ?? [], options.actions ?? [], options.realtime !== undefined, permissions);
+  const dataflowTest = renderSqliteDataflowTest(database, options.dataflows ?? [], roles, options.actions ?? [], options.realtime !== undefined, permissions);
   if (dataflowTest) {
     files["api/tests/dataflow.test.ts"] = dataflowTest;
     const failureFlows = (options.dataflows ?? []).map((flow) => {
@@ -6152,7 +6163,7 @@ console.log(\`Local-only Qiy preview: http://127.0.0.1:\${server.port}\`);
     files["api/tests/fixtures/dataflow-failure.ts"] = renderDataflowRoutes(database, failureFlows, options.scopes ?? [], [], options.realtime !== undefined, permissions)!
       .replaceAll('"../db"', '"../../src/db"').replaceAll('"../schema"', '"../../src/schema"').replaceAll('"../auth/guard"', '"../../src/auth/guard"').replaceAll('"../auth/permissions"', '"../../src/auth/permissions"').replaceAll('"./calls"', '"../../src/dataflows/calls"');
   }
-  const scenarioTest = renderQiyScenarioTest(database, options.dataflows ?? [], options.testSuite, permissions);
+  const scenarioTest = renderQiyScenarioTest(database, options.dataflows ?? [], roles, options.testSuite, permissions);
   if (scenarioTest) files["api/tests/qiy-scenarios.test.ts"] = scenarioTest;
   if (orderWorkflow) {
     files["api/src/workflows/order.ts"] = orderWorkflow;
@@ -6211,7 +6222,7 @@ ${uploadField ? "test" : "test.skip"}("database attachment removal revokes reads
   const key = "metadata/" + crypto.randomUUID() + ".txt";
   try {
     client.exec('CREATE TABLE IF NOT EXISTS attachments (id text primary key, storageKey text unique not null, fileName text, contentType text not null, size integer not null, ownerId text, resource text not null, resourceId text, createdAt integer not null)');
-    const app = new Elysia().use(createStorageRoutes(async () => ({ id: "metadata-owner", name: "Owner", role: "admin", claims: {} })));
+    const app = new Elysia().use(createStorageRoutes(async () => ({ id: "metadata-owner", name: "Owner", role: ${JSON.stringify(roles.admin)}, claims: {} })));
     const url = "http://localhost/api/v1/files?key=" + key + "&resource=" + ${JSON.stringify(uploadField?.entity.tableName ?? "missing")} + "&field=" + ${JSON.stringify(uploadField?.field.name ?? "missing")};
     expect((await app.handle(new Request(url, { method: "POST", body: new Blob(["metadata test"], { type: ${JSON.stringify(uploadField?.field.mimeTypes?.find((mime) => !mime.endsWith("/*") && mime !== "*/*") ?? "application/octet-stream")} }) }))).status).toBe(200);
     client.query("DELETE FROM attachments WHERE storageKey = ?").run(key);
@@ -6287,7 +6298,7 @@ try {
     if (permissions) {
       files["api/src/auth/permissions.ts"] = renderPermissionModule(auth, permissions);
       files["api/src/auth/permission-routes.ts"] = renderPermissionRoutes();
-      files["api/tests/permissions.test.ts"] = renderPermissionTest(database, permissions);
+      files["api/tests/permissions.test.ts"] = renderPermissionTest(database, permissions, roles);
     }
     if (hybridAuth) {
       files["api/src/auth/oidc.ts"] = renderHybridAuthModule(auth, database);
@@ -6349,13 +6360,10 @@ export function createProductionAuthenticator() {
         return `${JSON.stringify(field.name)}: ${value}`;
       }).join(",\n    ");
       files["api/src/auth/password.ts"] = `import { jwtVerify, SignJWT } from "jose";
+import { isQiyRole, type QiyRole } from "./roles";
 
-const ROLES = ["admin", "operator", "viewer"] as const;
-export type Role = (typeof ROLES)[number];
-
-export function isRole(value: unknown): value is Role {
-  return typeof value === "string" && (ROLES as readonly string[]).includes(value);
-}
+export type Role = QiyRole;
+export const isRole = isQiyRole;
 
 /**
  * Qiy stores password hashes produced by \`Bun.password.hash(password, { algorithm: "argon2id" })\`.
@@ -6540,19 +6548,19 @@ try {
 } finally { terminal.close(); }
 `;
       files["api/src/auth/bootstrap-admin.ts"] = `import { createInterface } from "node:readline/promises";
-import { eq } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { db } from "../db";
 import { ${auth.userEntity} } from "../schema";
 import { hashPassword } from "./password";
 
 const terminal = createInterface({ input: process.stdin, output: process.stdout });
 try {
-  if ((await db.select({ id: ${auth.userEntity}.id }).from(${auth.userEntity}).where(eq(${auth.userEntity}.${auth.roleField}, "admin")).limit(1)).length) throw new Error("An admin account already exists");
+  if ((await db.select({ id: ${auth.userEntity}.id }).from(${auth.userEntity}).where(inArray(${auth.userEntity}.${auth.roleField}, ${JSON.stringify(fullAccessRoles(options.auth))})).limit(1)).length) throw new Error("An admin account already exists");
   const username = (await terminal.question("${usernameField}: ")).trim();
   if (!username) throw new Error("Username is required");
   ${bootstrapHasDisplayName ? 'const displayName = (await terminal.question("Display name: ")).trim() || username;' : ""}
   const password = await terminal.question("Password (minimum 8 characters): ");
-  const values = { ${JSON.stringify(usernameField)}: username, ${JSON.stringify(auth.roleField)}: "admin", ${JSON.stringify(passwordField)}: await hashPassword(password), ${bootstrapCanonicalSubject}${bootstrapValues} };
+  const values = { ${JSON.stringify(usernameField)}: username, ${JSON.stringify(auth.roleField)}: ${JSON.stringify(roles.admin)}, ${JSON.stringify(passwordField)}: await hashPassword(password), ${bootstrapCanonicalSubject}${bootstrapValues} };
   await db.insert(${auth.userEntity}).values({ ...values, id: crypto.randomUUID() } as typeof ${auth.userEntity}.$inferInsert);
   console.log("Initial admin account created for " + username);
 } finally { terminal.close(); }
@@ -6574,8 +6582,8 @@ test("hashes and verifies local passwords without storing plaintext", async () =
 });
 
 test("round-trips a signed local access token and rejects tampering", async () => {
-  const token = await signAccessToken({ id: "user-1", role: "admin" }, secret, "qiy-admin");
-  expect(await verifyAccessToken(token, secret, "qiy-admin")).toMatchObject({ id: "user-1", role: "admin" });
+  const token = await signAccessToken({ id: "user-1", role: ${JSON.stringify(roles.admin)} }, secret, "qiy-admin");
+  expect(await verifyAccessToken(token, secret, "qiy-admin")).toMatchObject({ id: "user-1", role: ${JSON.stringify(roles.admin)} });
   expect((await verifyAccessToken(token, secret, "qiy-admin"))!.issuedAt).toBeNumber();
   expect(await verifyAccessToken(token, secret + "x", "qiy-admin")).toBeNull();
   expect(await verifyAccessToken(token + "x", secret, "qiy-admin")).toBeNull();
@@ -6585,7 +6593,7 @@ test("round-trips a signed local access token and rejects tampering", async () =
 test("locks a username after repeated failed logins", async () => {
   Bun.env.QIY_AUTH_SECRET = secret;
   const passwordHash = await hashPassword("correct-password");
-  const user = { id: "user-lock", ${JSON.stringify(auth.usernameField)}: "lock-user", ${JSON.stringify(auth.passwordField)}: passwordHash, ${JSON.stringify(auth.roleField)}: "admin" } as unknown as import("../src/auth/local").LocalUser;
+  const user = { id: "user-lock", ${JSON.stringify(auth.usernameField)}: "lock-user", ${JSON.stringify(auth.passwordField)}: passwordHash, ${JSON.stringify(auth.roleField)}: ${JSON.stringify(roles.admin)} } as unknown as import("../src/auth/local").LocalUser;
   const app = new Elysia().use(createLocalAuthRoutes(async (username) => username === "lock-user" ? user : null));
   const login = (password: string) => app.handle(new Request("http://localhost/api/v1/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: "lock-user", password }) }));
   for (let attempt = 0; attempt < 4; attempt += 1) expect((await login("wrong-password")).status).toBe(401);
@@ -6598,14 +6606,14 @@ test("locks a username after repeated failed logins", async () => {
 test("local login route issues a bearer token and rejects invalid credentials", async () => {
   Bun.env.QIY_AUTH_SECRET = secret;
   const passwordHash = await hashPassword("correct-password");
-  const user = { id: "user-1", ${JSON.stringify(auth.usernameField)}: "admin", ${JSON.stringify(auth.passwordField)}: passwordHash, ${JSON.stringify(auth.roleField)}: "admin" } as unknown as import("../src/auth/local").LocalUser;
+  const user = { id: "user-1", ${JSON.stringify(auth.usernameField)}: "admin", ${JSON.stringify(auth.passwordField)}: passwordHash, ${JSON.stringify(auth.roleField)}: ${JSON.stringify(roles.admin)} } as unknown as import("../src/auth/local").LocalUser;
   const app = new Elysia().use(createLocalAuthRoutes(async (username) => username === "admin" ? user : null));
   const login = (username: string, password: string) => app.handle(new Request("http://localhost/api/v1/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) }));
   const success = await login("admin", "correct-password");
   expect(success.status).toBe(200);
   const payload = await success.json() as { accessToken: string; role: string };
-  expect(payload.role).toBe("admin");
-  expect(await verifyAccessToken(payload.accessToken, secret, "qiy-admin")).toMatchObject({ id: "user-1", role: "admin" });
+  expect(payload.role).toBe(${JSON.stringify(roles.admin)});
+  expect(await verifyAccessToken(payload.accessToken, secret, "qiy-admin")).toMatchObject({ id: "user-1", role: ${JSON.stringify(roles.admin)} });
   expect((await login("admin", "wrong-password")).status).toBe(401);
   expect((await login("missing", "wrong-password")).status).toBe(401);
   expect((await app.handle(new Request("http://localhost/api/v1/auth/password", { method: "POST" }))).status).toBe(404);
@@ -6648,9 +6656,10 @@ import { jwtVerify, SignJWT } from "jose";
 import { db } from "../db";
 import { ${auth.userEntity} } from "../schema";
 import type { Authenticator, Principal } from "./guard";
+import { QIY_DEFAULT_ROLE, QIY_ROLE_NAMES } from "./roles";
 
 const ISSUER = "qiy-admin";
-const roles = new Set(["admin", "operator", "viewer"]);
+const roles = new Set<string>(QIY_ROLE_NAMES);
 function secret(): string { const value = Bun.env.QIY_AUTH_SECRET; if (!value || value.length < 32) throw new Error("QIY_AUTH_SECRET must be at least 32 characters for OTP login"); return value; }
 function otpHash(identifier: string, code: string, key: string): string { return createHmac("sha256", key).update(identifier + "\\n" + code).digest("hex"); }
 function matchesHash(left: string, right: string): boolean { const a = Buffer.from(left, "hex"); const b = Buffer.from(right, "hex"); return a.length === b.length && timingSafeEqual(a, b); }
@@ -6680,7 +6689,7 @@ async function signAccessToken(user: { id: string; role: string }, key: string):
 export function createProductionAuthenticator(): Authenticator { const key = secret(); return async (request) => { const match = /^Bearer ([^\\s]+)$/.exec(request.headers.get("authorization") ?? ""); if (!match) return null; try { const { payload } = await jwtVerify(match[1]!, new TextEncoder().encode(key), { issuer: ISSUER, audience: ISSUER, algorithms: ["HS256"] }); if (payload.typ !== "qiy-otp" || typeof payload.sub !== "string" || !roles.has(String(payload.role))) return null; return await findPrincipal(payload.sub); } catch { return null; } }; }
 
 export function createOtpAuthRoutes(lookup = findUser, send = deliver, resolvePrincipal = findPrincipal) { return new Elysia({ prefix: "/api/v1/auth/otp" })
-  .post("/request", async ({ body, status }) => { const identifier = body.identifier.trim(); if (!identifier) return status(400, { error: "Login identifier is required" }); const key = secret(); const row = await lookup(identifier); const role = row && roles.has(String(row.${auth.roleField})) ? String(row.${auth.roleField}) : "viewer"; const code = Bun.env.QIY_DEV_MODE === "1" && Bun.env.QIY_OTP_DEV_CODE ? Bun.env.QIY_OTP_DEV_CODE : randomCode(); const valid = Boolean(row && typeof row.id === "string" && roles.has(role));
+  .post("/request", async ({ body, status }) => { const identifier = body.identifier.trim(); if (!identifier) return status(400, { error: "Login identifier is required" }); const key = secret(); const row = await lookup(identifier); const role = row && roles.has(String(row.${auth.roleField})) ? String(row.${auth.roleField}) : QIY_DEFAULT_ROLE; const code = Bun.env.QIY_DEV_MODE === "1" && Bun.env.QIY_OTP_DEV_CODE ? Bun.env.QIY_OTP_DEV_CODE : randomCode(); const valid = Boolean(row && typeof row.id === "string" && roles.has(role));
     if (valid) {
       try { await send(identifier, code); }
       catch (error) {
@@ -6697,7 +6706,7 @@ export function createOtpAuthRoutes(lookup = findUser, send = deliver, resolvePr
 import { Elysia } from "elysia";
 import { createOtpAuthRoutes } from "../src/auth/otp";
 
-test("issues and verifies a short-lived OTP challenge without exposing a production code", async () => { Bun.env.QIY_AUTH_SECRET = "qiy-otp-test-secret-value-at-least-32"; Bun.env.QIY_DEV_MODE = "1"; Bun.env.QIY_OTP_DEV_CODE = "246810"; const sent: Array<{ identifier: string; code: string }> = []; const user = { id: "user-1", ${JSON.stringify(usernameField)}: "admin@example.com", ${JSON.stringify(auth.roleField)}: "admin" } as any; const principal = { id: "user-1", name: "Admin", role: "admin" } as const; const app = new Elysia().use(createOtpAuthRoutes(async (identifier) => identifier === "admin@example.com" ? user : null, async (identifier, code) => { sent.push({ identifier, code }); }, async (id) => id === "user-1" ? principal : null)); const request = await app.handle(new Request("http://localhost/api/v1/auth/otp/request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier: "admin@example.com" }) })); expect(request.status).toBe(200); const challenge = await request.json() as { challengeToken: string; devCode?: string }; expect(challenge.devCode).toBe("246810"); expect(sent).toEqual([{ identifier: "admin@example.com", code: "246810" }]); const verify = (code: string) => app.handle(new Request("http://localhost/api/v1/auth/otp/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier: "admin@example.com", challengeToken: challenge.challengeToken, code }) })); expect((await verify("wrong")).status).toBe(401); const success = await verify("246810"); expect(success.status).toBe(200); expect((await success.json() as { accessToken: string }).accessToken.length).toBeGreaterThan(40); });
+test("issues and verifies a short-lived OTP challenge without exposing a production code", async () => { Bun.env.QIY_AUTH_SECRET = "qiy-otp-test-secret-value-at-least-32"; Bun.env.QIY_DEV_MODE = "1"; Bun.env.QIY_OTP_DEV_CODE = "246810"; const sent: Array<{ identifier: string; code: string }> = []; const user = { id: "user-1", ${JSON.stringify(usernameField)}: "admin@example.com", ${JSON.stringify(auth.roleField)}: ${JSON.stringify(roles.admin)} } as any; const principal = { id: "user-1", name: "Admin", role: ${JSON.stringify(roles.admin)} } as const; const app = new Elysia().use(createOtpAuthRoutes(async (identifier) => identifier === "admin@example.com" ? user : null, async (identifier, code) => { sent.push({ identifier, code }); }, async (id) => id === "user-1" ? principal : null)); const request = await app.handle(new Request("http://localhost/api/v1/auth/otp/request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier: "admin@example.com" }) })); expect(request.status).toBe(200); const challenge = await request.json() as { challengeToken: string; devCode?: string }; expect(challenge.devCode).toBe("246810"); expect(sent).toEqual([{ identifier: "admin@example.com", code: "246810" }]); const verify = (code: string) => app.handle(new Request("http://localhost/api/v1/auth/otp/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier: "admin@example.com", challengeToken: challenge.challengeToken, code }) })); expect((await verify("wrong")).status).toBe(401); const success = await verify("246810"); expect(success.status).toBe(200); expect((await success.json() as { accessToken: string }).accessToken.length).toBeGreaterThan(40); });
 `;
     }
     if (hasLocalAuth) files["api/src/auth/account.ts"] = renderAccountModule(auth, database);
@@ -6712,10 +6721,10 @@ test("verifies issuer, audience and rotating JWKS keys before resolving subject"
   const firstJwk = { ...await exportJWK(first.publicKey), kid: "first", alg: "RS256" };
   const secondJwk = { ...await exportJWK(second.publicKey), kid: "second", alg: "RS256" };
   const seen: string[] = [];
-  const authenticate = createOidcAuthenticator({ issuer: "https://id.example.test", audience: "qiy-admin", keySet: createLocalJWKSet({ keys: [firstJwk, secondJwk] }), roleField: "role", findUser: async (subject) => { seen.push(subject); return subject === "https://id.example.test|user-1" ? { id: "user-1", role: "operator", displayName: "Operator" } : null; } });
+  const authenticate = createOidcAuthenticator({ issuer: "https://id.example.test", audience: "qiy-admin", keySet: createLocalJWKSet({ keys: [firstJwk, secondJwk] }), roleField: "role", findUser: async (subject) => { seen.push(subject); return subject === "https://id.example.test|user-1" ? { id: "user-1", role: ${JSON.stringify(roles.member ?? roles.admin)}, displayName: "Operator" } : null; } });
   const token = await new SignJWT({}).setProtectedHeader({ alg: "RS256", kid: "second" }).setIssuer("https://id.example.test").setAudience("qiy-admin").setSubject("user-1").setIssuedAt().setExpirationTime("5m").sign(second.privateKey);
   const request = (value: string) => new Request("http://localhost/api/v1/orders", { headers: { Authorization: "Bearer " + value } });
-  expect(await authenticate(request(token))).toEqual({ id: "user-1", name: "Operator", role: "operator" });
+  expect(await authenticate(request(token))).toEqual({ id: "user-1", name: "Operator", role: ${JSON.stringify(roles.member ?? roles.admin)} });
   expect(seen).toEqual(["https://id.example.test|user-1"]);
   expect(await authenticate(new Request("http://localhost/api/v1/orders"))).toBeNull();
   const wrongAudience = await new SignJWT({}).setProtectedHeader({ alg: "RS256", kid: "first" }).setIssuer("https://id.example.test").setAudience("other-app").setSubject("user-1").setIssuedAt().setExpirationTime("5m").sign(first.privateKey);
@@ -6847,6 +6856,7 @@ ${generatedDocumentation(entity)}export function create${modelName(entity)}Servi
 `;
     files[`${moduleRoot}/${entity.name}.routes.ts`] = `import { Elysia, t } from "elysia";
 import type { Authenticator${entityRestricted ? "" : ", Principal"} } from "../../auth/guard";
+import { QIY_DEFAULT_ROLE, hasFullAccess, isQiyRole } from "../../auth/roles";
 ${temporalFields.length ? 'import { QiyTemporalValueError } from "../../temporal";\n' : ""}${Object.keys(entityFieldRules(entity.fields)).length ? 'import { QiyFieldRuleError } from "../../field-rules";\n' : ""}${entity.fields.some((field) => field.version) ? 'import { QiyVersionConflict } from "../../concurrency";\n' : ""}${generatedEntityFields.length ? 'import { QiyGeneratedValueConflict } from "../../generated-values";\n' : ""}import { create${modelName(entity)}Service } from "./${entity.name}.service";
 import { claimImportJob, createImportJob, isImportJobCancelled, listImportJobs, readImportJob, releaseStaleImportJobs, requestImportJobCancel, updateImportJob } from "../../import-jobs";
 import { claimExportJob, createExportJob, listExportJobs, readExportJob, updateExportJob } from "../../export-jobs";
@@ -6924,7 +6934,7 @@ test("official GraphQL adapter mounts the public endpoint and preserves authoriz
   const seenMutations: Array<{ operation: string; actorId?: string; scope?: { field: string; value: string } }> = [];
   const repository = { distribution: async () => [], trend: async () => [], list: async (page: number, pageSize: number, options?: { search?: string; sort?: string; order?: "asc" | "desc"; filters?: Record<string, string> | Array<{ field: string; operator: "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in"; value: string }>; scope?: { field: string; value: string } }) => { seenScopes.push(options?.scope); seenLists.push({ page, pageSize, options }); return { data: [${JSON.stringify(adapterRecord)}], total: 1 }; }, one: async (_id: string, scope?: { field: string; value: string }) => { seenScopes.push(scope); return ${JSON.stringify(adapterRecord)}; }, create: async (values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "create", actorId, scope }); return { id: "00000000-0000-4000-8000-000000000001", ...values, ...(scope ? { [scope.field]: scope.value } : {}) }; }, update: async (_id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "update", actorId, scope }); return { ...${JSON.stringify(adapterRecord)}, ...values }; }, delete: async (_id: string, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "delete", actorId, scope }); return ${JSON.stringify(adapterRecord)}; }, deleteMany: async (_ids: string[], actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "deleteMany", actorId, scope }); return [${JSON.stringify(adapterRecord)}]; } };
   const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
-  const app = await createApp(repositories, async () => ({ id: "adapter-user", name: "Adapter User", role: "admin", claims: ${testClaims} }), false, false);
+  const app = await createApp(repositories, async () => ({ id: "adapter-user", name: "Adapter User", role: ${JSON.stringify(roles.admin)}, claims: ${testClaims} }), false, false);
   expect(app.routes.some((route) => route.path === "/graphql" && route.method === "POST")).toBe(true);
   const browserPage = await app.handle(new Request("http://localhost/graphql"));
   expect(browserPage.status).toBe(405);
@@ -6960,7 +6970,7 @@ ${disabledFilter ? `  const rejectedFilter = await app.handle(new Request("http:
   const mutation = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "mutation { delete${modelName(adapterEntity)}(id: \\"00000000-0000-4000-8000-000000000001\\") { id } }" }) }));
   expect(mutation.status).toBe(200);
   expect(seenMutations.map(({ operation }) => operation)).toEqual(["create", "update", "delete", "deleteMany", "delete"]);
-  const missingClaim = await createApp(repositories, async () => ({ id: "adapter-user", name: "Adapter User", role: "admin", claims: {} }), false, false);
+  const missingClaim = await createApp(repositories, async () => ({ id: "adapter-user", name: "Adapter User", role: ${JSON.stringify(roles.admin)}, claims: {} }), false, false);
   const denied = await missingClaim.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "{ ${adapterEntity.name} { total } }" }) }));
   expect((await denied.json() as { errors?: Array<{ message: string }> }).errors?.length).toBeGreaterThan(0);
   expect(seenScopes).toHaveLength(3);
@@ -6987,7 +6997,7 @@ const command = "/api/v1/orders/" + orderId + "/submit";
 
 for (const [transport, createProvider] of [["REST", createDataProvider], ["GraphQL", createGraphQLDataProvider]] as const) {
   test(transport + " provider sends workflow commands to guarded REST route", async () => {
-    const app = await createApp(repositories, async () => ({ id: "viewer", name: "Viewer", role: "viewer", claims: ${JSON.stringify(claims)} }), true, false);
+    const app = await createApp(repositories, async () => ({ id: "viewer", name: "Viewer", role: ${JSON.stringify(roles.least)}, claims: ${JSON.stringify(claims)} }), true, false);
     const urls: string[] = [];
     const provider = createProvider(async (input, init) => {
       urls.push(String(input));
@@ -7002,7 +7012,7 @@ for (const [transport, createProvider] of [["REST", createDataProvider], ["Graph
     expect(urls.at(-1)).toBe(command);
   });
   test(transport + " provider preserves workflow validation without a database connection", async () => {
-    const app = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: "admin", claims: ${JSON.stringify(claims)} }), true, false);
+    const app = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: ${JSON.stringify(roles.admin)}, claims: ${JSON.stringify(claims)} }), true, false);
     const provider = createProvider(async (input, init) => app.handle(new Request(new URL(String(input), "http://localhost"), init)));
     await expect(provider.custom?.({ url: command, method: "post", meta: { idempotencyKey: "x".repeat(129) } })).rejects.toThrow("Idempotency key is too long");
   });
@@ -7042,7 +7052,7 @@ test("official GraphQL analytics match REST and enforce data scope", async () =>
     create: async () => ({}), update: async () => undefined, delete: async () => undefined, deleteMany: async () => [],
   };
   const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
-  const app = await createApp(repositories, async () => ({ id: "analytics-admin", name: "Admin", role: "admin", claims: ${testClaims} }), false, false);
+  const app = await createApp(repositories, async () => ({ id: "analytics-admin", name: "Admin", role: ${JSON.stringify(roles.admin)}, claims: ${testClaims} }), false, false);
   const provider = createGraphQLDataProvider(async (input, init) => app.handle(new Request(new URL(String(input), "http://localhost"), init)));
 ${distributionField ? `  const distributionRest = await app.handle(new Request("http://localhost/api/v1/${analyticsEntity.tableName}/distribution?field=${distributionField.name}"));
   expect(distributionRest.status).toBe(200);
@@ -7060,7 +7070,7 @@ ${trendField ? `  const trendRest = await app.handle(new Request("http://localho
   const invalidTrend = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "query { ${analyticsEntity.name}Trend(field: \\"${trendField.name}\\", days: 0) { day count } }" }) }));
   expect((await invalidTrend.json() as { errors?: unknown[] }).errors?.length).toBeGreaterThan(0);
   expect(seen).toHaveLength(${distributionField ? 4 : 2});` : ""}
-${scope ? `  const missingClaim = await createApp(repositories, async () => ({ id: "analytics-admin", name: "Admin", role: "admin", claims: {} }), false, false);
+${scope ? `  const missingClaim = await createApp(repositories, async () => ({ id: "analytics-admin", name: "Admin", role: ${JSON.stringify(roles.admin)}, claims: {} }), false, false);
   const denied = await missingClaim.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "query { ${analyticsEntity.name}${distributionField ? `Distribution(field: \\"${distributionField.name}\\") { value count }` : `Trend(field: \\"${trendField!.name}\\", days: 30) { day count }`} }" }) }));
   expect((await denied.json() as { errors?: unknown[] }).errors?.length).toBeGreaterThan(0);
   expect(seen).toHaveLength(${(distributionField ? 2 : 0) + (trendField ? 2 : 0)});` : ""}
@@ -7077,7 +7087,7 @@ test("REST and GraphQL expose the full authorized enum distribution", async () =
   const rows = [{ value: "draft", count: 150 }, { value: "approved", count: 100 }];
   const repository = { distribution: async () => rows, list: async () => ({ data: [], total: 0 }), one: async () => undefined, create: async () => ({}), update: async () => undefined, delete: async () => undefined, deleteMany: async () => [] };
   const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
-  const viewer = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: "admin", claims: ${testClaims} }), false, false);
+  const viewer = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: ${JSON.stringify(roles.admin)}, claims: ${testClaims} }), false, false);
   const endpoint = "http://localhost/api/v1/${distributionEntity.tableName}/distribution?field=${field.name}";
   expect(await (await viewer.handle(new Request(endpoint))).json()).toEqual(rows);
   expect((await viewer.handle(new Request(endpoint.replace("${field.name}", "not_a_field")))).status).toBe(400);
@@ -7100,7 +7110,7 @@ test("REST and GraphQL trend uses the authorized data scope", async () => {
   const seen: unknown[] = [];
   const repository = { trend: async (_field: string, _days: number, scope?: unknown) => { seen.push(scope); return rows; }, distribution: async () => [], list: async () => ({ data: [], total: 0 }), one: async () => undefined, create: async () => ({}), update: async () => undefined, delete: async () => undefined, deleteMany: async () => [] };
   const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
-  const principal = { id: "admin", name: "Admin", role: "admin" as const, claims: ${JSON.stringify(scope ? { [scope.claim]: "tenant-a" } : {})} };
+  const principal = { id: "admin", name: "Admin", role: ${JSON.stringify(roles.admin)} as const, claims: ${JSON.stringify(scope ? { [scope.claim]: "tenant-a" } : {})} };
   const app = await createApp(repositories, async () => principal, false, false);
   const endpoint = "http://localhost/api/v1/${trendEntity.tableName}/trend?field=${field.name}&days=30";
   expect(await (await app.handle(new Request(endpoint))).json()).toEqual(rows);
@@ -7112,7 +7122,7 @@ test("REST and GraphQL trend uses the authorized data scope", async () => {
   expect(seen).toEqual(${scope ? '[{ field: "' + scope.field + '", value: "tenant-a" }, { field: "' + scope.field + '", value: "tenant-a" }]' : '[undefined, undefined]'});
   const anonymous = await createApp(repositories, async () => null, false, false);
   expect((await anonymous.handle(new Request(endpoint))).status).toBe(401);
-${scope ? `  const missing = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: "admin" }), false, false);
+${scope ? `  const missing = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: ${JSON.stringify(roles.admin)} }), false, false);
   expect((await missing.handle(new Request(endpoint))).status).toBe(403);
   const deniedGraph = await missing.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "query { ${trendEntity.name}Trend(field: \\"${field.name}\\", days: 30) { day } }" }) }));
   if (deniedGraph.status === 200) expect((await deniedGraph.json() as { errors?: Array<{ message: string }> }).errors?.length).toBeGreaterThan(0);
@@ -7186,6 +7196,7 @@ test("publishes model descriptions in the actual OpenAPI request schemas", async
   if (auth) {
     Object.assign(files, generateAudit(database, auth, options.scopes));
     const userTable = database.entities.find((entity) => entity.name === auth.userEntity)!.tableName;
+    files["api/src/auth/roles.ts"] = renderRolesModule(options.auth);
     files["api/src/auth/guard.ts"] = files["api/src/auth/guard.ts"]!.replace('resource.path === "users"', `resource.path === ${JSON.stringify(userTable)}`);
   }
   // Generated values (business codes and UUIDs) share one server runtime and one
@@ -7494,7 +7505,7 @@ const ROLE_FIELD = ${JSON.stringify(auth.roleField)};
 const PROFILE_FIELD: string | null = ${JSON.stringify(auth.profileField ?? null)};
 const EMAIL_FIELD: string | null = ${JSON.stringify(emailField)};
 const DISPLAY_NAME_FIELD: string | null = ${JSON.stringify(displayNameField)};
-const ALLOWED_ROLES: readonly string[] = ${JSON.stringify(roleValues ?? ["admin", "operator", "viewer"])};
+const ALLOWED_ROLES: readonly string[] = ${JSON.stringify(roleValues ?? roleContext(auth).names)};
 const DEFAULT_ROLE_ENV = "QIY_OIDC_DEFAULT_ROLE";
 
 export interface QiyOidcProviderConfig {
@@ -7549,7 +7560,7 @@ function authSecret(): string {
 /** Default role for accounts created through first-time OAuth onboarding. */
 export function defaultRole(): Role {
   const configured = Bun.env[DEFAULT_ROLE_ENV]?.trim();
-  const role = configured && configured !== "" ? configured : "viewer";
+  const role = configured && configured !== "" ? configured : ${JSON.stringify(roleContext(auth).least)};
   if (!ALLOWED_ROLES.includes(role) || !isRole(role)) throw new Error(DEFAULT_ROLE_ENV + " must be one of " + ALLOWED_ROLES.join(", "));
   return role;
 }
@@ -8079,10 +8090,10 @@ import {
   validateApiKeyExpiry,
   validateApiKeyName,
 } from "./api-key-hash";
+import { isQiyRole, type QiyRole } from "./roles";
 
-const ROLES = ["admin", "operator", "viewer"] as const;
-type Role = (typeof ROLES)[number];
-function asRole(value: unknown): Role | null { return typeof value === "string" && (ROLES as readonly string[]).includes(value) ? value as Role : null; }
+type Role = QiyRole;
+function asRole(value: unknown): Role | null { return isQiyRole(value) ? value : null; }
 
 type ApiKeyEventAction = "created" | "rotated" | "revoked";
 async function recordApiKeyEvent(keyId: string, userId: string, action: ApiKeyEventAction): Promise<void> {
@@ -8330,7 +8341,9 @@ function renderDocsModule(database: DatabaseIR, options: NonNullable<Parameters<
     permissions: docsPermissions,
   };
   return `/** Generated OpenAPI 3.1 + documentation metadata. Do not edit by hand. */
-export type DocsRole = "admin" | "operator" | "viewer";
+import { QIY_ROLES, QIY_ROLE_NAMES, hasFullAccess, type QiyRole } from "./auth/roles";
+
+export type DocsRole = QiyRole;
 export type DocsAction = "list" | "show" | "create" | "edit" | "delete";
 export interface DocsPrincipal { role: DocsRole; permissions?: string[] }
 export interface DocsEnumValue { name: string; label: string; labelKey: string }
@@ -8415,7 +8428,7 @@ function restrictedRoles(tableName: string): string[] | undefined {
 }
 
 export function mayUseResource(tableName: string, principal: DocsPrincipal): boolean {
-  if (principal.role === "admin") return true;
+  if (hasFullAccess(principal.role)) return true;
   if (docsMeta.userTable === tableName) return false;
   const roles = restrictedRoles(tableName);
   if (roles && roles.length > 0 && !roles.includes(principal.role)) return false;
@@ -8426,13 +8439,13 @@ export function mayUseAction(tableName: string, action: DocsAction, principal: D
   if (!mayUseResource(tableName, principal)) return false;
   const pageRule = docsMeta.pageRules[tableName]?.[action];
   if (pageRule && !pageRule.includes(principal.role)) return false;
-  if (principal.role === "viewer") return action === "list" || action === "show";
+  if (QIY_ROLES[principal.role] === "read") return action === "list" || action === "show";
   return true;
 }
 
-/** Commands are admin-only unless an allow rule names the role/permission; verification-gated commands are admin-only in the docs. */
+/** Commands are full-access only unless an allow rule names the role/permission; verification-gated commands are full-access only in the docs. */
 export function flowAllowed(flow: DocsDataflow, principal: DocsPrincipal): boolean {
-  if (principal.role === "admin") return true;
+  if (hasFullAccess(principal.role)) return true;
   if (flow.verification) return false;
   if (flow.allowRoles.length > 0) return flow.allowRoles.includes(principal.role);
   if (flow.allowPermissions.length > 0) {
@@ -8506,7 +8519,7 @@ export function buildOpenApiDocument(principal: DocsPrincipal): GeneratedOpenApi
     const restricted = restrictedRoles(tableName);
     if (pageRule && pageRule.length) return pageRule;
     if (restricted && restricted.length) return restricted;
-    return ["admin", "operator", "viewer"];
+    return [...QIY_ROLE_NAMES];
   };
   const add = (path: string, method: string, operation: Record<string, unknown>) => {
     if (!paths[path]) paths[path] = {};
@@ -8550,7 +8563,7 @@ export function buildOpenApiDocument(principal: DocsPrincipal): GeneratedOpenApi
     if (!flowAllowed(flow, principal)) {
       // Verification-gated commands need runtime inputs the docs cannot provide;
       // non-admins see them listed as hidden instead of silently missing.
-      if (principal.role !== "admin" && flow.verification) {
+      if (!hasFullAccess(principal.role) && flow.verification) {
         hiddenOperations.push({ method: "post", path: "/api/v1/commands/" + flow.name, reason: "verification", verification: flow.verification, label: flow.label });
       }
       continue;
@@ -8609,10 +8622,10 @@ function renderDocsRoutesModule(hasPermissions: boolean, includeOpenApi: boolean
   return `import { Elysia } from "elysia";
 import type { Authenticator, Principal } from "./auth/guard";
 import { buildDocsModel, buildOpenApiDocument, type DocsPrincipal, type DocsRole } from "./docs";
+import { QIY_DEFAULT_ROLE, isQiyRole } from "./auth/roles";
 ${hasPermissions ? 'import { loadPermissions } from "./auth/permissions";' : ""}
 
-const ROLES = ["admin", "operator", "viewer"] as const;
-function asRole(value: unknown): DocsRole { return typeof value === "string" && (ROLES as readonly string[]).includes(value) ? value as DocsRole : "viewer"; }
+function asRole(value: unknown): DocsRole { return isQiyRole(value) ? value : QIY_DEFAULT_ROLE; }
 
 async function docsPrincipal(principal: Principal): Promise<DocsPrincipal> {
 ${hasPermissions ? `  const snapshot = await loadPermissions(principal);
@@ -8657,10 +8670,12 @@ import {
   type GeneratedOpenApiDocument,
 } from "../src/docs";
 import { createDocsRoutes } from "../src/docs-routes";
+import { QIY_ADMIN_ROLE, QIY_ROLES, QIY_ROLE_NAMES, type QiyRoleAccess } from "../src/auth/roles";
 
-const admin: DocsPrincipal = { role: "admin" };
-const operator: DocsPrincipal = { role: "operator" };
-const viewer: DocsPrincipal = { role: "viewer" };
+const roleWith = (access: QiyRoleAccess) => QIY_ROLE_NAMES.find((role) => QIY_ROLES[role] === access);
+const admin: DocsPrincipal = { role: QIY_ADMIN_ROLE };
+const operator: DocsPrincipal = { role: roleWith("write") ?? QIY_ADMIN_ROLE };
+const viewer: DocsPrincipal = { role: roleWith("read") ?? operator.role };
 const paths = (document: GeneratedOpenApiDocument) => Object.keys(document.paths).sort();
 
 test("generates a valid OpenAPI 3.1 document with session and API-key security", () => {
@@ -8705,7 +8720,7 @@ test("filters operations by the principal permissions and page rules", () => {
       if (mayUseAction(entity.tableName, action, operator)) continue;
       expect(document.paths[key]?.[method]).toBeUndefined();
     }
-    for (const method of Object.keys(viewerDocument.paths[listPath] ?? {})) expect(method).toBe("get");
+    if (QIY_ROLES[viewer.role] === "read") for (const method of Object.keys(viewerDocument.paths[listPath] ?? {})) expect(method).toBe("get");
   }
   for (const flow of docsMeta.dataflows) {
     const commandPath = "/api/v1/commands/" + flow.name;
@@ -8725,7 +8740,7 @@ test("lists verification-gated commands as hidden for non-admins", () => {
 });
 
 test("serves the docs endpoints only to authenticated principals", async () => {
-  const app = new Elysia().use(createDocsRoutes(async (request) => request.headers.get("authorization") === "Bearer session-admin" ? { id: "admin", name: "Admin", role: "admin" } : null));
+  const app = new Elysia().use(createDocsRoutes(async (request) => request.headers.get("authorization") === "Bearer session-admin" ? { id: "admin", name: "Admin", role: QIY_ADMIN_ROLE } : null));
 ${apiDocsEnabled ? `  const anonymous = await app.handle(new Request("http://localhost/api/v1/openapi.json"));
   expect(anonymous.status).toBe(401);
   const authorized = await app.handle(new Request("http://localhost/api/v1/openapi.json", { headers: { authorization: "Bearer session-admin" } }));
@@ -8747,6 +8762,9 @@ ${modelEnabled ? `  const modelAnonymous = await app.handle(new Request("http://
 
 /** Generated server tests for API keys: lifecycle, authentication and limits. */
 function renderApiKeyTestModule(auth: NonNullable<QiyProject["auth"]>, database: DatabaseIR): string {
+  const roles = roleContext(auth);
+  const admin = JSON.stringify(roles.admin);
+  const member = JSON.stringify(roles.member ?? roles.admin);
   const userEntity = database.entities.find((entity) => entity.name === auth.userEntity)!;
   const dialect = database.dialect;
   const userTable = userEntity.tableName;
@@ -8875,8 +8893,8 @@ async function keyRows(): Promise<Array<Record<string, unknown>>> { return rows(
 
 const session = async (request: Request) => {
   const header = request.headers.get("authorization");
-  if (header === "Bearer session-admin") return { id: "admin-user", name: "Admin", role: "admin" as const };
-  if (header === "Bearer session-operator") return { id: "operator-user", name: "Operator", role: "operator" as const };
+  if (header === "Bearer session-admin") return { id: "admin-user", name: "Admin", role: ${admin} as const };
+  if (header === "Bearer session-operator") return { id: "operator-user", name: "Operator", role: ${member} as const };
   return null;
 };
 
@@ -8915,7 +8933,7 @@ test("API key helpers hash secrets, validate names/expiry and never expose the s
 
 test("creates, lists, authenticates and revokes an API key", async () => {
   await reset();
-  await seedUser("admin-user", "admin", "Admin User");
+  await seedUser("admin-user", ${admin}, "Admin User");
   const created = await call("/api/v1/auth/api-keys", { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "CI deploy", expiresAt: nowPlus(60).toISOString() }) });
   expect(created.status).toBe(201);
   const payload = await created.json() as { key: string; record: { id: string; maskedKey: string; prefix: string; name: string } };
@@ -8939,9 +8957,9 @@ test("creates, lists, authenticates and revokes an API key", async () => {
 
   const wrapped = withApiKeyAuthentication(session);
   const bearerPrincipal = await wrapped(new Request("http://localhost/probe", { headers: { authorization: "Bearer " + payload.key } }));
-  expect(bearerPrincipal).toMatchObject({ id: "admin-user", role: "admin" });
+  expect(bearerPrincipal).toMatchObject({ id: "admin-user", role: ${admin} });
   const headerPrincipal = await wrapped(new Request("http://localhost/probe", { headers: { "x-api-key": payload.key } }));
-  expect(headerPrincipal).toMatchObject({ id: "admin-user", role: "admin" });
+  expect(headerPrincipal).toMatchObject({ id: "admin-user", role: ${admin} });
   expect(await wrapped(new Request("http://localhost/probe", { headers: { authorization: "Bearer session-token" } }))).toBeNull();
   const used = await keyRows();
   expect(used[0]!.lastUsedAt).not.toBeNull();
@@ -8955,7 +8973,7 @@ test("creates, lists, authenticates and revokes an API key", async () => {
 
 test("rotates a key, revokes the old one and records audit events", async () => {
   await reset();
-  await seedUser("admin-user", "admin", "Admin User");
+  await seedUser("admin-user", ${admin}, "Admin User");
   const created = await call("/api/v1/auth/api-keys", { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "Rotate me", scopes: ["orders:read", "orders:read"] }) });
   const original = await created.json() as { key: string; record: { id: string; name: string; scopes: string[] | null } };
   expect(original.record.scopes).toEqual(["orders:read"]);
@@ -8969,7 +8987,7 @@ test("rotates a key, revokes the old one and records audit events", async () => 
 
   const wrapped = withApiKeyAuthentication(session);
   expect(await wrapped(new Request("http://localhost/probe", { headers: { "x-api-key": original.key } }))).toBeNull();
-  expect(await wrapped(new Request("http://localhost/probe", { headers: { "x-api-key": rotated.key } }))).toMatchObject({ id: "admin-user", role: "admin", scopes: ["orders:read"] });
+  expect(await wrapped(new Request("http://localhost/probe", { headers: { "x-api-key": rotated.key } }))).toMatchObject({ id: "admin-user", role: ${admin}, scopes: ["orders:read"] });
   expect((await call("/api/v1/auth/api-keys/" + original.record.id + "/rotate", { method: "POST", headers: adminHeaders })).status).toBe(404);
 
   const events = await call("/api/v1/auth/api-keys/events", { headers: adminHeaders });
@@ -8981,8 +8999,8 @@ test("rotates a key, revokes the old one and records audit events", async () => 
 
 test("API keys authenticate through the app guard and inherit the user's limits", async () => {
   await reset();
-  await seedUser("admin-user", "admin", "Admin User");
-  await seedUser("operator-user", "operator", "Operator User");
+  await seedUser("admin-user", ${admin}, "Admin User");
+  await seedUser("operator-user", ${member}, "Operator User");
   const adminResponse = await call("/api/v1/auth/api-keys", { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "Admin key" }) });
   const adminPayload = await adminResponse.json() as { key: string; record: { id: string } };
   const adminKey = adminPayload.key;
@@ -9003,7 +9021,7 @@ test("API keys authenticate through the app guard and inherit the user's limits"
   // Non-admin principals never get role access to the auth user resource: an
   // operator API key must be rejected by the same guard as an operator session.
   const operatorDenied = await app.handle(new Request("http://localhost/api/v1/" + USER_TABLE + "/", { headers: { "x-api-key": operatorKey } }));
-  expect(operatorDenied.status).toBe(403);
+  expect(operatorDenied.status).toBe(${roles.member ? 403 : 200});
   const self = await app.handle(new Request("http://localhost/api/v1/auth/api-keys", { headers: { "x-api-key": adminKey } }));
   expect(self.status).toBe(200);
   const revoke = await app.handle(new Request("http://localhost/api/v1/auth/api-keys/" + adminPayload.record.id, { method: "DELETE", headers: { "x-api-key": adminKey } }));
@@ -9014,7 +9032,7 @@ test("API keys authenticate through the app guard and inherit the user's limits"
 
 test("rejects expired/revoked keys, invalid payloads and the per-user key limit", async () => {
   await reset();
-  await seedUser("admin-user", "admin", "Admin User");
+  await seedUser("admin-user", ${admin}, "Admin User");
   const generated = generateApiKey();
   const expired = generateApiKey();
   const revoked = generateApiKey();

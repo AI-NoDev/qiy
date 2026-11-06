@@ -13,7 +13,7 @@
 | API | Elysia REST（嵌套 and/or 过滤树、分页上限、CSV 导入导出与后台任务）+ GraphQL（Yoga/Apollo）+ OpenAPI；同一 service 层与审计事务 | [API](../docs/guide/api.md) |
 | Web | Refine + Ant Design + React Router SPA：CRUD、关系 Select/Drawer、显示模板、已存视图、字段布局权限、多级菜单、chart 概览页、主题、i18n | [Refine Providers](../docs/guide/refine-providers.md)、[chart](../docs/dsl/charts.md) |
 | 认证 | 本地密码（限流/锁定/会话吊销）、OTP、任意多个 OpenID Connect provider（`provider <name> { preset ...; }`，预设 generic/okta/auth0/azure-ad-b2c/keycloak/google/kinde）；混合认证、首次登录 onboarding、账号绑定；API Key（轮换、scopes） | [auth](../docs/dsl/auth.md) |
-| 权限 | 角色、原子权限/权限组、provider、校验块；`scope`、tree scope、`restrict` 记录条件（AND/OR/NOT）与字段脱敏；`pages` 页面与路由守卫 | [permissions](../docs/dsl/permissions.md) |
+| 权限 | 自定义角色（`full`/`write`/`read` 访问级别）、原子权限/权限组、provider、校验块；`scope`、tree scope、`restrict` 记录条件（AND/OR/NOT）与字段脱敏；`pages` 页面与路由守卫 | [permissions](../docs/dsl/permissions.md) |
 | 业务流程 | Dataflow（typed input、context、require/allow、事务写入、audit/emit、result）与 `app.test.qiy` 声明式场景；Action 按钮；`workflow orderInventory` 订单库存切片 | [dataflow](../docs/dsl/dataflow.md)、[actions](../docs/dsl/actions.md) |
 | 存储 | local / S3-compatible；单文件与多文件、分片续传、MIME/大小策略、孤儿对象扫描 | [storage](../docs/dsl/storage.md) |
 | 实时 | 数据库 outbox + SSE（REST `GET /api/v1/realtime/stream`、GraphQL `GET /graphql/subscribe`），频道权限与记录级订阅，无外部服务依赖 | [realtime](../docs/dsl/realtime.md) |
@@ -43,6 +43,7 @@
 1. ~~**字段校验与默认值**~~（已完成）：`@min`、`@max`、`@length`、`@pattern`、`@default`，service 层统一校验（REST / GraphQL / CSV 导入），表单规则同源生成。
 2. ~~**乐观锁**~~（已完成）：`@version`，新建为 1、每次更新递增；PATCH 带过期版本返回 409 `version.conflict`；Dataflow 自动递增；编辑页提交加载时的版本，冲突时提示并重新加载。
 3. ~~**全量 fixture 与示例漂移检查**~~（已完成）：一个覆盖全部语法的 kitchen-sink 模型在三方言上生成并测试；CI 检查 `examples/*/admin` 与生成器输出一致。
+3a. ~~**自定义角色**~~（已完成）：`auth { roles { ... } }` 声明角色名与访问级别；生成的 `auth/roles.ts` 是服务端所有角色判断的唯一来源，前端访问控制嵌入同一张表；kitchen-sink 使用 `owner`/`agent`/`auditor` 证明没有残留的固定角色名。
 4. **多对多关系**与多选 UI。
 5. **声明式状态机 / 审批流转**。
 6. **Webhook 与通知**：通知适配器（SMTP 默认、Resend、webhook，开发环境 console）与定时任务。

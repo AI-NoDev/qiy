@@ -5,6 +5,7 @@ import { fieldRulesOf, formDefault } from "./field-rules";
 import type { QiyChart, QiyChartView, QiyProject } from "./qiy-project";
 import { authHasLocal, authIsHybrid, authOAuthProviders, authProviderLabel as providerLabel, authUsesProviderChooser, qiyChartVariants } from "./qiy-project";
 import { evaluatePermissionExpression, requiredPermissionValues, type QiyPermissionExpressionIR } from "./permissions";
+import { fullAccessRoles, roleAccessTable, roleContext } from "./roles";
 
 
 type WebOptions = Pick<QiyProject, "mode" | "integration" | "ui" | "messages" | "apiClient" | "menuGroups" | "charts" | "chartPanels" | "realtime" | "auth" | "permissions" | "workflows" | "dataflows" | "actions" | "restrictions" | "pages" | "scopes" | "features" | "comment"> & { readOnly?: boolean };
@@ -308,9 +309,11 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
   const resourcePolicyDeclaration = resourceRolePolicies.length ? `const resourcePolicies: Array<{ resource: string; roles: string[] }> = ${JSON.stringify(resourceRolePolicies)};\n` : "";
   // The generated access-control test must describe this model's own resources and
   // allow lists; hardcoding demo resource names fails for restricted projects.
-  // Mirrors the generated provider: admin and operator may mutate non-`users` resources,
-  // viewers are read-only, and a resource allow list narrows every action.
-  const roleActions: Record<string, string[]> = { admin: ["list", "show", "create", "edit", "delete"], operator: ["list", "show", "create", "edit", "delete"], viewer: ["list", "show"] };
+  // Mirrors the generated provider: full and write roles may mutate non-user resources,
+  // read roles are read-only, and a resource allow list narrows every action.
+  const roles = roleContext(options.auth);
+  const roleAccess = roleAccessTable(options.auth);
+  const roleActions: Record<string, string[]> = Object.fromEntries(roles.names.map((role) => [role, roleAccess[role] === "read" ? ["list", "show"] : ["list", "show", "create", "edit", "delete"]]));
   const modelResources = database.entities.map((entity) => entity.name);
   // Prefer a business resource: the generated provider treats user administration as
   // admin-only, so deriving expectations from it would need a special case everywhere.
@@ -321,12 +324,12 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
     const policy = resourceRolePolicies.find((item) => item.resource === policyResource);
     const page = (options.pages ?? []).find((item) => item.resource === policyResource);
     const adminOnly = policyResource === options.auth?.userEntity;
-    const allowed = !anonymous && (adminOnly ? role === "admin" : policy?.roles ? (policy.roles as string[]).includes(role) : true);
+    const allowed = !anonymous && (adminOnly ? roleAccess[role] === "full" : policy?.roles ? (policy.roles as string[]).includes(role) : true);
     // A page rule narrows (or widens) the per-action expectation for its resource.
     const expected = (action: string) => {
       const pageRule = page?.actions.find((entry) => entry.action === action);
       if (pageRule) return allowed && (pageRule.roles as string[]).includes(role);
-      return allowed && (adminOnly ? role === "admin" : (roleActions[role] ?? []).includes(action));
+      return allowed && (adminOnly ? roleAccess[role] === "full" : (roleActions[role] ?? []).includes(action));
     };
     return ["list", "show", "create", "edit", "delete"].map((action) => `  expect((await qiyAccessControlProvider.can({ resource: ${JSON.stringify(policyResource)}, action: "${action}" })).can).toBe(${expected(action)});`);
   };
@@ -512,7 +515,7 @@ test("model labels switch between the declared Chinese and English dictionaries"
         ...(target.confirm !== undefined && !target.confirmKey ? { confirmKey: qiyModelKeys.actionConfirm(action.name) } : {}),
         url: `/api/v1/commands/${flow.name}${action.batch ? "/batch" : ""}`,
         idempotency: flow.idempotency?.required === true,
-        roles: flow.roles ?? ["admin", "operator"],
+        roles: flow.roles ?? roles.writers,
         ...(flow.permission?.length ? { permissions: expandWebPermissionRefs(flow.permission) } : {}),
         ...(webVerification(flow.verification) ? { verification: webVerification(flow.verification) } : {}),
         idInput: source.split(".", 2)[1]!,
@@ -546,16 +549,16 @@ test("model labels switch between the declared Chinese and English dictionaries"
   const webPermissionCases = webPermissionPolicies.flatMap((policy) => {
     const variants: Array<{ role: string; permissions?: string[]; groups?: string[]; expected: boolean }> = [];
     if (policy.permissions?.length) {
-      variants.push({ role: "viewer", permissions: policy.permissions, groups: [], expected: true });
-      variants.push({ role: "viewer", permissions: [], groups: [], expected: false });
+      variants.push({ role: roles.least, permissions: policy.permissions, groups: [], expected: true });
+      variants.push({ role: roles.least, permissions: [], groups: [], expected: false });
     }
     if (policy.verification) {
       const expression = policy.verification.expression;
       const evaluate = (identity: { role: string; permissions: string[]; groups: string[] }) => evaluatePermissionExpression(expression, { self: { permissions: identity.permissions, groups: identity.groups, role: identity.role }, input: {} }).allowed;
-      const admin = { role: "admin", permissions: declaredWebPermissionValues, groups: allWebGroups };
-      const viewer = { role: "viewer", permissions: [], groups: [] };
-      variants.push({ role: "admin", permissions: admin.permissions, groups: admin.groups, expected: evaluate(admin) });
-      variants.push({ role: "viewer", permissions: viewer.permissions, groups: viewer.groups, expected: evaluate(viewer) });
+      const admin = { role: roles.admin, permissions: declaredWebPermissionValues, groups: allWebGroups };
+      const viewer = { role: roles.least, permissions: [], groups: [] };
+      variants.push({ ...admin, expected: evaluate(admin) });
+      variants.push({ ...viewer, expected: evaluate(viewer) });
     }
     return variants.map((variant) => ({ policy, variant }));
   });
@@ -746,7 +749,7 @@ export function OrderWorkflowActions({ id, status }: { id: string; status: strin
   };
   return <CanAccess resource="orders" action="edit" params={{ id }}><Space wrap style={{ marginTop: 16 }}>
     {status === "draft" && <Button type="primary" loading={mutation.isPending} onClick={() => void run("submit")}>{translate("orders.actions.submit", {}, "Submit order")}</Button>}
-    {status === "submitted" && identity?.role === "admin" && <Button type="primary" loading={mutation.isPending} onClick={() => void run("approve")}>{translate("orders.actions.approve", {}, "Approve order")}</Button>}
+    {status === "submitted" && ${JSON.stringify(fullAccessRoles(options.auth))}.includes(identity?.role ?? "") && <Button type="primary" loading={mutation.isPending} onClick={() => void run("approve")}>{translate("orders.actions.approve", {}, "Approve order")}</Button>}
     {status === "approved" && <Popconfirm title={translate("orders.actions.shipConfirm", {}, "Confirm shipment and deduct inventory?")} onConfirm={() => void run("ship")}><Button type="primary" loading={mutation.isPending}>{translate("orders.actions.ship", {}, "Ship")}</Button></Popconfirm>}
     {(status === "draft" || status === "submitted") && <Popconfirm title={translate("orders.actions.cancelConfirm", {}, "Cancel order and release reservations?")} onConfirm={() => void run("cancel")}><Button danger loading={mutation.isPending}>{translate("orders.actions.cancel", {}, "Cancel order")}</Button></Popconfirm>}
   </Space></CanAccess>;
@@ -888,7 +891,8 @@ export const qiyAuthProvider: AuthProvider = {
 };
 const commandPolicies: Array<{ resource: string; action: string; roles: string[]; permissions?: string[]; verification?: { name: string; expression: QiyPermissionExpression } }> = ${JSON.stringify(actionPolicies)};
 const commandVerifications: Record<string, QiyPermissionExpression> = ${JSON.stringify(commandVerifications)};
-${commandPolicyTypes}${commandPolicyFunctions}${resourcePolicyDeclaration}${pageRuleDeclaration}export const qiyAccessControlProvider: AccessControlProvider = { can: async ({ resource, action }) => { const identity = await qiyAuthProvider.getIdentity?.({}) as QiyIdentity | null | undefined; if (!identity) return { can: false, reason: "Authentication required" }; ${resourcePolicyCheck}${pageRuleCheck}const command = commandPolicies.find((policy) => policy.resource === resource && policy.action === action); if (command) { ${commandPermissionEvaluation}return { can: command.roles.includes(identity.role ?? ""), reason: "Command execution is restricted" }; } if (identity.role === "admin") return { can: true }; if (resource === "users") return { can: false, reason: "User administration is restricted" }; const can = identity.role === "operator" || action === "list" || action === "show"; return can ? { can: true } : { can: false, reason: "Role " + (identity.role ?? "unknown") + " cannot " + action + " " + resource }; }, options: { buttons: { enableAccessControl: true, hideIfUnauthorized: true }, queryOptions: { staleTime: 30_000 } } };
+${commandPolicyTypes}${commandPolicyFunctions}${resourcePolicyDeclaration}${pageRuleDeclaration}const roleAccess: Record<string, "full" | "write" | "read"> = ${JSON.stringify(roleAccess)};
+export const qiyAccessControlProvider: AccessControlProvider = { can: async ({ resource, action }) => { const identity = await qiyAuthProvider.getIdentity?.({}) as QiyIdentity | null | undefined; if (!identity) return { can: false, reason: "Authentication required" }; const access: string | undefined = roleAccess[identity.role ?? ""]; ${resourcePolicyCheck}${pageRuleCheck}const command = commandPolicies.find((policy) => policy.resource === resource && policy.action === action); if (command) { ${commandPermissionEvaluation}return { can: command.roles.includes(identity.role ?? ""), reason: "Command execution is restricted" }; } if (access === "full") return { can: true }; if (resource === "users") return { can: false, reason: "User administration is restricted" }; const can = access === "write" || (access === "read" && (action === "list" || action === "show")); return can ? { can: true } : { can: false, reason: "Role " + (identity.role ?? "unknown") + " cannot " + action + " " + resource }; }, options: { buttons: { enableAccessControl: true, hideIfUnauthorized: true }, queryOptions: { staleTime: 30_000 } } };
 export function qiyAuthToken(): string | undefined { return token(); }
 /** Cached identity for non-hook callers (route modules must not use auth hooks). */
 export async function fetchCurrentIdentity(): Promise<QiyIdentity | null> { return loadIdentity(); }
@@ -1002,7 +1006,7 @@ import { clearIdentityCache, qiyAccessControlProvider, qiyAuthProvider } from ".
 const originalWindow = globalThis.window;
 const originalFetch = globalThis.fetch;
 const tokens = new Map<string, string>();
-let role = "viewer";
+let role = ${JSON.stringify(roles.least)};
 let identityPermissions: string[] | undefined;
 let identityGroups: string[] | undefined;
 beforeAll(() => {
@@ -1017,24 +1021,24 @@ test("authenticates using ${hasLocalAuth ? "username and password" : "the config
   expect((await qiyAuthProvider.check({})).authenticated).toBe(true);
 });
 
-test("matches server admin, operator and viewer role policy", async () => {
-${["viewer", "operator", "admin"].map((role) => `  role = ${JSON.stringify(role)}; clearIdentityCache();\n${roleExpectations(role).join("\n")}`).join("\n")}
+test("matches the server role policy for every declared role", async () => {
+${[...roles.names].reverse().map((role) => `  role = ${JSON.stringify(role)}; clearIdentityCache();\n${roleExpectations(role).join("\n")}`).join("\n")}
   await qiyAuthProvider.logout({});
   expect((await qiyAuthProvider.check({})).authenticated).toBe(false);
 });
 test("decides every resource page action, so route guards cannot be bypassed by URL", async () => {
   tokens.set("qiy.access_token", "page-guard-token");
-${["viewer", "operator", "admin"].map((role) => `  role = ${JSON.stringify(role)}; clearIdentityCache();\n${roleExpectations(role).join("\n")}`).join("\n")}
+${[...roles.names].reverse().map((role) => `  role = ${JSON.stringify(role)}; clearIdentityCache();\n${roleExpectations(role).join("\n")}`).join("\n")}
   tokens.clear();
-  role = "viewer";
-${roleExpectations("viewer", true).join("\n")}
+  role = ${JSON.stringify(roles.least)};
+${roleExpectations(roles.least, true).join("\n")}
   tokens.set("qiy.access_token", "page-guard-token");
 });
 ${actionPolicies.length ? `
 test("matches each action role allowlist without an admin bypass", async () => {
   tokens.set("qiy.access_token", "policy-test-token");
   for (const policy of ${JSON.stringify(actionPolicies.filter((policy) => policy.roles.length && !policy.permissions?.length && !policy.verification))}) {
-    for (const candidate of ["admin", "operator", "viewer"]) {
+    for (const candidate of ${JSON.stringify(roles.names)}) {
       role = candidate;
       clearIdentityCache();
       expect((await qiyAccessControlProvider.can({ resource: policy.resource, action: policy.action })).can).toBe(policy.roles.includes(candidate));
@@ -1057,10 +1061,10 @@ test("permission-guarded commands follow effective permissions from /auth/me", a
   // Without permission metadata the generated provider keeps the legacy role allow list.
   identityPermissions = undefined;
   identityGroups = undefined;
-  role = "viewer";
+  role = ${JSON.stringify(roles.least)};
   clearIdentityCache();
   for (const policy of ${JSON.stringify(webPermissionPolicies.map((policy) => ({ resource: policy.resource, action: policy.action, roles: policy.roles })))}) {
-    expect((await qiyAccessControlProvider.can({ resource: policy.resource, action: policy.action })).can).toBe(policy.roles.includes("viewer"));
+    expect((await qiyAccessControlProvider.can({ resource: policy.resource, action: policy.action })).can).toBe(policy.roles.includes(${JSON.stringify(roles.least)}));
   }
   tokens.clear();
 });
@@ -1292,7 +1296,7 @@ test("page field layout follows the declared roles", () => {
     expect(field).toBeDefined();
     expect(field?.roles).toEqual(rule.roles);
     // Every role outside the rule must not see the field, inside must see it.
-    for (const role of ["admin", "operator", "viewer"]) {
+    for (const role of ${JSON.stringify(roles.names)}) {
       expect(canSeeField(field!, role)).toBe(rule.roles.includes(role));
     }
     expect(canSeeField(field!, undefined)).toBe(false);
@@ -1303,7 +1307,7 @@ test("fields without layout rules stay visible to every role", () => {
   for (const resource of resources) {
     for (const field of resource.fields) {
       if (field.roles) continue;
-      for (const role of ["admin", "operator", "viewer"]) expect(canSeeField(field, role)).toBe(true);
+      for (const role of ${JSON.stringify(roles.names)}) expect(canSeeField(field, role)).toBe(true);
     }
   }
 });
@@ -2703,7 +2707,7 @@ ${Object.entries(options.messages.locales).flatMap(([locale, entries]) => Object
     const userTable = database.entities.find((entity) => entity.name === options.auth!.userEntity)!.tableName;
     generated["web/app/auth.ts"] = generated["web/app/auth.ts"]!
       .replace('resource === "users"', `resource === ${JSON.stringify(userTable)}`)
-      .replace('if (identity.role === "admin")', 'if (action === "audit") return { can: identity.role === "admin" }; if (identity.role === "admin")');
+      .replace('if (access === "full")', 'if (action === "audit") return { can: access === "full" }; if (access === "full")');
     generated["web/tests/auth.test.ts"] = generated["web/tests/auth.test.ts"]!.replaceAll('resource: "users"', `resource: ${JSON.stringify(userTable)}`).replaceAll('resource === "users"', `resource === ${JSON.stringify(userTable)}`);
     generated["web/tests/auth.test.ts"] += `
 test("fetches the identity once per access token, even for concurrent guards", async () => {
@@ -3727,7 +3731,7 @@ function renderWebDocsModule(usesAuth: boolean): string {
 ${usesAuth ? 'import { qiyAuthToken } from "./auth";' : 'const qiyAuthToken = (): string | undefined => (typeof window === "undefined" ? undefined : window.localStorage.getItem("qiy.access_token") ?? undefined);'}
 import { qiyFeatureFlags } from "./features";
 
-export type DocsRole = "admin" | "operator" | "viewer";
+export type DocsRole = string;
 export interface DocsEnumValue { name: string; label: string; labelKey: string }
 export interface DocsField {
   name: string;

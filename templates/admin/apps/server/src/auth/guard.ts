@@ -1,9 +1,10 @@
 import { getOperationAST, parse, type DocumentNode, type FieldNode, type FragmentDefinitionNode, type SelectionSetNode } from "graphql";
+import { canWrite, hasFullAccess, isQiyRole, type QiyRole } from "./roles";
 
 export interface Principal {
   id: string;
   name: string;
-  role: "admin" | "operator" | "viewer";
+  role: QiyRole;
   /**
    * Verified id_token claims. Scalar claims keep their JSON type; string arrays
    * are preserved because identity providers commonly emit roles/groups as an
@@ -72,10 +73,11 @@ function rootFields(document: DocumentNode, selection: SelectionSetNode, seen = 
   return fields;
 }
 
+/** Coarse access from the role's declared level; restrict/pages rules refine it per resource. */
 function mayAccess(role: Principal["role"], resource: ProtectedResource, method: string): boolean {
-  if (role === "admin") return true;
+  if (hasFullAccess(role)) return true;
   if (resource.path === "users") return false;
-  return role === "operator" || (role === "viewer" && method === "GET");
+  return isQiyRole(role) && (canWrite(role) || method === "GET");
 }
 
 export function createAuthorizationGuard(authenticate: Authenticator, resources: ProtectedResource[], pages: PageRules = {}, publicPaths: string[] = [], roleGuardExemptPaths: string[] = []) {

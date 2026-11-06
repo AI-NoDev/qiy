@@ -1,7 +1,8 @@
 import { and, eq, gt, gte, inArray, lt, lte, ne, not, notInArray, or } from "drizzle-orm";
 import type { Principal } from "../auth/guard";
+import type { QiyRole } from "../auth/roles";
 
-export type QiyRole = "admin" | "operator" | "viewer";
+export type { QiyRole };
 
 export interface QiyRowPredicate {
   field: string;

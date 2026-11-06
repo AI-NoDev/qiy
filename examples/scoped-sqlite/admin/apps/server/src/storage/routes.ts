@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import type { Authenticator } from "../auth/guard";
+import { canWrite, hasFullAccess } from "../auth/roles";
 import { createStorageFromEnv, storageKey } from "./index";
 
 type AttachmentMetadata = { id: string; storageKey: string; fileName: string | null; contentType: string; size: number; ownerId: string; resource: string; resourceId: string | null; createdAt: string };
@@ -78,7 +79,7 @@ export async function scanOrphanAttachmentObjects(options: { dryRun?: boolean; l
 }
 
 function canReadAttachment(principal: { id: string; role: string }, metadata: AttachmentMetadata | undefined): boolean {
-  return principal.role === "admin" || metadata?.ownerId === principal.id;
+  return hasFullAccess(principal.role) || metadata?.ownerId === principal.id;
 }
 
 function failure(status: (code: number, body: unknown) => unknown, code: number, message: string) {
@@ -146,7 +147,7 @@ export function createStorageRoutes(authenticate: Authenticator) {
     }, { query: t.Object({ key: t.String({ minLength: 1, maxLength: 240 }) }) })
     .post("/", async ({ query, request, status }) => {
       const principal = await authenticate(request);
-      if (!principal || (principal.role !== "admin" && principal.role !== "operator")) return failure(status, 403, "Permission denied");
+      if (!principal || !canWrite(principal.role)) return failure(status, 403, "Permission denied");
       try {
         const content = await request.blob();
         return { ...await saveUpload(principal, query, content, "binary") };
@@ -154,7 +155,7 @@ export function createStorageRoutes(authenticate: Authenticator) {
     }, { query: t.Object({ key: t.String({ minLength: 1, maxLength: 240 }), fileName: t.Optional(t.String({ maxLength: 255 })), contentType: t.Optional(t.String({ maxLength: 255 })), resource: t.String({ minLength: 1, maxLength: 160 }), resourceId: t.Optional(t.String({ maxLength: 160 })), field: t.String({ minLength: 1, maxLength: 160 }) }) })
     .post("/base64", async ({ body, request, status }) => {
       const principal = await authenticate(request);
-      if (!principal || (principal.role !== "admin" && principal.role !== "operator")) return failure(status, 403, "Permission denied");
+      if (!principal || !canWrite(principal.role)) return failure(status, 403, "Permission denied");
       try {
         const content = decodeBase64(body.data, body.contentType);
         return { ...await saveUpload(principal, body, content, "base64") };
@@ -181,13 +182,13 @@ export function createStorageRoutes(authenticate: Authenticator) {
     }, { query: t.Object({ key: t.String({ minLength: 1, maxLength: 240 }) }) })
     .delete("/", async ({ query, request, status }) => {
       const principal = await authenticate(request);
-      if (!principal || principal.role !== "admin") return failure(status, 403, "Permission denied");
+      if (!principal || !hasFullAccess(principal.role)) return failure(status, 403, "Permission denied");
       try { const key = storageKey(query.key); await storage.delete(key); await removeMetadata(key); return { deleted: true }; }
       catch { return failure(status, 400, "Invalid storage key"); }
     }, { query: t.Object({ key: t.String({ minLength: 1, maxLength: 240 }) }) })
     .post("/upload-sessions", async ({ body, request, status }) => {
       const principal = await authenticate(request);
-      if (!principal || (principal.role !== "admin" && principal.role !== "operator")) return failure(status, 403, "Permission denied");
+      if (!principal || !canWrite(principal.role)) return failure(status, 403, "Permission denied");
       try {
         const key = storageKey(body.key);
         const policy = uploadPolicy(body.resource, body.field);

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { Elysia } from "elysia";
 import { createGraphQLRoutes } from "../src/graphql";
 import type { Repositories } from "../src/app";
+import { QIY_ADMIN_ROLE } from "../src/auth/roles";
 
 const repository = {
   async distribution() { return []; },
@@ -14,7 +15,7 @@ const repository = {
   async deleteMany() { return []; },
 };
 const repositories = Object.fromEntries(["users","customers","warehouses","products","inventoryItems","orders","orderItems"].map((name) => [name, repository])) as unknown as Repositories;
-const app = new Elysia().use(createGraphQLRoutes(repositories, async () => ({ id: "admin", role: "admin", name: "Admin", claims: {"tenant.customerId":"00000000-0000-4000-8000-000000000002"} })));
+const app = new Elysia().use(createGraphQLRoutes(repositories, async () => ({ id: "admin", role: QIY_ADMIN_ROLE, name: "Admin", claims: {"tenant.customerId":"00000000-0000-4000-8000-000000000002"} })));
 const request = (query: string, variables: Record<string, unknown>) => new Request("http://localhost/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, variables }) });
 
   test("rejects disabled sort orders.status", async () => {

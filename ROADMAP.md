@@ -193,7 +193,7 @@
 - [x] kitchen-sink 全语法 fixture（三方言）+ CI 示例漂移检查
 - [x] 字段校验与默认值：`@min`/`@max`/`@length`/`@pattern`/`@default`，服务端与表单同源
 - [x] 乐观锁 `@version`（冲突 409，表单提示并重新加载）
-- [ ] 自定义角色（替代固定的 `admin`/`operator`/`viewer`）
+- [x] 自定义角色：`auth { roles { <name> full|write|read; } }`，替代固定的 `admin`/`operator`/`viewer`
 - [ ] 多对多关系与多选 UI（`relation ... many` 目前解析后被拒绝）
 - [ ] 声明式状态机 / 审批流转，完成后删除 `workflow orderInventory`
 - [ ] Dataflow 应用资源的 `restrict` 行策略（目前带行策略的资源不能被 Dataflow 使用）

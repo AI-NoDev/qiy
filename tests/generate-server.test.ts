@@ -265,7 +265,7 @@ describe("V0 Elysia API generation", () => {
     expect(module).toContain('const duplicates = existing.filter((row) => row.name === input.name);');
     expect(module).toContain("if (!duplicate && existing.length >= MAX_VIEWS_PER_RESOURCE)");
     // The owner or an admin may delete; other users are forbidden.
-    expect(module).toContain('if (row.ownerId !== principal.id && principal.role !== "admin") return "forbidden";');
+    expect(module).toContain('if (row.ownerId !== principal.id && !hasFullAccess(principal.role)) return "forbidden";');
     expect(module).toContain("MAX_VIEWS_PER_RESOURCE = 100");
     expect(module).toContain("createSavedViewsRoutes(authenticate: Authenticator)");
     expect(files["api/src/app.ts"]).toContain("createSavedViewsRoutes(authenticateRequest)");

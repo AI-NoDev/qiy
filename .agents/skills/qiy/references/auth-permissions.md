@@ -47,6 +47,7 @@ auth {
 | "user" <entity> ";"
 | "subjectField" <field> ";"
 | "roleField" <field> ";"
+| "roles" "{" ( <role-name> ( "full" | "write" | "read" ) ";" )+ "}"
 | "usernameField" <field> ";"
 | "passwordField" <field> ";"
 | "profileField" <field> ";"
@@ -58,7 +59,12 @@ auth {
   providers local, okta, google;
   user users;
   subjectField subject;          // canonical external identity column
-  roleField role;                // required: enum with exactly admin/operator/viewer
+  roleField role;                // required: enum whose values are exactly the declared roles
+  roles {                        // optional; default admin full; operator write; viewer read;
+    owner full;
+    agent write;
+    auditor read;
+  }
   usernameField email;           // local / otp login identifier
   passwordField passwordHash;    // local password hash
   profileField oauthProfiles;    // optional: per-provider profile JSON
@@ -92,7 +98,8 @@ Every external login is OpenID Connect; vendors differ only in endpoint shape, b
 | `providers` | one of two | - | Comma list; unique; cannot contain `otp`; may contain `local` |
 | `user` | yes | - | Declared user entity (`Auth: unknown user entity X`) |
 | `subjectField` | required for OAuth family | empty | Required + unique + Text column |
-| `roleField` | yes | - | Enum whose values are **exactly** `admin`, `operator`, `viewer` |
+| `roleField` | yes | - | Enum whose values are **exactly** the declared role names (default `admin`, `operator`, `viewer`) |
+| `roles { <name> <full\|write\|read>; }` | no | `admin full; operator write; viewer read;` | Custom roles; see [Custom roles](#custom-roles) |
 | `usernameField` | required for `local`/`otp` | empty | Required + unique + Text or Email; must differ from `passwordField` |
 | `passwordField` | required for `local` | empty | Nullable Text; never appears in the API schema |
 | `profileField` | no | empty | Nullable Text JSON; only with at least one OAuth provider |
@@ -100,6 +107,24 @@ Every external login is OpenID Connect; vendors differ only in endpoint shape, b
 | block `preset` | no | preset named like the provider, else `generic` | One of `generic`, `okta`, `auth0`, `azure-ad-b2c`, `keycloak`, `google`, `kinde` |
 | block `label` | no | preset vendor name -> provider name | Login button text (string) |
 | block `claim` | no | `sub` | Plain claim name `[A-Za-z_][A-Za-z0-9_]*`; quotes are rejected |
+
+## Custom roles
+
+Without `roles`, the roles are `admin full; operator write; viewer read;`. Declare your own names and levels when the business needs them:
+
+| Access | Business resources | User table, audit history, import/export workers | Dataflow without `allow` |
+| --- | --- | --- | --- |
+| `full` | every action | allowed | allowed |
+| `write` | list/show/create/edit/delete | denied | allowed |
+| `read` | list/show | denied | denied |
+
+- At least one `full` role; names start lowercase, letters/digits only, unique (`Auth roles: ...`).
+- The `roleField` enum values must equal the role names exactly; the enum still supplies labels, colors and icons.
+- `restrict`, `pages`, `mask`, `realtime`, `action` and `dataflow` `allow roles` may only name declared roles (`unknown role X; declared roles are ...`); dataflows reject `read` roles (`role X has read access and cannot run commands`).
+- Dataflows without `allow` run for every `full`/`write` role.
+- The first `full` role is the bootstrap admin; the first role with the least access is the default `QIY_OIDC_DEFAULT_ROLE`.
+- Generated `api/src/auth/roles.ts` exports `QiyRole`, `QIY_ROLES`, `QIY_ROLE_NAMES`, `QIY_ADMIN_ROLE`, `QIY_DEFAULT_ROLE`, `isQiyRole()`, `hasFullAccess()`, `canWrite()`; guard, storage, audit, workers, API keys and docs read it, and the web access control provider embeds the same access table.
+- Renaming roles is a data migration: update stored role values before deploying; sessions carrying an unknown role fail closed (401/403).
 
 ## User model contract
 
@@ -130,7 +155,7 @@ entity users table users @label("Users") {
 | `passwordField` | nullable Text | `Auth: passwordField must be a nullable Text field storing the password hash` |
 | distinct columns | - | `Auth: usernameField and passwordField must be different fields` |
 | `subjectField` | required, unique, Text (with OAuth) | `Auth: subjectField must be a required unique Text field` |
-| `roleField` | enum exactly admin/operator/viewer | `Auth: roleField must be an enum with admin, operator and viewer values` |
+| `roleField` | enum exactly the declared roles | `Auth: roleField must be an enum whose values are exactly the declared roles (...)` |
 | per-provider column | exists, Text, nullable, unique | `Auth: provider okta subjectField oktaSubject must be nullable ...` |
 | `profileField` | nullable Text | `Auth: profileField must be a nullable Text field storing per-provider profile metadata` |
 | onboarding | every other required column must be nullable | `Auth: OAuth onboarding cannot populate required user fields: ...; make them nullable` |
@@ -262,7 +287,7 @@ Server variables:
 | `QIY_OIDC_JWKS_TIMEOUT_MS` | `5000` | OAuth | single JWKS request timeout, min 1 |
 | `QIY_OIDC_JWKS_COOLDOWN_MS` | `30000` | OAuth | minimum interval before refetching on an unknown `kid` |
 | `QIY_OIDC_JWKS_CACHE_MAX_AGE_MS` | `600000` | OAuth | key cache age; also the worst-case revocation delay |
-| `QIY_OIDC_DEFAULT_ROLE` | `viewer` | hybrid | onboarding role; must be admin/operator/viewer |
+| `QIY_OIDC_DEFAULT_ROLE` | first least-privileged role (`viewer` by default) | hybrid | onboarding role; must be a declared role |
 | `QIY_OTP_DELIVERY_URL` / `_TOKEN` / `_TIMEOUT_MS` | empty / empty / `10000` | otp | HTTPS adapter, optional bearer, 100..60000 ms |
 | `QIY_OTP_DEV_CODE` | `246810` in dev | otp dev | fixed code + `devCode` echo; only with `QIY_DEV_MODE=1` |
 | `QIY_DEV_MODE` | `1` without auth, else `0` | - | startup gate for no-auth apps, OTP dev code, error detail |
@@ -294,7 +319,7 @@ permission verification <Name> [@label(...)] [@comment(...)] {
 | `from claim` | Provider must be a configured OAuth/OIDC provider; `local`/`otp` are rejected; duplicate provider+claim rejected; multiple entries allowed |
 | `verification` | Must have `return`; `input` optional; input types are only `Text` and `Array<String>` |
 
-Group semantics: unknown member (`unknown member`), empty group, duplicate member, self reference and cycles are rejected. A group named `admin`/`operator`/`viewer` becomes a **role group**: a principal with that role receives all expanded values. Groups expand recursively into a sorted, de-duplicated set.
+Group semantics: unknown member (`unknown member`), empty group, duplicate member, self reference and cycles are rejected. A group named like a declared role (default `admin`/`operator`/`viewer`) becomes a **role group**: a principal with that role receives all expanded values. Groups expand recursively into a sorted, de-duplicated set.
 
 Database column content contract:
 
@@ -391,7 +416,7 @@ dataflow reserveStock @label("Reserve") {
 
 | Rule | dataflow | action (`navigate`) | action (bound dataflow) |
 | --- | --- | --- | --- |
-| `allow roles` | only `admin`/`operator`, non-empty, no duplicates | non-empty subset of admin/operator/viewer | forbidden (declare it on the dataflow) |
+| `allow roles` | declared `full`/`write` roles, non-empty, no duplicates | non-empty subset of the declared roles | forbidden (declare it on the dataflow) |
 | `allow permission` | one or more permission fields/groups, expanded to values at generation | allowed; controls button/page visibility | forbidden |
 | `allow verification` | verification may have inputs; each needs a same-named `@required` Text/enum flow input | verification must have **no** input (`requires inputs and cannot guard a navigate action`) | forbidden |
 | Default | `admin, operator` | resource default | inherited from the dataflow |
@@ -434,7 +459,7 @@ restrict orders {
 
 | Setting | Values | Default | Semantics |
 | --- | --- | --- | --- |
-| `allow roles` | admin/operator/viewer, non-empty, unique | unrestricted | Whether the resource is usable at all; admin is **not** exempt |
+| `allow roles` | declared roles, non-empty, unique | unrestricted | Whether the resource is usable at all; `full` roles are **not** exempt |
 | `when <field> claim <claim>` | non-null, non-PK field; claim may contain dots | - | Row predicate, `==`; missing claim -> 403 |
 | `when <field> == / != "<v>"` | one value | - | Literal row predicate; types Text/enum/Integer/Decimal/Money/Date/Time/DateTime |
 | `when <field> in / notIn "<v1>", ...` | <= 64 unique values | - | Set predicate (`hide` semantics) |
@@ -511,7 +536,7 @@ pages orders {
 | Rule | Detail |
 | --- | --- |
 | Actions | `list`, `show`, `create`, `edit`, `delete`; each at most once |
-| Roles | Non-empty, unique, only admin/operator/viewer |
+| Roles | Non-empty, unique, declared roles only |
 | Undeclared actions | Not restricted by page rules (still subject to `restrict.roles` and the role model) |
 | `field <name> roles ...` | UI rendering only (`canSeeField`); it does **not** filter API responses - use `mask` to hide data |
 | Empty block | At least one action or field rule, else `requires at least one page action or field rule` |

@@ -1,5 +1,7 @@
 /** Generated OpenAPI 3.1 + documentation metadata. Do not edit by hand. */
-export type DocsRole = "admin" | "operator" | "viewer";
+import { QIY_ROLES, QIY_ROLE_NAMES, hasFullAccess, type QiyRole } from "./auth/roles";
+
+export type DocsRole = QiyRole;
 export type DocsAction = "list" | "show" | "create" | "edit" | "delete";
 export interface DocsPrincipal { role: DocsRole; permissions?: string[] }
 export interface DocsEnumValue { name: string; label: string; labelKey: string }
@@ -3147,7 +3149,7 @@ function restrictedRoles(tableName: string): string[] | undefined {
 }
 
 export function mayUseResource(tableName: string, principal: DocsPrincipal): boolean {
-  if (principal.role === "admin") return true;
+  if (hasFullAccess(principal.role)) return true;
   if (docsMeta.userTable === tableName) return false;
   const roles = restrictedRoles(tableName);
   if (roles && roles.length > 0 && !roles.includes(principal.role)) return false;
@@ -3158,13 +3160,13 @@ export function mayUseAction(tableName: string, action: DocsAction, principal: D
   if (!mayUseResource(tableName, principal)) return false;
   const pageRule = docsMeta.pageRules[tableName]?.[action];
   if (pageRule && !pageRule.includes(principal.role)) return false;
-  if (principal.role === "viewer") return action === "list" || action === "show";
+  if (QIY_ROLES[principal.role] === "read") return action === "list" || action === "show";
   return true;
 }
 
-/** Commands are admin-only unless an allow rule names the role/permission; verification-gated commands are admin-only in the docs. */
+/** Commands are full-access only unless an allow rule names the role/permission; verification-gated commands are full-access only in the docs. */
 export function flowAllowed(flow: DocsDataflow, principal: DocsPrincipal): boolean {
-  if (principal.role === "admin") return true;
+  if (hasFullAccess(principal.role)) return true;
   if (flow.verification) return false;
   if (flow.allowRoles.length > 0) return flow.allowRoles.includes(principal.role);
   if (flow.allowPermissions.length > 0) {
@@ -3238,7 +3240,7 @@ export function buildOpenApiDocument(principal: DocsPrincipal): GeneratedOpenApi
     const restricted = restrictedRoles(tableName);
     if (pageRule && pageRule.length) return pageRule;
     if (restricted && restricted.length) return restricted;
-    return ["admin", "operator", "viewer"];
+    return [...QIY_ROLE_NAMES];
   };
   const add = (path: string, method: string, operation: Record<string, unknown>) => {
     if (!paths[path]) paths[path] = {};
@@ -3282,7 +3284,7 @@ export function buildOpenApiDocument(principal: DocsPrincipal): GeneratedOpenApi
     if (!flowAllowed(flow, principal)) {
       // Verification-gated commands need runtime inputs the docs cannot provide;
       // non-admins see them listed as hidden instead of silently missing.
-      if (principal.role !== "admin" && flow.verification) {
+      if (!hasFullAccess(principal.role) && flow.verification) {
         hiddenOperations.push({ method: "post", path: "/api/v1/commands/" + flow.name, reason: "verification", verification: flow.verification, label: flow.label });
       }
       continue;

@@ -1,10 +1,10 @@
 import { Elysia } from "elysia";
 import type { Authenticator, Principal } from "./auth/guard";
 import { buildDocsModel, buildOpenApiDocument, type DocsPrincipal, type DocsRole } from "./docs";
+import { QIY_DEFAULT_ROLE, isQiyRole } from "./auth/roles";
 import { loadPermissions } from "./auth/permissions";
 
-const ROLES = ["admin", "operator", "viewer"] as const;
-function asRole(value: unknown): DocsRole { return typeof value === "string" && (ROLES as readonly string[]).includes(value) ? value as DocsRole : "viewer"; }
+function asRole(value: unknown): DocsRole { return isQiyRole(value) ? value : QIY_DEFAULT_ROLE; }
 
 async function docsPrincipal(principal: Principal): Promise<DocsPrincipal> {
   const snapshot = await loadPermissions(principal);

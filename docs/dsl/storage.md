@@ -77,13 +77,13 @@ field <name> ( "File" | "Files" ) ( "@upload(" ( "binary" | "base64" | "both" ) 
 
 | 方法 | 路径 | 作用 | 角色 |
 | --- | --- | --- | --- |
-| `POST` | `/api/v1/files?key&resource&field[&fileName&contentType&resourceId]` | 二进制上传（`request.blob()`） | `admin`/`operator` |
-| `POST` | `/api/v1/files/base64` | JSON 上传：`{ key, data, contentType, resource, field, … }` | `admin`/`operator` |
-| `GET` | `/api/v1/files?key=` | 读取对象（鉴权后流式返回） | 归属者或 `admin` |
-| `GET` | `/api/v1/files/metadata?key=` | 附件元数据 | 归属者或 `admin` |
-| `GET` | `/api/v1/files/signed?key=` | 签名 URL（S3 返回 300 秒预签名；local 返回 `null`） | 归属者或 `admin` |
-| `DELETE` | `/api/v1/files?key=` | 删除对象 + 元数据 | 仅 `admin` |
-| `POST` | `/api/v1/files/upload-sessions` | 开启分片上传会话 | `admin`/`operator` |
+| `POST` | `/api/v1/files?key&resource&field[&fileName&contentType&resourceId]` | 二进制上传（`request.blob()`） | `full`/`write` 角色 |
+| `POST` | `/api/v1/files/base64` | JSON 上传：`{ key, data, contentType, resource, field, … }` | `full`/`write` 角色 |
+| `GET` | `/api/v1/files?key=` | 读取对象（鉴权后流式返回） | 归属者或 `full` 角色 |
+| `GET` | `/api/v1/files/metadata?key=` | 附件元数据 | 归属者或 `full` 角色 |
+| `GET` | `/api/v1/files/signed?key=` | 签名 URL（S3 返回 300 秒预签名；local 返回 `null`） | 归属者或 `full` 角色 |
+| `DELETE` | `/api/v1/files?key=` | 删除对象 + 元数据 | 仅 `full` 角色 |
+| `POST` | `/api/v1/files/upload-sessions` | 开启分片上传会话 | `full`/`write` 角色 |
 | `GET` | `/api/v1/files/upload-sessions/:id` | 查询已收字节（断点续传） | 会话创建者 |
 | `PUT` | `/api/v1/files/upload-sessions/:id?offset=n` | 追加一块；offset 必须等于已收字节 | 会话创建者 |
 | `POST` | `/api/v1/files/upload-sessions/:id/complete` | 合并 + 校验 + 落库 | 会话创建者 |
@@ -110,9 +110,9 @@ field <name> ( "File" | "Files" ) ( "@upload(" ( "binary" | "base64" | "both" ) 
 
 | 操作 | 规则 |
 | --- | --- |
-| 读/下载/元数据/签名 | `principal.id === metadata.ownerId` 或 `principal.role === "admin"`；否则 404（不泄露存在性） |
-| 上传 | `admin`/`operator`（`viewer` 403 `Permission denied`） |
-| 删除 | 仅 `admin` |
+| 读/下载/元数据/签名 | `principal.id === metadata.ownerId` 或 principal 是 `full` 角色；否则 404（不泄露存在性） |
+| 上传 | `full`/`write` 角色（`read` 角色 403 `Permission denied`） |
+| 删除 | 仅 `full` 角色 |
 | 元数据缺失 | 一律 404，不会从缓存「恢复」访问 |
 
 附件记录的 `resource`/`resourceId`/`fileName`/`contentType`/`size`/`ownerId` 由上传请求记录，可用于审计与清理；删除实体行**不会**自动删除对象（见清理命令）。
@@ -261,7 +261,7 @@ bucket 必须事先存在；`GET /api/v1/files/signed` 会返回 300 秒有效�
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
 | 上传 415 | MIME 不在 `@mime`，或 `@upload` 不允许该编码 | 调整字段声明或请求头/编码 |
-| 上传 403 | 当前角色是 `viewer` | 用 `admin`/`operator` 会话 |
+| 上传 403 | 当前角色是 `read` 级别（默认 `viewer`） | 用 `full`/`write` 角色会话 |
 | 下载 404 | 不是归属者/不是 admin，或元数据缺失 | 用上传者账号；检查 `QIY_STORAGE_METADATA=database` |
 | 重启后文件打不开 | 仍用内存元数据 | 设 `QIY_STORAGE_METADATA=database` 并迁移 |
 | `QIY_STORAGE_METADATA=database is required for production file metadata` | 生产启动校验 | 修正 `.env.production` |

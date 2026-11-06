@@ -1,18 +1,18 @@
 scope contracts orgId claim org.id tree organizations parentId;
 
 restrict contracts {
-  allow roles admin, operator, viewer;
+  allow roles owner, agent, auditor;
   when ( scope or ownerId claim user.id );
   when status in "open", "pending", "closed";
-  mask amount roles operator, viewer mode redact replacement "***";
+  mask amount roles agent, auditor mode redact replacement "***";
   mask internalNote claim absent compliance.level mode omit;
 }
 
 pages contracts {
-  list roles admin, operator, viewer;
-  show roles admin, operator, viewer;
-  create roles admin, operator;
-  edit roles admin, operator;
-  delete roles admin;
-  field amount roles admin;
+  list roles owner, agent, auditor;
+  show roles owner, agent, auditor;
+  create roles owner, agent;
+  edit roles owner, agent;
+  delete roles owner;
+  field amount roles owner;
 }

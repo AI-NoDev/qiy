@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Elysia } from "elysia";
 import { InventoryRoutes, type InventoryRepository } from "../src/routes/inventory";
+import { QIY_ADMIN_ROLE } from "../src/auth/roles";
 
 const records = new Map<string, Record<string, unknown>>();
 const repository: InventoryRepository = {
@@ -55,7 +56,7 @@ const repository: InventoryRepository = {
     return deleted;
   },
 };
-  const app = new Elysia({ prefix: "/api/v1" }).use(InventoryRoutes(repository, async () => ({ id: "00000000-0000-4000-8000-000000000001", name: "Scoped User", role: "admin", claims: {"org.id":"00000000-0000-4000-8000-000000000002"} })));
+  const app = new Elysia({ prefix: "/api/v1" }).use(InventoryRoutes(repository, async () => ({ id: "00000000-0000-4000-8000-000000000001", name: "Scoped User", role: QIY_ADMIN_ROLE, claims: {"org.id":"00000000-0000-4000-8000-000000000002"} })));
 const endpoint = "http://localhost/api/v1/inventory";
 
 describe("inventory CRUD", () => {

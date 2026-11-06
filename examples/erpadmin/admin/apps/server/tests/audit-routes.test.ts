@@ -10,7 +10,7 @@ test("audit API protects history and validates pagination without trusting clien
   expect((await app.handle(new Request(endpoint))).status).toBe(401);
   principal = { id: "actor", name: "User", role: "operator" };
   expect((await app.handle(new Request(endpoint))).status).toBe(403);
-  principal.role = "admin";
+  principal = { id: "actor", name: "User", role: "admin" };
   expect((await app.handle(new Request(endpoint + "&pageSize=101"))).status).toBe(422);
   expect((await app.handle(new Request(endpoint + "&page=1.5"))).status).toBe(422);
   expect((await app.handle(new Request("http://localhost/api/v1/audit-logs/?resource=unknown"))).status).toBe(400);

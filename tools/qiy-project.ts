@@ -1,5 +1,6 @@
 import { validateDatabaseIR, validateEntityDisplayTemplates, type DatabaseIR, type EntityIR, type FieldIR, type FilterMode, type IndexIR, type IndexColumnIR, type RelationIR, type QiyViewIR } from "./database-ir";
 import { validateCodeTemplate } from "./code-template";
+import { QIY_ROLE_ACCESS, roleAccessTable, validateRoleDeclarations, type QiyRoleAccess, type QiyRoleDeclaration } from "./roles";
 import {
   formatPermissionExpression,
   validatePermissionModel,
@@ -146,7 +147,7 @@ export interface QiyProject {
    * password login is enabled in addition to the OAuth providers in `providers`.
    * `providers` never contains `otp` and never contains `local`.
    */
-  auth?: { provider: QiyAuthProvider; providers?: QiyAuthProvider[]; local?: boolean; userEntity: string; subjectField: string; providerMappings?: QiyAuthProviderMapping[]; roleField: string; usernameField?: string; passwordField?: string; profileField?: string; claimFields?: Array<{ claim: string; field: string }> };
+  auth?: { provider: QiyAuthProvider; providers?: QiyAuthProvider[]; local?: boolean; userEntity: string; subjectField: string; providerMappings?: QiyAuthProviderMapping[]; roleField: string; roles?: QiyRoleDeclaration[]; usernameField?: string; passwordField?: string; profileField?: string; claimFields?: Array<{ claim: string; field: string }> };
   environment?: QiyEnvironmentVariable[];
   messages?: { defaultLocale: string; locales: Record<string, Record<string, string>> };
   menuGroups?: Array<{ name: string; label: string; icon?: string; parent?: string; comment?: string; commentKey?: string; resources: string[] }>;
@@ -174,7 +175,8 @@ export interface QiyProject {
   actions?: QiyAction[];
 }
 
-export type QiyRole = "admin" | "operator" | "viewer";
+/** A role name declared in `auth { roles { ... } }` (default admin, operator, viewer). */
+export type QiyRole = string;
 export type QiyPageAction = "list" | "show" | "create" | "edit" | "delete";
 
 /**
@@ -258,7 +260,7 @@ export interface QiyRealtimeConfig {
   resources: Array<{
     resource: string;
     events: QiyRealtimeEvent[];
-    roles: Array<"admin" | "operator" | "viewer">;
+    roles: QiyRole[];
     /** Row-scoped channel: subscribers only receive records whose field matches their claim. */
     claim?: { field: string; claim: string };
   }>;
@@ -374,7 +376,7 @@ export function authProviderLabel(auth: ResolvedAuth | undefined, provider: QiyA
 
 export interface QiyAction {
   name: string;
-  roles?: Array<"admin" | "operator" | "viewer">;
+  roles?: QiyRole[];
   /** `allow permission ...`: principal must hold every expanded permission value. */
   permission?: string[];
   /** `allow verification ...`: evaluate that permission verification for the principal. */
@@ -400,7 +402,8 @@ export interface DataflowIR {
   commentKey?: string;
   idempotency?: { required: boolean };
   audit?: string;
-  roles?: Array<"admin" | "operator">;
+  /** Roles allowed to run the command; each needs full or write access. */
+  roles?: QiyRole[];
   /** `allow permission A, B;`: principal must hold every expanded permission value. */
   permission?: string[];
   /** `allow verification Name;`: evaluate a permission verification against the flow inputs. */
@@ -810,7 +813,6 @@ export function parseQiyProject(source: string): QiyProject {
           roles = [];
           do {
             const role = identifier();
-            if (role !== "admin" && role !== "operator") throw new Error(`Dataflow ${name}: unsupported command role ${role}`);
             if (roles.includes(role)) throw new Error(`Dataflow ${name}: duplicate command role ${role}`);
             roles.push(role);
             if (peek() !== ",") break;
@@ -1092,7 +1094,6 @@ export function parseQiyProject(source: string): QiyProject {
           roles = [];
           do {
             const role = identifier();
-            if (role !== "admin" && role !== "operator" && role !== "viewer") throw new Error(`Action ${name}: unsupported role ${role}`);
             if (roles.includes(role)) throw new Error(`Action ${name}: duplicate role ${role}`);
             roles.push(role);
             if (peek() !== ",") break;
@@ -1368,7 +1369,6 @@ export function parseQiyProject(source: string): QiyProject {
     const roles: QiyRole[] = [];
     do {
       const role = identifier();
-      if (role !== "admin" && role !== "operator" && role !== "viewer") throw new Error(`${context}: unsupported role ${role}`);
       if (roles.includes(role)) throw new Error(`${context}: duplicate role ${role}`);
       roles.push(role);
       if (peek() !== ",") break;
@@ -2264,7 +2264,7 @@ function enumeration(): import("./database-ir").EnumIR {
       seenResources.add(resource);
       expect("{");
       let events: QiyRealtimeEvent[] | undefined;
-      let roles: Array<"admin" | "operator" | "viewer"> | undefined;
+      let roles: QiyRole[] | undefined;
       let claim: { field: string; claim: string } | undefined;
       while (peek() !== "}") {
         const setting = identifier();
@@ -2287,7 +2287,6 @@ function enumeration(): import("./database-ir").EnumIR {
           roles = [];
           do {
             const role = identifier();
-            if (role !== "admin" && role !== "operator" && role !== "viewer") throw new Error(`Realtime resource ${resource}: unsupported role ${role}`);
             if (roles.includes(role)) throw new Error(`Realtime resource ${resource}: duplicate role ${role}`);
             roles.push(role);
             if (peek() !== ",") break;
@@ -2379,9 +2378,26 @@ function enumeration(): import("./database-ir").EnumIR {
     const attributes: Record<string, string> = {};
     const providerMappings: QiyAuthProviderMapping[] = [];
     const claimFields: Array<{ claim: string; field: string }> = [];
+    let declaredRoleList: QiyRoleDeclaration[] | undefined;
     while (peek() !== "}") {
       const key = identifier();
-      if (!["provider", "providers", "user", "subjectField", "roleField", "usernameField", "passwordField", "profileField", "claim"].includes(key)) throw new Error(`Unsupported auth attribute ${key}`);
+      if (!["provider", "providers", "user", "subjectField", "roleField", "roles", "usernameField", "passwordField", "profileField", "claim"].includes(key)) throw new Error(`Unsupported auth attribute ${key}`);
+      if (key === "roles") {
+        if (declaredRoleList) throw new Error("Duplicate auth roles block");
+        declaredRoleList = [];
+        expect("{");
+        while (peek() !== "}") {
+          const roleName = identifier();
+          const access = identifier();
+          if (!(QIY_ROLE_ACCESS as readonly string[]).includes(access)) throw new Error(`Auth roles: role ${roleName} has unsupported access ${access}; use full, write or read`);
+          declaredRoleList.push({ name: roleName, access: access as QiyRoleAccess });
+          expect(";");
+        }
+        expect("}");
+        const roleErrors = validateRoleDeclarations(declaredRoleList);
+        if (roleErrors.length) throw new Error(roleErrors.join("\n"));
+        continue;
+      }
       if (key === "claim") {
         const claim = claimIdentifier();
         const field = identifier();
@@ -2482,6 +2498,7 @@ function enumeration(): import("./database-ir").EnumIR {
       userEntity: attributes.user,
       subjectField,
       roleField: attributes.roleField,
+      ...(declaredRoleList ? { roles: declaredRoleList } : {}),
       ...(providerMappings.length ? { providerMappings } : {}),
       ...(usernameField && { usernameField }),
       ...(passwordField && { passwordField }),
@@ -2996,6 +3013,7 @@ function enumeration(): import("./database-ir").EnumIR {
   }
   expect("}");
   expect("<end>");
+  validateRoleReferences(auth, { restrictions, pages, realtime, dataflows, actions });
   for (const view of views) {
     const source = entities.find((entity) => entity.name === view.from || entity.tableName === view.from);
     if (!source) throw new Error(`view ${view.name}: unknown source entity ${view.from}`);
@@ -3015,6 +3033,29 @@ function enumeration(): import("./database-ir").EnumIR {
     throw new Error("@tenant requires an auth declaration so the tenant claim can be resolved");
   }
   return { name: packageName, ...(applicationDescription && applicationDescription), database: { ...(databaseDescription && databaseDescription), dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}), ...(views.length ? { views } : {}) }, ...(mode && { mode }), ...(integration && { integration }), ...(workspace && { workspace }), ...(ui && { ui }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(features && { features }), ...(auth && { auth }), ...(environment && { environment }), ...(messages && { messages }), ...(permissions && { permissions }), ...(scopes.length ? { scopes } : {}), ...(restrictions.length ? { restrictions } : {}), ...(pages.length ? { pages } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(charts.length && { charts }), ...(chartPanels.length && { chartPanels }), ...(realtime && { realtime }), ...(dataflows.length && { dataflows }), ...(actions.length && { actions }) };
+}
+
+/** Every role reference must name a declared role; commands additionally need write access. */
+function validateRoleReferences(auth: QiyProject["auth"], project: Pick<QiyProject, "restrictions" | "pages" | "realtime" | "dataflows" | "actions">): void {
+  const access = roleAccessTable(auth);
+  const declared = Object.keys(access).join(", ");
+  const check = (context: string, roles: readonly string[] | undefined) => {
+    for (const role of roles ?? []) if (!Object.hasOwn(access, role)) throw new Error(`${context}: unknown role ${role}; declared roles are ${declared}`);
+  };
+  for (const restriction of project.restrictions ?? []) {
+    check(`Restrict ${restriction.resource}`, restriction.roles);
+    for (const mask of restriction.masks ?? []) check(`Restrict ${restriction.resource} mask ${mask.field}`, mask.roles);
+  }
+  for (const page of project.pages ?? []) {
+    for (const action of page.actions) check(`Pages ${page.resource}`, action.roles);
+    for (const field of page.fields ?? []) check(`Pages ${page.resource} field ${field.field}`, field.roles);
+  }
+  for (const subscription of project.realtime?.resources ?? []) check(`Realtime resource ${subscription.resource}`, subscription.roles);
+  for (const action of project.actions ?? []) check(`Action ${action.name}`, action.roles);
+  for (const flow of project.dataflows ?? []) {
+    check(`Dataflow ${flow.name}`, flow.roles);
+    for (const role of flow.roles ?? []) if (access[role] === "read") throw new Error(`Dataflow ${flow.name}: role ${role} has read access and cannot run commands`);
+  }
 }
 
 function normalizePackageName(name: string): string {
@@ -3200,6 +3241,7 @@ export function serializeQiyProject(project: QiyProject): string {
     lines.push(`    user ${qiyIdentifier(project.auth.userEntity, "Auth user entity")};`);
     if (project.auth.subjectField) lines.push(`    subjectField ${qiyIdentifier(project.auth.subjectField, "Auth subject field")};`);
     lines.push(`    roleField ${qiyIdentifier(project.auth.roleField, "Auth role field")};`);
+    if (project.auth.roles) lines.push("    roles {", ...project.auth.roles.map((role) => `      ${qiyIdentifier(role.name, "Auth role")} ${role.access};`), "    }");
     if (project.auth.usernameField) lines.push(`    usernameField ${qiyIdentifier(project.auth.usernameField, "Auth username field")};`);
     if (project.auth.passwordField) lines.push(`    passwordField ${qiyIdentifier(project.auth.passwordField, "Auth password field")};`);
     if (project.auth.profileField) lines.push(`    profileField ${qiyIdentifier(project.auth.profileField, "Auth profile field")};`);

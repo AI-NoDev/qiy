@@ -1,9 +1,11 @@
 import type { DatabaseIR } from "./database-ir";
 import type { QiyProject } from "./qiy-project";
+import { roleContext } from "./roles";
 
 export function generateAudit(database: DatabaseIR, auth: NonNullable<QiyProject["auth"]>, scopes: QiyProject["scopes"]): Record<string, string> {
   const user = database.entities.find((entity) => entity.name === auth.userEntity)!;
   const nameField = user.fields.find((field) => field.name === "displayName")?.name;
+  const roles = roleContext(auth);
   const scoped = database.entities.filter((entity) => scopes?.some((scope) => scope.resource === entity.name || scope.resource === entity.tableName)).map((entity) => entity.tableName);
   return {
     ...(database.dialect === "sqlite" ? {
@@ -29,6 +31,7 @@ test("audit query joins the configured author model without exposing credentials
     } : {}),
     "api/src/audit/routes.ts": `import { Elysia, t } from "elysia";
 import type { Authenticator } from "../auth/guard";
+import { hasFullAccess } from "../auth/roles";
 
 export type AuditQuery = { resource: string; resourceId?: string; action?: string; actorId?: string; page: number; pageSize: number };
 export type AuditReader = (query: AuditQuery) => Promise<{ data: unknown[]; total: number }>;
@@ -40,7 +43,7 @@ export function createAuditRoutes(authenticate: Authenticator, read: AuditReader
     let principal;
     try { principal = await authenticate(request); } catch { return status(401, { error: "Invalid credentials" }); }
     if (!principal) return status(401, { error: "Authentication required" });
-    if (principal.role !== "admin") return status(403, { error: "Audit history is restricted to administrators" });
+    if (!hasFullAccess(principal.role)) return status(403, { error: "Audit history is restricted to administrators" });
     if (!resources.has(query.resource)) return status(400, { error: "Unknown audit resource" });
     if (scopedResources.has(query.resource)) return status(403, { error: "Tenant audit history requires persisted scope metadata" });
     return read({ ...query, page: query.page ?? 1, pageSize: query.pageSize ?? 20 });
@@ -69,9 +72,9 @@ test("audit API protects history and validates pagination without trusting clien
   const app = createAuditRoutes(async () => principal, async (query) => { calls.push(query); return { data: [{ id: "event", author: { id: "trusted" } }], total: 1 }; });
   const endpoint = "http://localhost/api/v1/audit-logs/?resource=" + ${JSON.stringify(database.entities.find((entity) => !scoped.includes(entity.tableName))?.tableName ?? database.entities[0]!.tableName)};
   expect((await app.handle(new Request(endpoint))).status).toBe(401);
-  principal = { id: "actor", name: "User", role: "operator" };
+${roles.member ? `  principal = { id: "actor", name: "User", role: ${JSON.stringify(roles.member)} };
   expect((await app.handle(new Request(endpoint))).status).toBe(403);
-  principal.role = "admin";
+` : ""}  principal = { id: "actor", name: "User", role: ${JSON.stringify(roles.admin)} };
   expect((await app.handle(new Request(endpoint + "&pageSize=101"))).status).toBe(422);
   expect((await app.handle(new Request(endpoint + "&page=1.5"))).status).toBe(422);
   expect((await app.handle(new Request("http://localhost/api/v1/audit-logs/?resource=unknown"))).status).toBe(400);

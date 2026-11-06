@@ -52,7 +52,7 @@ test("parses, rejects and round-trips record and field policy", () => {
   expect(() => parseQiyProject(model().replace("when ownerId", "when id"))).toThrow("primary key");
   expect(() => parseQiyProject(model().replace("field salary Decimal(10,2) @nullable;", "field salary Decimal(10,2) @nullable;\n    field secret Vector(3) @nullable;").replace("mask note", "mask secret roles viewer mode omit;\n    mask note"))).toThrow("Vector field");
   expect(() => parseQiyProject(model().replace('mode redact replacement "***"', "mode redact"))).toThrow("requires a replacement");
-  expect(() => parseQiyProject(model().replace("allow roles admin, operator", "allow roles owner"))).toThrow("unsupported role");
+  expect(() => parseQiyProject(model().replace("allow roles admin, operator", "allow roles owner"))).toThrow("unknown role owner; declared roles are admin, operator, viewer");
   expect(() => parseQiyProject(`qiy v0; application bad { database sqlite {} mode integration; integration { apiBase "/api"; auth none; } entity items { field id UUID @id; field title Text; } restrict items { when title claim user.id; } }`)).toThrow("cannot configure generated server features");
 });
 

@@ -3,6 +3,7 @@ import { Elysia, t } from "elysia";
 import { db } from "./db";
 import { qiySavedViews } from "./schema";
 import type { Authenticator, Principal } from "./auth/guard";
+import { hasFullAccess } from "./auth/roles";
 
 export interface QiySavedView {
   id: string;
@@ -79,7 +80,7 @@ export async function deleteSavedView(id: string, principal: Principal): Promise
   const row = db.select().from(qiySavedViews).where(eq(qiySavedViews.id, id)).get();
   if (!row) return "missing";
   // Owners delete their own rows; an admin may remove another user's shared row during cleanup.
-  if (row.ownerId !== principal.id && principal.role !== "admin") return "forbidden";
+  if (row.ownerId !== principal.id && !hasFullAccess(principal.role)) return "forbidden";
   db.delete(qiySavedViews).where(eq(qiySavedViews.id, id)).run();
   return "deleted";
 }

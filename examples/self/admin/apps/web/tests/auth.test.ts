@@ -19,7 +19,7 @@ test("authenticates using username and password", async () => {
   expect((await qiyAuthProvider.check({})).authenticated).toBe(true);
 });
 
-test("matches server admin, operator and viewer role policy", async () => {
+test("matches the server role policy for every declared role", async () => {
   role = "viewer"; clearIdentityCache();
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "list" })).can).toBe(false);
   expect((await qiyAccessControlProvider.can({ resource: "products", action: "show" })).can).toBe(false);
@@ -74,7 +74,7 @@ test("decides every resource page action, so route guards cannot be bypassed by 
 test("matches each action role allowlist without an admin bypass", async () => {
   tokens.set("qiy.access_token", "policy-test-token");
   for (const policy of [{"resource":"inventory","action":"reserveStock","roles":["admin","operator"]}]) {
-    for (const candidate of ["admin", "operator", "viewer"]) {
+    for (const candidate of ["admin","operator","viewer"]) {
       role = candidate;
       clearIdentityCache();
       expect((await qiyAccessControlProvider.can({ resource: policy.resource, action: policy.action })).can).toBe(policy.roles.includes(candidate));

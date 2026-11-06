@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import type { Authenticator } from "../auth/guard";
+import { hasFullAccess } from "../auth/roles";
 
 export type AuditQuery = { resource: string; resourceId?: string; action?: string; actorId?: string; page: number; pageSize: number };
 export type AuditReader = (query: AuditQuery) => Promise<{ data: unknown[]; total: number }>;
@@ -11,7 +12,7 @@ export function createAuditRoutes(authenticate: Authenticator, read: AuditReader
     let principal;
     try { principal = await authenticate(request); } catch { return status(401, { error: "Invalid credentials" }); }
     if (!principal) return status(401, { error: "Authentication required" });
-    if (principal.role !== "admin") return status(403, { error: "Audit history is restricted to administrators" });
+    if (!hasFullAccess(principal.role)) return status(403, { error: "Audit history is restricted to administrators" });
     if (!resources.has(query.resource)) return status(400, { error: "Unknown audit resource" });
     if (scopedResources.has(query.resource)) return status(403, { error: "Tenant audit history requires persisted scope metadata" });
     return read({ ...query, page: query.page ?? 1, pageSize: query.pageSize ?? 20 });

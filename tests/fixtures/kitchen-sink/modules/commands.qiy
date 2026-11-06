@@ -28,7 +28,7 @@ dataflow closeTicket @label(t("kitchen.flow.close")) @confirm(t("kitchen.flow.cl
 }
 
 dataflow purgeComment {
-  allow roles admin;
+  allow roles owner;
   idempotency required;
   input { field commentId UUID @required; }
   context { comment = entity ticketComments by id input.commentId @required; }
@@ -46,7 +46,6 @@ dataflow reopenTicket @label("Reopen ticket") {
 }
 
 dataflow retitleAnnouncement {
-  allow roles admin;
   idempotency required;
   input {
     field announcementId UUID @required;
@@ -67,7 +66,7 @@ action closeTicket {
 }
 
 action reviewTicket {
-  allow roles operator, viewer;
+  allow roles agent, auditor;
   resource tickets;
   placement show;
   label "Review";

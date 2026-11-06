@@ -92,7 +92,7 @@ dataflow <Name> ( "@label" "(" doc ")" | "@confirm" "(" doc ")" | "@comment" "("
 `allow` accepts exactly one form per flow (a second declaration is `duplicate allow declaration`; no declaration defaults to `admin, operator`):
 
 ```qiy
-allow roles admin, operator;                 // only admin/operator; viewer is rejected
+allow roles admin, operator;                 // declared full/write roles; read roles are rejected
 allow permission InventoryReceivePermission; // needs every expanded permission value
 allow verification CanShipOrders;            // evaluated with flow inputs
 ```
@@ -347,7 +347,7 @@ action <Name> {
 | `label` | navigate yes; dataflow optional | inherits flow `@label` | Display name; `t("key")` supported; neither -> generation fails |
 | `confirm` | no | inherits flow `@confirm` | Confirmation dialog; dataflow actions only |
 | `when <field> == \| != "<value>"` | no | always visible | Record visibility. Field must be `Text` or enum on this resource; enum values must be declared; only `==`/`!=` |
-| `allow roles/permission/verification` | no | inherits flow (dataflow action) | navigate actions accept admin/operator/viewer, permission fields/groups, and input-free verification; **forbidden** on dataflow actions |
+| `allow roles/permission/verification` | no | inherits flow (dataflow action) | navigate actions accept declared roles, permission fields/groups, and input-free verification; **forbidden** on dataflow actions |
 | `batch true` | no | `false` | See batch constraints above |
 | `page manual @comment(...)` | navigate yes | - | Placeholder page + unmanaged extension file; `@comment` required |
 

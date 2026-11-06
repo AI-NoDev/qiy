@@ -135,7 +135,7 @@ permission group viewer { ReportReadPermission }
 | 重复成员 | 报 `duplicate member` |
 | 自引用 / 环 | 报 `cannot reference itself` / `cyclic group reference G1 -> G2 -> G1` |
 | 命名冲突 | 组名与权限字段名、其它组名、校验名冲突均报错 |
-| 角色组 | 组名等于 `admin`/`operator`/`viewer` 时自动成为「角色组」：`role` 为 `admin` 的 principal 获得该组全部权限 |
+| 角色组 | 组名等于某个已声明角色（默认 `admin`/`operator`/`viewer`）时自动成为「角色组」：该角色的 principal 获得该组全部权限 |
 
 组本身也是**可被授予的条目**：`permission from database field` 的列值、claim 值、`allow permission A` 里的 A 都可以是一个组名，展开时递归取并集。展开结果是排序去重的：
 
@@ -343,18 +343,18 @@ dataflow reserveStock @label("预占库存") {
 
 | 规则 | dataflow | action（`navigate`） | action（绑定 dataflow） |
 | --- | --- | --- | --- |
-| `allow roles` | 只接受 `admin`/`operator`，空列表/重复/未知角色报错 | `admin`/`operator`/`viewer` 非空子集 | **禁止**（提示声明在 dataflow 上） |
+| `allow roles` | 只接受 `full`/`write` 级别的已声明角色，空列表/重复/未知角色/`read` 角色报错 | 已声明角色的非空子集 | **禁止**（提示声明在 dataflow 上） |
 | `allow permission` | A/B 可为权限字段或组名，生成期展开为**权限值** | 允许，控制按钮/页面可见性 | **禁止** |
 | `allow verification` | 校验块可以有 input，但每个 input 必须在 flow `input` 中有同名 `@required` `Text`/enum 字段 | 校验块**不能有 input**，否则报 `requires inputs and cannot guard a navigate action` | **禁止** |
-| 默认 | 未声明 allow 时 `admin, operator` | 未声明时沿用资源默认权限 | 继承 dataflow |
+| 默认 | 未声明 allow 时全部 `full`/`write` 角色（默认模型为 `admin, operator`） | 未声明时沿用资源默认权限 | 继承 dataflow |
 
 运行时（命令路由内、事务之前）：
 
 - 未认证 → 401；不在角色白名单 → 403 `{ error: "Command execution is restricted" }`。
 - `allow permission` 缺权限 → 403 `{ error: "Missing required permissions: ...", errorKey: "command.forbidden", missing: [...] }`。
 - `allow verification` 不满足 → 403 `{ error: "Permission verification <Name> denied this command", errorKey: "command.forbidden", missing?: [...] }`；校验名未知 → 403；输入形状错误 → 400。
-- **admin 不绕过**显式白名单：`allow roles operator;` 也会拒绝 admin。
-- `/api/v1/commands` 已从通用角色守卫中豁免（guard 只做认证），授权完全由命令路由执行，因此持有权限的**非** admin/operator 用户也能执行命令。
+- **full 角色不绕过**显式白名单：`allow roles operator;` 也会拒绝 admin。
+- `/api/v1/commands` 已从通用角色守卫中豁免（guard 只做认证），授权完全由命令路由执行，因此持有权限的 `read` 角色用户也能执行 `allow permission`/`allow verification` 命令。
 - 角色/权限/校验检查发生在**幂等回执查询与事务之前**；拒绝不写业务数据、审计或回执。回放时重新检查，已有成功回执不赋予访问权。
 
 Web 端（`web/app/auth.ts`）：
@@ -380,7 +380,7 @@ restrict orders {
 
 | 设置 | 取值 | 默认 | 语义 |
 | --- | --- | --- | --- |
-| `allow roles` | `admin`/`operator`/`viewer` 非空、不重复 | 不限制角色 | 决定「能否使用该资源」；admin 也受此限制 |
+| `allow roles` | 已声明角色，非空、不重复 | 不限制角色 | 决定「能否使用该资源」；full 角色也受此限制 |
 | `when <field> claim <claim>` | 字段非空、非主键、非 nullable；claim 允许点号 | — | 行条件，`==` 比较；claim 缺失按 `missing: deny` → 403 |
 | `when <field> == \| != "<值>"` | 单值 | — | 行条件；类型须为 Text/enum/Integer/Decimal/Money/Date/Time/DateTime |
 | `when <field> in \| notIn "<v1>", "<v2>"` | 最多 64 个值、不重复 | — | 行条件；值为 `hide` 语义 |
@@ -457,7 +457,7 @@ pages orders {
 | 属性 | 规则 |
 | --- | --- |
 | 动作 | 固定 `list` / `show` / `create` / `edit` / `delete`，每动作最多一次 |
-| 角色 | 非空、不重复，仅 `admin`/`operator`/`viewer` |
+| 角色 | 非空、不重复，只能是已声明角色 |
 | 未声明动作 | 不受页面规则限制（仍受 `restrict.roles` 与角色模型约束） |
 | `field <name> roles ...` | 只影响 UI 渲染（`canSeeField`）；**不会**过滤 API 响应，需要真正隐藏请用 `mask` |
 | 空块 | 至少一个动作或一个字段规则，否则 `requires at least one page action or field rule` |

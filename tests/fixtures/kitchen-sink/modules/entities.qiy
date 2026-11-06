@@ -1,7 +1,7 @@
 enum userRole @comment(t("kitchen.enum.role")) {
-  value admin label "Administrator" color red icon SafetyOutlined;
-  value operator label "Operator" color blue icon UserOutlined;
-  value viewer label "Viewer" color default icon EyeOutlined;
+  value owner label "Owner" color red icon SafetyOutlined;
+  value agent label "Agent" color blue icon UserOutlined;
+  value auditor label "Auditor" color default icon EyeOutlined;
 }
 
 enum ticketStatus {

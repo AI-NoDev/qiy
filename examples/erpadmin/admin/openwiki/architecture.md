@@ -18,6 +18,7 @@ The server owns validation, authorization and database transactions; the browser
 - [apps/server/src/auth/guard.ts](../apps/server/src/auth/guard.ts)
 - [apps/server/src/auth/local.ts](../apps/server/src/auth/local.ts)
 - [apps/server/src/auth/password.ts](../apps/server/src/auth/password.ts)
+- [apps/server/src/auth/roles.ts](../apps/server/src/auth/roles.ts)
 - [apps/server/src/auth/session-revocations.ts](../apps/server/src/auth/session-revocations.ts)
 - [apps/server/src/auth/set-password.ts](../apps/server/src/auth/set-password.ts)
 - [apps/server/src/auth/verify.ts](../apps/server/src/auth/verify.ts)

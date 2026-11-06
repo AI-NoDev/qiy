@@ -108,7 +108,7 @@ test("identity scenarios generate anonymous, role and tenant decisions for every
 test("identity fixtures reject invalid roles, references, duplicates and claim types", () => {
   const project = parseQiyProject(readFileSync(new URL("../examples/dataflow/identity.qiy", import.meta.url), "utf8"));
   const source = readFileSync(new URL("../examples/dataflow/identity.test.qiy", import.meta.url), "utf8");
-  expect(() => parseQiyTestSuite(source.replace('role = "operator"', 'role = "owner"'))).toThrow("unknown identity role");
+  expect(() => validateQiyTestSuite(parseQiyTestSuite(source.replace('role = "operator"', 'role = "owner"')), project)).toThrow("unknown identity role owner; declared roles are admin, operator, viewer");
   expect(() => parseQiyTestSuite(source.replace('id = "operator-a";', 'id = "operator-a"; id = "duplicate";'))).toThrow("duplicate identity id");
   expect(() => parseQiyTestSuite(source.replace('"tenant.id" = review.tenantId;', '"tenant.id" = review.tenantId; "tenant.id" = "duplicate";'))).toThrow("duplicate identity claim");
   expect(() => parseQiyTestSuite(source.replace('"tenant.id" = review.tenantId;', '"__proto__" = "unsafe";'))).toThrow("invalid identity claim");

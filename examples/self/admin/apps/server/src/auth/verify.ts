@@ -1,5 +1,6 @@
 import { jwtVerify, type JWTVerifyGetKey } from "jose";
 import type { Authenticator, Principal } from "./guard";
+import { isQiyRole } from "./roles";
 
 export interface OidcOptions {
   issuer: string;
@@ -55,7 +56,7 @@ export function createOidcAuthenticator(options: OidcOptions): Authenticator {
     const user = await options.findUser(externalSubject);
     if (!user) return null;
     const role = user[options.roleField];
-    if (role !== "admin" && role !== "operator" && role !== "viewer") return null;
+    if (!isQiyRole(role)) return null;
     if (typeof user.id !== "string") return null;
     // Claims are exposed to generated policy code (data scopes, permission claim
     // sources). Nested claims are flattened to dotted keys; object claims are
