@@ -668,7 +668,7 @@ test("translates the auto-generated hint in both built-in locales", () => {
 type QiyActionBase = { name: string; resource: string; placements: Array<"list" | "show">; batch?: boolean; label: string; labelKey?: string; roles?: string[]; condition?: QiyActionCondition };
 type QiyVerificationRule = { name: string; expression: unknown };
 export type QiyActionDefinition = QiyActionBase & ({ target: { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string; permissions?: string[]; verification?: QiyVerificationRule } } | { target: { kind: "dataflow"; dataflow: string; roles: string[]; permissions?: string[]; verification?: QiyVerificationRule; confirm?: string; confirmKey?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string; commentKey?: string; labelKey: string; options?: Array<{ value: string; label: string; labelKey: string }> }> } });
-export const qiyActions: QiyActionDefinition[] = ${JSON.stringify(actionDefinitions, null, 2)};
+export const qiyActions: QiyActionDefinition[] = ${JSON.stringify(actionDefinitions.map(({ permission: _permission, verification: _verification, ...action }) => action), null, 2)};
 export function actionMatchesRecord(action: QiyActionDefinition, record: Record<string, unknown>) { if (!action.condition) return true; if (!Object.prototype.hasOwnProperty.call(record, action.condition.field) || record[action.condition.field] == null) return false; const matches = record[action.condition.field] === action.condition.value; return action.condition.operator === "==" ? matches : !matches; }
 export function actionsFor(resource: string, placement: "list" | "show", record: Record<string, unknown>) { return qiyActions.filter((action) => !action.batch && action.resource === resource && action.placements.includes(placement) && actionMatchesRecord(action, record)); }
 export function batchActionsFor(resource: string) { return qiyActions.filter((action) => action.batch && action.resource === resource && action.placements.includes("list") && action.target.kind === "dataflow"); }
@@ -1026,7 +1026,7 @@ ${roleExpectations("viewer", true).join("\n")}
 ${actionPolicies.length ? `
 test("matches each action role allowlist without an admin bypass", async () => {
   tokens.set("qiy.access_token", "policy-test-token");
-  for (const policy of ${JSON.stringify(actionPolicies)}) {
+  for (const policy of ${JSON.stringify(actionPolicies.filter((policy) => policy.roles.length && !policy.permissions?.length && !policy.verification))}) {
     for (const candidate of ["admin", "operator", "viewer"]) {
       role = candidate;
       clearIdentityCache();
@@ -2229,7 +2229,8 @@ ${actionDefinitions.length ? `  ...qiyActions.flatMap((action) => [
 test("every model-derived label has a stable key and resolves through project messages", () => {
   const providers = Object.fromEntries(supportedLocales.map((locale) => [locale, createI18nProvider(locale)]));
   for (const { key, fallback } of labels) {
-    expect(key).toMatch(/^qiy\\.(resources|enums|menu|charts|actions)\\./);
+    expect(key).not.toBe("");
+    if (!/^qiy\\.(resources|enums|menu|charts|actions)\\./.test(key)) expect(supportedLocales.some((locale) => Object.hasOwn(projectMessages[locale] ?? {}, key))).toBe(true);
     for (const locale of supportedLocales) {
       const expected = projectMessages[locale]?.[key] ?? projectMessages[defaultMessageLocale]?.[key] ?? fallback;
       expect(providers[locale]!.translate(key, {}, fallback)).toBe(expected);

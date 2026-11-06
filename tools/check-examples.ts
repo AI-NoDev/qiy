@@ -21,6 +21,17 @@ const normalize = (file: string, text: string) => {
 const manifestFiles = (directory: string): string[] => existsSync(join(directory, ".qiy-generated.json"))
   ? [".qiy-generated.json", ...(JSON.parse(readFileSync(join(directory, ".qiy-generated.json"), "utf8")).files as string[])]
   : [];
+function gitIgnored(paths: string[]): Set<string> {
+  if (!paths.length) return new Set();
+  const result = Bun.spawnSync(["git", "check-ignore", "--no-index", "--stdin"], { cwd: root, stdin: new TextEncoder().encode(paths.join("\n")), stdout: "pipe" });
+  return new Set(result.stdout.toString().split(/\r?\n/).filter(Boolean));
+}
+function firstDifference(left: string, right: string): string {
+  const a = left.split("\n"), b = right.split("\n");
+  const line = a.findIndex((text, index) => text !== b[index]);
+  const index = line === -1 ? a.length : line;
+  return `line ${index + 1}: committed ${JSON.stringify(a[index] ?? "<eof>")}, generated ${JSON.stringify(b[index] ?? "<eof>")}`;
+}
 
 const drift: string[] = [];
 for (const name of examples) {
@@ -28,14 +39,20 @@ for (const name of examples) {
   const fresh = mkdtempSync(join(tmpdir(), `qiy-example-${name}-`));
   try {
     await generate(`examples/${name}/app.qiy`, fresh);
-    const expected = new Set(manifestFiles(fresh));
-    const actual = new Set(manifestFiles(committed));
+    const ignored = gitIgnored([...new Set([...manifestFiles(fresh), ...manifestFiles(committed)])].map((file) => `examples/${name}/admin/${file}`));
+    const tracked = (files: string[]) => new Set(files.filter((file) => !ignored.has(`examples/${name}/admin/${file}`)));
+    const expected = tracked(manifestFiles(fresh));
+    const actual = tracked(manifestFiles(committed));
     const changed: string[] = [];
     for (const file of expected) {
       const target = join(committed, file);
       if (!existsSync(target)) changed.push(`${file}: missing`);
-      else if (normalize(file, readFileSync(target, "utf8")) !== normalize(file, readFileSync(join(fresh, file), "utf8"))) changed.push(`${file}: outdated`);
-      else continue;
+      else {
+        const before = normalize(file, readFileSync(target, "utf8"));
+        const after = normalize(file, readFileSync(join(fresh, file), "utf8"));
+        if (before === after) continue;
+        changed.push(`${file}: outdated (${firstDifference(before, after)})`);
+      }
       if (write) {
         mkdirSync(dirname(target), { recursive: true });
         copyFileSync(join(fresh, file), target);

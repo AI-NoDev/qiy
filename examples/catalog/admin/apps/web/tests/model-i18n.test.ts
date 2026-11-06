@@ -23,7 +23,8 @@ const labels: LabelEntry[] = [
 test("every model-derived label has a stable key and resolves through project messages", () => {
   const providers = Object.fromEntries(supportedLocales.map((locale) => [locale, createI18nProvider(locale)]));
   for (const { key, fallback } of labels) {
-    expect(key).toMatch(/^qiy\.(resources|enums|menu|charts|actions)\./);
+    expect(key).not.toBe("");
+    if (!/^qiy\.(resources|enums|menu|charts|actions)\./.test(key)) expect(supportedLocales.some((locale) => Object.hasOwn(projectMessages[locale] ?? {}, key))).toBe(true);
     for (const locale of supportedLocales) {
       const expected = projectMessages[locale]?.[key] ?? projectMessages[defaultMessageLocale]?.[key] ?? fallback;
       expect(providers[locale]!.translate(key, {}, fallback)).toBe(expected);

@@ -140,7 +140,7 @@ index <name> <btree|hnsw|ivfflat> ( <field> [<opclass>] [, ...] )
 | 列 | 该实体的字段名 | 至少一列；未知字段报 `unknown field X` |
 | `opclass` | 向量算子类 | 仅向量索引需要：`vector_l2_ops`、`vector_ip_ops`、`vector_cosine_ops` |
 | `@unique` | 布尔 | 生成唯一索引；向量索引不能唯一 |
-| `@concurrently` | 布尔 | 生成 `CONCURRENTLY`（仅 PostgreSQL） |
+| `@concurrently` | 布尔 | 迁移后由 `db:migrate` 用 `CREATE INDEX CONCURRENTLY IF NOT EXISTS` 建索引（仅 PostgreSQL） |
 | `@comment(...)` | 字面量或 `t("key")` | 索引的 JSDoc |
 
 ### 默认值与校验
@@ -158,7 +158,8 @@ index <name> <btree|hnsw|ivfflat> ( <field> [<opclass>] [, ...] )
 ### 生成结果
 
 - Drizzle `index("name").on(table.a, table.b)` / `uniqueIndex(...)`；向量索引带 `.using("hnsw", table.embedding.op("vector_cosine_ops"))`。
-- 迁移 SQL 中同名索引；`@concurrently` 输出 `CREATE INDEX CONCURRENTLY`（迁移不能包在事务里）。
+- 迁移 SQL 中同名索引；`@concurrently` 索引不进 Drizzle 迁移（迁移在事务里执行，PostgreSQL 不允许事务内 `CONCURRENTLY`），而是由生成的 `db:migrate` 在迁移完成后、事务外执行 `CREATE INDEX CONCURRENTLY IF NOT EXISTS`；中断留下的 INVALID 索引会先删除再重建。
+- 声明了 `extension pgvector;`/`postgis` 时，`db:migrate` 在首个迁移前执行 `create extension if not exists`（drizzle-kit 不会生成扩展语句）。
 - MySQL 上被索引的 `Text`/`File` 列会收窄为 `varchar(255)` 以便建索引。
 
 ### 示例

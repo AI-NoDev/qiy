@@ -74,7 +74,7 @@
 | 注解 | 位置 | 参数 | 默认 | 生成效果 | 校验错误 |
 | --- | --- | --- | --- | --- | --- |
 | `@unique` | `index` | 布尔（可裸写） | 非唯一 | `uniqueIndex` | 向量索引不能唯一 |
-| `@concurrently` | `index` | 布尔（可裸写） | 无 | `CREATE INDEX CONCURRENTLY` | 仅 PostgreSQL（`concurrently requires PostgreSQL`） |
+| `@concurrently` | `index` | 布尔（可裸写） | 无 | 迁移后由 `db:migrate` 在事务外 `CREATE INDEX CONCURRENTLY IF NOT EXISTS` | 仅 PostgreSQL（`concurrently requires PostgreSQL`） |
 | `@comment(…)` | `index` / `relation` | `documentation` | 无 | schema JSDoc | `t()` key 缺失 |
 | `@onDelete(…)` | `relation` | `restrict` / `cascade` / `setNull`；`@onDelete("")` 表示不生成 | 数据库默认 | 外键 `ON DELETE` 行为 | `Unsupported onDelete action X`；`setNull requires a nullable source field` |
 

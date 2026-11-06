@@ -1,4 +1,5 @@
 import { mkdtempSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -11,23 +12,60 @@ const root = resolve(import.meta.dir, "..");
 const output = mkdtempSync(join(tmpdir(), `qiy-kitchen-${dialect}-`));
 const server = join(output, "apps/server");
 const web = join(output, "apps/web");
-const env = { ...process.env, ...(databaseUrl ? { DATABASE_URL: databaseUrl, QIY_TEST_DATABASE_URL: databaseUrl } : {}) };
 
-async function run(command: string[], cwd: string): Promise<void> {
+/**
+ * Migrations run against the given database, recreated empty. The generated
+ * suite creates and drops its own tables, so it runs against a fresh
+ * `<name>_test` database the way QIY_TEST_DATABASE_URL is documented:
+ * dedicated and disposable.
+ */
+async function recreateDatabase(url: string, suffix = ""): Promise<string> {
+  const target = new URL(url);
+  const name = `${target.pathname.slice(1)}${suffix}`;
+  if (!/^\w+$/.test(name)) throw new Error(`Unsupported database name in ${url}`);
+  // A session cannot drop the database it is connected to, so administer from the server default.
+  const adminUrl = new URL(url);
+  adminUrl.pathname = dialect === "mysql" ? "/" : "/postgres";
+  if (dialect === "mysql") {
+    // Bun's MySQL client cannot complete caching_sha2_password without TLS; the generated app's mysql2 can.
+    const mysql = createRequire(join(server, "package.json"))("mysql2/promise") as { createConnection(url: string): Promise<{ query(sql: string): Promise<unknown>; end(): Promise<void> }> };
+    const admin = await mysql.createConnection(adminUrl.toString());
+    try {
+      await admin.query(`DROP DATABASE IF EXISTS \`${name}\``);
+      await admin.query(`CREATE DATABASE \`${name}\``);
+    } finally {
+      await admin.end();
+    }
+  } else {
+    const admin = new Bun.SQL(adminUrl.toString());
+    try {
+      await admin.unsafe(`DROP DATABASE IF EXISTS "${name}"`);
+      await admin.unsafe(`CREATE DATABASE "${name}"`);
+    } finally {
+      await admin.close();
+    }
+  }
+  target.pathname = `/${name}`;
+  return target.toString();
+}
+
+async function run(command: string[], cwd: string, extraEnv: Record<string, string> = {}): Promise<void> {
   console.log(`Kitchen-sink ${dialect}: ${command.slice(1).join(" ")} (${cwd})`);
-  const child = Bun.spawn(command, { cwd, env, stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn(command, { cwd, env: { ...process.env, ...extraEnv }, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (code !== 0) throw new Error(`${command.join(" ")} failed (${code})\n${stdout}\n${stderr}`);
 }
 
 await run([process.execPath, join(root, "tools/cli.ts"), "generate", join(root, `tests/fixtures/kitchen-sink/${dialect}.qiy`), output], root);
 await run([process.execPath, "install"], output);
+if (databaseUrl) await recreateDatabase(databaseUrl);
+const testDatabaseUrl = databaseUrl ? await recreateDatabase(databaseUrl, "_test") : undefined;
 if (databaseUrl) {
-  await run([process.execPath, "run", "--bun", "drizzle-kit", "generate"], server);
-  await run([process.execPath, "run", "--bun", "drizzle-kit", "migrate"], server);
+  await run([process.execPath, "run", "--bun", "drizzle-kit", "generate"], server, { DATABASE_URL: databaseUrl });
+  await run([process.execPath, "src/db-migrate.ts"], server, { DATABASE_URL: databaseUrl });
 }
 await run([process.execPath, "run", "typecheck"], server);
-await run([process.execPath, "run", "test", "--timeout", "30000"], server);
+await run([process.execPath, "run", "test", "--timeout", "30000"], server, testDatabaseUrl ? { DATABASE_URL: testDatabaseUrl, QIY_TEST_DATABASE_URL: testDatabaseUrl } : {});
 await run([process.execPath, "run", "typecheck"], web);
 await run([process.execPath, "run", "test"], web);
 console.log(`Kitchen-sink ${dialect}: generate, install, ${databaseUrl ? "migrate, " : ""}typecheck and tests passed in ${output}`);

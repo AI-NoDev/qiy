@@ -47,7 +47,7 @@ function ` + name + `(column: any, value: string) {
 }
 import { renderAppTemplate } from "./admin-template";
 import { computedExpressionTokens, computedNumericTypes, generatedFieldsOf, validateDatabaseIR } from "./database-ir";
-import { generateDrizzlePostgres } from "./drizzle-pg";
+import { concurrentIndexStatements, generateDrizzlePostgres } from "./drizzle-pg";
 import { generateDrizzleMysql } from "./drizzle-mysql";
 import { generateDrizzleSqlite } from "./drizzle-sqlite";
 import { generateAudit } from "./generate-audit";
@@ -655,8 +655,18 @@ ${cases.join("\n\n")}
 `;
 }
 
-function renderDataScopeTest(database: DatabaseIR, scopes: NonNullable<QiyProject["scopes"]>, orderWorkflowEnabled = false): string | undefined {
-  const configured = scopes[0];
+/** Stub-repository tests only observe the scope, so they skip resources whose row policy also needs policy claims. */
+function rowPolicyFree(database: DatabaseIR, restrictions: NonNullable<QiyProject["restrictions"]>) {
+  const restricted = new Set(restrictions.filter((restriction) => restriction.rows?.length || restriction.groups?.length || restriction.expressions?.length).flatMap((restriction) => {
+    const entity = database.entities.find((item) => item.name === restriction.resource || item.tableName === restriction.resource);
+    return entity ? [entity.name] : [];
+  }));
+  return (resource: string) => !database.entities.some((entity) => restricted.has(entity.name) && (entity.name === resource || entity.tableName === resource));
+}
+
+function renderDataScopeTest(database: DatabaseIR, scopes: NonNullable<QiyProject["scopes"]>, orderWorkflowEnabled = false, restrictions: NonNullable<QiyProject["restrictions"]> = []): string | undefined {
+  const policyFree = rowPolicyFree(database, restrictions);
+  const configured = scopes.find((scope) => policyFree(scope.resource));
   if (!configured) return undefined;
   const entity = database.entities.find((item) => item.name === configured.resource || item.tableName === configured.resource)!;
   const unscoped = database.entities.find((item) => item.name !== entity.name && !scopes.some((scope) => scope.resource === item.name || scope.resource === item.tableName));
@@ -726,13 +736,18 @@ function renderSqliteScopeTest(database: DatabaseIR, scopes: NonNullable<QiyProj
     return `${JSON.stringify(field.name)}: ${field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : JSON.stringify(value)}`;
   }).join(", ");
   const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `"${field.columnName ?? field.name}" ${field.type === "Integer" || field.type === "DateTime" ? "integer" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
+  const treeEntity = configured.tree ? database.entities.find((item) => item.name === configured.tree!.entity || item.tableName === configured.tree!.entity) : undefined;
+  const treeColumn = (name: string) => treeEntity!.fields.find((field) => field.name === name)?.columnName ?? name;
+  const treePrimaryKey = treeEntity?.fields.find((field) => field.primaryKey)?.name ?? "id";
+  // Two unrelated roots keep each subtree equal to its own claim value.
+  const treeSchema = treeEntity ? ` DROP TABLE IF EXISTS "${treeEntity.tableName}"; CREATE TABLE "${treeEntity.tableName}" ("${treeColumn(treePrimaryKey)}" text primary key, "${treeColumn(configured.tree!.parentField)}" text); INSERT INTO "${treeEntity.tableName}" ("${treeColumn(treePrimaryKey)}") VALUES ('tenant-a'), ('tenant-b');` : "";
   return `import { expect, test } from "bun:test";
 
 test("SQLite enforces tenant scope on reads and writes", async () => {
   Bun.env.DATABASE_URL = ":memory:";
   const { client } = await import("../src/db");
   const { ${modelName(entity)}Repository: repository } = await import("../src/modules/${entity.name}/${entity.name}.repository");
-  client.exec(${JSON.stringify(`DROP TABLE IF EXISTS "${entity.tableName}"; DROP TABLE IF EXISTS "audit_events"; CREATE TABLE "${entity.tableName}" (${columns}); CREATE TABLE "audit_events" ("id" text primary key, "actorId" text, "action" text not null, "resource" text not null, "resourceId" text, "metadata" text, "createdAt" integer not null);`)});
+  client.exec(${JSON.stringify(`DROP TABLE IF EXISTS "${entity.tableName}"; DROP TABLE IF EXISTS "audit_events"; CREATE TABLE "${entity.tableName}" (${columns}); CREATE TABLE "audit_events" ("id" text primary key, "actorId" text, "action" text not null, "resource" text not null, "resourceId" text, "metadata" text, "createdAt" integer not null);${treeSchema}`)});
   const first = { field: ${JSON.stringify(configured.field)}, value: "tenant-a" };
   const second = { field: ${JSON.stringify(configured.field)}, value: "tenant-b" };
   const values = { ${values} };
@@ -1083,7 +1098,7 @@ function renderRoutes(entity: EntityIR, database: DatabaseIR, scopes: Array<{ re
   const sortableFields = JSON.stringify(entity.fields.filter((field) => field.computed === undefined && field.sortable !== false).map((field) => field.name));
   const filterableFields = JSON.stringify(entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => field.name));
   const filterModes = JSON.stringify(Object.fromEntries(entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => [field.name, filterModesForField(field)])));
-  const allowed = entity.fields.filter((field) => !field.primaryKey).map((field) => JSON.stringify(field.name)).join(", ");
+  const allowed = entity.fields.filter((field) => !field.primaryKey && field.computed === undefined).map((field) => JSON.stringify(field.name)).join(", ");
   const sanitize = hiddenFields.length ? `const privateFields = ${JSON.stringify(hiddenFields)} as string[];
 const redact = (record: Record<string, unknown>) => { const safe = { ...record }; for (const field of privateFields) delete safe[field]; return safe; };` : "const redact = (record: Record<string, unknown>) => record;";
   const privateInputGuard = hiddenFields.length ? `.onRequest(async ({ request, status }) => {
@@ -3535,7 +3550,7 @@ function renderSqliteRealtimeOutboxTest(database: DatabaseIR, realtime: NonNulla
   const subscription = realtime.resources[0];
   const entity = database.entities.find((candidate) => candidate.name === subscription?.resource || candidate.tableName === subscription?.resource);
   if (!entity) return undefined;
-  const columns = entity.fields.map((field) => `${JSON.stringify(field.columnName ?? field.name)} ${sqliteColumnType(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
+  const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `${JSON.stringify(field.columnName ?? field.name)} ${sqliteColumnType(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
   const fixture = (variant: 1 | 2) => entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable).map((field) => {
     const enumeration = database.enums?.find((item) => item.name === field.enumName);
     const value = enumeration ? JSON.stringify(enumeration.values[Math.min(variant - 1, enumeration.values.length - 1)]!.name)
@@ -3558,7 +3573,7 @@ test("commits CRUD records and realtime outbox rows atomically", async () => {
   const first = await ${repositoryName}.create({ ${fixture(1)} }, "actor-1");
   expect(first.id).toBeTruthy();
   expect(client.query<{ total: number }, []>("select count(*) as total from qiy_realtime_outbox").get()?.total).toBe(1);
-  expect(client.query<{ channel: string; type: string }, []>("select channel, type from qiy_realtime_outbox").get()).toEqual({ channel: ${JSON.stringify(`qiy:${entity.tableName}`)}, type: "created" });
+  expect(client.query<{ channel: string; type: string }, []>("select channel, type from qiy_realtime_outbox").get()).toEqual({ channel: ${subscription?.claim ? `${JSON.stringify(`qiy:${entity.tableName}:`)} + String((first as Record<string, unknown>)[${JSON.stringify(subscription.claim.field)}])` : JSON.stringify(`qiy:${entity.tableName}`)}, type: "created" });
   client.exec("DROP TABLE qiy_realtime_outbox");
   await expect(${repositoryName}.create({ ${fixture(2)} }, "actor-2")).rejects.toThrow();
   expect(client.query<{ total: number }, []>(${JSON.stringify(`select count(*) as total from "${entity.tableName}"`)}).get()?.total).toBe(1);
@@ -3608,18 +3623,19 @@ function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<Q
   // Command authorization may be role-, permission- or verification-based. The
   // generated happy-path actor holds every declared permission so the fixture
   // input only has to satisfy the business rules, not the authorization model.
-  const permissionPrincipal = permissions && !isPermissionModelEmpty(permissions)
-    ? `, permissions: ${JSON.stringify(declaredPermissionValues(permissions))}, groups: ${JSON.stringify(permissions.groups.map((group) => group.name))}`
-    : "";
   const entities = new Map(database.entities.map((entity) => [entity.name, entity]));
   const callAdapters = dataflowCallAdapters(dataflows);
   const usedEntities = [...new Set(dataflows.flatMap((flow) => [
     ...flow.context.map((binding) => binding.entity),
     ...flow.steps.flatMap((step) => step.actions).flatMap((action) => action.kind === "create" ? [action.entity] : []),
   ]))].map((name) => entities.get(name)!);
+  const tenantClaims = [...new Set(usedEntities.flatMap((entity) => entity.fields.flatMap((field) => field.tenantClaim === undefined ? [] : [field.tenantClaim])))];
+  const permissionPrincipal = (permissions && !isPermissionModelEmpty(permissions)
+    ? `, permissions: ${JSON.stringify(declaredPermissionValues(permissions))}, groups: ${JSON.stringify(permissions.groups.map((group) => group.name))}`
+    : "") + (tenantClaims.length ? `, claims: ${JSON.stringify(Object.fromEntries(tenantClaims.map((claim) => [claim, "00000000-0000-4000-8000-000000000001"])))}` : "");
   const imports = usedEntities.map((entity) => entity.name).join(", ");
   const schema = usedEntities.map((entity) => {
-    const columns = entity.fields.map((field) => `${JSON.stringify(field.columnName ?? field.name)} ${sqliteColumnType(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
+    const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `${JSON.stringify(field.columnName ?? field.name)} ${sqliteColumnType(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
     return `client.exec(${JSON.stringify(`CREATE TABLE IF NOT EXISTS ${entity.tableName} (${columns})`)});`;
   }).join("\n");
   const auxiliarySchema = [
@@ -3921,7 +3937,7 @@ function renderQiyScenarioTest(database: DatabaseIR, dataflows: NonNullable<QiyP
   }
   const usedEntities = [...entityNames].map((name) => entities.get(name)!);
   const schema = usedEntities.map((entity) => {
-    const columns = entity.fields.map((field) => `${sqliteTestIdentifier(field.columnName ?? field.name)} ${sqliteColumnType(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
+    const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `${sqliteTestIdentifier(field.columnName ?? field.name)} ${sqliteColumnType(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
     return `client.exec(${JSON.stringify(`CREATE TABLE IF NOT EXISTS ${sqliteTestIdentifier(entity.tableName)} (${columns})`)});`;
   }).join("\n");
   const usesAudit = selectedFlows.some((flow) => flow.audit !== undefined);
@@ -5381,7 +5397,9 @@ const session = new SQL(Bun.env.DATABASE_URL!, { max: 1 });
 const lockKey = 4815162342;
 await session.unsafe("select pg_advisory_lock(" + lockKey + ")");
 console.log("qiy db:migrate: acquired advisory lock " + lockKey);
-` : database.dialect === "mysql" ? `// GET_LOCK is per session, so use one dedicated pooled connection.
+${database.extensions.map((extension) => `// drizzle-kit migrations never create extensions, so declared ones are ensured before the first migration.
+await session.unsafe(${JSON.stringify(`create extension if not exists "${extension === "pgvector" ? "vector" : extension}"`)});
+`).join("")}` : database.dialect === "mysql" ? `// GET_LOCK is per session, so use one dedicated pooled connection.
 const session = await client.getConnection();
 const [lockRows] = await session.query("select get_lock('qiy_migrate', 60) as acquired") as unknown as [Array<{ acquired: number | null }>, unknown];
 if (Number(lockRows[0]?.acquired ?? 0) !== 1) throw new Error("Could not acquire the qiy_migrate lock within 60s");
@@ -5390,7 +5408,14 @@ console.log("qiy db:migrate: acquired the qiy_migrate lock");
 console.log("qiy db:migrate: SQLite has no cross-process lock; run migrations from one process");
 `}const before = await appliedMigrations();
 try {
-  await migrate(db, { migrationsFolder });
+  await migrate(db, { migrationsFolder });${database.dialect === "postgresql" && concurrentIndexStatements(database).length ? `
+  // CONCURRENTLY cannot run in a transaction, so these indexes are built on the autocommit session. An interrupted
+  // build leaves an INVALID index that IF NOT EXISTS would keep skipping, so it is dropped and rebuilt first.
+  for (const index of ${JSON.stringify(concurrentIndexStatements(database), null, 2).replace(/\n/g, "\n  ")}) {
+    const invalid = await session.unsafe("select 1 from pg_index i join pg_class c on c.oid = i.indexrelid where c.relname = $1 and not i.indisvalid", [index.name]) as unknown[];
+    if (invalid.length) await session.unsafe("drop index concurrently if exists \\"" + index.name + "\\"");
+    await session.unsafe(index.sql);
+  }` : ""}
 } finally {
 ${database.dialect === "postgresql" ? `  await session.unsafe("select pg_advisory_unlock(" + lockKey + ")");
   await session.close();
@@ -6760,11 +6785,12 @@ ${database.entities.map((entity) => {
   const graphqlListOptionsTest = renderGraphQLListOptionsTest(scopedDatabase);
   if (graphqlListOptionsTest) files["api/tests/graphql-list-options.test.ts"] = graphqlListOptionsTest;
   if (options.elysiaPlugins?.graphqlAdapter === "yoga" || options.elysiaPlugins?.graphqlAdapter === "apollo") {
-    const adapterScope = (options.scopes ?? []).map((scope) => ({
+    const policyFree = rowPolicyFree(database, options.restrictions ?? []);
+    const adapterScope = (options.scopes ?? []).filter((scope) => policyFree(scope.resource)).map((scope) => ({
       scope,
       entity: database.entities.find((entity) => entity.name === scope.resource || entity.tableName === scope.resource),
     })).find((entry) => entry.entity);
-    const adapterEntity = adapterScope?.entity ?? database.entities[0]!;
+    const adapterEntity = adapterScope?.entity ?? database.entities.find((entity) => policyFree(entity.name)) ?? database.entities[0]!;
     const adapterScopeValue = adapterScope?.entity?.fields.find((field) => field.name === adapterScope.scope.field)?.type === "UUID"
       ? "00000000-0000-4000-8000-000000000002"
       : "Example";
@@ -6799,7 +6825,7 @@ test("official GraphQL adapter mounts the public endpoint and preserves authoriz
   const seenScopes: Array<{ field: string; value: string } | undefined> = [];
   const seenLists: Array<{ page: number; pageSize: number; options?: { search?: string; sort?: string; order?: string; filters?: Record<string, string> | Array<{ field: string; operator: string; value: string }>; scope?: { field: string; value: string } } }> = [];
   const seenMutations: Array<{ operation: string; actorId?: string; scope?: { field: string; value: string } }> = [];
-  const repository = { distribution: async () => [], trend: async () => [], list: async (page: number, pageSize: number, options?: { search?: string; sort?: string; order?: "asc" | "desc"; filters?: Record<string, string> | Array<{ field: string; operator: "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in"; value: string }>; scope?: { field: string; value: string } }) => { seenScopes.push(options?.scope); seenLists.push({ page, pageSize, options }); return { data: [${JSON.stringify(adapterRecord)}], total: 1 }; }, one: async (_id: string, scope?: { field: string; value: string }) => { seenScopes.push(scope); return ${JSON.stringify(adapterRecord)}; }, create: async (values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "create", actorId, scope }); return { id: "00000000-0000-4000-8000-000000000001", ...values }; }, update: async (_id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "update", actorId, scope }); return { ...${JSON.stringify(adapterRecord)}, ...values }; }, delete: async (_id: string, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "delete", actorId, scope }); return ${JSON.stringify(adapterRecord)}; }, deleteMany: async (_ids: string[], actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "deleteMany", actorId, scope }); return [${JSON.stringify(adapterRecord)}]; } };
+  const repository = { distribution: async () => [], trend: async () => [], list: async (page: number, pageSize: number, options?: { search?: string; sort?: string; order?: "asc" | "desc"; filters?: Record<string, string> | Array<{ field: string; operator: "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in"; value: string }>; scope?: { field: string; value: string } }) => { seenScopes.push(options?.scope); seenLists.push({ page, pageSize, options }); return { data: [${JSON.stringify(adapterRecord)}], total: 1 }; }, one: async (_id: string, scope?: { field: string; value: string }) => { seenScopes.push(scope); return ${JSON.stringify(adapterRecord)}; }, create: async (values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "create", actorId, scope }); return { id: "00000000-0000-4000-8000-000000000001", ...values, ...(scope ? { [scope.field]: scope.value } : {}) }; }, update: async (_id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "update", actorId, scope }); return { ...${JSON.stringify(adapterRecord)}, ...values }; }, delete: async (_id: string, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "delete", actorId, scope }); return ${JSON.stringify(adapterRecord)}; }, deleteMany: async (_ids: string[], actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "deleteMany", actorId, scope }); return [${JSON.stringify(adapterRecord)}]; } };
   const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
   const app = await createApp(repositories, async () => ({ id: "adapter-user", name: "Adapter User", role: "admin", claims: ${testClaims} }), false, false);
   expect(app.routes.some((route) => route.path === "/graphql" && route.method === "POST")).toBe(true);
@@ -6813,7 +6839,7 @@ ${adapterScope ? `  expect(seenScopes.at(-1)).toEqual({ field: ${JSON.stringify(
   const provider = createGraphQLDataProvider(async (input, init) => app.handle(new Request(new URL(String(input), "http://localhost"), init)));
   const providerResult = await provider.getList({ resource: ${JSON.stringify(adapterEntity.tableName)}, pagination: { currentPage: 2, pageSize: 25 }, sorters: [{ field: ${JSON.stringify(providerSortField.name)}, order: "desc" }], filters: [{ field: ${JSON.stringify(providerFilterField.name)}, operator: "eq", value: ${JSON.stringify(providerFilterValue)} }] });
   expect(providerResult).toEqual({ data: [${JSON.stringify(adapterRecord)}], total: 1 });
-  expect(seenLists.at(-1)).toEqual({ page: 2, pageSize: 25, options: { search: undefined, sort: ${JSON.stringify(providerSortField.name)}, order: "desc", filters: { [${JSON.stringify(providerFilterField.name)}]: ${JSON.stringify(providerFilterValue)} }, scope: { field: ${JSON.stringify(adapterScope.scope.field)}, value: ${JSON.stringify(adapterScopeValue)} } } });
+  expect(seenLists.at(-1)).toEqual({ page: 2, pageSize: 25, options: { search: undefined, sort: ${JSON.stringify(providerSortField.name)}, order: "desc", filters: [{ field: ${JSON.stringify(providerFilterField.name)}, operator: "eq", value: ${JSON.stringify(providerFilterValue)} }], scope: { field: ${JSON.stringify(adapterScope.scope.field)}, value: ${JSON.stringify(adapterScopeValue)} } } });
   const providerOne = await provider.getOne({ resource: ${JSON.stringify(adapterEntity.tableName)}, id: "00000000-0000-4000-8000-000000000002" });
   expect(providerOne.data).toEqual(${JSON.stringify(adapterRecord)});
   const providerCreate = await provider.create({ resource: ${JSON.stringify(adapterEntity.tableName)}, variables: ${JSON.stringify(providerCreateValues)} });
@@ -6847,7 +6873,7 @@ ${disabledFilter ? `  const rejectedFilter = await app.handle(new Request("http:
 });
 `;
   }
-  const dataScopeTest = renderDataScopeTest(database, options.scopes ?? [], Boolean(orderWorkflow));
+  const dataScopeTest = renderDataScopeTest(database, options.scopes ?? [], Boolean(orderWorkflow), options.restrictions ?? []);
   if (dataScopeTest) files["api/tests/data-scope.test.ts"] = dataScopeTest;
   if (orderWorkflow) {
     const orderScope = options.scopes?.find((scope) => scope.resource === "orders" || scope.resource === database.entities.find((entity) => entity.name === "orders")?.tableName);
@@ -6890,10 +6916,12 @@ for (const [transport, createProvider] of [["REST", createDataProvider], ["Graph
   if (sqliteScopeTest) files["api/tests/sqlite-scope.test.ts"] = sqliteScopeTest;
   const distributionEntity = database.entities.find((entity) => entity.fields.some((field) => field.enumName));
   if (options.elysiaPlugins?.graphqlAdapter === "yoga" || options.elysiaPlugins?.graphqlAdapter === "apollo") {
+    const policyFree = rowPolicyFree(database, options.restrictions ?? []);
     const analyticsEntity = database.entities.find((entity) =>
-      (options.scopes ?? []).some((scope) => scope.resource === entity.name || scope.resource === entity.tableName)
+      policyFree(entity.name)
+      && (options.scopes ?? []).some((scope) => scope.resource === entity.name || scope.resource === entity.tableName)
       && entity.fields.some((field) => field.enumName || field.type === "DateTime"),
-    ) ?? database.entities.find((entity) => entity.fields.some((field) => field.enumName || field.type === "DateTime"));
+    ) ?? database.entities.find((entity) => policyFree(entity.name) && entity.fields.some((field) => field.enumName || field.type === "DateTime"));
     if (analyticsEntity) {
       const distributionField = analyticsEntity.fields.find((field) => field.enumName);
       const trendField = analyticsEntity.fields.find((field) => field.type === "DateTime");
@@ -8624,8 +8652,9 @@ function renderApiKeyTestModule(auth: NonNullable<QiyProject["auth"]>, database:
   const dialect = database.dialect;
   const userTable = userEntity.tableName;
   const roleField = userEntity.fields.find((field) => field.name === auth.roleField)?.columnName ?? auth.roleField;
-  const displayField = userEntity.fields.find((field) => field.name === "displayName")?.columnName;
-  const emailField = userEntity.fields.find((field) => field.name === (auth.usernameField ?? "email"))?.columnName;
+  const columnOf = (name: string) => { const field = userEntity.fields.find((candidate) => candidate.name === name); return field && (field.columnName ?? field.name); };
+  const displayField = columnOf("displayName");
+  const emailField = columnOf(auth.usernameField ?? "email");
   const seedColumns = [roleField, displayField, emailField].filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index);
   const userFields = userEntity.fields.map((field) => ({ name: field.columnName ?? field.name, type: field.type, primaryKey: Boolean(field.primaryKey) }));
   const repositoryNames = database.entities.map((entity) => JSON.stringify(entity.name)).join(", ");
@@ -8695,14 +8724,17 @@ function usersDdl(): string {
   return "CREATE TABLE " + identifier(USER_TABLE) + " (" + USER_FIELDS.map((field) => identifier(field.name) + " " + columnType(field.type) + (field.primaryKey ? " PRIMARY KEY" : "")).join(", ") + ")";
 }
 
+// MySQL cannot index TEXT without a key length, so key and id columns use VARCHAR there.
+const TEXT_TYPE = DIALECT === "mysql" ? "VARCHAR(191)" : "TEXT";
+
 function keysDdl(): string {
   const timestamp = DIALECT === "sqlite" ? "INTEGER" : DIALECT === "postgresql" ? "TIMESTAMPTZ" : "DATETIME(3)";
-  return "CREATE TABLE " + identifier("qiy_api_keys") + " (" + ["id", "userId", "name", "prefix", "hash", "createdAt"].map((column) => identifier(column) + (column === "createdAt" ? " " + timestamp : " TEXT") + (column === "id" ? " PRIMARY KEY" : " NOT NULL")).join(", ") + ", " + ["scopes", "rotatedFromId"].map((column) => identifier(column) + " TEXT").join(", ") + ", " + ["lastUsedAt", "expiresAt", "revokedAt"].map((column) => identifier(column) + " " + timestamp).join(", ") + ")";
+  return "CREATE TABLE " + identifier("qiy_api_keys") + " (" + ["id", "userId", "name", "prefix", "hash", "createdAt"].map((column) => identifier(column) + (column === "createdAt" ? " " + timestamp : " " + TEXT_TYPE) + (column === "id" ? " PRIMARY KEY" : " NOT NULL")).join(", ") + ", " + ["scopes", "rotatedFromId"].map((column) => identifier(column) + " TEXT").join(", ") + ", " + ["lastUsedAt", "expiresAt", "revokedAt"].map((column) => identifier(column) + " " + timestamp).join(", ") + ")";
 }
 
 function eventsDdl(): string {
   const timestamp = DIALECT === "sqlite" ? "INTEGER" : DIALECT === "postgresql" ? "TIMESTAMPTZ" : "DATETIME(3)";
-  return "CREATE TABLE " + identifier("qiy_api_key_events") + " (" + ["id", "keyId", "userId", "action"].map((column) => identifier(column) + " TEXT" + (column === "id" ? " PRIMARY KEY" : " NOT NULL")).join(", ") + ", " + identifier("at") + " " + timestamp + " NOT NULL)";
+  return "CREATE TABLE " + identifier("qiy_api_key_events") + " (" + ["id", "keyId", "userId", "action"].map((column) => identifier(column) + " " + TEXT_TYPE + (column === "id" ? " PRIMARY KEY" : " NOT NULL")).join(", ") + ", " + identifier("at") + " " + timestamp + " NOT NULL)";
 }
 
 function literal(value: unknown): string {
@@ -8713,7 +8745,8 @@ function literal(value: unknown): string {
 
 function timestampLiteral(value: Date | null): string {
   if (!value) return "NULL";
-  return DIALECT === "sqlite" ? String(value.getTime()) : literal(value.toISOString());
+  if (DIALECT === "sqlite") return String(value.getTime());
+  return literal(DIALECT === "mysql" ? value.toISOString().replace("T", " ").replace("Z", "") : value.toISOString());
 }
 
 function nowMinus(minutes: number): Date { return new Date(Date.now() - minutes * 60_000); }

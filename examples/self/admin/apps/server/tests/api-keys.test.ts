@@ -20,10 +20,10 @@ import {
 const DIALECT: string = "sqlite";
 const USER_TABLE = "users";
 const USER_FIELDS: Array<{ name: string; type: string; primaryKey: boolean }> = [{"name":"id","type":"UUID","primaryKey":true},{"name":"subject","type":"Text","primaryKey":false},{"name":"oktaSubject","type":"Text","primaryKey":false},{"name":"keycloakSubject","type":"Text","primaryKey":false},{"name":"googleSubject","type":"Text","primaryKey":false},{"name":"kindeSubject","type":"Text","primaryKey":false},{"name":"azureSubject","type":"Text","primaryKey":false},{"name":"email","type":"Text","primaryKey":false},{"name":"displayName","type":"Text","primaryKey":false},{"name":"role","type":"Text","primaryKey":false},{"name":"passwordHash","type":"Text","primaryKey":false},{"name":"oauthProfiles","type":"Text","primaryKey":false},{"name":"permissions","type":"Text","primaryKey":false},{"name":"orgId","type":"UUID","primaryKey":false}];
-const SEED_COLUMNS: string[] = ["role"];
+const SEED_COLUMNS: string[] = ["role","displayName","email"];
 const ROLE_COLUMN = "role";
-const DISPLAY_COLUMN = "role";
-const EMAIL_COLUMN = "role";
+const DISPLAY_COLUMN = "displayName";
+const EMAIL_COLUMN = "email";
 const FIRST_TABLE = "users";
 Bun.env.QIY_AUTH_SECRET = "qiy-api-key-test-secret-value-32-chars";
 
@@ -55,14 +55,17 @@ function usersDdl(): string {
   return "CREATE TABLE " + identifier(USER_TABLE) + " (" + USER_FIELDS.map((field) => identifier(field.name) + " " + columnType(field.type) + (field.primaryKey ? " PRIMARY KEY" : "")).join(", ") + ")";
 }
 
+// MySQL cannot index TEXT without a key length, so key and id columns use VARCHAR there.
+const TEXT_TYPE = DIALECT === "mysql" ? "VARCHAR(191)" : "TEXT";
+
 function keysDdl(): string {
   const timestamp = DIALECT === "sqlite" ? "INTEGER" : DIALECT === "postgresql" ? "TIMESTAMPTZ" : "DATETIME(3)";
-  return "CREATE TABLE " + identifier("qiy_api_keys") + " (" + ["id", "userId", "name", "prefix", "hash", "createdAt"].map((column) => identifier(column) + (column === "createdAt" ? " " + timestamp : " TEXT") + (column === "id" ? " PRIMARY KEY" : " NOT NULL")).join(", ") + ", " + ["scopes", "rotatedFromId"].map((column) => identifier(column) + " TEXT").join(", ") + ", " + ["lastUsedAt", "expiresAt", "revokedAt"].map((column) => identifier(column) + " " + timestamp).join(", ") + ")";
+  return "CREATE TABLE " + identifier("qiy_api_keys") + " (" + ["id", "userId", "name", "prefix", "hash", "createdAt"].map((column) => identifier(column) + (column === "createdAt" ? " " + timestamp : " " + TEXT_TYPE) + (column === "id" ? " PRIMARY KEY" : " NOT NULL")).join(", ") + ", " + ["scopes", "rotatedFromId"].map((column) => identifier(column) + " TEXT").join(", ") + ", " + ["lastUsedAt", "expiresAt", "revokedAt"].map((column) => identifier(column) + " " + timestamp).join(", ") + ")";
 }
 
 function eventsDdl(): string {
   const timestamp = DIALECT === "sqlite" ? "INTEGER" : DIALECT === "postgresql" ? "TIMESTAMPTZ" : "DATETIME(3)";
-  return "CREATE TABLE " + identifier("qiy_api_key_events") + " (" + ["id", "keyId", "userId", "action"].map((column) => identifier(column) + " TEXT" + (column === "id" ? " PRIMARY KEY" : " NOT NULL")).join(", ") + ", " + identifier("at") + " " + timestamp + " NOT NULL)";
+  return "CREATE TABLE " + identifier("qiy_api_key_events") + " (" + ["id", "keyId", "userId", "action"].map((column) => identifier(column) + " " + TEXT_TYPE + (column === "id" ? " PRIMARY KEY" : " NOT NULL")).join(", ") + ", " + identifier("at") + " " + timestamp + " NOT NULL)";
 }
 
 function literal(value: unknown): string {
@@ -73,7 +76,8 @@ function literal(value: unknown): string {
 
 function timestampLiteral(value: Date | null): string {
   if (!value) return "NULL";
-  return DIALECT === "sqlite" ? String(value.getTime()) : literal(value.toISOString());
+  if (DIALECT === "sqlite") return String(value.getTime());
+  return literal(DIALECT === "mysql" ? value.toISOString().replace("T", " ").replace("Z", "") : value.toISOString());
 }
 
 function nowMinus(minutes: number): Date { return new Date(Date.now() - minutes * 60_000); }

@@ -42,7 +42,7 @@ jobs:
             url: mysql://root:isolated-ci-test-only@127.0.0.1:3306/qiy_kitchen
     services:
       postgres:
-        image: postgres:17-alpine
+        image: pgvector/pgvector:pg17
         env:
           POSTGRES_USER: qiy
           POSTGRES_PASSWORD: isolated-ci-test-only

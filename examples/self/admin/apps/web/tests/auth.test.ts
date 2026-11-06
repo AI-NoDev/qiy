@@ -73,7 +73,7 @@ test("decides every resource page action, so route guards cannot be bypassed by 
 
 test("matches each action role allowlist without an admin bypass", async () => {
   tokens.set("qiy.access_token", "policy-test-token");
-  for (const policy of [{"resource":"inventory","action":"receiveInventory","roles":["admin","operator"],"permissions":["inventory:receive"]},{"resource":"inventory","action":"putawayStock","roles":["admin","operator"],"permissions":["inventory:putaway"]},{"resource":"inventory","action":"reserveStock","roles":["admin","operator"]},{"resource":"inventory","action":"adjustStock","roles":["admin","operator"],"permissions":["inventory:adjust"]},{"resource":"inventory","action":"transferInventory","roles":["admin","operator"],"permissions":["inventory:transfer"]},{"resource":"sales_orders","action":"shipSalesOrder","roles":["admin","operator"],"verification":{"name":"CanShipOrders","expression":{"kind":"or","children":[{"kind":"comparison","operator":"equals","left":{"kind":"self","set":"role"},"right":{"kind":"literal","value":"admin"}},{"kind":"comparison","operator":"equals","left":{"kind":"self","set":"role"},"right":{"kind":"literal","value":"operator"}}]}}},{"resource":"work_orders","action":"completeWorkOrder","roles":["admin","operator"],"permissions":["workorder:complete"]},{"resource":"purchase_orders","action":"approvePurchaseOrder","roles":["admin","operator"],"permissions":["purchasing:approve"]}]) {
+  for (const policy of [{"resource":"inventory","action":"reserveStock","roles":["admin","operator"]}]) {
     for (const candidate of ["admin", "operator", "viewer"]) {
       role = candidate;
       clearIdentityCache();

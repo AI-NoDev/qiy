@@ -238,13 +238,15 @@ async function qiyNextSequence(..._args: string[]): Promise<number> {
   throw new Error("qiyNextSequence called without a @code field");
 }
 
-/** A unique-constraint violation from any supported dialect. */
+/** A unique-constraint violation from any supported dialect, including driver errors Drizzle wraps as the cause. */
 export function qiyIsUniqueViolation(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const code = String((error as { code?: unknown }).code ?? "");
-  if (["23505", "ER_DUP_ENTRY", "SQLITE_CONSTRAINT", "SQLITE_CONSTRAINT_UNIQUE", "2067"].includes(code)) return true;
-  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
-  return /UNIQUE constraint failed|duplicate key value violates unique constraint|Duplicate entry .+ for key/i.test(message);
+  for (let current = error, depth = 0; current && typeof current === "object" && depth < 5; current = (current as { cause?: unknown }).cause, depth++) {
+    const code = String((current as { code?: unknown }).code ?? "");
+    if (["23505", "ER_DUP_ENTRY", "SQLITE_CONSTRAINT", "SQLITE_CONSTRAINT_UNIQUE", "2067"].includes(code)) return true;
+    const message = current instanceof Error ? current.message : "";
+    if (/UNIQUE constraint failed|duplicate key value violates unique constraint|Duplicate entry .+ for key/i.test(message)) return true;
+  }
+  return false;
 }
 
 /** Renders every generated value of one entity: codes from the sequence table, UUIDs fresh. */

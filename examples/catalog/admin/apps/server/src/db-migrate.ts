@@ -10,6 +10,8 @@ const session = new SQL(Bun.env.DATABASE_URL!, { max: 1 });
 const lockKey = 4815162342;
 await session.unsafe("select pg_advisory_lock(" + lockKey + ")");
 console.log("qiy db:migrate: acquired advisory lock " + lockKey);
+// drizzle-kit migrations never create extensions, so declared ones are ensured before the first migration.
+await session.unsafe("create extension if not exists \"vector\"");
 const before = await appliedMigrations();
 try {
   await migrate(db, { migrationsFolder });

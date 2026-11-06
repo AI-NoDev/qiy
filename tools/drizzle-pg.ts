@@ -65,7 +65,22 @@ function renderIndex(index: IndexIR): string {
   const factory = index.unique ? "uniqueIndex" : "index";
   const method = index.method === "btree" ? "on" : "using";
   const args = index.method === "btree" ? columns.join(", ") : `${JSON.stringify(index.method)}, ${columns.join(", ")}`;
-  return `${generatedDocumentation(index, "  ")}  ${factory}(${JSON.stringify(index.name)}).${method}(${args})${index.concurrently ? ".concurrently()" : ""},`;
+  return `${generatedDocumentation(index, "  ")}  ${factory}(${JSON.stringify(index.name)}).${method}(${args}),`;
+}
+
+/**
+ * `@concurrently` indexes stay out of the Drizzle schema: Drizzle migrations run
+ * in a transaction and PostgreSQL rejects CREATE INDEX CONCURRENTLY there. The
+ * generated db-migrate.ts builds them after the migrations, outside a transaction.
+ */
+export function concurrentIndexStatements(database: DatabaseIR): Array<{ name: string; sql: string }> {
+  return database.entities.flatMap((entity) => (entity.indexes ?? []).filter((index) => index.concurrently).map((index) => {
+    const columns = index.columns.map(({ fieldName, opclass }) => {
+      const field = entity.fields.find((candidate) => candidate.name === fieldName);
+      return `"${field?.columnName ?? fieldName}"${opclass ? ` ${opclass}` : ""}`;
+    }).join(", ");
+    return { name: index.name, sql: `CREATE ${index.unique ? "UNIQUE " : ""}INDEX CONCURRENTLY IF NOT EXISTS "${index.name}" ON "${entity.tableName}" USING ${index.method} (${columns})` };
+  }));
 }
 
 function renderEntity(entity: EntityIR, relations: RelationIR[]): string {
@@ -73,7 +88,7 @@ function renderEntity(entity: EntityIR, relations: RelationIR[]): string {
     const relation = relations.find((item) => item.fromEntity === entity.name && item.fromField === field.name);
     return `${generatedDocumentation(relation, "  ")}${generatedDocumentation(field, "  ")}  ${JSON.stringify(field.name)}: ${column(field, relation)},`;
   });
-  const indexes = (entity.indexes ?? []).map(renderIndex);
+  const indexes = (entity.indexes ?? []).filter((index) => !index.concurrently).map(renderIndex);
   const extra = indexes.length ? `, (table) => [\n${indexes.join("\n")}\n]` : "";
   return `${generatedDocumentation(entity)}export const ${entity.name} = pgTable(${JSON.stringify(entity.tableName)}, {\n${fields.join("\n")}\n}${extra});`;
 }

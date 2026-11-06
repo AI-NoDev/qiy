@@ -320,7 +320,7 @@ index products_embedding_hnsw hnsw(embedding vector_cosine_ops) @comment("Simila
 | Columns | Entity field names (not physical `@column` names); at least one |
 | Opclass | Vector only: `vector_l2_ops`, `vector_ip_ops`, `vector_cosine_ops`; btree opclass is rejected |
 | `@unique` | Not allowed on vector indexes |
-| `@concurrently` | PostgreSQL only (`concurrently requires PostgreSQL`); migration cannot run in a transaction |
+| `@concurrently` | PostgreSQL only (`concurrently requires PostgreSQL`); kept out of Drizzle migrations and built by the generated `db:migrate` after them with `CREATE INDEX CONCURRENTLY IF NOT EXISTS` outside a transaction (an INVALID leftover is dropped and rebuilt). Declared extensions (`pgvector` -> `vector`, `postgis`) are created by `db:migrate` before the first migration |
 
 Vector indexes require PostgreSQL + `pgvector`, exactly one `Vector` column, a compatible opclass, and dimension <= 2000 (`hnsw vector dimension cannot exceed 2000`). PostgreSQL does not index foreign keys automatically - add `btree(<fk>)` when lists filter by them. For composite indexes put equality columns first and range/sort columns after (`btree(status, placedAt)`). MySQL narrows indexed `Text`/`File` columns to `varchar(255)`.
 

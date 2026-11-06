@@ -278,13 +278,15 @@ export function qiyCodeTemplateBucket(pattern: string, now: Date = new Date(), t
 }
 
 ${allocation}
-/** A unique-constraint violation from any supported dialect. */
+/** A unique-constraint violation from any supported dialect, including driver errors Drizzle wraps as the cause. */
 export function qiyIsUniqueViolation(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const code = String((error as { code?: unknown }).code ?? "");
-  if (["23505", "ER_DUP_ENTRY", "SQLITE_CONSTRAINT", "SQLITE_CONSTRAINT_UNIQUE", "2067"].includes(code)) return true;
-  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
-  return /UNIQUE constraint failed|duplicate key value violates unique constraint|Duplicate entry .+ for key/i.test(message);
+  for (let current = error, depth = 0; current && typeof current === "object" && depth < 5; current = (current as { cause?: unknown }).cause, depth++) {
+    const code = String((current as { code?: unknown }).code ?? "");
+    if (["23505", "ER_DUP_ENTRY", "SQLITE_CONSTRAINT", "SQLITE_CONSTRAINT_UNIQUE", "2067"].includes(code)) return true;
+    const message = current instanceof Error ? current.message : "";
+    if (/UNIQUE constraint failed|duplicate key value violates unique constraint|Duplicate entry .+ for key/i.test(message)) return true;
+  }
+  return false;
 }
 
 /** Renders every generated value of one entity: codes from the sequence table, UUIDs fresh. */
@@ -353,9 +355,17 @@ async function qiyNextSequence(entity: string, field: string, bucket: string): P
   if (dialect === "mysql") {
     return `/**
  * Allocates the next sequence value for one entity/field/bucket. MySQL has no
- * RETURNING clause, so the row is locked FOR UPDATE inside a transaction and a
- * concurrent first insert retries on the duplicate primary key.
+ * RETURNING clause, so the row is locked FOR UPDATE inside a transaction. A
+ * concurrent first insert retries on the duplicate primary key, and InnoDB gap
+ * locks on a missing row can deadlock, which MySQL resolves by retrying.
  */
+function qiyIsLockConflict(error: unknown): boolean {
+  for (let current = error, depth = 0; current && typeof current === "object" && depth < 5; current = (current as { cause?: unknown }).cause, depth++) {
+    if (["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"].includes(String((current as { code?: unknown }).code ?? ""))) return true;
+  }
+  return false;
+}
+
 async function qiyNextSequence(entity: string, field: string, bucket: string): Promise<number> {
   const where = and(eq(qiyCodeSequences.entity, entity), eq(qiyCodeSequences.field, field), eq(qiyCodeSequences.bucket, bucket));
   for (let attempt = 0; attempt < QIY_GENERATED_ATTEMPTS; attempt++) {
@@ -371,7 +381,7 @@ async function qiyNextSequence(entity: string, field: string, bucket: string): P
         return 1;
       });
     } catch (error) {
-      if (!qiyIsUniqueViolation(error)) throw error;
+      if (!qiyIsUniqueViolation(error) && !qiyIsLockConflict(error)) throw error;
     }
   }
   throw new QiyGeneratedValueConflict("qiy_code_sequences");

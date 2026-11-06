@@ -111,7 +111,13 @@ describe("kitchen-sink fixture", () => {
       expect(schema, dialect).toContain(dialect === "postgresql" ? "pg-core" : dialect === "mysql" ? "mysql-core" : "sqlite-core");
       expect(files["apps/server/drizzle.config.ts"], dialect).toBeDefined();
       for (const entity of projects.get(dialect)!.database.entities) expect(schema, `${dialect} ${entity.tableName}`).toContain(`"${entity.tableName}"`);
-      if (dialect === "postgresql") for (const fragment of ["vector(", "knowledge_embedding_hnsw", "knowledge_embedding_ivfflat"]) expect(schema).toContain(fragment);
+      if (dialect === "postgresql") {
+        for (const fragment of ["vector(", "knowledge_embedding_hnsw"]) expect(schema).toContain(fragment);
+        expect(schema).not.toContain("knowledge_embedding_ivfflat");
+        const migrate = files["apps/server/src/db-migrate.ts"] ?? "";
+        expect(migrate).toContain('create extension if not exists \\"vector\\"');
+        expect(migrate).toContain('CREATE INDEX CONCURRENTLY IF NOT EXISTS \\"knowledge_embedding_ivfflat\\"');
+      }
     }
   }, 60_000);
 });
