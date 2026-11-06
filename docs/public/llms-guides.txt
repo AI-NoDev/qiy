@@ -675,7 +675,7 @@ Cookie 模式要求 API 与后台同源，非 GET/HEAD/OPTIONS 请求必须存�
 
 Bearer/portal 模式的发布验收会由本地宿主签发并验证带 issuer、audience、subject、过期时间和角色的 HS256 JWT。第一次请求使用 viewer token，宿主 API 的管理员白名单返回 403；`onError` 由宿主显式刷新为 admin token，但 Qiy 不自动重放，下一次由调用方发起的请求才成功。这个验收证明传输和职责边界，不代表你的签名算法、JWKS、刷新 Cookie 或管理员目录已经被 Qiy 实现。
 
-`dataflow`、`auth`、`storage`、`elysia`、`scope`、`restrict`、`workflow` 与 `env` 不能用于 integration 模式，因为它们表示 Qiy 自己生成服务端的能力；integration 的租户转发用 `tenant`，记录级权限由宿主 API 决定。需要命令/审计时，应把 UI contract 和宿主 API 的实现一起维护在未托管扩展中。
+`dataflow`、`auth`、`storage`、`elysia`、`scope`、`restrict`、`statemachine` 与 `env` 不能用于 integration 模式，因为它们表示 Qiy 自己生成服务端的能力；integration 的租户转发用 `tenant`，记录级权限由宿主 API 决定。需要命令/审计时，应把 UI contract 和宿主 API 的实现一起维护在未托管扩展中。
 
 # 模块化模型
 
@@ -1110,7 +1110,7 @@ qiy/
 │   ├── modeling-and-generation.md   # 数据建模：include、字段、关系、索引、@code、显示模板、限制
 │   ├── auth-permissions.md          # 认证模式、Provider、permission/verification/restrict/scope/pages
 │   ├── refine-providers.md          # 生成后的 Refine Provider：DataProvider/AuthProvider/can()/Live/Audit
-│   ├── dataflows-actions.md         # dataflow、action、批量、workflow、app.test.qiy
+│   ├── dataflows-actions.md         # statemachine、dataflow、action、批量、app.test.qiy
 │   ├── ui-charts-i18n.md            # ui/主题、menu、dashboard、chart/chart panels、messages/i18n
 │   ├── system-features.md           # features、系统页、OpenAPI 过滤、API Key 生命周期
 │   ├── storage-realtime.md          # 文件存储/上传/清理、realtime/outbox 运维
@@ -2029,7 +2029,7 @@ export function qiyApiError(payload, statusCode, locale = document.documentEleme
 | 详情 | `/api/v1/{resource}/:id` | `{apiName}ById(id:)` |
 | 写操作 | `POST` / `PATCH` / `DELETE` | `create{Name}`、`update{Name}`、`delete{Name}`、`delete{Name}Many` mutation |
 | 图表 | REST 分析端点 | `{apiName}Distribution` / `{apiName}Trend` / `{apiName}Aggregate` 字段 |
-| 命令 | `POST /api/v1/commands/{flow}` | **仍走同一个 REST 命令端点**（DataProvider 内部复用 `workflowCommand`） |
+| 命令 | `POST /api/v1/commands/{flow}` | **仍走同一个 REST 命令端点**（DataProvider 内部复用 `commandRequest`） |
 | `getMany` | id 分块 + 30 秒合并缓存 | id 分块，无合并缓存 |
 | 过滤器 | 受字段白名单约束 | 所有操作符透传，由服务端 GraphQL schema 校验 |
 | 错误 | `qiyApiError`，带 `statusCode` + `errorKey` | `Error`，只带 `statusCode`（响应含 `errors` 时固定 400），**没有 `errorKey` 本地化** |
@@ -2044,7 +2044,7 @@ GraphQL 列表的 `filters` 变量形如 `[{ field, operator, value }]`（生成
 - **命令**：`method === "post"`，且 URL 是 `/api/v1/commands/{flow}`（flow 在 `dataflowCommands` 集合内）或 `/api/v1/orders/:uuid/(submit|approve|ship|cancel)`。命令请求可带 `meta.idempotencyKey`，会写入 `idempotency-key` 请求头；只有 dataflow 命令带 JSON body。
 - **分析**：`method === "get"`，URL 必须匹配 `/api/v1/{resource}/(distribution|trend|aggregate)`，且 `resource` 在白名单内。
 
-其他 URL 直接抛 `Unknown workflow command` / `Unknown analytics resource`（GraphQL 侧是 `Unknown analytics field` / `Unknown aggregate field`）。占位符与字段还会二次校验：
+其他 URL 直接抛 `Unknown command` / `Unknown analytics resource`（GraphQL 侧是 `Unknown analytics field` / `Unknown aggregate field`）。占位符与字段还会二次校验：
 
 | 分析 | 参数 | 校验 |
 | --- | --- | --- |
@@ -2520,7 +2520,7 @@ app/resources.ts          # resourceNames / resources[].{name,apiName,fields}
 | 列表不实时刷新 | 列表 `useTable` 没传 `liveMode` | 显式传 `liveMode: resource.liveMode` |
 | 详情页收不到事件 | 角色不在 `realtime.roles`；分段通道 claim 缺失；反向代理缓冲 SSE | 看 `/api/v1/realtime/stream` 首帧 `ready` 列出的 channel；补角色/claim；关闭代理缓冲 |
 | `/api/v1/realtime/stream` 503 | `QIY_REALTIME_DISABLED=1` | 取消该变量 |
-| 命令按钮报 `Unknown workflow command` | 调了未声明的命令 URL，或 method 不是 `post` | 命令必须走 `dataflow`/`actions` 声明 |
+| 命令按钮报 `Unknown command` | 调了未声明的命令 URL，或 method 不是 `post` | 命令必须由 `statemachine`/`dataflow`/`actions` 声明 |
 | GraphQL 错误没有中文文案 | GraphQL 错误不带 `errorKey` | 已知差异；需要本地化就用 REST 客户端或自己映射 |
 | 退出登录后仍残留 `qiy.id_token` | 多 Provider 模式的 `logout` 只删 access token | 自己清或改用混合模式 |
 | `--sync` 后自定义 provider 被覆盖 | 该文件在 `.qiy-generated.json` 的 `files` 里 | 把自定义代码放到未托管文件（`app/host/`、`app/extensions/`） |
@@ -3320,42 +3320,28 @@ Source: https://ai-nodev.github.io/qiy/guide/workflow
 
 # 业务工作流
 
-V0 以数据与配置为中心；复杂业务联动属于 V1，通过显式声明的工作流或 `dataflow` 生成事务代码，而不是让用户手写重复逻辑。
+复杂业务联动通过模型显式声明，生成事务代码，而不是让用户手写重复逻辑。有两种声明方式，生成的都是同一套服务端命令（`POST /api/v1/commands/<name>`）：
 
-目前有两条路：
+| 方式 | 用途 |
+| --- | --- |
+| [`statemachine`](/dsl/statemachine) | 记录在有限状态之间流转：声明状态字段、初始状态和 transition，自动生成守卫、命令和按钮 |
+| [`dataflow`](/dsl/dataflow) + [`action`](/dsl/actions) | 任意事务命令：自己声明输入、加载、校验、写入、事件和 adapter 调用 |
 
-| 方式 | 用途 | 通用性 |
-| --- | --- | --- |
-| `dataflow` + `action` | **推荐**：你自己声明输入、加载、校验、写入、事件 | 通用（任何实体、任何状态） |
-| `workflow orderInventory;` | 内置的 ERP 订单/库存压力测试切片 | 固定实体、固定动作，仅 PostgreSQL |
-
-`dataflow` 的完整语法见 [DSL：dataflow](/dsl/dataflow)，按钮绑定见 [DSL：actions](/dsl/actions)。
-
-## 声明
-
-```qiy
-application qiy-erp-admin {
-  database postgresql {}
-  workflow orderInventory;
-}
-```
-
-- `workflow` 只接受 `orderInventory`，其它值报 `Unsupported workflow <name>`；重复声明报 `Duplicate workflow`。
-- 声明位置在 `messages` / `permission` 之后、`enum` / `entity` 之前（见 [application](/dsl/application)）。
-- `mode integration` 的模型不允许包含 `workflow`（也不允许其它生成式服务端功能）。
-
-声明后，PostgreSQL 的 ERP 模型会生成：
-
-- 订单提交、审批、出库、取消四个动作（REST 端点 + 详情页操作按钮）；
-- 多仓库存预占与释放、事务边界与状态条件校验；
-- 持久化幂等回执（`order_idempotency` 表）；
-- 订单与库存的关联查询。
-
-## 前置实体
-
-`orderInventory` 要求模型里存在 `orders`、`orderItems`、`inventoryItems` 三个实体（字段契约由该切片固定），并且数据库方言为 **PostgreSQL**。它不是一个通用工作流 DSL：新增业务动作请用 `dataflow`。
+两者可以并用：状态用状态机管理，状态之外的写入用 dataflow。
 
 ## 状态机
+
+```qiy
+statemachine orderLifecycle {
+  resource orders;
+  field status;
+  initial draft;
+  transition submit { from draft; to submitted; label "提交订单"; }
+  transition approve { from submitted; to approved; label "审批"; allow roles admin; }
+  transition ship { from approved; to shipped; label "出库"; confirm "确认出库？"; }
+  transition cancel { from draft, submitted; to cancelled; label "取消订单"; confirm "确认取消该订单？"; }
+}
+```
 
 ```text
 draft --submit--> submitted --approve--> approved --ship--> shipped
@@ -3363,66 +3349,70 @@ draft --submit--> submitted --approve--> approved --ship--> shipped
   +----> cancelled <---+
 ```
 
-- 状态枚举的颜色、icon 与 label 来自模型声明，UI 不需要额外映射表。
-- 只有 `draft` 和 `submitted` 可以取消；`approved` 必须继续出库，当前不生成「审批撤销」流程。
-- 提交时的库存预占、取消时的释放、出库时的扣减都在服务端事务内执行。
-- 幂等：同一订单/操作者/请求键回放首次结果；不同请求内容 409。
+生成结果：
+
+- 每个 transition 一个命令（`orderLifecycleSubmit` 等）：在事务内加载并锁定记录，状态不在 `from` 中返回 409 `state.invalidTransition`，否则写入 `to`、记审计、写 outbox 事件。
+- 每个命令都需要 `Idempotency-Key`，重试回放第一次的结果。
+- 列表与详情页按当前状态显示对应按钮（`when status == "draft"` / `when status in "draft", "submitted"`）。
+- `status` 只能由 transition 改变：新建从 `initial` 开始，编辑表单、通用 PATCH、CSV 导入都不能改它；手写 dataflow 写这个字段会在解析期报错。
+
+完整规则见 [DSL：statemachine](/dsl/statemachine)。
+
+## dataflow
+
+状态机只改状态。一次命令要写多个字段、创建子记录、调用外部 adapter 时，用 `dataflow`：input、按主键 context 加载、`require`、同事务 `create`/`update`/`delete`/`emit`/`call`、审计、幂等回执和 `result`，批量执行再加 `/batch`。`emit` 只写事务性 outbox，不直接调用消息 broker。
+
+```qiy
+dataflow recordShipment @label("登记物流") {
+  allow roles admin, operator;
+  idempotency required;
+  audit "order.shipmentRecorded";
+  input {
+    field orderId UUID @required;
+    field trackingNumber Text @required;
+  }
+  context { order = entity orders by id input.orderId @required; }
+  step guard {
+    require order.status == "shipped" @error("errors.order.notShipped");
+  }
+  step record {
+    update order { trackingNumber = input.trackingNumber; }
+    emit "order.shipmentRecorded" { orderId = order.id; }
+  }
+  result { return order; }
+}
+
+action recordShipment {
+  resource orders;
+  dataflow recordShipment;
+  placement show;
+  when status == "shipped";
+}
+```
+
+详见 [DSL：dataflow](/dsl/dataflow) 与 [DSL：action](/dsl/actions)。
 
 ## 与权限的关系
 
 | 规则 | 说明 |
 | --- | --- |
-| 角色 | 工作流动作沿用生成的角色守卫与账号角色 |
-| 数据范围 | 有 `scope` 时按 claim 过滤；缺少 claim → 403 `Missing required data scope claim` |
-| `restrict` 行策略 | **不支持**：声明 `restrict orders/orderItems/inventoryItems { when … }` 会报 `Restrict <resource>: orderInventory does not apply row policy yet` |
-| 命令授权 | 工作流不是 dataflow，不参与 `allow permission`/`allow verification` |
+| 角色 | transition 与 dataflow 的 `allow roles` / `allow permission` / `allow verification`；省略时所有 `full`/`write` 角色可执行 |
+| 数据范围 | 资源有 `scope` 时按 claim 过滤：缺少 claim → 403，范围外的记录 → 404 |
+| `restrict` 行策略 | 命令暂不应用行策略，因此受 `restrict` 保护的资源不能被 statemachine 或 dataflow 使用（生成期报错） |
+| 按钮可见性 | 只是界面规则；服务端以命令的 `allow`、守卫和 `require` 为准 |
 
-需要「按权限控制审批」时，请把这部分业务改用 `dataflow`（`allow permission PurchaseApprovePermission;`）。
+## 当前限制
 
-## 验收
-
-```sh
-bun tools/verify-postgres-erp.ts qiy-erp-pg
-```
-
-在隔离数据库中执行迁移并做真实数据库验收：并发幂等提交、审批角色、租户 claim 缺失与跨租户拒绝、后续商品库存不足时回滚已有预占、取消释放及重复取消拒绝、预占数据异常时出库失败保留原状态。脚本会创建并最终删除临时数据库，不触碰 ERP 数据库；测试注入身份，不等同于真实登录或浏览器操作验收。
-
-:::warning 当前限制
-
-`orderInventory` 是一个真实业务压力测试切片，用来验证「模型 → 事务 → API → UI」的完整链路，而不是任意业务流程 DSL。真实 IdP、浏览器端完整审批体验与多对多模型仍未完成；进度见 [V3 状态](https://github.com/AI-NoDev/qiy/blob/main/openwiki/v3-status.md)。
-
-:::
-
-## dataflow（推荐的通用方式）
-
-`dataflow` 已可生成受限服务端命令：input、按主键 context 加载、`require`、同事务 `create`/`update`/`delete`/`emit`/`call`、审计、幂等回执和 `result`，统一生成到 `POST /api/v1/commands/<dataflow>`（批量再加 `/batch`）。`emit` 只写事务性 outbox，不直接调用消息 broker。
-
-```qiy
-dataflow approveOrder @label("审批订单") @confirm("确认审批？") {
-  allow permission PurchaseApprovePermission;
-  idempotency required;
-  audit "order.approved";
-  input { field orderId UUID @required; }
-  context { order = entity orders by id input.orderId @required; }
-  step guard {
-    require order.status == "submitted" @error("errors.order.notSubmitted");
-  }
-  step approve {
-    update order { status = "approved"; }
-    emit "order.approved" { orderId = order.id; }
-  }
-  result { return order; }
-}
-```
-
-详见 [DSL：dataflow](/dsl/dataflow) 与 [权限](/dsl/permissions#命令策略allow)。
+- transition 只改状态，不能附加写入步骤。状态变化同时需要跨表写入（例如库存扣减）时，拆成状态机 + 独立 dataflow，或在宿主代码中实现。
+- 命令不应用 `restrict` 行策略（见上表）；进度见 [ROADMAP](https://github.com/AI-NoDev/qiy/blob/main/ROADMAP.md)。
 
 ## 相关
 
+- [DSL：statemachine](/dsl/statemachine)：状态字段归属、生成结果与校验错误。
 - [DSL：dataflow](/dsl/dataflow)：通用事务命令、幂等、事件、批量。
 - [DSL：actions](/dsl/actions)：把命令挂到列表/详情按钮。
 - [权限（permission）](/dsl/permissions)：`allow permission` / `allow verification`、`restrict`/`scope`。
-- [application](/dsl/application)：`workflow` 的位置与相关块。
+- [迁移到 0.38](/guide/migration-0.38)：从 `workflow orderInventory` 迁移。
 - 示例：[examples/erpadmin/app.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/erpadmin/app.qiy)。
 
 # 文件存储
@@ -3572,7 +3562,7 @@ Source: https://ai-nodev.github.io/qiy/guide/dsl-cookbook
 | 自动化 | [Dataflow + Action](#recipe-31) | 事务型业务命令与按钮 |
 | 自动化 | [校验、确认、幂等、审计](#recipe-32) | `require`、`confirm`、`idempotency`、`audit` |
 | 自动化 | [手动业务页](#recipe-33) | `navigate` + `page manual` |
-| 自动化 | [内置订单工作流](#recipe-34) | `workflow orderInventory` |
+| 自动化 | [订单状态机](#recipe-34) | `statemachine` |
 | 概览 | [多视图图表 + 面板](#recipe-41) | 图表页、响应式栅格、面板切换 |
 | 概览 | [KPI、聚合与表格预览](#recipe-42) | `const`/`aggregate`/`table` |
 | 多语言/主题 | [完整词典](#recipe-51) | 资源/字段/枚举/图表/命令/错误 |
@@ -3835,7 +3825,7 @@ entity users @label("Users") @icon(UserOutlined) {
 
 **目标**：把权限值声明成可校验模型：角色组、OAuth claim、数据库列三种来源做并集；用 verification 表达集合关系。
 
-**前置**：必须先有 `auth`；权限声明放在 `messages` 之后、`workflow`/`enum`/`entity` 之前。
+**前置**：必须先有 `auth`；权限声明放在 `messages` 之后、`enum`/`entity` 之前。
 
 **模型**
 
@@ -4119,70 +4109,53 @@ action reviewInventory {
 
 **参考**：[action](/dsl/actions) · [模块化模型](/guide/modules)。
 
-### 配方 3.4：内置订单工作流 {#recipe-34}
+### 配方 3.4：订单状态机 {#recipe-34}
 
-**目标**：不写 dataflow，直接获得订单提交/审批/出库/取消 + 库存预占的事务链路。
+**目标**：订单在草稿、已提交、已审批、已出库、已取消之间流转，按钮随状态出现，状态不能被随意编辑。
 
 **模型**
 
 ```qiy
-database postgresql {}
-
-workflow orderInventory;
-
 enum orderStatus {
-  value draft;
-  value submitted;
-  value approved;
-  value shipped;
-  value cancelled;
-}
-
-entity Product table products @label("Products") {
-  field id UUID @id;
-  field name Text @label("Name");
+  value draft label "草稿";
+  value submitted label "已提交";
+  value approved label "已审批";
+  value shipped label "已出库";
+  value cancelled label "已取消";
 }
 
 entity orders @label("Orders") {
   field id UUID @id;
+  field orderNumber Text @unique;
   field status orderStatus;
-  field approvedBy UUID @nullable;
 }
 
-entity orderItems table order_items @label("Order items") {
-  field id UUID @id;
-  field orderId UUID;
-  field productId UUID;
-  field quantity Integer;
+statemachine orderLifecycle {
+  resource orders;
+  field status;
+  initial draft;
+  transition submit { from draft; to submitted; label "提交订单"; }
+  transition approve { from submitted; to approved; label "审批"; allow roles admin; }
+  transition ship { from approved; to shipped; label "出库"; confirm "确认出库？"; }
+  transition cancel { from draft, submitted; to cancelled; label "取消订单"; confirm "确认取消该订单？"; }
 }
-
-entity inventoryItems table inventory_items @label("Inventory items") {
-  field id UUID @id;
-  field productId UUID;
-  field quantity Integer;
-  field reservedQuantity Integer;
-}
-
-relation orderLine orderItems orderId orders id one @onDelete(cascade);
-relation orderLineProduct orderItems productId Product id one @onDelete(restrict);
-relation stockProduct inventoryItems productId Product id one @onDelete(restrict);
 ```
 
 **生成结果**
 
-- 订单详情的额外动作按钮（submit/approve/ship/cancel）、库存预占与回滚事务。
-- 生成 `orderIdempotency`、`orderReservations`、订单工作的服务端路由/测试。
-- 契约是固定的：实体名正好 `orders`、`orderItems`、`inventoryItems`；`orders` 需要 `status`（含五个状态值）与可空 `approvedBy`；`orderItems` 需要 `orderId`/`productId`/`quantity`；`inventoryItems` 需要 `productId`/`quantity`/`reservedQuantity`。
+- 四个命令 `POST /api/v1/commands/orderLifecycleSubmit` 等（GraphQL `runOrderLifecycleSubmit`），body `{ "recordId": "<id>" }`，需要 `Idempotency-Key`。
+- 命令在事务内锁定记录、检查当前状态、写入新状态、记审计（`orders.submit`）并写 outbox 事件。
+- 列表与详情页按状态显示按钮：`cancel` 用 `when status in "draft", "submitted"`。
+- `status` 不再出现在新建/编辑表单、通用 PATCH 和 CSV 导入中；新订单从 `draft` 开始。
 
 **坑**
 
-- 实体名、字段名或类型不匹配时生成失败，错误会指出缺哪个字段/值。
-- 必须是 PostgreSQL；SQLite/MySQL 直接报错。
-- `orders`/`orderItems`/`inventoryItems` 不能同时声明行谓词（生成期拒绝）。
-- 工作流与自定义 dataflow 是两套机制；不要用同名 action 重复实现。
-- 升级前阅读 [workflow 指南](/guide/workflow) 与对应测试。
+- 状态字段必须是非空 enum；写了 `@default` 时必须等于 `initial`。
+- 手写 dataflow 不能再写 `status`，会在解析期报错；状态之外的写入另写 dataflow。
+- 受 `restrict` 保护的资源不能用状态机（与 dataflow 相同）。
+- transition 只改状态；库存扣减等跨表写入需要单独的 dataflow 或宿主代码。
 
-**参考**：[application · workflow](/dsl/application#workflow) · [业务工作流指南](/guide/workflow)。
+**参考**：[statemachine](/dsl/statemachine) · [业务工作流指南](/guide/workflow)。
 
 ## 概览与图表
 
@@ -5208,6 +5181,96 @@ The dashboard { metric ... } block was removed in Qiy 0.37.0; declare chart view
 ## llms-full.txt
 
 文档站不再发布 `llms-full.txt`，它与 `llms-dsl.txt` + `llms-guides.txt` 内容完全重复。Agent 先读 [llms.txt](/llms.txt) 索引或 Skill 的 `language-reference.md` 语法卡，需要全文时按主题请求 [llms-dsl.txt](/llms-dsl.txt) 或 [llms-guides.txt](/llms-guides.txt)。
+
+# 迁移到 0.38
+
+Source: https://ai-nodev.github.io/qiy/guide/migration-0.38
+
+# 迁移到 0.38
+
+0.38.0 继续"同一件事只保留一种写法"：内置的 ERP 订单切片 `workflow orderInventory;` 删除，改用通用的 [statemachine](/dsl/statemachine)。被删除的写法在解析时报错，并在错误信息里指向本页。
+
+| 变化 | 改用 | 影响 |
+| --- | --- | --- |
+| `workflow orderInventory;` | `statemachine` | 模型需改写；重新生成 + 迁移 |
+| 生成的 `createApp(repositories, authenticate, includeWorkflows, includeStorage, …)` | 去掉第三个参数 | 只影响手写代码里直接调用 `createApp` 的地方 |
+| Dataflow `allow roles` 写了 `read` 级别角色 | 去掉该角色 | 解析期报错 |
+
+升级步骤：
+
+1. 按下面各节改写模型，运行 `qiy check` 直到没有错误。
+2. 重新生成：`qiy generate app.qiy <输出目录> --sync`。被删除的工作流文件会随 `--sync` 一并删除。
+3. 生成并审阅迁移（见下文"数据库"一节），再运行 `bun run db:migrate`（生产环境在 `apps/server` 下运行 `bun run db:migrate:production`）。
+
+## workflow orderInventory
+
+声明 `workflow` 会报：
+
+```text
+workflow orderInventory was removed in Qiy 0.38.0; declare a statemachine for the status field instead (for example statemachine orderLifecycle { resource orders; field status; initial draft; transition submit { from draft; to submitted; } }); see docs/guide/migration-0.38.md.
+```
+
+删除 `workflow orderInventory;`，在 `chart` 之后声明状态机。与 0.37 生成的四个动作等价的写法：
+
+```qiy
+statemachine orderLifecycle {
+  resource orders;
+  field status;
+  initial draft;
+  transition submit { from draft; to submitted; label "提交订单"; }
+  transition approve { from submitted; to approved; label "审批"; allow roles admin; }
+  transition ship { from approved; to shipped; label "出库"; confirm "确认出库？"; }
+  transition cancel { from draft, submitted; to cancelled; label "取消订单"; confirm "确认取消该订单？"; }
+}
+```
+
+| 0.37 `orderInventory` | 0.38 `statemachine` |
+| --- | --- |
+| `POST /api/v1/orders/:id/submit`（approve/ship/cancel 同理） | `POST /api/v1/commands/orderLifecycleSubmit`，body `{ "recordId": "<id>" }`；GraphQL `runOrderLifecycleSubmit` |
+| 只有提交需要 `Idempotency-Key`，回执存在 `order_idempotency` | 每个 transition 都需要 `Idempotency-Key`，回执存在通用的 `dataflow_idempotency` |
+| 审计动作 `order.submitted` / `order.approved` / … | `orders.submit` / `orders.approve` / …（`<表名>.<transition>`），并写 outbox 事件 |
+| 详情页 `OrderWorkflowActions` 组件 | 列表和详情页的通用 action 按钮，按状态显示 |
+| 仅 PostgreSQL，实体与字段名固定 | 任意方言、任意实体的非空 enum 字段 |
+| 审批时写 `approvedBy` | 不再自动写；需要时用 `audit_events` 的 `actorId`，或另写一个 dataflow |
+| 提交时预占库存、出库时扣减、取消时释放（`order_reservations`） | **不再生成**，见下文 |
+
+`status` 字段从此只能由 transition 改变：通用的新建/编辑接口、CSV 导入和表单都不再接受它，新订单固定从 `initial` 状态开始。
+
+### 库存预占
+
+`orderInventory` 的库存逻辑是为 ERP 示例写死的，无法用模型表达，因此随切片一起删除。需要库存联动时：
+
+- 只需"出库时扣减"这类单行写入：声明一个 `dataflow`，用 `require` 校验库存行、`update` 写入数量，并用 action 的 `when status == "approved"` 控制按钮时机。
+- 需要跨多行分配（多仓预占）：在宿主代码里实现，或通过 dataflow 的 `call` adapter 调用你自己的服务。transition 本身只改状态，不附加步骤。
+
+## 数据库
+
+重新生成后，`order_reservations` 和 `order_idempotency` 不再出现在 schema 中。运行 `bun run db:generate` 生成的迁移会删除这两张表：
+
+- 如果需要保留历史预占或幂等回执，先导出数据再迁移。
+- `orders.status` 增加了数据库默认值（`initial` 状态）。
+- 已有订单的状态值不受影响；处于任何状态的订单都可以继续按新 transition 流转。
+
+## createApp 参数
+
+生成的 `apps/server/src/app.ts` 中 `createApp` 去掉了 `includeWorkflows` 参数：
+
+```ts
+// 0.37
+await createApp(repositories, authenticate, false, false);
+// 0.38
+await createApp(repositories, authenticate, false);
+```
+
+生成的测试已同步更新；只有手写测试或脚本直接调用 `createApp` 并传了位置参数时需要修改。
+
+## Web 命令传输
+
+生成的 DataProvider 中，`custom({ method: "post" })` 只接受模型中声明的命令 URL（`/api/v1/commands/<name>` 及其 `/batch`），其他 URL 抛出 `Unknown command`（0.37 为 `Unknown workflow command`）。如果手写代码匹配了旧的错误文案，请一并修改。
+
+## Dataflow 角色
+
+Dataflow 的 `allow roles` 现在会在解析期检查角色的访问级别，`read` 级别的角色（默认模型里的 `viewer`）报 `Dataflow <name>: role viewer has read access and cannot run commands`。删除该角色即可；只读角色本来就无法执行命令。
 
 # 生成器插件
 

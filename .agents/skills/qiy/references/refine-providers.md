@@ -87,7 +87,7 @@ REST vs GraphQL:
 | Errors | `statusCode` + `errorKey` localization | `statusCode` only, no `errorKey` localization |
 | Analytics | REST endpoints | `*Distribution`/`*Trend`/`*Aggregate` fields |
 
-`custom` is allowlisted, not a general escape hatch: POST commands must be declared dataflows (or the fixed order workflow URLs) and GET analytics must be `<resource>/(distribution|trend|aggregate)` for a known resource. Others throw `Unknown workflow command` / `Unknown analytics resource` (GraphQL: `Unknown analytics field` / `Unknown aggregate field`). Analytics validation: `aggregate` op in `sum/avg/min/max` on numeric fields; `distribution` on enum fields; `trend` on `DateTime` with `days` 1..365.
+`custom` is allowlisted, not a general escape hatch: POST commands must be declared dataflow URLs (statemachine transitions included) and GET analytics must be `<resource>/(distribution|trend|aggregate)` for a known resource. Others throw `Unknown command` / `Unknown analytics resource` (GraphQL: `Unknown analytics field` / `Unknown aggregate field`). Analytics validation: `aggregate` op in `sum/avg/min/max` on numeric fields; `distribution` on enum fields; `trend` on `DateTime` with `days` 1..365.
 
 `resources[].liveMode` comes from `realtime` `mode` (`auto`/`manual`, otherwise `off`). Only the generated show route passes it to `useOne`; list pages must pass `liveMode` to `useTable` themselves.
 
@@ -182,7 +182,7 @@ For genuinely custom behavior, use unowned files: `app/extensions/**` (manual ac
 | Audit panel 400 `Unknown audit resource` | Entity name instead of table name | Pass `resource.name` (table name) |
 | List does not refresh live | `useTable` has no `liveMode` | Pass `liveMode: resource.liveMode` |
 | Detail receives no events | Role not in `realtime.roles`, or segmented claim missing | Check token capability and claims |
-| Command button throws `Unknown workflow command` | Undeclared command URL or non-POST | Declare a `dataflow`/`action` |
+| Command button throws `Unknown command` | Undeclared command URL or non-POST | Declare a `statemachine`, or a `dataflow` + `action` |
 | GraphQL errors are not localized | GraphQL errors carry no `errorKey` | Use the REST client or map messages yourself |
 | `qiy.id_token` remains after logout | Multi-provider logout only clears the access token | Clear it yourself or use hybrid |
 | Custom provider overwritten by `--sync` | File is in `.qiy-generated.json` | Move it to an unowned path |

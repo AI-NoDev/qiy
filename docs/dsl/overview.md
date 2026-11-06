@@ -73,7 +73,7 @@ theme blue
 
 | 位置 | 分号 | 说明 |
 | --- | --- | --- |
-| `field` / `index` / `relation` / `scope` / `permission field` / `permission from` / `workflow` / `variable` 声明 | 必须 | 缺少时报 `Expected ; near token N` |
+| `field` / `index` / `relation` / `scope` / `permission field` / `permission from` / `variable` 声明 | 必须 | 缺少时报 `Expected ; near token N` |
 | 块（`database`、`ui`、`entity`、`enum`、`menu`、`chart` …）的 `}` | **不加** `;` | 多写一个 `;` 会报 `Expected … near token N` |
 | `permission group … { … }` | 可选 | 列表形式后面可以跟 `;` |
 | `permission verification … { … }` | 可选 | 同上 |
@@ -106,15 +106,15 @@ theme blue
 | 12 | `env { variable … { … } }` | 自定义环境变量 | [application · env](/dsl/application#env) |
 | 13 | `messages { … }` | 多语言词典 | [多语言](/dsl/i18n) |
 | 14 | `permission …` | 原子权限/组/来源/校验 | [权限](/dsl/permissions) |
-| 15 | `workflow orderInventory;` | 业务流程 | [application · workflow](/dsl/application#workflow) |
-| 16 | `enum … { value …; }` | 枚举 | [enum/menu](/dsl/enum-menu-dashboard#enum) |
-| 17 | `entity … { field …; index …; }` | 实体与字段/索引 | [entity 与 field](/dsl/entity) |
-| 18 | `relation …;` | 外键与关联 | [relation 与 index](/dsl/relation-index) |
-| 19 | `scope …;` | 数据范围 | [application · scope](/dsl/application#scope) |
-| 20 | `restrict … { … }` | 行级/字段级策略 | [application · restrict](/dsl/application#restrict) |
-| 21 | `pages … { … }` | 页面级角色规则 | [application · pages](/dsl/application#pages) |
-| 22 | `menu { group … { resource …; } }` | 侧边栏 | [enum/menu · menu](/dsl/enum-menu-dashboard#menu) |
-| 23 | `chart …` / `chart panels …` | 概览页 | [chart](/dsl/charts) |
+| 15 | `enum … { value …; }` | 枚举 | [enum/menu](/dsl/enum-menu-dashboard#enum) |
+| 16 | `entity … { field …; index …; }` | 实体与字段/索引 | [entity 与 field](/dsl/entity) |
+| 17 | `relation …;` | 外键与关联 | [relation 与 index](/dsl/relation-index) |
+| 18 | `scope …;` | 数据范围 | [application · scope](/dsl/application#scope) |
+| 19 | `restrict … { … }` | 行级/字段级策略 | [application · restrict](/dsl/application#restrict) |
+| 20 | `pages … { … }` | 页面级角色规则 | [application · pages](/dsl/application#pages) |
+| 21 | `menu { group … { resource …; } }` | 侧边栏 | [enum/menu · menu](/dsl/enum-menu-dashboard#menu) |
+| 22 | `chart …` / `chart panels …` | 概览页 | [chart](/dsl/charts) |
+| 23 | `statemachine … { … }` | 状态字段与 transition 命令 | [statemachine](/dsl/statemachine) |
 | 24 | `dataflow … { … }` | 事务型命令 | [dataflow](/dsl/dataflow) |
 | 25 | `action … { … }` | 命令按钮/手写页 | [action](/dsl/actions) |
 
@@ -122,10 +122,10 @@ theme blue
 
 解析器是**单遍递归下降**：它按固定顺序 `expect` 下一个关键字，看到不认识的东西就报 `Expected <关键字> near token N`。所以：
 
-- 块必须按上表顺序出现；`enum` 必须在 `entity` 之前，`entity` 必须在 `relation` 之前，`menu` 在 `pages` 之后、`dashboard`/`chart` 之前，`dataflow` 在 `action` 之前。
+- 块必须按上表顺序出现；`enum` 必须在 `entity` 之前，`entity` 必须在 `relation` 之前，`menu` 在 `pages` 之后、`chart` 之前。`statemachine`、`dataflow`、`action` 位于最后，三者之间可以任意交错。
 - `database` 必须是 `application {` 后的第一个声明。
-- `permission` 必须紧跟在 `messages` 之后（在 `workflow`/`enum` 之前）。
-- `dashboard` 与 `chart` 共享同一位置，可以交替书写；`menu` 最多一个。
+- `permission` 必须紧跟在 `messages` 之后（在 `enum` 之前）。
+- `chart` 与 `chart panels` 共享同一位置，可以交替书写；`menu` 最多一个。
 - 可选的单例块（`mode`、`integration`、`workspace`、`ui`、`api`、`features`、`realtime`、`elysia`、`storage`、`auth`、`env`、`messages`）缺省即用默认值，但**位置不能乱**：跳过的块不影响后面块的位置要求。
 - 展开 include 后仍必须满足上述顺序——这是[模块化](/dsl/modules)最容易踩的坑。
 
@@ -154,7 +154,7 @@ include 展开  →  词法/语法解析  →  IR 校验  →  生成期校验  
 
 ## 消息与模型描述
 
-`messages` 块声明默认语言与词典，位置在 `env` 之后、`permission`/`workflow`/`enum`/`entity` 之前：
+`messages` 块声明默认语言与词典，位置在 `env` 之后、`permission`/`enum`/`entity` 之前：
 
 ```qiy
 messages {

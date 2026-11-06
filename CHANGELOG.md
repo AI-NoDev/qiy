@@ -10,7 +10,20 @@ Releases before `0.2.0` are listed on the
 
 ## [Unreleased]
 
+`workflow orderInventory` is replaced by the declarative `statemachine`; a model that
+still declares it fails to parse with a pointer to
+[the 0.38 migration guide](https://ai-nodev.github.io/qiy/guide/migration-0.38).
+
+### Removed
+
+- `workflow orderInventory`, its hand-written order routes, inventory allocation module, order action component and their generated tests. Declare `statemachine orderLifecycle { resource orders; field status; ... }` instead; stock reservation, if you need it, becomes a dataflow of your own.
+- `tools/verify-postgres-erp.ts`. Transition commands run against real PostgreSQL and MySQL in the CI kitchen-sink jobs.
+
 ### Added
+
+- `statemachine <name> { resource <entity>; field <enumField>; initial <state>; transition <name> { from a, b; to c; allow roles ...; confirm "..."; label "..."; } }`. The machine owns the field: create, PATCH, GraphQL input and CSV import no longer accept it, it defaults to `initial`, and declared dataflows that write it are rejected. Each transition compiles to a dataflow `<machine><Transition>` (guarded by the `from` states with error key `state.invalidTransition`, audited, emitting `<table>.<transition>`, `idempotency required` so a retried click replays the first result) and a list/show action that only appears in a `from` state.
+- Action and dataflow conditions accept `when <field> in "a", "b"`.
+- `statemachine`, `dataflow` and `action` declarations may appear in any order after `chart`.
 
 - Kitchen-sink fixture (`tests/fixtures/kitchen-sink/`): PostgreSQL, MySQL and SQLite entries share one set of modules that exercise every construct the grammar accepts. `tests/kitchen-sink.test.ts` keys its coverage maps on the IR types, so a new `QiyProject`/entity/field/index/relation/enum/dataflow/action/chart property fails typecheck until the fixture uses it, and every field type, filter mode, index method, `@onDelete` mode, chart kind, chart operation and dataflow statement must appear.
 - CI generates the fixture for each dialect, migrates it against PostgreSQL 17 (pgvector) and MySQL 8.4 through the generated `db:migrate` with its drift check, and runs the generated server and web type-checks and tests, the server suite against a separate scratch database (`tools/verify-kitchen-sink.ts`).
@@ -22,6 +35,7 @@ Releases before `0.2.0` are listed on the
 
 ### Changed
 
+- Generated `createApp(repositories, authenticate, includeStorage, corsOrigins, includeDataflows)` drops the `includeWorkflows` argument. The Web data provider rejects anything other than a declared dataflow command with `Unknown command` (was `Unknown workflow command`).
 - `relation ... many` no longer fails validation with a join-entity hint; see Added. An explicit join entity with two `one` relations remains the model for links that carry their own fields.
 - `auth { usernameField }` accepts an `Email` field as well as `Text`.
 - `restrict`, `pages`, masks, `realtime`, actions and dataflows report `unknown role X; declared roles are ...` at parse time instead of `unsupported role` at generation time, and dataflow `allow roles` rejects read-only roles. Scenario identities in `app.test.qiy` are checked against the declared roles when the suite is validated.

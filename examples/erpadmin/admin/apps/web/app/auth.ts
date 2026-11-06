@@ -57,7 +57,7 @@ export const qiyAuthProvider: AuthProvider = {
   getPermissions: async () => { const identity = await loadIdentity(); return identity?.role ?? null; },
   onError: async (error) => { clearIdentityCache(); return error?.statusCode === 401 ? { logout: true, redirectTo: "/auth/login" } : {}; },
 };
-const commandPolicies: Array<{ resource: string; action: string; roles: string[]; permissions?: string[]; verification?: { name: string; expression: QiyPermissionExpression } }> = [];
+const commandPolicies: Array<{ resource: string; action: string; roles: string[]; permissions?: string[]; verification?: { name: string; expression: QiyPermissionExpression } }> = [{"resource":"orders","action":"orderLifecycleSubmit","roles":["admin","operator"]},{"resource":"orders","action":"orderLifecycleApprove","roles":["admin"]},{"resource":"orders","action":"orderLifecycleShip","roles":["admin","operator"]},{"resource":"orders","action":"orderLifecycleCancel","roles":["admin","operator"]}];
 const commandVerifications: Record<string, QiyPermissionExpression> = {};
 type QiyPermissionOperand = { kind: "self"; set: "permissions" | "groups" | "role" } | { kind: "input"; name: string } | { kind: "literal"; value: string };
 type QiyPermissionExpression =

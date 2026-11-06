@@ -956,7 +956,7 @@ export const resources: ResourceDefinition[] = [
         "primaryKey": false,
         "visible": true,
         "listVisible": true,
-        "formVisible": true,
+        "formVisible": false,
         "showVisible": true,
         "sortable": false,
         "filterable": true,
@@ -1001,7 +1001,9 @@ export const resources: ResourceDefinition[] = [
             "labelKey": "qiy.enums.orderStatus.values.cancelled"
           }
         ],
-        "icon": "TagsOutlined"
+        "icon": "TagsOutlined",
+        "defaulted": true,
+        "defaultValue": "draft"
       },
       {
         "name": "totalAmount",

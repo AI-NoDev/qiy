@@ -71,6 +71,22 @@ test("decides every resource page action, so route guards cannot be bypassed by 
   tokens.set("qiy.access_token", "page-guard-token");
 });
 
+test("matches each action role allowlist without an admin bypass", async () => {
+  tokens.set("qiy.access_token", "policy-test-token");
+  for (const policy of [{"resource":"orders","action":"orderLifecycleSubmit","roles":["admin","operator"]},{"resource":"orders","action":"orderLifecycleApprove","roles":["admin"]},{"resource":"orders","action":"orderLifecycleShip","roles":["admin","operator"]},{"resource":"orders","action":"orderLifecycleCancel","roles":["admin","operator"]}]) {
+    for (const candidate of ["admin","operator","viewer"]) {
+      role = candidate;
+      clearIdentityCache();
+      expect((await qiyAccessControlProvider.can({ resource: policy.resource, action: policy.action })).can).toBe(policy.roles.includes(candidate));
+    }
+  }
+  tokens.clear();
+  expect((await qiyAccessControlProvider.can({ resource: "orders", action: "orderLifecycleSubmit" })).can).toBe(false);
+  expect((await qiyAccessControlProvider.can({ resource: "orders", action: "orderLifecycleApprove" })).can).toBe(false);
+  expect((await qiyAccessControlProvider.can({ resource: "orders", action: "orderLifecycleShip" })).can).toBe(false);
+  expect((await qiyAccessControlProvider.can({ resource: "orders", action: "orderLifecycleCancel" })).can).toBe(false);
+});
+
 
 test("fetches the identity once per access token, even for concurrent guards", async () => {
   tokens.set("qiy.access_token", "identity-cache-token");

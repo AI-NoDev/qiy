@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { generateProject } from "../generate-project";
+import { generateProject, projectGenerationOptions } from "../generate-project";
 import { loadQiyProjectSource } from "../qiy-include";
 import { parseQiyProject } from "../qiy-project";
 import { loadQiyTestSuite } from "../qiy-test";
@@ -40,33 +40,7 @@ export async function renderAppFiles(source: string, options: GenerateAppOptions
   if (project.mode === "integration") {
     throw new Error("application mode integration must be mounted with qiy init inside an existing Bun workspace; it does not create a standalone server workspace.");
   }
-  const files = generateProject(database, appName, {
-    comment: project.comment,
-    commentKey: project.commentKey,
-    mode: project.mode,
-    integration: project.integration,
-    ui: project.ui,
-    dataflows: project.dataflows,
-    messages: project.messages,
-    actions: project.actions,
-    apiClient: project.apiClient,
-    elysiaPlugins: project.elysiaPlugins,
-    corsOrigins: project.corsOrigins,
-    menuGroups: project.menuGroups,
-    charts: project.charts,
-    chartPanels: project.chartPanels,
-    realtime: project.realtime,
-    storageProvider: project.storageProvider,
-    features: project.features,
-    auth: project.auth,
-    permissions: project.permissions,
-    environment: project.environment,
-    scopes: project.scopes,
-    restrictions: project.restrictions,
-    pages: project.pages,
-    workflows: project.workflows,
-    testSuite,
-  });
+  const files = generateProject(database, appName, projectGenerationOptions(project, testSuite));
   Object.assign(files, generatedWiki(files, appName, source));
   await applyGeneratorPlugins(files, project, appName, options.pluginRoot ?? process.cwd(), options.plugins ?? []);
   const unowned = new Set(Object.keys(files).filter((path) => path.startsWith("apps/web/app/extensions/") || path.startsWith("apps/server/src/extensions/") || path === "AGENTS.md" || path === "AGENT.MD"));

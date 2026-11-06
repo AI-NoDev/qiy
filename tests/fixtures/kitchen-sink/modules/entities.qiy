@@ -10,6 +10,12 @@ enum ticketStatus {
   value closed label "Closed" color green icon CheckCircleOutlined;
 }
 
+enum publishStage {
+  value draft label "Draft" color default;
+  value review label "In review" color orange;
+  value published label "Published" color green;
+}
+
 entity users table users @label("Users") @icon(TeamOutlined) {
   field id UUID @id;
   field email Email @unique;
@@ -78,6 +84,7 @@ entity announcements table announcements @label("Announcements") @icon(Notificat
   field id UUID @id;
   field title Text;
   field queue Text;
+  field stage publishStage;
   field revision Integer @version;
 }
 

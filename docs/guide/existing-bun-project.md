@@ -165,4 +165,4 @@ Cookie 模式要求 API 与后台同源，非 GET/HEAD/OPTIONS 请求必须存�
 
 Bearer/portal 模式的发布验收会由本地宿主签发并验证带 issuer、audience、subject、过期时间和角色的 HS256 JWT。第一次请求使用 viewer token，宿主 API 的管理员白名单返回 403；`onError` 由宿主显式刷新为 admin token，但 Qiy 不自动重放，下一次由调用方发起的请求才成功。这个验收证明传输和职责边界，不代表你的签名算法、JWKS、刷新 Cookie 或管理员目录已经被 Qiy 实现。
 
-`dataflow`、`auth`、`storage`、`elysia`、`scope`、`restrict`、`workflow` 与 `env` 不能用于 integration 模式，因为它们表示 Qiy 自己生成服务端的能力；integration 的租户转发用 `tenant`，记录级权限由宿主 API 决定。需要命令/审计时，应把 UI contract 和宿主 API 的实现一起维护在未托管扩展中。
+`dataflow`、`auth`、`storage`、`elysia`、`scope`、`restrict`、`statemachine` 与 `env` 不能用于 integration 模式，因为它们表示 Qiy 自己生成服务端的能力；integration 的租户转发用 `tenant`，记录级权限由宿主 API 决定。需要命令/审计时，应把 UI contract 和宿主 API 的实现一起维护在未托管扩展中。

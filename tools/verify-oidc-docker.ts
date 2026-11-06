@@ -127,7 +127,7 @@ test("generated HTTP API verifies HTTPS JWKS and database identity", async () =>
   client.exec('CREATE TABLE users (id text primary key, subject text unique not null, role text not null)');
   const id = "00000000-0000-4000-8000-000000000001";
   await db.insert(users).values({ id, subject, role: "admin" });
-  const app = await createApp({} as Repositories, createProductionAuthenticator(), false, false, [], false);
+  const app = await createApp({} as Repositories, createProductionAuthenticator(), false, [], false);
   const server = Bun.serve({ port: 0, fetch: (request) => app.handle(request) });
   const request = (path: string, bearer?: string) => fetch(new URL(path, server.url), { headers: bearer ? { Authorization: "Bearer " + bearer } : {}, signal: AbortSignal.timeout(10_000) });
   try {

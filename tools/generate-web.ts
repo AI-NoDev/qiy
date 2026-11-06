@@ -2,13 +2,13 @@ import type { DatabaseIR, EnumIR, EnumValueIR, FieldIR } from "./database-ir";
 import { renderAppTemplate } from "./admin-template";
 import { generatedFieldKind, generatedFieldsOf, manyRelations, validateDatabaseIR } from "./database-ir";
 import { fieldRulesOf, formDefault } from "./field-rules";
-import type { QiyChart, QiyChartView, QiyProject } from "./qiy-project";
+import type { QiyAction, QiyChart, QiyChartView, QiyProject } from "./qiy-project";
 import { authHasLocal, authIsHybrid, authOAuthProviders, authProviderLabel as providerLabel, authUsesProviderChooser, qiyChartVariants } from "./qiy-project";
 import { evaluatePermissionExpression, requiredPermissionValues, type QiyPermissionExpressionIR } from "./permissions";
-import { fullAccessRoles, roleAccessTable, roleContext } from "./roles";
+import { roleAccessTable, roleContext } from "./roles";
 
 
-type WebOptions = Pick<QiyProject, "mode" | "integration" | "ui" | "messages" | "apiClient" | "menuGroups" | "charts" | "chartPanels" | "realtime" | "auth" | "permissions" | "workflows" | "dataflows" | "actions" | "restrictions" | "pages" | "scopes" | "features" | "comment"> & { readOnly?: boolean };
+type WebOptions = Pick<QiyProject, "mode" | "integration" | "ui" | "messages" | "apiClient" | "menuGroups" | "charts" | "chartPanels" | "realtime" | "auth" | "permissions" | "dataflows" | "actions" | "restrictions" | "pages" | "scopes" | "features" | "comment"> & { readOnly?: boolean };
 type GeneratedAction = {
   name: string;
   roles?: string[];
@@ -19,7 +19,7 @@ type GeneratedAction = {
   batch?: boolean;
   label: string;
   labelKey?: string;
-  condition?: { field: string; operator: "==" | "!="; value: string };
+  condition?: QiyAction["condition"];
   target:
     | { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string; permissions?: string[]; verification?: { name: string; expression: QiyPermissionExpressionIR } }
     | { kind: "dataflow"; dataflow: string; roles: string[]; permissions?: string[]; verification?: { name: string; expression: QiyPermissionExpressionIR }; confirm?: string; confirmKey?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string; commentKey?: string; labelKey: string; options?: Array<{ value: string; label: string; labelKey: string }> }> };
@@ -157,7 +157,7 @@ function resourceFields(database: DatabaseIR, menuGroups: NonNullable<QiyProject
       primaryKey: Boolean(field.primaryKey),
       visible: field.visible ?? (!field.primaryKey && field.type !== "Vector"),
       listVisible: field.listVisible ?? field.visible ?? (!field.primaryKey && !field.version && field.type !== "Vector"),
-      formVisible: field.formVisible ?? field.visible ?? (!field.primaryKey && field.type !== "Vector"),
+      formVisible: field.stateMachine ? false : field.formVisible ?? field.visible ?? (!field.primaryKey && field.type !== "Vector"),
       showVisible: field.showVisible ?? field.visible ?? (!field.primaryKey && field.type !== "Vector"),
       sortable: field.sortable ?? true,
       filterable: field.filterable ?? true,
@@ -426,8 +426,6 @@ export function generateWeb(database: DatabaseIR, options: WebOptions = {}): Rec
   const root = template["web/app/root.tsx"]!;
   const show = template["web/app/routes/show.tsx"]!;
   const hasRelatedResources = (database.relations ?? []).some((relation) => database.entities.some((entity) => entity.name === relation.toEntity));
-  const hasOrderWorkflow = options.workflows?.includes("orderInventory") ?? false;
-  if (hasOrderWorkflow && (database.dialect !== "postgresql" || !["orders", "orderItems", "inventoryItems"].every((name) => database.entities.some((entity) => entity.name === name)))) throw new Error("orderInventory workflow requires PostgreSQL and orders, orderItems, and inventoryItems entities");
   // Chart pages: declarations with the same name are the views of one chart;
   // view labels are keyed by kind, distribution labels by enum value.
   const chartEntity = (entityName: string) => database.entities.find((entity) => entity.tableName === entityName || entity.name === entityName);
@@ -690,15 +688,15 @@ test("translates the auto-generated hint in both built-in locales", () => {
       .replace("__QIY_LAYOUT_START__", requiresAuthShell ? '{location.pathname.startsWith("/auth/") || location.pathname.startsWith("/oauth/") ? <Outlet /> : <Authenticated key="protected" fallback={<Navigate to="/auth/login" replace />}> ' : "")
       .replace("__QIY_LAYOUT_END__", requiresAuthShell ? "</Authenticated>}" : ""),
     "web/app/routes/show.tsx": show
-      .replace("__QIY_ORDER_IMPORT__", [hasOrderWorkflow ? 'import { OrderWorkflowActions } from "../features/orders/order-actions";' : "", hasRelatedResources ? 'import { RelatedRecords } from "../components/related-records";' : "", actionDefinitions.length ? 'import { BusinessActions } from "../components/business-actions";' : ""].filter(Boolean).join("\n"))
-      .replace("__QIY_ORDER_ACTIONS__", [hasOrderWorkflow ? '{resource.name === "orders" && result && id && <OrderWorkflowActions id={id} status={String(result.status ?? "")} />}' : "", hasRelatedResources ? '{result && id && (resource.relatedResources ?? []).map((relation) => <RelatedRecords key={relation.resource + relation.field} relation={relation} recordId={id} />)}' : "", actionDefinitions.length ? '{id && result && <BusinessActions resource={resource.name} placement="show" record={result} />}' : ""].join("")),
+      .replace("__QIY_SHOW_IMPORTS__", [hasRelatedResources ? 'import { RelatedRecords } from "../components/related-records";' : "", actionDefinitions.length ? 'import { BusinessActions } from "../components/business-actions";' : ""].filter(Boolean).join("\n"))
+      .replace("__QIY_SHOW_EXTRAS__", [hasRelatedResources ? '{result && id && (resource.relatedResources ?? []).map((relation) => <RelatedRecords key={relation.resource + relation.field} relation={relation} recordId={id} />)}' : "", actionDefinitions.length ? '{id && result && <BusinessActions resource={resource.name} placement="show" record={result} />}' : ""].join("")),
     ...(actionDefinitions.length ? {
-      "web/app/actions.ts": `type QiyActionCondition = { field: string; operator: "==" | "!="; value: string };
+      "web/app/actions.ts": `type QiyActionCondition = { field: string; operator: "==" | "!="; value: string } | { field: string; operator: "in"; values: string[] };
 type QiyActionBase = { name: string; resource: string; placements: Array<"list" | "show">; batch?: boolean; label: string; labelKey?: string; roles?: string[]; condition?: QiyActionCondition };
 type QiyVerificationRule = { name: string; expression: unknown };
 export type QiyActionDefinition = QiyActionBase & ({ target: { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string; permissions?: string[]; verification?: QiyVerificationRule } } | { target: { kind: "dataflow"; dataflow: string; roles: string[]; permissions?: string[]; verification?: QiyVerificationRule; confirm?: string; confirmKey?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string; commentKey?: string; labelKey: string; options?: Array<{ value: string; label: string; labelKey: string }> }> } });
 export const qiyActions: QiyActionDefinition[] = ${JSON.stringify(actionDefinitions.map(({ permission: _permission, verification: _verification, ...action }) => action), null, 2)};
-export function actionMatchesRecord(action: QiyActionDefinition, record: Record<string, unknown>) { if (!action.condition) return true; if (!Object.prototype.hasOwnProperty.call(record, action.condition.field) || record[action.condition.field] == null) return false; const matches = record[action.condition.field] === action.condition.value; return action.condition.operator === "==" ? matches : !matches; }
+export function actionMatchesRecord(action: QiyActionDefinition, record: Record<string, unknown>) { if (!action.condition) return true; if (!Object.prototype.hasOwnProperty.call(record, action.condition.field) || record[action.condition.field] == null) return false; const value = record[action.condition.field]; if (action.condition.operator === "in") return action.condition.values.includes(String(value)); const matches = value === action.condition.value; return action.condition.operator === "==" ? matches : !matches; }
 export function actionsFor(resource: string, placement: "list" | "show", record: Record<string, unknown>) { return qiyActions.filter((action) => !action.batch && action.resource === resource && action.placements.includes(placement) && actionMatchesRecord(action, record)); }
 export function batchActionsFor(resource: string) { return qiyActions.filter((action) => action.batch && action.resource === resource && action.placements.includes("list") && action.target.kind === "dataflow"); }
 export function hasBatchActions(resource: string) { return batchActionsFor(resource).length > 0; }
@@ -748,33 +746,6 @@ export function BusinessActions({ resource, placement, record }: { resource: str
 export function BatchBusinessActions({ resource, recordIds, onComplete }: { resource: string; recordIds: string[]; onComplete(): void }) { if (!recordIds.length) return null; return <Space wrap>{batchActionsFor(resource).map((action) => <BatchCommandAction key={action.name} action={action} resource={resource} recordIds={recordIds} onComplete={onComplete} />)}</Space>; }
 `,
     } : {}),
-    ...(hasOrderWorkflow ? {
-      "web/app/features/orders/order-actions.tsx": `import { CanAccess, useCustomMutation, useGetIdentity, useInvalidate, useNotification, useTranslation } from "@refinedev/core";
-import { Button, Popconfirm, Space } from "antd";
-
-type Command = "submit" | "approve" | "ship" | "cancel";
-export function OrderWorkflowActions({ id, status }: { id: string; status: string }) {
-  const { data: identity } = useGetIdentity<{ role?: string }>();
-  const { translate } = useTranslation();
-  const { open: notify } = useNotification();
-  const { mutateAsync, mutation } = useCustomMutation();
-  const invalidate = useInvalidate();
-  const run = async (command: Command) => {
-    try {
-      await mutateAsync({ url: \`/api/v1/orders/\${encodeURIComponent(id)}/\${command}\`, method: "post", successNotification: false, errorNotification: false, values: {}, ...(command === "submit" ? { meta: { idempotencyKey: crypto.randomUUID() } } : {}) });
-      await invalidate({ resource: "orders", id, invalidates: ["detail", "list"] });
-      notify?.({ type: "success", message: translate("notifications.success", {}, "Successful") });
-    } catch (error) { notify?.({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
-  };
-  return <CanAccess resource="orders" action="edit" params={{ id }}><Space wrap style={{ marginTop: 16 }}>
-    {status === "draft" && <Button type="primary" loading={mutation.isPending} onClick={() => void run("submit")}>{translate("orders.actions.submit", {}, "Submit order")}</Button>}
-    {status === "submitted" && ${JSON.stringify(fullAccessRoles(options.auth))}.includes(identity?.role ?? "") && <Button type="primary" loading={mutation.isPending} onClick={() => void run("approve")}>{translate("orders.actions.approve", {}, "Approve order")}</Button>}
-    {status === "approved" && <Popconfirm title={translate("orders.actions.shipConfirm", {}, "Confirm shipment and deduct inventory?")} onConfirm={() => void run("ship")}><Button type="primary" loading={mutation.isPending}>{translate("orders.actions.ship", {}, "Ship")}</Button></Popconfirm>}
-    {(status === "draft" || status === "submitted") && <Popconfirm title={translate("orders.actions.cancelConfirm", {}, "Cancel order and release reservations?")} onConfirm={() => void run("cancel")}><Button danger loading={mutation.isPending}>{translate("orders.actions.cancel", {}, "Cancel order")}</Button></Popconfirm>}
-  </Space></CanAccess>;
-}
-`,
-    } : {}),
     "web/app/icons.tsx": `import { ${iconNames.join(", ")} } from "@ant-design/icons";
 export const qiyIcons = { ${iconNames.join(", ")} };
 `,
@@ -785,10 +756,7 @@ export const qiyIcons = { ${iconNames.join(", ")} };
       .replace('      if (Object.keys(fieldFilters).length > 0) params.set("filters", JSON.stringify(fieldFilters));', '      const encodeFilters = (items: readonly any[]): unknown[] => items.flatMap<unknown>((filter) => { if (!("field" in filter)) return filter.operator === "and" || filter.operator === "or" ? [{ operator: filter.operator, filters: encodeFilters(Array.isArray(filter.value) ? filter.value : []) }] : []; if (filter.field === "q" || filter.field === "__search" || !("value" in filter)) return []; return [{ field: String(filter.field), operator: String(filter.operator ?? "eq"), value: Array.isArray(filter.value) ? filter.value.map(String).join(",") : String(filter.value) }]; });\n      const encodedFilters = encodeFilters(filters ?? []);\n      if (encodedFilters.length > 0) params.set("filters", JSON.stringify(encodedFilters));\n      else if (Object.keys(fieldFilters).length > 0) params.set("filters", JSON.stringify(fieldFilters));')
       .replace('        if (!("field" in filter) || filter.field === "q" || filter.field === "__search" || !("value" in filter) || filter.operator !== "eq") return [];\n        return [{ field: String(filter.field), value: String(filter.value) }];', '        if (!("field" in filter) || filter.field === "q" || filter.field === "__search" || !("value" in filter)) return [];\n        return filter.operator === "eq" ? [{ field: String(filter.field), value: String(filter.value) }] : [{ field: String(filter.field), operator: String(filter.operator), value: String(filter.value) }];')
       .replaceAll("__QIY_DEFAULT_API_TRANSPORT__", options.apiClient ?? "rest")
-      .replace("const allowed = new Set<string>(resourceNames);", `const allowed = new Set<string>(resourceNames);\nconst dataflowCommands = new Set<string>(${JSON.stringify([...(options.dataflows ?? []).map((flow) => `/api/v1/commands/${flow.name}`), ...actionDefinitions.flatMap((action) => action.batch && action.target.kind === "dataflow" ? [action.target.url] : [])])});`)
-      .replace('if (method !== "post" || !/^\\/api\\/v1\\/orders\\/[0-9a-f-]{36}\\/(submit|approve|ship|cancel)$/.test(url) || !allowed.has("orders")) throw new Error("Unknown workflow command");', 'const isOrderWorkflow = /^\\/api\\/v1\\/orders\\/[0-9a-f-]{36}\\/(submit|approve|ship|cancel)$/.test(url) && allowed.has("orders");\n  if (method !== "post" || (!isOrderWorkflow && !dataflowCommands.has(url))) throw new Error("Unknown workflow command");')
-      .replace('custom: async ({ url, method, query, meta }) => {\n      if (method === "post") return workflowCommand(fetcher, url, method, meta);', 'custom: async ({ url, method, query, meta }) => {\n      if (method === "post") return workflowCommand(fetcher, url, method, meta);')
-      .replace('custom: async ({ url, method, query, meta }) => {\n      if (method === "post") return workflowCommand(fetcher, url, method, meta);', 'custom: async ({ url, method, query, meta }) => {\n      if (method === "post") return workflowCommand(fetcher, url, method, meta);'),
+      .replace("const dataflowCommands = new Set<string>([]);", `const dataflowCommands = new Set<string>(${JSON.stringify([...(options.dataflows ?? []).map((flow) => `/api/v1/commands/${flow.name}`), ...actionDefinitions.flatMap((action) => action.batch && action.target.kind === "dataflow" ? [action.target.url] : [])])});`),
     "web/app/api-error.ts": `import { defaultMessageLocale, projectMessage } from "./messages";
 export function qiyApiError(payload: unknown, statusCode: number, locale = typeof document === "undefined" ? defaultMessageLocale : document.documentElement.lang) {
   const body = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
@@ -2170,33 +2138,6 @@ test("GraphQL trend requests the same field and day window", async () => {
   expect(JSON.parse(requests[0]!).variables).toEqual({ field: "${trendField.name}", days: 30 });
 });
 ` } : {}),
-    ...(hasOrderWorkflow ? { "web/tests/workflow.test.ts": `import { expect, test } from "bun:test";
-import { createDataProvider, createGraphQLDataProvider } from "../app/data-provider";
-
-const orderId = "00000000-0000-4000-8000-000000000001";
-for (const [name, createProvider] of [["REST", createDataProvider], ["GraphQL", createGraphQLDataProvider]] as const) {
-  test(\`\${name} workflow posts to the same-origin command with idempotency header\`, async () => {
-    const requests: Array<{ url: string; init?: RequestInit }> = [];
-    const fetcher = async (url: RequestInfo | URL, init?: RequestInit) => {
-      requests.push({ url: String(url), init });
-      return Response.json({ id: orderId, status: "submitted" });
-    };
-    const result = await createProvider(fetcher).custom?.({ url: \`/api/v1/orders/\${orderId}/submit\`, method: "post", meta: { idempotencyKey: "request-1" } });
-    expect(result?.data).toEqual({ id: orderId, status: "submitted" });
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.url).toBe(\`/api/v1/orders/\${orderId}/submit\`);
-    expect(requests[0]?.init?.method).toBe("POST");
-    expect((requests[0]?.init?.headers as Record<string, string>)["idempotency-key"]).toBe("request-1");
-  });
-
-  test(\`\${name} workflow rejects arbitrary commands and surfaces server errors\`, async () => {
-    const fetcher = async () => Response.json({ error: "Only draft orders can be submitted" }, { status: 409 });
-    const provider = createProvider(fetcher);
-    await expect(provider.custom?.({ url: \`/api/v1/orders/\${orderId}/publish\`, method: "post" })).rejects.toThrow("Unknown workflow command");
-    await expect(provider.custom?.({ url: \`/api/v1/orders/\${orderId}/submit\`, method: "post" })).rejects.toThrow("Only draft orders can be submitted");
-  });
-}
-` } : {}),
     "web/tests/i18n.test.ts": `import { expect, test } from "bun:test";
 import { createI18nProvider } from "../app/i18n";
 
@@ -2613,7 +2554,7 @@ describe("CSV export helper", () => {
       const commandPayload = commandAction.batch
         ? { items: [{ [commandAction.target.idInput]: "record-1" }, { [commandAction.target.idInput]: "record-2" }] }
         : { [commandAction.target.idInput]: "record-1" };
-      generated["web/tests/actions.test.ts"] = `import { expect, test } from "bun:test";\nimport { actionMatchesRecord, qiyActions } from "../app/actions";\nimport { createDataProvider, createGraphQLDataProvider } from "../app/data-provider";\n\ntest("declared actions preserve placement and targets", () => { expect(qiyActions.find((action) => action.name === ${JSON.stringify(commandAction.name)})?.placements).toEqual(${JSON.stringify(commandAction.placements)}); });\n${conditionalAction?.condition ? `test("action conditions fail closed against the current record", () => { const action = qiyActions.find((candidate) => candidate.name === ${JSON.stringify(conditionalAction.name)})!; expect(actionMatchesRecord(action, { ${JSON.stringify(conditionalAction.condition.field)}: ${JSON.stringify(conditionalAction.condition.value)} })).toBe(${conditionalAction.condition.operator === "=="}); expect(actionMatchesRecord(action, { ${JSON.stringify(conditionalAction.condition.field)}: "__different__" })).toBe(${conditionalAction.condition.operator === "!="}); expect(actionMatchesRecord(action, {})).toBe(false); });\n` : ""}for (const [name, createProvider] of [["REST", createDataProvider], ["GraphQL", createGraphQLDataProvider]] as const) test(name + " ${commandAction.batch ? "batch " : ""}dataflow command sends JSON values and rejects undeclared commands", async () => { const requests: Array<{ url: string; init?: RequestInit }> = []; const provider = createProvider(async (url, init) => { requests.push({ url: String(url), init }); return Response.json(${commandAction.batch ? "[]" : '{ id: "record-1" }'}); }); await provider.custom?.({ url: ${JSON.stringify(commandAction.target.url)}, method: "post", payload: ${JSON.stringify(commandPayload)} }); expect(JSON.parse(String(requests[0]?.init?.body))).toEqual(${JSON.stringify(commandPayload)}); expect((requests[0]?.init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json"); await expect(provider.custom?.({ url: "/api/v1/commands/not-declared", method: "post", payload: {} })).rejects.toThrow("Unknown workflow command"); });\n`;
+      generated["web/tests/actions.test.ts"] = `import { expect, test } from "bun:test";\nimport { actionMatchesRecord, qiyActions } from "../app/actions";\nimport { createDataProvider, createGraphQLDataProvider } from "../app/data-provider";\n\ntest("declared actions preserve placement and targets", () => { expect(qiyActions.find((action) => action.name === ${JSON.stringify(commandAction.name)})?.placements).toEqual(${JSON.stringify(commandAction.placements)}); });\n${conditionalAction?.condition ? `test("action conditions fail closed against the current record", () => { const action = qiyActions.find((candidate) => candidate.name === ${JSON.stringify(conditionalAction.name)})!; expect(actionMatchesRecord(action, { ${JSON.stringify(conditionalAction.condition.field)}: ${JSON.stringify(conditionalAction.condition.operator === "in" ? conditionalAction.condition.values[0] : conditionalAction.condition.value)} })).toBe(${conditionalAction.condition.operator !== "!="}); expect(actionMatchesRecord(action, { ${JSON.stringify(conditionalAction.condition.field)}: "__different__" })).toBe(${conditionalAction.condition.operator === "!="}); expect(actionMatchesRecord(action, {})).toBe(false); });\n` : ""}for (const [name, createProvider] of [["REST", createDataProvider], ["GraphQL", createGraphQLDataProvider]] as const) test(name + " ${commandAction.batch ? "batch " : ""}dataflow command sends JSON values and rejects undeclared commands", async () => { const requests: Array<{ url: string; init?: RequestInit }> = []; const provider = createProvider(async (url, init) => { requests.push({ url: String(url), init }); return Response.json(${commandAction.batch ? "[]" : '{ id: "record-1" }'}); }); await provider.custom?.({ url: ${JSON.stringify(commandAction.target.url)}, method: "post", payload: ${JSON.stringify(commandPayload)} }); expect(JSON.parse(String(requests[0]?.init?.body))).toEqual(${JSON.stringify(commandPayload)}); expect((requests[0]?.init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json"); await expect(provider.custom?.({ url: "/api/v1/commands/not-declared", method: "post", payload: {} })).rejects.toThrow("Unknown command"); });\n`;
     }
   }
   generated["web/app/routes.ts"] = generated["web/app/routes.ts"]!.replace("__QIY_TREE_ROUTE__", `${Object.keys(treeEntities).length ? '  route(":resource/tree", "./routes/tree.tsx"),\n' : ""}${hasSoftDelete ? '  route(":resource/trash", "./routes/trash.tsx"),\n' : ""}`);
@@ -2668,7 +2609,7 @@ ${Object.entries(options.messages.locales).map(([locale, entries]) => `  expect(
 });
 test("Refine custom command preserves the localized API error contract", async () => {
   const provider = createDataProvider(async () => Response.json(failure, { status: 409 }));
-  await expect(provider.custom!({ url: ${JSON.stringify(`/api/v1/commands/${localizedFailure.flow}`)}, method: "post", payload: {} })).rejects.toMatchObject({ message: failure.error, statusCode: 409, errorKey: failure.errorKey });
+  await expect(provider.custom!({ url: ${JSON.stringify(`/api/v1/commands/${localizedFailure.flow}`)}, method: "post", payload: {} })).rejects.toMatchObject({ message: qiyApiError(failure, 409).message, statusCode: 409, errorKey: failure.errorKey });
 });
 `;
   }

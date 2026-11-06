@@ -14,6 +14,9 @@ messages {
     "kitchen.flow.closeConfirm" "确认关闭所选工单？";
     "kitchen.flow.closeHelp" "关闭一个工单并记录原因";
     "kitchen.action.close" "关闭";
+    "kitchen.announcement.publish" "发布";
+    "kitchen.announcement.publishConfirm" "确认发布该公告？";
+    "state.invalidTransition" "当前状态不允许此操作";
     "qiy.new" "新建";
   }
   locale "en-US" {
@@ -30,6 +33,9 @@ messages {
     "kitchen.flow.closeConfirm" "Close the selected ticket?";
     "kitchen.flow.closeHelp" "Close one ticket and record why";
     "kitchen.action.close" "Close";
+    "kitchen.announcement.publish" "Publish";
+    "kitchen.announcement.publishConfirm" "Publish this announcement?";
+    "state.invalidTransition" "This action is not allowed in the current state";
     "qiy.new" "New";
   }
 }

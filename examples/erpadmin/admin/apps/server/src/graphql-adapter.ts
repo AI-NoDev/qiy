@@ -65,6 +65,10 @@ export function createGraphQLAdapterResolvers(repositories: Repositories, authen
       updateOrderItems: async (_parent: unknown, args: any, context: { request: Request }) => root.updateOrderItems(args, await createGraphQLContext(authenticate, context.request)),
       deleteOrderItems: async (_parent: unknown, args: any, context: { request: Request }) => root.deleteOrderItems(args, await createGraphQLContext(authenticate, context.request)),
       deleteOrderItemsMany: async (_parent: unknown, args: any, context: { request: Request }) => root.deleteOrderItemsMany(args, await createGraphQLContext(authenticate, context.request)),
+      runOrderLifecycleSubmit: async (_parent: unknown, args: any, context: { request: Request }) => root.runOrderLifecycleSubmit(args, await createGraphQLContext(authenticate, context.request)),
+      runOrderLifecycleApprove: async (_parent: unknown, args: any, context: { request: Request }) => root.runOrderLifecycleApprove(args, await createGraphQLContext(authenticate, context.request)),
+      runOrderLifecycleShip: async (_parent: unknown, args: any, context: { request: Request }) => root.runOrderLifecycleShip(args, await createGraphQLContext(authenticate, context.request)),
+      runOrderLifecycleCancel: async (_parent: unknown, args: any, context: { request: Request }) => root.runOrderLifecycleCancel(args, await createGraphQLContext(authenticate, context.request)),
     },
   };
 }

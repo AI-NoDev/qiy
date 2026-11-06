@@ -10,5 +10,5 @@ test("translates declared business errors and keeps status and key", () => {
 });
 test("Refine custom command preserves the localized API error contract", async () => {
   const provider = createDataProvider(async () => Response.json(failure, { status: 409 }));
-  await expect(provider.custom!({ url: "/api/v1/commands/receiveInventory", method: "post", payload: {} })).rejects.toMatchObject({ message: failure.error, statusCode: 409, errorKey: failure.errorKey });
+  await expect(provider.custom!({ url: "/api/v1/commands/receiveInventory", method: "post", payload: {} })).rejects.toMatchObject({ message: qiyApiError(failure, 409).message, statusCode: 409, errorKey: failure.errorKey });
 });

@@ -16,6 +16,7 @@ import {
   type QiyPermissionVerificationInputIR,
   type QiyPermissionVerificationIR,
 } from "./permissions";
+import { stateMachineArtifacts, validateStateMachines } from "./state-machines";
 /**
  * Declarative contract for an existing host API. It describes only what the
  * generated Refine admin needs in order to talk to that API automatically: the
@@ -164,7 +165,6 @@ export interface QiyProject {
    * at all") and are enforced both in the generated UI and by the API guard.
    */
   pages?: Array<{ resource: string; actions: Array<{ action: QiyPageAction; roles: QiyRole[] }>; fields?: Array<{ field: string; roles: QiyRole[] }> }>;
-  workflows?: Array<"orderInventory">;
   /**
    * Permission declarations: atomic permission fields, permission groups (roles
    * are groups whose name equals a role), OAuth claim/database provider sources,
@@ -173,6 +173,30 @@ export interface QiyProject {
   permissions?: QiyPermissionModel;
   dataflows?: DataflowIR[];
   actions?: QiyAction[];
+  /** `statemachine` blocks; each transition compiles to a dataflow command and a list/detail action. */
+  stateMachines?: QiyStateMachine[];
+}
+
+/** The only way `resource.field` changes: records start at `initial` and move through `transitions`. */
+export interface QiyStateMachine {
+  name: string;
+  resource: string;
+  field: string;
+  initial: string;
+  transitions: QiyStateTransition[];
+}
+
+export interface QiyStateTransition {
+  name: string;
+  from: string[];
+  to: string;
+  label?: string;
+  labelKey?: string;
+  confirm?: string;
+  confirmKey?: string;
+  roles?: QiyRole[];
+  permission?: string[];
+  verification?: string;
 }
 
 /** A role name declared in `auth { roles { ... } }` (default admin, operator, viewer). */
@@ -386,7 +410,7 @@ export interface QiyAction {
   batch?: boolean;
   label: string;
   labelKey?: string;
-  condition?: { field: string; operator: "==" | "!="; value: string };
+  condition?: { field: string; operator: "==" | "!="; value: string } | { field: string; operator: "in"; values: string[] };
   target:
     | { kind: "dataflow"; dataflow: string; confirm?: string; confirmKey?: string }
     | { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string };
@@ -1050,6 +1074,80 @@ export function parseQiyProject(source: string): QiyProject {
       result,
     };
   }
+  function stateMachine(): QiyStateMachine {
+    expect("statemachine");
+    const name = identifier();
+    let resource: string | undefined;
+    let field: string | undefined;
+    let initial: string | undefined;
+    const transitions: QiyStateTransition[] = [];
+    expect("{");
+    while (peek() !== "}") {
+      const property = identifier();
+      if (property === "transition") { transitions.push(stateTransition(name)); continue; }
+      if (property !== "resource" && property !== "field" && property !== "initial") throw new Error(`Statemachine ${name}: unsupported property ${property}`);
+      const value = identifier();
+      if ((property === "resource" && resource) || (property === "field" && field) || (property === "initial" && initial)) throw new Error(`Statemachine ${name}: duplicate ${property}`);
+      if (property === "resource") resource = value;
+      else if (property === "field") field = value;
+      else initial = value;
+      expect(";");
+    }
+    expect("}");
+    if (!resource) throw new Error(`Statemachine ${name}: resource is required`);
+    if (!field) throw new Error(`Statemachine ${name}: field is required`);
+    if (!initial) throw new Error(`Statemachine ${name}: initial is required`);
+    return { name, resource, field, initial, transitions };
+  }
+  function stateTransition(machine: string): QiyStateTransition {
+    const name = identifier();
+    const where = `Statemachine ${machine}: transition ${name}`;
+    const transition: QiyStateTransition = { name, from: [], to: "" };
+    expect("{");
+    while (peek() !== "}") {
+      const property = identifier();
+      if (property === "from") {
+        if (transition.from.length) throw new Error(`${where}: duplicate from`);
+        do {
+          transition.from.push(identifier());
+          if (peek() !== ",") break;
+          expect(",");
+        } while (true);
+      } else if (property === "to") {
+        if (transition.to) throw new Error(`${where}: duplicate to`);
+        transition.to = identifier();
+      } else if (property === "label") {
+        if (transition.label !== undefined) throw new Error(`${where}: duplicate label`);
+        const description = documentation("transition label");
+        transition.label = description.comment;
+        if (description.commentKey) transition.labelKey = description.commentKey;
+      } else if (property === "confirm") {
+        if (transition.confirm !== undefined) throw new Error(`${where}: duplicate confirm`);
+        const description = documentation("transition confirmation");
+        transition.confirm = description.comment;
+        if (description.commentKey) transition.confirmKey = description.commentKey;
+      } else if (property === "allow") {
+        if (transition.roles || transition.permission || transition.verification) throw new Error(`${where}: duplicate allow declaration`);
+        const allowKind = identifier();
+        if (allowKind === "verification") transition.verification = identifier();
+        else if (allowKind === "roles" || allowKind === "permission") {
+          const references: string[] = [];
+          do {
+            const reference = identifier();
+            if (references.includes(reference)) throw new Error(`${where}: duplicate ${allowKind === "roles" ? "role" : "permission"} ${reference}`);
+            references.push(reference);
+            if (peek() !== ",") break;
+            expect(",");
+          } while (true);
+          if (allowKind === "roles") transition.roles = references;
+          else transition.permission = references;
+        } else throw new Error(`${where}: allow must be roles, permission or verification`);
+      } else throw new Error(`${where}: unsupported property ${property}`);
+      expect(";");
+    }
+    expect("}");
+    return transition;
+  }
   function action(): QiyAction {
     expect("action");
     const name = identifier();
@@ -1084,8 +1182,18 @@ export function parseQiyProject(source: string): QiyProject {
         if (condition) throw new Error(`Action ${name}: duplicate when declaration`);
         const field = identifier();
         const operator = take();
-        if (operator !== "==" && operator !== "!=") throw new Error(`Action ${name}: when operator must be == or !=`);
-        condition = { field, operator, value: stringLiteral() };
+        if (operator === "in") {
+          const values: string[] = [];
+          do {
+            const value = stringLiteral();
+            if (values.includes(value)) throw new Error(`Action ${name}: duplicate when value ${value}`);
+            values.push(value);
+            if (peek() !== ",") break;
+            expect(",");
+          } while (true);
+          condition = { field, operator, values };
+        } else if (operator === "==" || operator === "!=") condition = { field, operator, value: stringLiteral() };
+        else throw new Error(`Action ${name}: when operator must be ==, != or in`);
       }
       else if (property === "allow") {
         if (roles || permission || verification) throw new Error(`Action ${name}: duplicate allow declaration`);
@@ -2593,15 +2701,7 @@ function enumeration(): import("./database-ir").EnumIR {
   if (peek() === "permission") permissions = permissionDeclarations();
   if (applicationDescription) applicationDescription = resolveDocumentation(applicationDescription, "application comment");
   if (databaseDescription) databaseDescription = resolveDocumentation(databaseDescription, "database comment");
-  const workflows: NonNullable<QiyProject["workflows"]> = [];
-  while (peek() === "workflow") {
-    expect("workflow");
-    const workflow = identifier();
-    if (workflow !== "orderInventory") throw new Error(`Unsupported workflow ${workflow}`);
-    expect(";");
-    if (workflows.includes(workflow)) throw new Error(`Duplicate workflow ${workflow}`);
-    workflows.push(workflow);
-  }
+  if (peek() === "workflow") throw new Error("workflow orderInventory was removed in Qiy 0.38.0; declare a statemachine for the status field instead (for example statemachine orderLifecycle { resource orders; field status; initial draft; transition submit { from draft; to submitted; } }); see docs/guide/migration-0.38.md.");
   const enums: import("./database-ir").EnumIR[] = [];
   while (peek() === "enum") enums.push(enumeration());
   const enumNames = new Set(enums.map((enumeration) => enumeration.name));
@@ -2771,10 +2871,22 @@ function enumeration(): import("./database-ir").EnumIR {
   }
   const charts = collectChartDeclarations(chartDeclarations, chartPanels);
   if (charts.length || chartPanels.length) validateCharts(charts, chartPanels);
+  const stateMachines: QiyStateMachine[] = [];
   const dataflows: DataflowIR[] = [];
-  while (peek() === "dataflow") dataflows.push(dataflow());
+  const actions: QiyAction[] = [];
+  for (let next = peek(); next === "statemachine" || next === "dataflow" || next === "action"; next = peek()) {
+    if (next === "statemachine") stateMachines.push(stateMachine());
+    else if (next === "dataflow") dataflows.push(dataflow());
+    else actions.push(action());
+  }
+  validateStateMachines(stateMachines, entities, enums, { dataflows, actions });
+  // Transition commands are validated like declared ones but stay derived: the
+  // project keeps only the statemachine, and generation expands it again.
+  const machineArtifacts = stateMachineArtifacts(stateMachines, entities, enums);
+  const allDataflows = [...dataflows, ...machineArtifacts.dataflows];
+  const allActions = [...actions, ...machineArtifacts.actions];
   const dataflowNames = new Set<string>();
-  for (const flow of dataflows) {
+  for (const flow of allDataflows) {
     if (dataflowNames.has(flow.name)) throw new Error(`Duplicate dataflow ${flow.name}`);
     dataflowNames.add(flow.name);
     const inputNames = new Set(flow.input.map((field) => field.name));
@@ -2933,22 +3045,23 @@ function enumeration(): import("./database-ir").EnumIR {
     }
     if (!contextByName.has(flow.result)) throw new Error(`Dataflow ${flow.name}: result must return a declared context binding`);
   }
-  const actions: QiyAction[] = [];
-  while (peek() === "action") actions.push(action());
   const actionNames = new Set<string>();
-  for (const item of actions) {
+  for (const item of allActions) {
     if (actionNames.has(item.name)) throw new Error(`Duplicate action ${item.name}`);
     actionNames.add(item.name);
     const entity = entities.find((candidate) => candidate.name === item.resource || candidate.tableName === item.resource);
     if (!entity) throw new Error(`Action ${item.name}: unknown resource ${item.resource}`);
     item.resource = entity.tableName;
     if (item.condition) {
-      const field = entity.fields.find((candidate) => candidate.name === item.condition!.field);
-      if (!field) throw new Error(`Action ${item.name}: unknown condition field ${entity.name}.${item.condition.field}`);
+      const condition = item.condition;
+      const field = entity.fields.find((candidate) => candidate.name === condition.field);
+      if (!field) throw new Error(`Action ${item.name}: unknown condition field ${entity.name}.${condition.field}`);
       if (field.type !== "Text") throw new Error(`Action ${item.name}: condition field ${entity.name}.${field.name} must be Text or enum`);
       if (field.enumName) {
         const enumeration = enums.find((candidate) => candidate.name === field.enumName)!;
-        if (!enumeration.values.some((candidate) => candidate.name === item.condition!.value)) throw new Error(`Action ${item.name}: unknown enum value ${field.enumName}.${item.condition.value}`);
+        for (const value of condition.operator === "in" ? condition.values : [condition.value]) {
+          if (!enumeration.values.some((candidate) => candidate.name === value)) throw new Error(`Action ${item.name}: unknown enum value ${field.enumName}.${value}`);
+        }
       }
     }
     if (item.roles && !auth) throw new Error(`Action ${item.name}: allow roles requires generated authentication; integration permissions belong in the host access-control adapter`);
@@ -2970,7 +3083,7 @@ function enumeration(): import("./database-ir").EnumIR {
     }
     if (item.target.kind === "dataflow") {
       const target = item.target;
-      const flow = dataflows.find((candidate) => candidate.name === target.dataflow);
+      const flow = allDataflows.find((candidate) => candidate.name === target.dataflow);
       if (!flow) throw new Error(`Action ${item.name}: unknown dataflow ${target.dataflow}`);
       if (!item.label) {
         if (!flow.label) throw new Error(`Action ${item.name}: label is required when dataflow ${flow.name} has no @label`);
@@ -3013,7 +3126,7 @@ function enumeration(): import("./database-ir").EnumIR {
   }
   expect("}");
   expect("<end>");
-  validateRoleReferences(auth, { restrictions, pages, realtime, dataflows, actions });
+  validateRoleReferences(auth, { restrictions, pages, realtime, dataflows: allDataflows, actions: allActions });
   for (const view of views) {
     const source = entities.find((entity) => entity.name === view.from || entity.tableName === view.from);
     if (!source) throw new Error(`view ${view.name}: unknown source entity ${view.from}`);
@@ -3026,13 +3139,13 @@ function enumeration(): import("./database-ir").EnumIR {
     }
     if (new Set(view.columns).size !== view.columns.length) throw new Error(`view ${view.name}: duplicate column`);
   }
-  if (mode === "integration" && (corsOrigins || elysiaPlugins || storageProvider || auth || environment || scopes.length || restrictions.length || workflows.length || dataflows.length || permissions)) {
+  if (mode === "integration" && (corsOrigins || elysiaPlugins || storageProvider || auth || environment || scopes.length || restrictions.length || dataflows.length || stateMachines.length || permissions)) {
     throw new Error("application mode integration cannot configure generated server features; use integration auth and host adapters instead.");
   }
   if (entities.some((entity) => entity.fields.some((field) => field.tenantClaim !== undefined)) && !auth) {
     throw new Error("@tenant requires an auth declaration so the tenant claim can be resolved");
   }
-  return { name: packageName, ...(applicationDescription && applicationDescription), database: { ...(databaseDescription && databaseDescription), dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}), ...(views.length ? { views } : {}) }, ...(mode && { mode }), ...(integration && { integration }), ...(workspace && { workspace }), ...(ui && { ui }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(features && { features }), ...(auth && { auth }), ...(environment && { environment }), ...(messages && { messages }), ...(permissions && { permissions }), ...(scopes.length ? { scopes } : {}), ...(restrictions.length ? { restrictions } : {}), ...(pages.length ? { pages } : {}), ...(workflows.length ? { workflows } : {}), ...(menuGroups.length && { menuGroups }), ...(charts.length && { charts }), ...(chartPanels.length && { chartPanels }), ...(realtime && { realtime }), ...(dataflows.length && { dataflows }), ...(actions.length && { actions }) };
+  return { name: packageName, ...(applicationDescription && applicationDescription), database: { ...(databaseDescription && databaseDescription), dialect: dialect as DatabaseIR["dialect"], extensions, entities, ...(enums.length ? { enums } : {}), ...(relations.length ? { relations } : {}), ...(views.length ? { views } : {}) }, ...(mode && { mode }), ...(integration && { integration }), ...(workspace && { workspace }), ...(ui && { ui }), ...(apiClient && { apiClient }), ...(corsOrigins && { corsOrigins }), ...(elysiaPlugins && { elysiaPlugins }), ...(storageProvider && { storageProvider }), ...(features && { features }), ...(auth && { auth }), ...(environment && { environment }), ...(messages && { messages }), ...(permissions && { permissions }), ...(scopes.length ? { scopes } : {}), ...(restrictions.length ? { restrictions } : {}), ...(pages.length ? { pages } : {}), ...(menuGroups.length && { menuGroups }), ...(charts.length && { charts }), ...(chartPanels.length && { chartPanels }), ...(realtime && { realtime }), ...(dataflows.length && { dataflows }), ...(actions.length && { actions }), ...(stateMachines.length && { stateMachines }) };
 }
 
 /** Every role reference must name a declared role; commands additionally need write access. */
@@ -3301,7 +3414,6 @@ export function serializeQiyProject(project: QiyProject): string {
       lines.push(`    return ${formatPermissionExpression(verification.expression)};`, "  }");
     }
   }
-  for (const workflow of project.workflows ?? []) lines.push(`  workflow ${qiyIdentifier(workflow, "Workflow name")};`);
   for (const enumeration of project.database.enums ?? []) {
     lines.push(`  enum ${qiyIdentifier(enumeration.name, "Enum name")}${enumeration.comment !== undefined ? ` @comment(${qiyComment(enumeration)})` : ""} {`);
     for (const item of enumeration.values) {
@@ -3478,6 +3590,24 @@ export function serializeQiyProject(project: QiyProject): string {
     }
     lines.push("  }");
   }
+  for (const machine of project.stateMachines ?? []) {
+    lines.push(`  statemachine ${qiyIdentifier(machine.name, "Statemachine name")} {`);
+    lines.push(`    resource ${qiyIdentifier(machine.resource, "Statemachine resource")};`);
+    lines.push(`    field ${qiyIdentifier(machine.field, "Statemachine field")};`);
+    lines.push(`    initial ${qiyIdentifier(machine.initial, "Statemachine initial state")};`);
+    for (const transition of machine.transitions) {
+      lines.push(`    transition ${qiyIdentifier(transition.name, "Statemachine transition")} {`);
+      lines.push(`      from ${transition.from.map((state) => qiyIdentifier(state, "Statemachine state")).join(", ")};`);
+      lines.push(`      to ${qiyIdentifier(transition.to, "Statemachine state")};`);
+      if (transition.label !== undefined) lines.push(`      label ${transition.labelKey ? `t(${qiyString(transition.labelKey)})` : qiyString(transition.label)};`);
+      if (transition.confirm !== undefined) lines.push(`      confirm ${transition.confirmKey ? `t(${qiyString(transition.confirmKey)})` : qiyString(transition.confirm)};`);
+      if (transition.roles) lines.push(`      allow roles ${transition.roles.join(", ")};`);
+      else if (transition.permission) lines.push(`      allow permission ${transition.permission.map((reference) => qiyIdentifier(reference, "Transition permission")).join(", ")};`);
+      else if (transition.verification) lines.push(`      allow verification ${qiyIdentifier(transition.verification, "Transition permission verification")};`);
+      lines.push("    }");
+    }
+    lines.push("  }");
+  }
   for (const flow of project.dataflows ?? []) {
     const annotations = [
       flow.label !== undefined ? ` @label(${qiyComment({ comment: flow.label, commentKey: flow.labelKey })})` : "",
@@ -3557,7 +3687,7 @@ export function serializeQiyProject(project: QiyProject): string {
     lines.push(`    placement ${action.placements.join(", ")};`);
     if (action.batch) lines.push("    batch true;");
     lines.push(`    label ${action.labelKey ? `t(${qiyString(action.labelKey)})` : qiyString(action.label)};`);
-    if (action.condition) lines.push(`    when ${qiyIdentifier(action.condition.field, "Action condition field")} ${action.condition.operator} ${qiyString(action.condition.value)};`);
+    if (action.condition) lines.push(`    when ${qiyIdentifier(action.condition.field, "Action condition field")} ${action.condition.operator === "in" ? `in ${action.condition.values.map(qiyString).join(", ")}` : `${action.condition.operator} ${qiyString(action.condition.value)}`};`);
     if (action.target.kind === "dataflow" && action.target.confirm !== undefined) lines.push(`    confirm ${action.target.confirmKey ? `t(${qiyString(action.target.confirmKey)})` : qiyString(action.target.confirm)};`);
     if (action.target.kind === "navigate") lines.push(`    page manual @comment(${qiyComment(action.target)});`);
     lines.push("  }");

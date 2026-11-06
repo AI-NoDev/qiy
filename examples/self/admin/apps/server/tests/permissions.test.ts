@@ -608,7 +608,7 @@ describe("generated /auth/me permission metadata", () => {
   test("includes effective permissions and groups without removing the principal fields", async () => {
     const repository = { distribution: async () => [], trend: async () => [], list: async () => ({ data: [], total: 0 }), one: async () => undefined, create: async () => ({}), update: async () => undefined, delete: async () => undefined, deleteMany: async () => [] };
     const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","warehouses","bins","inventory","stock_movements","work_orders"].map((name) => [name, repository])) as unknown as Repositories;
-    const application = await createApp(repositories, authenticate, false, false);
+    const application = await createApp(repositories, authenticate, false);
     for (const role of Object.keys(dataset.snapshots)) {
       const response = await application.handle(new Request("http://localhost/api/v1/auth/me", { headers: { "x-test-role": role } }));
       expect(response.status).toBe(200);

@@ -1,4 +1,4 @@
-﻿# 模块化模型（include）
+# 模块化模型（include）
 
 大型后台不必把所有实体、菜单与图表写进一个文件。`include` 把 `application` 的内容拆到多个相对 `.qiy` 片段中，生成前按文本展开，然后仍然走同一套语法与语义校验。
 
@@ -85,7 +85,7 @@ Qiy 不支持一个入口文件里放多个 `application`，也不支持跨应�
 - **全局单命名空间**：所有片段与入口文件共享同一作用域，没有按文件隔离的命名。实体名、表名、枚举名、关系名、索引名（全局）、菜单分组名、指标名、dataflow/action 名都在展开后的整体上判重。
 - 重复 include 同一文件（非循环）不会被去重，展开后会出现两份声明，通常报 `Entity X: duplicate entity or table name` 之类的重复错误。
 - 循环引用靠 realpath 检测，同一文件用不同相对路径引用也会被识别。
-- 片段可以覆盖入口文件的“位置约束”但**不能覆盖顺序**：展开后仍必须满足 `database → 配置块 → messages → permission → workflow → enum → entity → relation → scope → restrict → pages → menu → dashboard/chart → dataflow → action`。
+- 片段可以覆盖入口文件的“位置约束”但**不能覆盖顺序**：展开后仍必须满足 `database → 配置块 → messages → permission → enum → entity → relation → scope → restrict → pages → menu → chart → statemachine/dataflow/action`（最后三类之间可任意交错）。
 
 ## 推荐布局
 

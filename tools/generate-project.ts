@@ -6,11 +6,47 @@ import { generateWeb } from "./generate-web";
 import type { QiyProject } from "./qiy-project";
 import { authHasLocal, authIsHybrid, authOAuthProviders, authUsesProviderChooser } from "./qiy-project";
 import { leastPrivilegedRole } from "./roles";
+import { applyStateMachines, stateMachineArtifacts } from "./state-machines";
 import type { QiyTestSuite } from "./qiy-test";
 
-type ProjectOptions = Pick<QiyProject, "comment" | "commentKey" | "mode" | "integration" | "ui" | "messages" | "dataflows" | "actions" | "apiClient" | "corsOrigins" | "elysiaPlugins" | "menuGroups" | "charts" | "chartPanels" | "realtime" | "storageProvider" | "auth" | "permissions" | "environment" | "scopes" | "restrictions" | "pages" | "workflows" | "features"> & { testSuite?: QiyTestSuite };
+type ProjectOptions = Pick<QiyProject, "comment" | "commentKey" | "mode" | "integration" | "ui" | "messages" | "dataflows" | "actions" | "apiClient" | "corsOrigins" | "elysiaPlugins" | "menuGroups" | "charts" | "chartPanels" | "realtime" | "storageProvider" | "auth" | "permissions" | "environment" | "scopes" | "restrictions" | "pages" | "features" | "stateMachines"> & { testSuite?: QiyTestSuite };
 
-export function generateProject(database: DatabaseIR, name: string, options: ProjectOptions = {}): Record<string, string> {
+/** Every project setting the generators read, so CLI entry points cannot drift apart. */
+export function projectGenerationOptions(project: QiyProject, testSuite?: QiyTestSuite): ProjectOptions {
+  return {
+    comment: project.comment,
+    commentKey: project.commentKey,
+    mode: project.mode,
+    integration: project.integration,
+    ui: project.ui,
+    dataflows: project.dataflows,
+    messages: project.messages,
+    actions: project.actions,
+    apiClient: project.apiClient,
+    elysiaPlugins: project.elysiaPlugins,
+    corsOrigins: project.corsOrigins,
+    menuGroups: project.menuGroups,
+    charts: project.charts,
+    chartPanels: project.chartPanels,
+    realtime: project.realtime,
+    storageProvider: project.storageProvider,
+    features: project.features,
+    auth: project.auth,
+    permissions: project.permissions,
+    environment: project.environment,
+    scopes: project.scopes,
+    restrictions: project.restrictions,
+    pages: project.pages,
+    stateMachines: project.stateMachines,
+    ...(testSuite && { testSuite }),
+  };
+}
+
+export function generateProject(model: DatabaseIR, name: string, projectOptions: ProjectOptions = {}): Record<string, string> {
+  const machines = projectOptions.stateMachines ?? [];
+  const transitions = stateMachineArtifacts(machines, model.entities, model.enums ?? []);
+  const database = applyStateMachines(model, machines);
+  const options: ProjectOptions = machines.length ? { ...projectOptions, dataflows: [...(projectOptions.dataflows ?? []), ...transitions.dataflows], actions: [...(projectOptions.actions ?? []), ...transitions.actions] } : projectOptions;
   if (options.realtime && !options.auth) throw new Error("Realtime requires generated authentication");
   if (options.mode === "integration" && options.dataflows?.length) {
     throw new Error("Dataflow server generation is unavailable in integration mode; implement host commands in the existing API.");

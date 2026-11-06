@@ -63,7 +63,7 @@ describe("orders CRUD", () => {
   test("creates, lists, reads, updates and deletes", async () => {
     records.clear();
     const created = await app.handle(new Request(endpoint + "/", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "orderNumber": "Example", "customerId": "00000000-0000-4000-8000-000000000002", "status": "draft", "totalAmount": "1.00" }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "orderNumber": "Example", "customerId": "00000000-0000-4000-8000-000000000002", "totalAmount": "1.00" }),
     }));
     expect(created.status).toBe(201);
     const record = await created.json() as { id: string };
@@ -84,10 +84,10 @@ describe("orders CRUD", () => {
     expect(deleted.status).toBe(200);
     expect((await app.handle(new Request(endpoint + "/" + record.id))).status).toBe(404);
     const firstBatchRecord = await app.handle(new Request(endpoint + "/", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "orderNumber": "Example", "customerId": "00000000-0000-4000-8000-000000000002", "status": "draft", "totalAmount": "1.00" }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "orderNumber": "Example", "customerId": "00000000-0000-4000-8000-000000000002", "totalAmount": "1.00" }),
     }));
     const secondBatchRecord = await app.handle(new Request(endpoint + "/", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "orderNumber": "Example", "customerId": "00000000-0000-4000-8000-000000000002", "status": "draft", "totalAmount": "1.00" }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "orderNumber": "Example", "customerId": "00000000-0000-4000-8000-000000000002", "totalAmount": "1.00" }),
     }));
     const firstBatchId = (await firstBatchRecord.json() as { id: string }).id;
     const secondBatchId = (await secondBatchRecord.json() as { id: string }).id;
@@ -113,4 +113,17 @@ describe("orders CRUD", () => {
     expect(await response.json()).toEqual({ error: "Unsupported filter field" });
   });
 
+  test("only statemachine orderLifecycle changes status", async () => {
+    records.clear();
+    const created = await app.handle(new Request(endpoint + "/", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "orderNumber": "Example", "customerId": "00000000-0000-4000-8000-000000000002", "totalAmount": "1.00", "status": "submitted" }),
+    }));
+    expect(created.status).toBe(201);
+    const record = await created.json() as Record<string, unknown> & { id: string };
+    expect(record["status"]).not.toBe("submitted");
+    const patched = await app.handle(new Request(endpoint + "/" + record.id, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ "status": "submitted" }),
+    }));
+    expect(patched.status).toBe(400);
+  });
 });

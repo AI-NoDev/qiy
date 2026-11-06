@@ -497,7 +497,7 @@ work_orders: (() => {
     };
   })(),
 };
-const app = await createApp(repositories, async () => ({ id: "preview", name: "Preview Admin", role: "admin", claims: {"org.id":"00000000-0000-4000-8000-000000000002"} }), false, true);
+const app = await createApp(repositories, async () => ({ id: "preview", name: "Preview Admin", role: "admin", claims: {"org.id":"00000000-0000-4000-8000-000000000002"} }), true);
 const clientRoot = resolve(import.meta.dir, "../../web/build/client");
 const server = Bun.serve({ hostname: "127.0.0.1", port: Number(Bun.env.PORT ?? 3000), fetch: createHandler((request) => app.handle(request), clientRoot) });
 console.log(`Local-only Qiy preview: http://127.0.0.1:${server.port}`);

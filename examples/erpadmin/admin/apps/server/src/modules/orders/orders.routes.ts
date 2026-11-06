@@ -10,7 +10,6 @@ import type { OrdersRepository as OrdersRepositoryPort } from "./orders.contract
 const createOrders = t.Object({
   "orderNumber": t.String({ minLength: 1 }),
   "customerId": t.String({ format: "uuid" }),
-  "status": t.Union([t.Literal("draft"), t.Literal("submitted"), t.Literal("approved"), t.Literal("shipped"), t.Literal("cancelled")]),
   "totalAmount": t.String({ pattern: "^-?[0-9]+(\\.[0-9]+)?$" }),
   "approvedBy": t.Optional(t.Union([t.String({ format: "uuid" }), t.Null()], {})),
   "createdAt": t.Optional(t.Union([t.String({ format: "date-time" }), t.Null()], {})),
@@ -19,7 +18,6 @@ const createOrders = t.Object({
 const patchOrders = t.Object({
   "orderNumber": t.Optional(t.String({ minLength: 1 })),
   "customerId": t.Optional(t.String({ format: "uuid" })),
-  "status": t.Optional(t.Union([t.Literal("draft"), t.Literal("submitted"), t.Literal("approved"), t.Literal("shipped"), t.Literal("cancelled")])),
   "totalAmount": t.Optional(t.String({ pattern: "^-?[0-9]+(\\.[0-9]+)?$" })),
   "approvedBy": t.Optional(t.Union([t.String({ format: "uuid" }), t.Null()], {})),
   "createdAt": t.Optional(t.Union([t.String({ format: "date-time" }), t.Null()], {})),
@@ -81,8 +79,10 @@ export function OrdersRoutes(repository: OrdersRepositoryPort, authenticate: Aut
   // Exports stream in bounded pages so memory does not grow with the result set.
   const EXPORT_PAGE_SIZE = Math.min(250, exportMaxRows());
   // Import accepts plain scalar columns only; vectors and key lists need the API.
-  const importTypes = {"orderNumber":"Text","customerId":"UUID","status":"Text","totalAmount":"Money","approvedBy":"UUID","createdAt":"DateTime"} as Record<string, string>;
+  const importTypes = {"orderNumber":"Text","customerId":"UUID","totalAmount":"Money","approvedBy":"UUID","createdAt":"DateTime"} as Record<string, string>;
   const importArrayItems = {} as Record<string, string | undefined>;
+  // An empty cell leaves a @default column to its declared default.
+  const importDefaulted = new Set(["status"]);
   const importColumns = Object.keys(importTypes);
   const importMaxRows = () => { const value = Number(Bun.env.QIY_IMPORT_MAX_ROWS ?? 1000); return Number.isSafeInteger(value) && value >= 1 && value <= 100000 ? value : 1000; };
   /** RFC 4180 reader: quoted fields, doubled quotes and CRLF line endings. */
@@ -105,7 +105,7 @@ export function OrdersRoutes(repository: OrdersRepositoryPort, authenticate: Aut
     return rows.filter((cells) => cells.some((cell) => cell.length > 0));
   };
   const importValue = (field: string, value: string) => {
-    if (value === "") return null;
+    if (value === "") return importDefaulted.has(field) ? undefined : null;
     if (importTypes[field] === "Integer") { const parsed = Number(value); if (!Number.isFinite(parsed)) throw new Error("Column " + field + " must be an integer"); return parsed; }
     if (importTypes[field] === "Boolean") { if (!["true", "false", "1", "0"].includes(value.toLowerCase())) throw new Error("Column " + field + " must be true or false"); return value === "1" || value.toLowerCase() === "true"; }
     if (importTypes[field] === "JSON" || importTypes[field] === "Array") {

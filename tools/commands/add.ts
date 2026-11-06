@@ -327,7 +327,7 @@ function insertFeature(source: string, feature: "overview" | "apiDocs" | "apiKey
     lines.splice(end, 0, `${indent}${feature} true;`);
     return `${lines.join("\n")}\n`;
   }
-  const afterConfig = lines.findIndex((line) => /^\s*(include|realtime|elysia|storage|auth|env|messages|permission|workflow|enum|entity|relation|scope|restrict|pages|menu|dashboard|chart|dataflow|action)\b/.test(line));
+  const afterConfig = lines.findIndex((line) => /^\s*(include|realtime|elysia|storage|auth|env|messages|permission|enum|entity|relation|scope|restrict|pages|menu|dashboard|chart|statemachine|dataflow|action)\b/.test(line));
   const closing = lines.findIndex((line, index) => index > 0 && /^}\s*$/.test(line) && lines.slice(0, index).some((candidate) => /application\s+/.test(candidate)));
   const insertAt = afterConfig >= 0 ? afterConfig : closing >= 0 ? closing : lines.length;
   lines.splice(insertAt, 0, "  features {", `    ${feature} true;`, "  }", "");

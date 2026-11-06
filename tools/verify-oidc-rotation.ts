@@ -115,7 +115,7 @@ afterAll(() => { server.stop(true); client.close(); });
 
 // One authenticator for the whole file: key rotation must not require a restart.
 const authenticate = createProductionAuthenticator();
-const app = await createApp({} as Repositories, authenticate, false, false, [], false);
+const app = await createApp({} as Repositories, authenticate, false, [], false);
 const http = Bun.serve({ port: 0, fetch: (request) => app.handle(request) });
 const me = (token: string) => fetch(new URL("/api/v1/auth/me", http.url), { headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(15_000) });
 

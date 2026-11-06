@@ -43,7 +43,7 @@ bun run examples:sync  # 生成器改动后重写这些快照
 | 目录 | 用途 |
 | --- | --- |
 | `examples/self/` | 最完整的联调环境：混合认证、权限、ERP/SCM 模块、图表、i18n；`admin/` 是提交在仓库里的生成结果 |
-| `examples/erpadmin/` | ERP 压力样例：订单库存事务（`workflow orderInventory`）、图表概览 |
+| `examples/erpadmin/` | ERP 压力样例：订单状态机（`statemachine orderLifecycle`）、图表概览 |
 | `examples/warehouse-admin/` | 多文件模块化最佳实践（文档 [best-practice-warehouse](../docs/guide/best-practice-warehouse.md) 逐段引用） |
 | `examples/dataflow/`、`resource-policy/`、`scoped-sqlite/`、`realtime/`、`auth-providers/`、`filters/`、`themes/`、`multilingual/`、`plugin-matrix/` | 单一主题的回归模型 |
 | `tests/fixtures/kitchen-sink/` | 全语法夹具：三方言入口共享模块，`tests/kitchen-sink.test.ts` 要求每个 IR 属性与闭集取值都被用到；CI 在 SQLite/PostgreSQL/MySQL 上生成、迁移、类型检查并运行生成测试（`tools/verify-kitchen-sink.ts`） |

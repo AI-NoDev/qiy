@@ -18,7 +18,7 @@ const request = (query: string) => new Request("http://localhost/graphql", { met
 
 test("data scope rejects missing claims without blocking unrelated resources", async () => {
   seen.length = 0;
-  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE }), false, false);
+  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE }), false);
   const graph = await app.handle(request("query { orders { total } }"));
   if (graph.status === 200) expect((await graph.json() as { errors?: Array<{ message: string }> }).errors?.length).toBeGreaterThan(0);
   else expect(graph.status).toBe(403);
@@ -29,7 +29,7 @@ test("data scope rejects missing claims without blocking unrelated resources", a
 
 test("REST and GraphQL pass the authorized scope to repository operations", async () => {
   seen.length = 0;
-  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE, claims: { "tenant.customerId": scoped.value } }), false, false);
+  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE, claims: { "tenant.customerId": scoped.value } }), false);
   const list = await app.handle(request("query { orders { total } }"));
   expect(list.status).toBe(200);
   expect((await list.json() as { data: { orders: { total: number } } }).data.orders.total).toBe(0);
@@ -37,13 +37,3 @@ test("REST and GraphQL pass the authorized scope to repository operations", asyn
   expect((await app.handle(new Request("http://localhost/api/v1/orders/"))).status).toBe(200);
   expect(seen).toEqual([scoped, scoped, scoped]);
 });
-
-test("order workflows reject missing scope claims before database access", async () => {
-  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE }), true, false);
-  for (const command of ["submit", "approve", "ship", "cancel"]) {
-    const response = await app.handle(new Request("http://localhost/api/v1/orders/00000000-0000-4000-8000-000000000001/" + command, { method: "POST" }));
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: "Missing required data scope claim" });
-  }
-});
-

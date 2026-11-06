@@ -31,7 +31,7 @@ test("mounts REST and GraphQL at their public paths", async () => {
 
 test("enables CORS only for explicitly configured origins", async () => {
   const repositories = Object.fromEntries(["users","customers","warehouses","products","inventoryItems","orders","orderItems"].map((name) => [name, repository])) as unknown as Repositories;
-  const app = await createApp(repositories, async () => ({ id: "cors-test", name: "Admin", role: "admin", claims: {"tenant.customerId":"00000000-0000-4000-8000-000000000002"} }), false, false, ["https://admin.example"]);
+  const app = await createApp(repositories, async () => ({ id: "cors-test", name: "Admin", role: "admin", claims: {"tenant.customerId":"00000000-0000-4000-8000-000000000002"} }), false, ["https://admin.example"]);
   const allowed = await app.handle(new Request("http://localhost/api/v1/health", { headers: { Origin: "https://admin.example" } }));
   expect(allowed.headers.get("access-control-allow-origin")).toBe("https://admin.example");
   const preflight = await app.handle(new Request("http://localhost/api/v1/health", { method: "OPTIONS", headers: { Origin: "https://admin.example", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization,content-type" } }));

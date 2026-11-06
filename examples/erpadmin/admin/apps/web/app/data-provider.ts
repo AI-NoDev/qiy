@@ -3,7 +3,7 @@ import { qiyApiError } from "./api-error";
 import { resources, resourceNames } from "./resources";
 
 const allowed = new Set<string>(resourceNames);
-const dataflowCommands = new Set<string>([]);
+const dataflowCommands = new Set<string>(["/api/v1/commands/orderLifecycleSubmit","/api/v1/commands/orderLifecycleApprove","/api/v1/commands/orderLifecycleShip","/api/v1/commands/orderLifecycleCancel"]);
 const api = "/api/v1";
 type QiyFetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 function authHeaders(): Record<string, string> { const token = typeof window === "undefined" ? undefined : window.localStorage.getItem("qiy.access_token"); return token ? { Authorization: `Bearer ${token}` } : {}; }
@@ -43,12 +43,11 @@ export function getManyRequestUrls(resource: string, ids: ReadonlyArray<string>)
   return urls;
 }
 
-async function workflowCommand(fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>, url: string, method: string, payload?: unknown, meta?: Record<string, unknown>) {
-  const isOrderWorkflow = /^\/api\/v1\/orders\/[0-9a-f-]{36}\/(submit|approve|ship|cancel)$/.test(url) && allowed.has("orders");
-  if (method !== "post" || (!isOrderWorkflow && !dataflowCommands.has(url))) throw new Error("Unknown workflow command");
+/** Posts to a declared Dataflow command; any other URL is rejected before the request. */
+async function commandRequest(fetcher: QiyFetcher, url: string, method: string, payload?: unknown, meta?: Record<string, unknown>) {
+  if (method !== "post" || !dataflowCommands.has(url)) throw new Error("Unknown command");
   const idempotencyKey = meta?.idempotencyKey;
-  const isDataflow = dataflowCommands.has(url);
-  const response = await fetcher(url, { method: "POST", headers: { ...authHeaders(), ...(isDataflow ? { "Content-Type": "application/json" } : {}), ...(typeof idempotencyKey === "string" ? { "idempotency-key": idempotencyKey } : {}) }, ...(isDataflow ? { body: JSON.stringify(payload ?? {}) } : {}) });
+  const response = await fetcher(url, { method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json", ...(typeof idempotencyKey === "string" ? { "idempotency-key": idempotencyKey } : {}) }, body: JSON.stringify(payload ?? {}) });
   const data = await response.json();
   if (!response.ok) throw qiyApiError(data, response.status);
   return { data };
@@ -83,7 +82,7 @@ export function createDataProvider(fetcher: QiyFetcher = fetch): DataProvider {
     getApiUrl: () => api,
     custom: async ({ url, method, query, payload, meta }) => {
       if (method === "post") {
-        const result = await workflowCommand(fetcher, url, method, payload, meta);
+        const result = await commandRequest(fetcher, url, method, payload, meta);
         invalidateIdBatchCache();
         return result;
       }
@@ -186,7 +185,7 @@ export function createGraphQLDataProvider(fetcher: QiyFetcher = fetch): DataProv
   return {
     getApiUrl: () => "/graphql",
     custom: async ({ url, method, query, payload, meta }) => {
-      if (method === "post") return workflowCommand(fetcher, url, method, payload, meta);
+      if (method === "post") return commandRequest(fetcher, url, method, payload, meta);
       const match = /^\/api\/v1\/([a-z][a-z0-9_-]*)\/(distribution|trend|aggregate)$/.exec(url);
       const resource = resources.find((item) => item.name === match?.[1]);
       const analytics = query as { field?: string; days?: number; op?: string } | undefined;

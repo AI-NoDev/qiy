@@ -55,7 +55,7 @@ export const orders = pgTable("orders", {
   "id": uuid("id").primaryKey(),
   "orderNumber": text("orderNumber").notNull().unique(),
   "customerId": uuid("customerId").references(() => customers["id"]).notNull(),
-  "status": text("status").notNull(),
+  "status": text("status").notNull().default("draft"),
   "totalAmount": numeric("totalAmount", { precision: 12, scale: 2 }).notNull(),
   "approvedBy": uuid("approvedBy").references(() => users["id"]),
   "createdAt": timestamp("createdAt", { withTimezone: true }),
@@ -141,21 +141,24 @@ export const qiyExportJobs = pgTable("qiy_export_jobs", {
   updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [index("qiy_export_jobs_resource_idx").on(table.resource, table.createdAt)]);
 
-export const orderReservations = pgTable("order_reservations", {
-  id: uuid("id").primaryKey(),
-  orderId: uuid("orderId").notNull().references(() => orders.id, { onDelete: "cascade" }),
-  orderItemId: uuid("orderItemId").notNull().references(() => orderItems.id, { onDelete: "cascade" }),
-  inventoryItemId: uuid("inventoryItemId").notNull().references(() => inventoryItems.id, { onDelete: "restrict" }),
-  quantity: integer("quantity").notNull(),
-}, (table) => [index("order_reservations_order_idx").on(table.orderId)]);
 
-export const orderIdempotency = pgTable("order_idempotency", {
-  id: uuid("id").primaryKey(),
-  orderId: uuid("orderId").notNull().references(() => orders.id, { onDelete: "cascade" }),
-  actorId: uuid("actorId").notNull(),
-  requestKey: text("requestKey").notNull(),
-  response: jsonb("response").notNull(),
-}, (table) => [uniqueIndex("order_idempotency_scope_idx").on(table.orderId, table.actorId, table.requestKey)]);
+export const dataflowIdempotency = pgTable("dataflow_idempotency", {
+  id: text("id").primaryKey(),
+  actorId: text("actorId").notNull(),
+  flow: text("flow").notNull(),
+  requestKeyHash: text("requestKeyHash").notNull(),
+  requestHash: text("requestHash").notNull(),
+  response: text("response").notNull(),
+}, (table) => [uniqueIndex("dataflow_idempotency_actor_flow_key_idx").on(table.actorId, table.flow, table.requestKeyHash)]);
+
+
+export const dataflowOutbox = pgTable("dataflow_outbox", {
+  id: text("id").primaryKey(),
+  actorId: text("actorId"),
+  event: text("event").notNull(),
+  payload: text("payload").notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).notNull(),
+});
 
 
 export const qiySessionRevocations = pgTable("qiy_session_revocations", {

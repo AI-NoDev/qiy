@@ -1,41 +1,27 @@
 # 业务工作流
 
-V0 以数据与配置为中心；复杂业务联动属于 V1，通过显式声明的工作流或 `dataflow` 生成事务代码，而不是让用户手写重复逻辑。
+复杂业务联动通过模型显式声明，生成事务代码，而不是让用户手写重复逻辑。有两种声明方式，生成的都是同一套服务端命令（`POST /api/v1/commands/<name>`）：
 
-目前有两条路：
+| 方式 | 用途 |
+| --- | --- |
+| [`statemachine`](/dsl/statemachine) | 记录在有限状态之间流转：声明状态字段、初始状态和 transition，自动生成守卫、命令和按钮 |
+| [`dataflow`](/dsl/dataflow) + [`action`](/dsl/actions) | 任意事务命令：自己声明输入、加载、校验、写入、事件和 adapter 调用 |
 
-| 方式 | 用途 | 通用性 |
-| --- | --- | --- |
-| `dataflow` + `action` | **推荐**：你自己声明输入、加载、校验、写入、事件 | 通用（任何实体、任何状态） |
-| `workflow orderInventory;` | 内置的 ERP 订单/库存压力测试切片 | 固定实体、固定动作，仅 PostgreSQL |
-
-`dataflow` 的完整语法见 [DSL：dataflow](/dsl/dataflow)，按钮绑定见 [DSL：actions](/dsl/actions)。
-
-## 声明
-
-```qiy
-application qiy-erp-admin {
-  database postgresql {}
-  workflow orderInventory;
-}
-```
-
-- `workflow` 只接受 `orderInventory`，其它值报 `Unsupported workflow <name>`；重复声明报 `Duplicate workflow`。
-- 声明位置在 `messages` / `permission` 之后、`enum` / `entity` 之前（见 [application](/dsl/application)）。
-- `mode integration` 的模型不允许包含 `workflow`（也不允许其它生成式服务端功能）。
-
-声明后，PostgreSQL 的 ERP 模型会生成：
-
-- 订单提交、审批、出库、取消四个动作（REST 端点 + 详情页操作按钮）；
-- 多仓库存预占与释放、事务边界与状态条件校验；
-- 持久化幂等回执（`order_idempotency` 表）；
-- 订单与库存的关联查询。
-
-## 前置实体
-
-`orderInventory` 要求模型里存在 `orders`、`orderItems`、`inventoryItems` 三个实体（字段契约由该切片固定），并且数据库方言为 **PostgreSQL**。它不是一个通用工作流 DSL：新增业务动作请用 `dataflow`。
+两者可以并用：状态用状态机管理，状态之外的写入用 dataflow。
 
 ## 状态机
+
+```qiy
+statemachine orderLifecycle {
+  resource orders;
+  field status;
+  initial draft;
+  transition submit { from draft; to submitted; label "提交订单"; }
+  transition approve { from submitted; to approved; label "审批"; allow roles admin; }
+  transition ship { from approved; to shipped; label "出库"; confirm "确认出库？"; }
+  transition cancel { from draft, submitted; to cancelled; label "取消订单"; confirm "确认取消该订单？"; }
+}
+```
 
 ```text
 draft --submit--> submitted --approve--> approved --ship--> shipped
@@ -43,64 +29,68 @@ draft --submit--> submitted --approve--> approved --ship--> shipped
   +----> cancelled <---+
 ```
 
-- 状态枚举的颜色、icon 与 label 来自模型声明，UI 不需要额外映射表。
-- 只有 `draft` 和 `submitted` 可以取消；`approved` 必须继续出库，当前不生成「审批撤销」流程。
-- 提交时的库存预占、取消时的释放、出库时的扣减都在服务端事务内执行。
-- 幂等：同一订单/操作者/请求键回放首次结果；不同请求内容 409。
+生成结果：
+
+- 每个 transition 一个命令（`orderLifecycleSubmit` 等）：在事务内加载并锁定记录，状态不在 `from` 中返回 409 `state.invalidTransition`，否则写入 `to`、记审计、写 outbox 事件。
+- 每个命令都需要 `Idempotency-Key`，重试回放第一次的结果。
+- 列表与详情页按当前状态显示对应按钮（`when status == "draft"` / `when status in "draft", "submitted"`）。
+- `status` 只能由 transition 改变：新建从 `initial` 开始，编辑表单、通用 PATCH、CSV 导入都不能改它；手写 dataflow 写这个字段会在解析期报错。
+
+完整规则见 [DSL：statemachine](/dsl/statemachine)。
+
+## dataflow
+
+状态机只改状态。一次命令要写多个字段、创建子记录、调用外部 adapter 时，用 `dataflow`：input、按主键 context 加载、`require`、同事务 `create`/`update`/`delete`/`emit`/`call`、审计、幂等回执和 `result`，批量执行再加 `/batch`。`emit` 只写事务性 outbox，不直接调用消息 broker。
+
+```qiy
+dataflow recordShipment @label("登记物流") {
+  allow roles admin, operator;
+  idempotency required;
+  audit "order.shipmentRecorded";
+  input {
+    field orderId UUID @required;
+    field trackingNumber Text @required;
+  }
+  context { order = entity orders by id input.orderId @required; }
+  step guard {
+    require order.status == "shipped" @error("errors.order.notShipped");
+  }
+  step record {
+    update order { trackingNumber = input.trackingNumber; }
+    emit "order.shipmentRecorded" { orderId = order.id; }
+  }
+  result { return order; }
+}
+
+action recordShipment {
+  resource orders;
+  dataflow recordShipment;
+  placement show;
+  when status == "shipped";
+}
+```
+
+详见 [DSL：dataflow](/dsl/dataflow) 与 [DSL：action](/dsl/actions)。
 
 ## 与权限的关系
 
 | 规则 | 说明 |
 | --- | --- |
-| 角色 | 工作流动作沿用生成的角色守卫与账号角色 |
-| 数据范围 | 有 `scope` 时按 claim 过滤；缺少 claim → 403 `Missing required data scope claim` |
-| `restrict` 行策略 | **不支持**：声明 `restrict orders/orderItems/inventoryItems { when … }` 会报 `Restrict <resource>: orderInventory does not apply row policy yet` |
-| 命令授权 | 工作流不是 dataflow，不参与 `allow permission`/`allow verification` |
+| 角色 | transition 与 dataflow 的 `allow roles` / `allow permission` / `allow verification`；省略时所有 `full`/`write` 角色可执行 |
+| 数据范围 | 资源有 `scope` 时按 claim 过滤：缺少 claim → 403，范围外的记录 → 404 |
+| `restrict` 行策略 | 命令暂不应用行策略，因此受 `restrict` 保护的资源不能被 statemachine 或 dataflow 使用（生成期报错） |
+| 按钮可见性 | 只是界面规则；服务端以命令的 `allow`、守卫和 `require` 为准 |
 
-需要「按权限控制审批」时，请把这部分业务改用 `dataflow`（`allow permission PurchaseApprovePermission;`）。
+## 当前限制
 
-## 验收
-
-```sh
-bun tools/verify-postgres-erp.ts qiy-erp-pg
-```
-
-在隔离数据库中执行迁移并做真实数据库验收：并发幂等提交、审批角色、租户 claim 缺失与跨租户拒绝、后续商品库存不足时回滚已有预占、取消释放及重复取消拒绝、预占数据异常时出库失败保留原状态。脚本会创建并最终删除临时数据库，不触碰 ERP 数据库；测试注入身份，不等同于真实登录或浏览器操作验收。
-
-:::warning 当前限制
-
-`orderInventory` 是一个真实业务压力测试切片，用来验证「模型 → 事务 → API → UI」的完整链路，而不是任意业务流程 DSL。真实 IdP、浏览器端完整审批体验与多对多模型仍未完成；进度见 [V3 状态](https://github.com/AI-NoDev/qiy/blob/main/openwiki/v3-status.md)。
-
-:::
-
-## dataflow（推荐的通用方式）
-
-`dataflow` 已可生成受限服务端命令：input、按主键 context 加载、`require`、同事务 `create`/`update`/`delete`/`emit`/`call`、审计、幂等回执和 `result`，统一生成到 `POST /api/v1/commands/<dataflow>`（批量再加 `/batch`）。`emit` 只写事务性 outbox，不直接调用消息 broker。
-
-```qiy
-dataflow approveOrder @label("审批订单") @confirm("确认审批？") {
-  allow permission PurchaseApprovePermission;
-  idempotency required;
-  audit "order.approved";
-  input { field orderId UUID @required; }
-  context { order = entity orders by id input.orderId @required; }
-  step guard {
-    require order.status == "submitted" @error("errors.order.notSubmitted");
-  }
-  step approve {
-    update order { status = "approved"; }
-    emit "order.approved" { orderId = order.id; }
-  }
-  result { return order; }
-}
-```
-
-详见 [DSL：dataflow](/dsl/dataflow) 与 [权限](/dsl/permissions#命令策略allow)。
+- transition 只改状态，不能附加写入步骤。状态变化同时需要跨表写入（例如库存扣减）时，拆成状态机 + 独立 dataflow，或在宿主代码中实现。
+- 命令不应用 `restrict` 行策略（见上表）；进度见 [ROADMAP](https://github.com/AI-NoDev/qiy/blob/main/ROADMAP.md)。
 
 ## 相关
 
+- [DSL：statemachine](/dsl/statemachine)：状态字段归属、生成结果与校验错误。
 - [DSL：dataflow](/dsl/dataflow)：通用事务命令、幂等、事件、批量。
 - [DSL：actions](/dsl/actions)：把命令挂到列表/详情按钮。
 - [权限（permission）](/dsl/permissions)：`allow permission` / `allow verification`、`restrict`/`scope`。
-- [application](/dsl/application)：`workflow` 的位置与相关块。
+- [迁移到 0.38](/guide/migration-0.38)：从 `workflow orderInventory` 迁移。
 - 示例：[examples/erpadmin/app.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/erpadmin/app.qiy)。

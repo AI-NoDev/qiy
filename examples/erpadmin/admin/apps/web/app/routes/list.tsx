@@ -17,6 +17,7 @@ import { downloadExport, exportUrl, startImport, waitForImport } from "../export
 import { canDeleteView, deleteSavedView, listSavedViews, saveView, serverViewId, serverViewKey, viewMarker, type QiySavedViewKind } from "../views";
 import { t, filterModeLabel, resolveLocale, type QiyLocale } from "../i18n";
 import { downloadFile } from "../hooks/download-file";
+import { BatchBusinessActions, BusinessActions } from "../components/business-actions";
 import type { BaseRecord } from "@refinedev/core";
 
 function renderCell(field: ResourceField, value: unknown, notify: ReturnType<typeof useNotification>["open"], translate: ReturnType<typeof useTranslation>["translate"], locale: string) {
@@ -143,6 +144,7 @@ export default function ResourceList() {
     <ShowButton resource={resource.name} recordItemId={String(record.id)} hideText />
     <EditButton resource={resource.name} recordItemId={String(record.id)} hideText />
     <DeleteButton resource={resource.name} recordItemId={String(record.id)} hideText />
+    <BusinessActions resource={resource.name} placement="list" record={record} />
   </Space> });
   const deleteSelected = async () => { await removeMany({ resource: resource.name, ids: selectedRowKeys.map(String) }); setSelectedRowKeys([]); notify?.({ type: "success", message: t(locale, "deleteSuccess") }); };
   const applyFilters = (nextSearch = search, nextEnums = enumFilters, nextAdvanced = advancedFilters, nextAdvancedJoin = advancedJoin) => { const filters: Array<{ field: string; operator: string; value: string | string[] } | { operator: "and" | "or"; value: Array<{ field: string; operator: string; value: string | string[] }> }> = nextSearch ? [{ field: "__search", operator: "contains", value: nextSearch }] : []; for (const [field, value] of Object.entries(nextEnums)) if (value) filters.push({ field, operator: "eq", value }); const advanced = Object.entries(nextAdvanced).flatMap(([field, condition]) => !condition.value ? [] : [{ field, operator: condition.operator, value: condition.operator === "in" || condition.operator === "between" ? condition.value.split(",").map((item) => item.trim()) : condition.value }]); if (advanced.length === 1) filters.push(advanced[0]!); else if (advanced.length > 1) filters.push({ operator: nextAdvancedJoin, value: advanced }); setFilters(filters as never); };

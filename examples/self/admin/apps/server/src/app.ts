@@ -59,7 +59,7 @@ export function normalizeCorsOrigins(origins: string[]): string[] {
   return [...unique];
 }
 
-export async function createApp(repositories: Repositories, authenticate: Authenticator = async () => null, includeWorkflows = true, includeStorage = true, corsOrigins?: string[], includeDataflows = true) {
+export async function createApp(repositories: Repositories, authenticate: Authenticator = async () => null, includeStorage = true, corsOrigins?: string[], includeDataflows = true) {
    // API-key requests are resolved after the configured session authenticator has
    // had a chance to accept the request, so key auth is additive and never weakens
    // the project's existing authentication.
@@ -94,7 +94,6 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     .use(InventoryRoutes(repositories.inventory, authenticateRequest))
     .use(Stock_movementsRoutes(repositories.stock_movements, authenticateRequest))
     .use(Work_ordersRoutes(repositories.work_orders, authenticateRequest));
- 
     const dataflows = includeDataflows ? (await import("./dataflows")).createDataflowRoutes(authenticateRequest) : undefined;
     const realtime = createRealtimeRoutes(authenticateRequest);
     const storage = includeStorage ? (await import("./storage/routes")).createStorageRoutes(authenticateRequest) : undefined;
@@ -113,7 +112,6 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     composed = composed.use(authProviderRoutes);
     composed = composed.use(permissionRoutes);
     composed = composed.use(docsRoutes);
-    
     composed = dataflows ? composed.use(dataflows) : composed;
     composed = composed.use(realtime);
     composed = storage ? composed.use(storage) : composed;

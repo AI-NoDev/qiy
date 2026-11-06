@@ -33,7 +33,7 @@ application ops-admin {
 
   messages { default "zh-CN"; locale "zh-CN" { "perm.receive" "收货"; } }
 
-  # 1) permission 块：紧跟 messages，必须在 workflow/enum/entity 之前
+  # 1) permission 块：紧跟 messages，必须在 enum/entity 之前
   permission field InventoryReceivePermission "inventory:receive" @label(t("perm.receive"));
 
   # 2) 所有 permission 声明必须连续，中间不能插入其它顶层块
@@ -67,10 +67,10 @@ application ops-admin {
 }
 ```
 
-- `permission` 声明必须在 `messages` **之后**（`@label(t("key"))` 要能解析默认语言）、`workflow` / `enum` / `entity` **之前**（生成前要对照 `users` 表校验 `from database field`）。
+- `permission` 声明必须在 `messages` **之后**（`@label(t("key"))` 要能解析默认语言）、`enum` / `entity` **之前**（生成前要对照 `users` 表校验 `from database field`）。
 - 解析器只在 `messages` 之后**连续读取** `permission` 块；被其它顶层块打断后再写 `permission` 会解析失败。
 - 任何非空权限模型都要求存在生成式 `auth` 块，否则报 `Permission declarations require a generated auth block`；至少要声明**一个** `permission field`，只写组或校验式会报 `Permission declarations require at least one permission field`。
-- 序列化（round-trip）顺序固定为：`storage` → `auth` → `env` → `messages` → `permission ...` → `workflow` → `enum` → `entity` → `relation` → `scope` → `restrict` → `pages` → `menu` → `dashboard`/`chart` → `dataflow` → `action`。
+- 序列化（round-trip）顺序固定为：`storage` → `auth` → `env` → `messages` → `permission ...` → `enum` → `entity` → `relation` → `scope` → `restrict` → `pages` → `menu` → `chart` → `statemachine` → `dataflow` → `action`。
 
 ## 语法总览
 

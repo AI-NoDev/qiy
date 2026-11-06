@@ -12,7 +12,7 @@
 #   qiy.actions.<action>.label / .confirm / .inputs.<input>.label   business commands
 #
 # The file is included right after the auth block; the parser requires `messages`
-# to appear after env and before workflow/enum/entity declarations.
+# to appear after env and before permission/enum/entity declarations.
 messages {
   default "zh-CN";
   locale "zh-CN" {

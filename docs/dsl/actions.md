@@ -31,7 +31,7 @@ action <Name> {
   "placement" ( "list" | "show" ) ( "," ( "list" | "show" ) )* ";"
   [ "label" doc ";" ]
   [ "confirm" doc ";" ]            // 仅 dataflow action
-  [ "when" <field> ( "==" | "!=" ) <string> ";" ]
+  [ "when" <field> ( ( "==" | "!=" ) <string> | "in" <string> ( "," <string> )* ) ";" ]
   [ "allow" ( "roles" role ("," role)* | "permission" ref ("," ref)* | "verification" <Name> ) ";" ]   // 仅 navigate action
   [ "batch" "true" ";" ]           // 仅 dataflow action
   [ "page" "manual" "@comment" "(" doc ")" ";" ]   // 仅 navigate action
@@ -50,8 +50,8 @@ action <Name> {
 | `placement list` / `show` | 是（≥1） | — | 分别进入资源表格 actions 列与详情页 action 区；重复报 `duplicate placement` |
 | `label` | navigate 必填；dataflow 可省 | dataflow 继承 flow 的 `@label` | 显示名；`t("key")` 走 i18n；两者都没有时生成失败 |
 | `confirm` | 否 | 继承 flow 的 `@confirm` | 确认弹窗文案；只在 dataflow action 上合法 |
-| `when <field> == \| != "<value>"` | 否 | 无（始终显示） | 记录级可见性；字段必须是当前资源的 `Text` 或 enum；enum 值必须已声明；只支持 `==`/`!=` |
-| `allow roles …` | 否 | 继承 flow 的 `allow roles`（dataflow action） | navigate action 可用 `admin`/`operator`/`viewer` 非空子集；dataflow action 上**禁止**声明 |
+| `when <field> == \| != "<value>"` / `when <field> in "a", "b"` | 否 | 无（始终显示） | 记录级可见性；字段必须是当前资源的 `Text` 或 enum；enum 值必须已声明；`in` 列表不能重复 |
+| `allow roles …` | 否 | 继承 flow 的 `allow roles`（dataflow action） | navigate action 可用已声明角色的非空子集；dataflow action 上**禁止**声明 |
 | `allow permission …` / `allow verification …` | 否 | 继承 flow | 仅 navigate action；`verification` 不能有 input |
 | `batch true` | 否 | `false` | 批量模式；必须 `placement list` 唯一、无 `when`、flow 有 `idempotency required`、资源由必填 UUID input 加载 |
 | `page manual @comment(...)` | navigate 必填 | — | 生成占位业务页 + 未托管扩展文件；`@comment` 必填（可为 `t("key")`） |
@@ -78,7 +78,8 @@ action approveReceipt {
 }
 ```
 
-- 只有当前行的该字段**等于/不等于**字面量时按钮才渲染；记录缺少该字段或值不匹配 → 隐藏。
+- 只有当前行的该字段**等于/不等于**字面量（`in` 时为**属于**列表之一）时按钮才渲染；记录缺少该字段或值不匹配 → 隐藏。
+- `when status in "draft", "submitted";` 与 `restrict` 的 `when … in` 同一种写法；[statemachine](/dsl/statemachine) 的多来源 transition 生成的按钮就用它。
 - 只接受 `Text` 或 enum：`Action <a>: condition field <e>.<f> must be Text or enum`；enum 值必须在声明集合内（`unknown enum value`）。
 - **`when` 不是安全策略**：它只是 UI 规则。直接调用命令端点仍由服务端角色/权限/`require` 决定。`when` 也不影响批量（批量禁止 `when`）。
 
@@ -224,7 +225,7 @@ application browser-actions {
 | `exactly one of dataflow or navigate is required` | 两个都写或都不写 |
 | `unsupported property <p>` | 未知属性 |
 | `placement must be list or show` / `duplicate placement list` | 非法或重复 placement |
-| `when operator must be == or !=` / `duplicate when declaration` | `when` 语法 |
+| `when operator must be ==, != or in` / `duplicate when value <v>` / `duplicate when declaration` | `when` 语法 |
 | `condition field <e>.<f> must be Text or enum` / `unknown enum value` | `when` 字段/值非法 |
 | `unknown resource <r>` | 资源不存在 |
 | `label is required` | navigate 缺 label |

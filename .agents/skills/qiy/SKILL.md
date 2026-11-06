@@ -77,7 +77,7 @@ Open only the reference that matches the task. Every reference is self-contained
 | Model data: includes/modules, fields, relations, indexes, `@code`/`@generated`, display templates, limits | [modeling-and-generation.md](references/modeling-and-generation.md) |
 | Login, OIDC/OTP/hybrid providers, roles, permissions, verification, restrict/scope/pages, 401/403 | [auth-permissions.md](references/auth-permissions.md) |
 | Generated Refine providers: DataProvider mapping, AuthProvider, `can()`, live/audit/notification/i18n/router wiring | [refine-providers.md](references/refine-providers.md) |
-| Business commands, dataflows, actions, batch, `workflow orderInventory`, `app.test.qiy` | [dataflows-actions.md](references/dataflows-actions.md) |
+| State machines, business commands, dataflows, actions, batch, `app.test.qiy` | [dataflows-actions.md](references/dataflows-actions.md) |
 | Theme/layout, menu, dashboard, charts and panels, messages/i18n keys | [ui-charts-i18n.md](references/ui-charts-i18n.md) |
 | `features`, system pages, OpenAPI filtering, API keys | [system-features.md](references/system-features.md) |
 | File fields, uploads, S3, attachment cleanup, realtime/outbox | [storage-realtime.md](references/storage-realtime.md) |
@@ -98,7 +98,7 @@ Open only the reference that matches the task. Every reference is self-contained
 - **`mask` protects generated read paths, not the database.** Backups, DB access, logs and external systems still see plaintext.
 - **Realtime is at-least-once.** Consumers must be idempotent. List pages are not auto-subscribed by default.
 - **`mode integration` has no Qiy security.** The host API owns auth, permissions, CSRF and tenancy.
-- **Do not promise unsupported behavior**: no arbitrary expressions, no custom roles in `allow roles`, no generated business workflow beyond `orderInventory`/dataflows, no integration-mode server generation.
+- **Do not promise unsupported behavior**: no arbitrary expressions, no roles outside the declared `auth { roles }` set, no generated business logic beyond declared statemachines/dataflows, no integration-mode server generation.
 - **Verify before saying done.** Regenerate, review migrations, then run typecheck, tests and build; a passing build does not prove database, IdP, S3 or deployment health.
 - **Regenerate after CLI upgrades.** The DSL is not forward compatible; run `qiy generate ... --sync` or `qiy init --sync`, review migrations, then `qiy skill install --force`.
 

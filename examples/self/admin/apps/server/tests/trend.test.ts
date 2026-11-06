@@ -7,7 +7,7 @@ test("REST and GraphQL trend uses the authorized data scope", async () => {
   const repository = { trend: async (_field: string, _days: number, scope?: unknown) => { seen.push(scope); return rows; }, distribution: async () => [], list: async () => ({ data: [], total: 0 }), one: async () => undefined, create: async () => ({}), update: async () => undefined, delete: async () => undefined, deleteMany: async () => [] };
   const repositories = Object.fromEntries(["users","orgs","suppliers","customers","products","boms","purchase_orders","purchase_order_lines","receipts","sales_orders","sales_order_lines","shipments","warehouses","bins","inventory","stock_movements","work_orders"].map((name) => [name, repository])) as unknown as Repositories;
   const principal = { id: "admin", name: "Admin", role: "admin" as const, claims: {} };
-  const app = await createApp(repositories, async () => principal, false, false);
+  const app = await createApp(repositories, async () => principal, false);
   const endpoint = "http://localhost/api/v1/purchase_orders/trend?field=orderedAt&days=30";
   expect(await (await app.handle(new Request(endpoint))).json()).toEqual(rows);
   expect((await app.handle(new Request(endpoint.replace("orderedAt", "missing")))).status).toBe(400);
@@ -16,6 +16,6 @@ test("REST and GraphQL trend uses the authorized data scope", async () => {
   expect(graph.status).toBe(200);
   expect((await graph.json() as { data: { purchase_ordersTrend: typeof rows } }).data.purchase_ordersTrend).toEqual(rows);
   expect(seen).toEqual([undefined, undefined]);
-  const anonymous = await createApp(repositories, async () => null, false, false);
+  const anonymous = await createApp(repositories, async () => null, false);
   expect((await anonymous.handle(new Request(endpoint))).status).toBe(401);
 });

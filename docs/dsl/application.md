@@ -83,22 +83,20 @@ application qiy-erp-admin @comment("Operations administration") {
 | 12 | `env` | 0..1 | 自定义环境变量 |
 | 13 | `messages` | 0..1 | 多语言词典（见 [多语言](/dsl/i18n)） |
 | 14 | `permission …` | 0..N | 原子权限/权限组/来源/校验，连续书写 |
-| 15 | `workflow <name>;` | 0..N | 目前只有 `orderInventory` |
-| 16 | `enum …` | 0..N | 枚举（见 [enum/menu/dashboard](/dsl/enum-menu-dashboard)） |
-| 17 | `entity …` | 0..N | 实体（见 [entity 与 field](/dsl/entity)） |
-| 18 | `relation …;` | 0..N | 关系（见 [relation 与 index](/dsl/relation-index)） |
-| 19 | `view … { }` | 0..N | 只读数据库视图（见 [views](/dsl/views)） |
-| 20 | `scope …;` | 0..N | 数据范围 |
-| 21 | `restrict … { }` | 0..N | 行级/字段级策略 |
-| 22 | `pages … { }` | 0..N | 页面级角色规则 |
-| 23 | `menu { … }` | 0..1 | 侧边栏分组 |
-| 24 | `chart …` / `chart panels …` | 0..N | 概览页图表与面板 |
-| 25 | `dataflow … { }` | 0..N | 事务型命令（见 [dataflow](/dsl/dataflow)） |
-| 26 | `action … { }` | 0..N | 命令按钮/手写页（见 [action](/dsl/actions)） |
+| 15 | `enum …` | 0..N | 枚举（见 [enum/menu/dashboard](/dsl/enum-menu-dashboard)） |
+| 16 | `entity …` | 0..N | 实体（见 [entity 与 field](/dsl/entity)） |
+| 17 | `relation …;` | 0..N | 关系（见 [relation 与 index](/dsl/relation-index)） |
+| 18 | `view … { }` | 0..N | 只读数据库视图（见 [views](/dsl/views)） |
+| 19 | `scope …;` | 0..N | 数据范围 |
+| 20 | `restrict … { }` | 0..N | 行级/字段级策略 |
+| 21 | `pages … { }` | 0..N | 页面级角色规则 |
+| 22 | `menu { … }` | 0..1 | 侧边栏分组 |
+| 23 | `chart …` / `chart panels …` | 0..N | 概览页图表与面板 |
+| 24 | `statemachine … { }` / `dataflow … { }` / `action … { }` | 0..N | 状态机（见 [statemachine](/dsl/statemachine)）、事务型命令（见 [dataflow](/dsl/dataflow)）、命令按钮/手写页（见 [action](/dsl/actions)）；三者之间可任意交错 |
 
 ## application 设置总表
 
-下表覆盖 `application` 内全部配置块的可写键（顶层声明 `enum`/`entity`/`relation`/`menu`/`dashboard`/`dataflow`/`action` 见各自章节）；每一块的语法、默认值与错误在后续小节逐一展开。
+下表覆盖 `application` 内全部配置块的可写键（顶层声明 `enum`/`entity`/`relation`/`menu`/`chart`/`statemachine`/`dataflow`/`action` 见各自章节）；每一块的语法、默认值与错误在后续小节逐一展开。
 
 | 块 | 键 / 语法 | 取值 | 默认 | 生成效果 |
 | --- | --- | --- | --- | --- |
@@ -145,7 +143,6 @@ application qiy-erp-admin @comment("Operations administration") {
 | `env` | `variable NAME { … }` | 大写变量名 | 无 | server/web `.env.*` 文件 |
 | `messages` | `default "…";` / `locale "…" { "k" "v"; }` | BCP 47 + 词典 | 无 | i18n provider 与模型 label 翻译 |
 | `permission` | `field` / `group` / `from` / `verification` | 见 [permissions](/dsl/permissions) | 无 | 权限提供者与守卫 |
-| `workflow` | `orderInventory;` | 唯一取值 | 无 | 采购/库存事务链路 |
 | `scope` | `scope <resource> <field> claim <claim> [tree …];` | 见下 | 无 | 行级数据范围 |
 | `restrict` | `allow roles` / `when` / `mask` | 见下 | 无 | 行策略与字段脱敏 |
 | `pages` | `<action> roles …;` / `field <f> roles …;` | 见下 | 无 | 页面级 RBAC |
@@ -242,7 +239,7 @@ integration {
 - `mode integration` 必须有 `integration` 块（`application mode integration requires an integration block`）。
 - 有 `integration` 块但 `mode` 不是 `integration` 报 `integration block requires application mode integration`。
 - 每个键最多出现一次（`Duplicate integration setting X`）；`response` 至少一项；同一 `response` 键不能重复。
-- **integration 模式禁止生成式服务端特性**：同时出现 `api { cors { … } }`、`elysia`、`storage`、`auth`、`env`、`scope`、`restrict`、`workflow`、`dataflow`、`permission` 时直接报 `application mode integration cannot configure generated server features; use integration auth and host adapters instead.`（`api { client … }` 本身允许。）
+- **integration 模式禁止生成式服务端特性**：同时出现 `api { cors { … } }`、`elysia`、`storage`、`auth`、`env`、`scope`、`restrict`、`statemachine`、`dataflow`、`permission` 时直接报 `application mode integration cannot configure generated server features; use integration auth and host adapters instead.`（`api { client … }` 本身允许。）
 - `realtime` 在 integration 模式报 `application mode integration cannot generate standalone realtime; use the host LiveProvider adapter instead.`
 - `mode integration` **不能**用 `qiy generate`/`qiy create` 生成独立工作区：`application mode integration must be mounted with qiy init inside an existing Bun workspace`。
 
@@ -878,7 +875,7 @@ env {
 
 要点（与块顺序相关）：
 
-- 位置在 `env` 之后、`permission`/`workflow`/`enum`/`entity` 之前。
+- 位置在 `env` 之后、`permission`/`enum`/`entity` 之前。
 - `default "<BCP 47>"` 必填且必须存在同名 `locale` 块，否则 `Missing default message locale X`。
 - 语言标识必须是规范 BCP 47（`zh-CN`、`en-US`），`fr_fr`/`FR-fr` 报 `Invalid message locale X`。
 - key 形如 `[a-zA-Z_][a-zA-Z_0-9.-]*`，禁止 `__proto__`/`prototype`/`constructor` 段；重复 key 报 `Duplicate message key`。
@@ -886,7 +883,7 @@ env {
 
 ## permission
 
-`permission` 声明原子权限、权限组、provider 来源与校验表达式；这些声明必须**连续书写**，位置在 `messages` 之后、`workflow` 之前。
+`permission` 声明原子权限、权限组、provider 来源与校验表达式；这些声明必须**连续书写**，位置在 `messages` 之后、`enum` 之前。
 
 ```qiy
 permission field ApiGetUserPermission "api:getUser" @label("Read user API");
@@ -901,37 +898,6 @@ permission verification CanAccessUserApi {
 ```
 
 `permission` 需要生成的 `auth`（`Permission declarations require a generated auth block`），且至少要有一个 `field`。完整语法、运算符（`some/all/not … included in`、`=`、`!=`）、HTTP 接口与 `dataflow`/`action` 的 `allow permission` 见 [权限（permission）](/dsl/permissions)。
-
-## workflow
-
-### 语法
-
-```text
-workflow orderInventory ;
-```
-
-### 参数与校验
-
-| 参数 | 取值 | 默认 | 说明 |
-| --- | --- | --- | --- |
-| 名称 | 仅 `orderInventory` | 必填 | 其它值报 `Unsupported workflow X`；重复报 `Duplicate workflow X` |
-
-生成期要求：PostgreSQL 方言，且存在 `orders`、`orderItems`、`inventoryItems` 三个实体并满足约定字段（缺字段会报 `orderInventory workflow requires orders.approvedBy` 这类具体错误）。与 `restrict` 冲突时直接失败（`orderInventory does not apply row policy yet`）。字段清单见[业务工作流](/guide/workflow)。
-
-### 生成结果
-
-订单提交/审批/出库/取消与库存预占的事务链路、`order_reservations` 与 `order_idempotency` 表。说明见[业务工作流](/guide/workflow)。
-
-### 示例
-
-```qiy
-workflow orderInventory;
-```
-
-### 进阶用法
-
-- `orderInventory` 是**一个固定的内置流程**，不能参数化；需要自定义状态机时用 [dataflow](/dsl/dataflow) 显式写步骤。
-- 它会生成额外的预占与幂等表，迁移评审时要一并检查。
 
 ## scope
 
@@ -1085,7 +1051,7 @@ not <expression> | ( <expression> )
 - 主键不能作为行条件或 mask 目标；`Vector` 字段不能 mask。
 - `mask replacement` 与 `mode redact` 必须同时出现；重复 mask 报 `duplicate mask for X`。
 - 声明 `scope` 原子但没有同资源 `scope` 时，生成期报 `when scope requires a matching scope declaration`。
-- `dataflow`/`workflow` 不能操作受 `restrict` 保护的资源（生成期失败），避免命令接口绕过行策略。
+- `dataflow`/`statemachine` 不能操作受 `restrict` 保护的资源（生成期失败），避免命令接口绕过行策略。
 
 ### 生成结果
 
@@ -1159,7 +1125,6 @@ restrict orders {
 | `env`、`variable`、`secret`、`development`、`production`、`example`、`required`、`generate` | [env](#env) |
 | `messages` | 本节 + [多语言](/dsl/i18n) |
 | `permission` | 本节 + [permission](/dsl/permissions) |
-| `workflow` | [workflow](#workflow) |
 | `scope`、`claim`、`tree` | [scope](#scope) |
 | `pages`、`list/show/create/edit/delete roles`、`field … roles` | [pages](#pages) |
 | `restrict`、`allow roles`、`when`、`mask`、`omit/null/redact` | [restrict](#restrict) |
@@ -1170,4 +1135,4 @@ restrict orders {
 - [模块化模型](/dsl/modules)：用 `include` 拆分 `application`
 - [entity 与 field](/dsl/entity) / [relation 与 index](/dsl/relation-index) / [enum / menu / dashboard](/dsl/enum-menu-dashboard)
 - [认证与登录（auth）](/dsl/auth)、[权限（permission）](/dsl/permissions)、[realtime](/dsl/realtime)、[storage](/guide/storage)、[features](/dsl/features)
-- [dataflow](/dsl/dataflow)、[action](/dsl/actions)、[chart](/dsl/charts)
+- [statemachine](/dsl/statemachine)、[dataflow](/dsl/dataflow)、[action](/dsl/actions)、[chart](/dsl/charts)

@@ -200,7 +200,7 @@ export function qiyApiError(payload, statusCode, locale = document.documentEleme
 | 详情 | `/api/v1/{resource}/:id` | `{apiName}ById(id:)` |
 | 写操作 | `POST` / `PATCH` / `DELETE` | `create{Name}`、`update{Name}`、`delete{Name}`、`delete{Name}Many` mutation |
 | 图表 | REST 分析端点 | `{apiName}Distribution` / `{apiName}Trend` / `{apiName}Aggregate` 字段 |
-| 命令 | `POST /api/v1/commands/{flow}` | **仍走同一个 REST 命令端点**（DataProvider 内部复用 `workflowCommand`） |
+| 命令 | `POST /api/v1/commands/{flow}` | **仍走同一个 REST 命令端点**（DataProvider 内部复用 `commandRequest`） |
 | `getMany` | id 分块 + 30 秒合并缓存 | id 分块，无合并缓存 |
 | 过滤器 | 受字段白名单约束 | 所有操作符透传，由服务端 GraphQL schema 校验 |
 | 错误 | `qiyApiError`，带 `statusCode` + `errorKey` | `Error`，只带 `statusCode`（响应含 `errors` 时固定 400），**没有 `errorKey` 本地化** |
@@ -215,7 +215,7 @@ GraphQL 列表的 `filters` 变量形如 `[{ field, operator, value }]`（生成
 - **命令**：`method === "post"`，且 URL 是 `/api/v1/commands/{flow}`（flow 在 `dataflowCommands` 集合内）或 `/api/v1/orders/:uuid/(submit|approve|ship|cancel)`。命令请求可带 `meta.idempotencyKey`，会写入 `idempotency-key` 请求头；只有 dataflow 命令带 JSON body。
 - **分析**：`method === "get"`，URL 必须匹配 `/api/v1/{resource}/(distribution|trend|aggregate)`，且 `resource` 在白名单内。
 
-其他 URL 直接抛 `Unknown workflow command` / `Unknown analytics resource`（GraphQL 侧是 `Unknown analytics field` / `Unknown aggregate field`）。占位符与字段还会二次校验：
+其他 URL 直接抛 `Unknown command` / `Unknown analytics resource`（GraphQL 侧是 `Unknown analytics field` / `Unknown aggregate field`）。占位符与字段还会二次校验：
 
 | 分析 | 参数 | 校验 |
 | --- | --- | --- |
@@ -691,7 +691,7 @@ app/resources.ts          # resourceNames / resources[].{name,apiName,fields}
 | 列表不实时刷新 | 列表 `useTable` 没传 `liveMode` | 显式传 `liveMode: resource.liveMode` |
 | 详情页收不到事件 | 角色不在 `realtime.roles`；分段通道 claim 缺失；反向代理缓冲 SSE | 看 `/api/v1/realtime/stream` 首帧 `ready` 列出的 channel；补角色/claim；关闭代理缓冲 |
 | `/api/v1/realtime/stream` 503 | `QIY_REALTIME_DISABLED=1` | 取消该变量 |
-| 命令按钮报 `Unknown workflow command` | 调了未声明的命令 URL，或 method 不是 `post` | 命令必须走 `dataflow`/`actions` 声明 |
+| 命令按钮报 `Unknown command` | 调了未声明的命令 URL，或 method 不是 `post` | 命令必须由 `statemachine`/`dataflow`/`actions` 声明 |
 | GraphQL 错误没有中文文案 | GraphQL 错误不带 `errorKey` | 已知差异；需要本地化就用 REST 客户端或自己映射 |
 | 退出登录后仍残留 `qiy.id_token` | 多 Provider 模式的 `logout` 只删 access token | 自己清或改用混合模式 |
 | `--sync` 后自定义 provider 被覆盖 | 该文件在 `.qiy-generated.json` 的 `files` 里 | 把自定义代码放到未托管文件（`app/host/`、`app/extensions/`） |

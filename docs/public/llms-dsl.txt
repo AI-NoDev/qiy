@@ -81,7 +81,7 @@ theme blue
 
 | 位置 | 分号 | 说明 |
 | --- | --- | --- |
-| `field` / `index` / `relation` / `scope` / `permission field` / `permission from` / `workflow` / `variable` 声明 | 必须 | 缺少时报 `Expected ; near token N` |
+| `field` / `index` / `relation` / `scope` / `permission field` / `permission from` / `variable` 声明 | 必须 | 缺少时报 `Expected ; near token N` |
 | 块（`database`、`ui`、`entity`、`enum`、`menu`、`chart` …）的 `}` | **不加** `;` | 多写一个 `;` 会报 `Expected … near token N` |
 | `permission group … { … }` | 可选 | 列表形式后面可以跟 `;` |
 | `permission verification … { … }` | 可选 | 同上 |
@@ -114,15 +114,15 @@ theme blue
 | 12 | `env { variable … { … } }` | 自定义环境变量 | [application · env](/dsl/application#env) |
 | 13 | `messages { … }` | 多语言词典 | [多语言](/dsl/i18n) |
 | 14 | `permission …` | 原子权限/组/来源/校验 | [权限](/dsl/permissions) |
-| 15 | `workflow orderInventory;` | 业务流程 | [application · workflow](/dsl/application#workflow) |
-| 16 | `enum … { value …; }` | 枚举 | [enum/menu](/dsl/enum-menu-dashboard#enum) |
-| 17 | `entity … { field …; index …; }` | 实体与字段/索引 | [entity 与 field](/dsl/entity) |
-| 18 | `relation …;` | 外键与关联 | [relation 与 index](/dsl/relation-index) |
-| 19 | `scope …;` | 数据范围 | [application · scope](/dsl/application#scope) |
-| 20 | `restrict … { … }` | 行级/字段级策略 | [application · restrict](/dsl/application#restrict) |
-| 21 | `pages … { … }` | 页面级角色规则 | [application · pages](/dsl/application#pages) |
-| 22 | `menu { group … { resource …; } }` | 侧边栏 | [enum/menu · menu](/dsl/enum-menu-dashboard#menu) |
-| 23 | `chart …` / `chart panels …` | 概览页 | [chart](/dsl/charts) |
+| 15 | `enum … { value …; }` | 枚举 | [enum/menu](/dsl/enum-menu-dashboard#enum) |
+| 16 | `entity … { field …; index …; }` | 实体与字段/索引 | [entity 与 field](/dsl/entity) |
+| 17 | `relation …;` | 外键与关联 | [relation 与 index](/dsl/relation-index) |
+| 18 | `scope …;` | 数据范围 | [application · scope](/dsl/application#scope) |
+| 19 | `restrict … { … }` | 行级/字段级策略 | [application · restrict](/dsl/application#restrict) |
+| 20 | `pages … { … }` | 页面级角色规则 | [application · pages](/dsl/application#pages) |
+| 21 | `menu { group … { resource …; } }` | 侧边栏 | [enum/menu · menu](/dsl/enum-menu-dashboard#menu) |
+| 22 | `chart …` / `chart panels …` | 概览页 | [chart](/dsl/charts) |
+| 23 | `statemachine … { … }` | 状态字段与 transition 命令 | [statemachine](/dsl/statemachine) |
 | 24 | `dataflow … { … }` | 事务型命令 | [dataflow](/dsl/dataflow) |
 | 25 | `action … { … }` | 命令按钮/手写页 | [action](/dsl/actions) |
 
@@ -130,10 +130,10 @@ theme blue
 
 解析器是**单遍递归下降**：它按固定顺序 `expect` 下一个关键字，看到不认识的东西就报 `Expected <关键字> near token N`。所以：
 
-- 块必须按上表顺序出现；`enum` 必须在 `entity` 之前，`entity` 必须在 `relation` 之前，`menu` 在 `pages` 之后、`dashboard`/`chart` 之前，`dataflow` 在 `action` 之前。
+- 块必须按上表顺序出现；`enum` 必须在 `entity` 之前，`entity` 必须在 `relation` 之前，`menu` 在 `pages` 之后、`chart` 之前。`statemachine`、`dataflow`、`action` 位于最后，三者之间可以任意交错。
 - `database` 必须是 `application {` 后的第一个声明。
-- `permission` 必须紧跟在 `messages` 之后（在 `workflow`/`enum` 之前）。
-- `dashboard` 与 `chart` 共享同一位置，可以交替书写；`menu` 最多一个。
+- `permission` 必须紧跟在 `messages` 之后（在 `enum` 之前）。
+- `chart` 与 `chart panels` 共享同一位置，可以交替书写；`menu` 最多一个。
 - 可选的单例块（`mode`、`integration`、`workspace`、`ui`、`api`、`features`、`realtime`、`elysia`、`storage`、`auth`、`env`、`messages`）缺省即用默认值，但**位置不能乱**：跳过的块不影响后面块的位置要求。
 - 展开 include 后仍必须满足上述顺序——这是[模块化](/dsl/modules)最容易踩的坑。
 
@@ -162,7 +162,7 @@ include 展开  →  词法/语法解析  →  IR 校验  →  生成期校验  
 
 ## 消息与模型描述
 
-`messages` 块声明默认语言与词典，位置在 `env` 之后、`permission`/`workflow`/`enum`/`entity` 之前：
+`messages` 块声明默认语言与词典，位置在 `env` 之后、`permission`/`enum`/`entity` 之前：
 
 ```qiy
 messages {
@@ -415,7 +415,7 @@ Qiy 不支持一个入口文件里放多个 `application`，也不支持跨应�
 - **全局单命名空间**：所有片段与入口文件共享同一作用域，没有按文件隔离的命名。实体名、表名、枚举名、关系名、索引名（全局）、菜单分组名、指标名、dataflow/action 名都在展开后的整体上判重。
 - 重复 include 同一文件（非循环）不会被去重，展开后会出现两份声明，通常报 `Entity X: duplicate entity or table name` 之类的重复错误。
 - 循环引用靠 realpath 检测，同一文件用不同相对路径引用也会被识别。
-- 片段可以覆盖入口文件的“位置约束”但**不能覆盖顺序**：展开后仍必须满足 `database → 配置块 → messages → permission → workflow → enum → entity → relation → scope → restrict → pages → menu → dashboard/chart → dataflow → action`。
+- 片段可以覆盖入口文件的“位置约束”但**不能覆盖顺序**：展开后仍必须满足 `database → 配置块 → messages → permission → enum → entity → relation → scope → restrict → pages → menu → chart → statemachine/dataflow/action`（最后三类之间可任意交错）。
 
 ## 推荐布局
 
@@ -609,22 +609,20 @@ application qiy-erp-admin @comment("Operations administration") {
 | 12 | `env` | 0..1 | 自定义环境变量 |
 | 13 | `messages` | 0..1 | 多语言词典（见 [多语言](/dsl/i18n)） |
 | 14 | `permission …` | 0..N | 原子权限/权限组/来源/校验，连续书写 |
-| 15 | `workflow <name>;` | 0..N | 目前只有 `orderInventory` |
-| 16 | `enum …` | 0..N | 枚举（见 [enum/menu/dashboard](/dsl/enum-menu-dashboard)） |
-| 17 | `entity …` | 0..N | 实体（见 [entity 与 field](/dsl/entity)） |
-| 18 | `relation …;` | 0..N | 关系（见 [relation 与 index](/dsl/relation-index)） |
-| 19 | `view … { }` | 0..N | 只读数据库视图（见 [views](/dsl/views)） |
-| 20 | `scope …;` | 0..N | 数据范围 |
-| 21 | `restrict … { }` | 0..N | 行级/字段级策略 |
-| 22 | `pages … { }` | 0..N | 页面级角色规则 |
-| 23 | `menu { … }` | 0..1 | 侧边栏分组 |
-| 24 | `chart …` / `chart panels …` | 0..N | 概览页图表与面板 |
-| 25 | `dataflow … { }` | 0..N | 事务型命令（见 [dataflow](/dsl/dataflow)） |
-| 26 | `action … { }` | 0..N | 命令按钮/手写页（见 [action](/dsl/actions)） |
+| 15 | `enum …` | 0..N | 枚举（见 [enum/menu/dashboard](/dsl/enum-menu-dashboard)） |
+| 16 | `entity …` | 0..N | 实体（见 [entity 与 field](/dsl/entity)） |
+| 17 | `relation …;` | 0..N | 关系（见 [relation 与 index](/dsl/relation-index)） |
+| 18 | `view … { }` | 0..N | 只读数据库视图（见 [views](/dsl/views)） |
+| 19 | `scope …;` | 0..N | 数据范围 |
+| 20 | `restrict … { }` | 0..N | 行级/字段级策略 |
+| 21 | `pages … { }` | 0..N | 页面级角色规则 |
+| 22 | `menu { … }` | 0..1 | 侧边栏分组 |
+| 23 | `chart …` / `chart panels …` | 0..N | 概览页图表与面板 |
+| 24 | `statemachine … { }` / `dataflow … { }` / `action … { }` | 0..N | 状态机（见 [statemachine](/dsl/statemachine)）、事务型命令（见 [dataflow](/dsl/dataflow)）、命令按钮/手写页（见 [action](/dsl/actions)）；三者之间可任意交错 |
 
 ## application 设置总表
 
-下表覆盖 `application` 内全部配置块的可写键（顶层声明 `enum`/`entity`/`relation`/`menu`/`dashboard`/`dataflow`/`action` 见各自章节）；每一块的语法、默认值与错误在后续小节逐一展开。
+下表覆盖 `application` 内全部配置块的可写键（顶层声明 `enum`/`entity`/`relation`/`menu`/`chart`/`statemachine`/`dataflow`/`action` 见各自章节）；每一块的语法、默认值与错误在后续小节逐一展开。
 
 | 块 | 键 / 语法 | 取值 | 默认 | 生成效果 |
 | --- | --- | --- | --- | --- |
@@ -671,7 +669,6 @@ application qiy-erp-admin @comment("Operations administration") {
 | `env` | `variable NAME { … }` | 大写变量名 | 无 | server/web `.env.*` 文件 |
 | `messages` | `default "…";` / `locale "…" { "k" "v"; }` | BCP 47 + 词典 | 无 | i18n provider 与模型 label 翻译 |
 | `permission` | `field` / `group` / `from` / `verification` | 见 [permissions](/dsl/permissions) | 无 | 权限提供者与守卫 |
-| `workflow` | `orderInventory;` | 唯一取值 | 无 | 采购/库存事务链路 |
 | `scope` | `scope <resource> <field> claim <claim> [tree …];` | 见下 | 无 | 行级数据范围 |
 | `restrict` | `allow roles` / `when` / `mask` | 见下 | 无 | 行策略与字段脱敏 |
 | `pages` | `<action> roles …;` / `field <f> roles …;` | 见下 | 无 | 页面级 RBAC |
@@ -768,7 +765,7 @@ integration {
 - `mode integration` 必须有 `integration` 块（`application mode integration requires an integration block`）。
 - 有 `integration` 块但 `mode` 不是 `integration` 报 `integration block requires application mode integration`。
 - 每个键最多出现一次（`Duplicate integration setting X`）；`response` 至少一项；同一 `response` 键不能重复。
-- **integration 模式禁止生成式服务端特性**：同时出现 `api { cors { … } }`、`elysia`、`storage`、`auth`、`env`、`scope`、`restrict`、`workflow`、`dataflow`、`permission` 时直接报 `application mode integration cannot configure generated server features; use integration auth and host adapters instead.`（`api { client … }` 本身允许。）
+- **integration 模式禁止生成式服务端特性**：同时出现 `api { cors { … } }`、`elysia`、`storage`、`auth`、`env`、`scope`、`restrict`、`statemachine`、`dataflow`、`permission` 时直接报 `application mode integration cannot configure generated server features; use integration auth and host adapters instead.`（`api { client … }` 本身允许。）
 - `realtime` 在 integration 模式报 `application mode integration cannot generate standalone realtime; use the host LiveProvider adapter instead.`
 - `mode integration` **不能**用 `qiy generate`/`qiy create` 生成独立工作区：`application mode integration must be mounted with qiy init inside an existing Bun workspace`。
 
@@ -1404,7 +1401,7 @@ env {
 
 要点（与块顺序相关）：
 
-- 位置在 `env` 之后、`permission`/`workflow`/`enum`/`entity` 之前。
+- 位置在 `env` 之后、`permission`/`enum`/`entity` 之前。
 - `default "<BCP 47>"` 必填且必须存在同名 `locale` 块，否则 `Missing default message locale X`。
 - 语言标识必须是规范 BCP 47（`zh-CN`、`en-US`），`fr_fr`/`FR-fr` 报 `Invalid message locale X`。
 - key 形如 `[a-zA-Z_][a-zA-Z_0-9.-]*`，禁止 `__proto__`/`prototype`/`constructor` 段；重复 key 报 `Duplicate message key`。
@@ -1412,7 +1409,7 @@ env {
 
 ## permission
 
-`permission` 声明原子权限、权限组、provider 来源与校验表达式；这些声明必须**连续书写**，位置在 `messages` 之后、`workflow` 之前。
+`permission` 声明原子权限、权限组、provider 来源与校验表达式；这些声明必须**连续书写**，位置在 `messages` 之后、`enum` 之前。
 
 ```qiy
 permission field ApiGetUserPermission "api:getUser" @label("Read user API");
@@ -1427,37 +1424,6 @@ permission verification CanAccessUserApi {
 ```
 
 `permission` 需要生成的 `auth`（`Permission declarations require a generated auth block`），且至少要有一个 `field`。完整语法、运算符（`some/all/not … included in`、`=`、`!=`）、HTTP 接口与 `dataflow`/`action` 的 `allow permission` 见 [权限（permission）](/dsl/permissions)。
-
-## workflow
-
-### 语法
-
-```text
-workflow orderInventory ;
-```
-
-### 参数与校验
-
-| 参数 | 取值 | 默认 | 说明 |
-| --- | --- | --- | --- |
-| 名称 | 仅 `orderInventory` | 必填 | 其它值报 `Unsupported workflow X`；重复报 `Duplicate workflow X` |
-
-生成期要求：PostgreSQL 方言，且存在 `orders`、`orderItems`、`inventoryItems` 三个实体并满足约定字段（缺字段会报 `orderInventory workflow requires orders.approvedBy` 这类具体错误）。与 `restrict` 冲突时直接失败（`orderInventory does not apply row policy yet`）。字段清单见[业务工作流](/guide/workflow)。
-
-### 生成结果
-
-订单提交/审批/出库/取消与库存预占的事务链路、`order_reservations` 与 `order_idempotency` 表。说明见[业务工作流](/guide/workflow)。
-
-### 示例
-
-```qiy
-workflow orderInventory;
-```
-
-### 进阶用法
-
-- `orderInventory` 是**一个固定的内置流程**，不能参数化；需要自定义状态机时用 [dataflow](/dsl/dataflow) 显式写步骤。
-- 它会生成额外的预占与幂等表，迁移评审时要一并检查。
 
 ## scope
 
@@ -1611,7 +1577,7 @@ not <expression> | ( <expression> )
 - 主键不能作为行条件或 mask 目标；`Vector` 字段不能 mask。
 - `mask replacement` 与 `mode redact` 必须同时出现；重复 mask 报 `duplicate mask for X`。
 - 声明 `scope` 原子但没有同资源 `scope` 时，生成期报 `when scope requires a matching scope declaration`。
-- `dataflow`/`workflow` 不能操作受 `restrict` 保护的资源（生成期失败），避免命令接口绕过行策略。
+- `dataflow`/`statemachine` 不能操作受 `restrict` 保护的资源（生成期失败），避免命令接口绕过行策略。
 
 ### 生成结果
 
@@ -1685,7 +1651,6 @@ restrict orders {
 | `env`、`variable`、`secret`、`development`、`production`、`example`、`required`、`generate` | [env](#env) |
 | `messages` | 本节 + [多语言](/dsl/i18n) |
 | `permission` | 本节 + [permission](/dsl/permissions) |
-| `workflow` | [workflow](#workflow) |
 | `scope`、`claim`、`tree` | [scope](#scope) |
 | `pages`、`list/show/create/edit/delete roles`、`field … roles` | [pages](#pages) |
 | `restrict`、`allow roles`、`when`、`mask`、`omit/null/redact` | [restrict](#restrict) |
@@ -1696,7 +1661,7 @@ restrict orders {
 - [模块化模型](/dsl/modules)：用 `include` 拆分 `application`
 - [entity 与 field](/dsl/entity) / [relation 与 index](/dsl/relation-index) / [enum / menu / dashboard](/dsl/enum-menu-dashboard)
 - [认证与登录（auth）](/dsl/auth)、[权限（permission）](/dsl/permissions)、[realtime](/dsl/realtime)、[storage](/guide/storage)、[features](/dsl/features)
-- [dataflow](/dsl/dataflow)、[action](/dsl/actions)、[chart](/dsl/charts)
+- [statemachine](/dsl/statemachine)、[dataflow](/dsl/dataflow)、[action](/dsl/actions)、[chart](/dsl/charts)
 
 # entity 与 field
 
@@ -3251,7 +3216,7 @@ Qiy 的界面文案分三层，全部通过同一个 `messages` 块和同一套 
 
 ## 语法
 
-`messages` 块写在 `application {}` 内，位置是**固定**的：`env` 之后、`permission` / `workflow` / `enum` / `entity` 之前。
+`messages` 块写在 `application {}` 内，位置是**固定**的：`env` 之后、`permission` / `enum` / `entity` 之前。
 
 ```qiy
 qiy v0;
@@ -4258,7 +4223,7 @@ application ops-admin {
 
   messages { default "zh-CN"; locale "zh-CN" { "perm.receive" "收货"; } }
 
-  # 1) permission 块：紧跟 messages，必须在 workflow/enum/entity 之前
+  # 1) permission 块：紧跟 messages，必须在 enum/entity 之前
   permission field InventoryReceivePermission "inventory:receive" @label(t("perm.receive"));
 
   # 2) 所有 permission 声明必须连续，中间不能插入其它顶层块
@@ -4292,10 +4257,10 @@ application ops-admin {
 }
 ```
 
-- `permission` 声明必须在 `messages` **之后**（`@label(t("key"))` 要能解析默认语言）、`workflow` / `enum` / `entity` **之前**（生成前要对照 `users` 表校验 `from database field`）。
+- `permission` 声明必须在 `messages` **之后**（`@label(t("key"))` 要能解析默认语言）、`enum` / `entity` **之前**（生成前要对照 `users` 表校验 `from database field`）。
 - 解析器只在 `messages` 之后**连续读取** `permission` 块；被其它顶层块打断后再写 `permission` 会解析失败。
 - 任何非空权限模型都要求存在生成式 `auth` 块，否则报 `Permission declarations require a generated auth block`；至少要声明**一个** `permission field`，只写组或校验式会报 `Permission declarations require at least one permission field`。
-- 序列化（round-trip）顺序固定为：`storage` → `auth` → `env` → `messages` → `permission ...` → `workflow` → `enum` → `entity` → `relation` → `scope` → `restrict` → `pages` → `menu` → `dashboard`/`chart` → `dataflow` → `action`。
+- 序列化（round-trip）顺序固定为：`storage` → `auth` → `env` → `messages` → `permission ...` → `enum` → `entity` → `relation` → `scope` → `restrict` → `pages` → `menu` → `chart` → `statemachine` → `dataflow` → `action`。
 
 ## 语法总览
 
@@ -4984,7 +4949,7 @@ Source: https://ai-nodev.github.io/qiy/dsl/dataflow
 - （由 `action` 声明时）Refine 列表/详情按钮、确认表单、幂等键传递；
 - 生成包内的 Bun 测试（含幂等回放、回滚、权限拒绝）。
 
-与 `workflow` 的区别：`workflow orderInventory;` 是历史 ERP 压力测试切片（固定实体、固定四个动作，见 [业务工作流](/guide/workflow)），`dataflow` 才是通用命令 DSL。
+只需要在有限状态之间流转时，用 [statemachine](/dsl/statemachine)：它把每个 transition 编译成一个 dataflow，并接管状态字段的写入。
 
 ## 语法总览
 
@@ -5505,7 +5470,8 @@ bun test tests/qiy-scenarios.test.ts
 - [权限（permission）](/dsl/permissions)：`allow permission` / `allow verification` 语义与 provider 来源。
 - [application](/dsl/application#restrict)：`restrict` / `scope` 与命令的互斥关系。
 - [realtime](/dsl/realtime)：`emit` 与实时 outbox、订阅通道。
-- [业务工作流](/guide/workflow)：`workflow orderInventory` 切片。
+- [statemachine](/dsl/statemachine)：编译成 dataflow 的状态流转。
+- [业务工作流](/guide/workflow)：何时用状态机、何时用 dataflow。
 - [多语言（messages）](/dsl/application#messages)：`t("key")` 字典。
 - 示例：[roles.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/roles.qiy)、[typed-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/typed-inputs.qiy)、[enum-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/enum-inputs.qiy)、[create-delete.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/create-delete.qiy)、[emit.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/emit.qiy)、[call.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/call.qiy)、[guarded-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/guarded-inputs.qiy)、[batch-actions.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/batch-actions.qiy)、[browser-actions.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/browser-actions.qiy)、[documented-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/documented-inputs.qiy)、[localized-errors.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/localized-errors.qiy)、[examples/self/modules/dataflows.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/self/modules/dataflows.qiy)。
 - 测试：`tests/dataflow-qiy.test.ts`、`tests/action-qiy.test.ts`、`tests/qiy-test.test.ts`；实库验收 `tools/verify-postgres-dataflow.ts`、`tools/verify-mysql-dataflow.ts`。
@@ -5547,7 +5513,7 @@ action <Name> {
   "placement" ( "list" | "show" ) ( "," ( "list" | "show" ) )* ";"
   [ "label" doc ";" ]
   [ "confirm" doc ";" ]            // 仅 dataflow action
-  [ "when" <field> ( "==" | "!=" ) <string> ";" ]
+  [ "when" <field> ( ( "==" | "!=" ) <string> | "in" <string> ( "," <string> )* ) ";" ]
   [ "allow" ( "roles" role ("," role)* | "permission" ref ("," ref)* | "verification" <Name> ) ";" ]   // 仅 navigate action
   [ "batch" "true" ";" ]           // 仅 dataflow action
   [ "page" "manual" "@comment" "(" doc ")" ";" ]   // 仅 navigate action
@@ -5566,8 +5532,8 @@ action <Name> {
 | `placement list` / `show` | 是（≥1） | — | 分别进入资源表格 actions 列与详情页 action 区；重复报 `duplicate placement` |
 | `label` | navigate 必填；dataflow 可省 | dataflow 继承 flow 的 `@label` | 显示名；`t("key")` 走 i18n；两者都没有时生成失败 |
 | `confirm` | 否 | 继承 flow 的 `@confirm` | 确认弹窗文案；只在 dataflow action 上合法 |
-| `when <field> == \| != "<value>"` | 否 | 无（始终显示） | 记录级可见性；字段必须是当前资源的 `Text` 或 enum；enum 值必须已声明；只支持 `==`/`!=` |
-| `allow roles …` | 否 | 继承 flow 的 `allow roles`（dataflow action） | navigate action 可用 `admin`/`operator`/`viewer` 非空子集；dataflow action 上**禁止**声明 |
+| `when <field> == \| != "<value>"` / `when <field> in "a", "b"` | 否 | 无（始终显示） | 记录级可见性；字段必须是当前资源的 `Text` 或 enum；enum 值必须已声明；`in` 列表不能重复 |
+| `allow roles …` | 否 | 继承 flow 的 `allow roles`（dataflow action） | navigate action 可用已声明角色的非空子集；dataflow action 上**禁止**声明 |
 | `allow permission …` / `allow verification …` | 否 | 继承 flow | 仅 navigate action；`verification` 不能有 input |
 | `batch true` | 否 | `false` | 批量模式；必须 `placement list` 唯一、无 `when`、flow 有 `idempotency required`、资源由必填 UUID input 加载 |
 | `page manual @comment(...)` | navigate 必填 | — | 生成占位业务页 + 未托管扩展文件；`@comment` 必填（可为 `t("key")`） |
@@ -5594,7 +5560,8 @@ action approveReceipt {
 }
 ```
 
-- 只有当前行的该字段**等于/不等于**字面量时按钮才渲染；记录缺少该字段或值不匹配 → 隐藏。
+- 只有当前行的该字段**等于/不等于**字面量（`in` 时为**属于**列表之一）时按钮才渲染；记录缺少该字段或值不匹配 → 隐藏。
+- `when status in "draft", "submitted";` 与 `restrict` 的 `when … in` 同一种写法；[statemachine](/dsl/statemachine) 的多来源 transition 生成的按钮就用它。
 - 只接受 `Text` 或 enum：`Action <a>: condition field <e>.<f> must be Text or enum`；enum 值必须在声明集合内（`unknown enum value`）。
 - **`when` 不是安全策略**：它只是 UI 规则。直接调用命令端点仍由服务端角色/权限/`require` 决定。`when` 也不影响批量（批量禁止 `when`）。
 
@@ -5740,7 +5707,7 @@ application browser-actions {
 | `exactly one of dataflow or navigate is required` | 两个都写或都不写 |
 | `unsupported property <p>` | 未知属性 |
 | `placement must be list or show` / `duplicate placement list` | 非法或重复 placement |
-| `when operator must be == or !=` / `duplicate when declaration` | `when` 语法 |
+| `when operator must be ==, != or in` / `duplicate when value <v>` / `duplicate when declaration` | `when` 语法 |
 | `condition field <e>.<f> must be Text or enum` / `unknown enum value` | `when` 字段/值非法 |
 | `unknown resource <r>` | 资源不存在 |
 | `label is required` | navigate 缺 label |
@@ -6760,7 +6727,7 @@ qiy explain broken.qiy --json   # { valid: false, error, code?, title?, fix?, do
 
 **意外 token / 声明顺序。** 最常见原因是 application 内块顺序写错。
 
-修复：按固定顺序书写：`database` → `mode` → `integration` → `workspace` → `ui` → `api` → `features` → `realtime` → `elysia` → `storage` → `auth` → `env` → `messages` → `permission` → `workflow` → `enum` → `entity` → `relation` → `scope`/`restrict`/`pages` → `menu` → `dashboard`/`chart` → `dataflow` → `action`。错误信息里的 token N 可帮助定位。
+修复：按固定顺序书写：`database` → `mode` → `integration` → `workspace` → `ui` → `api` → `features` → `realtime` → `elysia` → `storage` → `auth` → `env` → `messages` → `permission` → `enum` → `entity` → `relation` → `scope`/`restrict`/`pages` → `menu` → `chart` → `statemachine`/`dataflow`/`action`（这三类之间可任意交错）。错误信息里的 token N 可帮助定位。
 
 ## QIY1004 {#qiy1004}
 
@@ -6808,7 +6775,7 @@ qiy explain broken.qiy --json   # { valid: false, error, code?, title?, fix?, do
 
 **integration 模式限制。** 在 `mode integration` 中使用了仅适用于生成服务器的块。
 
-修复：集成模式删除 `auth`、`scope`、`restrict`、`workflow`、`dataflow`、`storage`、`elysia`、`env`；这些由宿主负责。
+修复：集成模式删除 `auth`、`scope`、`restrict`、`statemachine`、`dataflow`、`storage`、`elysia`、`env`；这些由宿主负责。
 
 ## QIY1012 {#qiy1012}
 
@@ -6839,6 +6806,133 @@ qiy explain broken.qiy --json   # { valid: false, error, code?, title?, fix?, do
 **`--sync` 目标非法。** 目标目录不是 Qiy 生成的工作区（缺少 `.qiy-generated.json`）。
 
 修复：`--sync` 只用于 Qiy 生成的工作区；新目录直接运行 `qiy generate` 或 `qiy init`。
+
+# 状态机（statemachine）
+
+Source: https://ai-nodev.github.io/qiy/dsl/statemachine
+
+# 状态机（statemachine）
+
+`statemachine` 把一个 enum 字段声明为**受控状态**：字段只有初始值和 transition 两种来源，通用的新建/编辑接口、CSV 导入和表单都不能改它。每个 transition 编译成一个 [dataflow](/dsl/dataflow) 命令和一个 [action](/dsl/actions) 按钮，所以角色、权限、数据范围、行锁、幂等、审计、事件、GraphQL 与 API 文档都沿用 dataflow 的实现，不需要另学一套运行时。
+
+```qiy
+enum orderStatus {
+  value draft label "草稿";
+  value submitted label "已提交";
+  value approved label "已审批";
+  value shipped label "已出库";
+  value cancelled label "已取消";
+}
+
+entity orders {
+  field id UUID @id;
+  field status orderStatus;
+}
+
+statemachine orderLifecycle {
+  resource orders;
+  field status;
+  initial draft;
+  transition submit { from draft; to submitted; label "提交订单"; }
+  transition approve { from submitted; to approved; label "审批"; allow roles admin; }
+  transition ship { from approved; to shipped; label "出库"; confirm "确认出库？"; }
+  transition cancel { from draft, submitted; to cancelled; label "取消订单"; confirm "确认取消该订单？"; }
+}
+```
+
+## 语法
+
+```text
+statemachine <Name> {
+  "resource" <entity> ";"
+  "field" <enumField> ";"
+  "initial" <state> ";"
+  ( "transition" <name> "{"
+      "from" <state> ( "," <state> )* ";"
+      "to" <state> ";"
+      [ "label" doc ";" ]
+      [ "confirm" doc ";" ]
+      [ "allow" ( "roles" role ("," role)* | "permission" ref ("," ref)* | "verification" <Name> ) ";" ]
+    "}" )+
+}
+```
+
+`doc` 可以是字符串字面量或 `t("key")`。`statemachine`、`dataflow`、`action` 三类声明位于 `chart` 之后，彼此之间可以任意交错（见 [application · 块顺序](/dsl/application#块顺序与基数)）。
+
+## 属性表
+
+| 属性 | 必填 | 语义与校验 |
+| --- | --- | --- |
+| `resource` | 是 | 实体名或表名；实体需要主键；受 `restrict` 保护的资源不能用（与 dataflow 相同，生成期报错） |
+| `field` | 是 | 该实体上**非空**的 enum 字段；一个字段只能属于一个状态机 |
+| `initial` | 是 | 新记录的状态，必须是 enum 值；会成为字段的默认值。字段已写 `@default` 时必须与 `initial` 相同 |
+| `transition <name>` | 至少 1 个 | 名称是标识符，同一状态机内不重复 |
+| `from` | 是 | 允许发起该 transition 的状态，至少一个、不重复 |
+| `to` | 是 | 目标状态，不能同时出现在 `from` 里 |
+| `label` | 否 | 按钮与命令名称，默认用 transition 名 |
+| `confirm` | 否 | 确认弹窗文案 |
+| `allow` | 否 | 与 dataflow 的 `allow` 相同；省略时所有 `full`/`write` 角色可执行，`read` 角色不能出现在 `allow roles` 里 |
+
+## 生成结果
+
+以 `orderLifecycle.submit` 为例（命令名 = 状态机名 + 首字母大写的 transition 名）：
+
+| 产物 | 内容 |
+| --- | --- |
+| 命令 | `POST /api/v1/commands/orderLifecycleSubmit`，body `{ "recordId": "<id>" }`，必须带 `Idempotency-Key`；GraphQL `runOrderLifecycleSubmit` |
+| 守卫 | 在事务内加载记录（PostgreSQL/MySQL 用 `SELECT … FOR UPDATE` 锁行），状态不在 `from` 中 → 409 `{ error, errorKey: "state.invalidTransition" }`，不写任何数据 |
+| 写入 | 把字段改为 `to`；有 `@version` 时版本号加一 |
+| 审计 | `audit_events.action = "orders.submit"` |
+| 事件 | outbox 事件 `orders.submit`，payload `{ id, status }`；配置了 [realtime](/dsl/realtime) 时同样推送 |
+| 按钮 | 列表与详情页的 action，`when status == "draft"`；多个 `from` 时为 `when status in "draft", "submitted"` |
+| 字段 | 从 REST/GraphQL 的 create/update 输入、CSV 导入和表单中移除；`initial` 成为列默认值；列表、详情、筛选照常显示 |
+
+- 同一个 `Idempotency-Key` 重试会回放第一次的结果，而不是因为状态已经变化返回 409。
+- `scope` 声明的数据范围同样生效：缺少 claim → 403，跨范围的记录 → 404。
+- 守卫失败的 `errorKey` 是 `state.invalidTransition`。在 `messages` 中提供这个 key 即可翻译；未提供时显示英文原文（例如 `submit is not allowed while status is not draft`）。
+- 生成的命令属于生成产物：`qiy generate --sync` 会重写，不要手改。
+
+## 字段归属
+
+状态机字段**只能**由 transition 改变：
+
+- 通用接口：create/update 的 schema 不含该字段，请求里带上会被忽略；只带该字段的 PATCH 返回 400（没有可更新字段）。
+- 手写的 dataflow 中，`update` 或 `create` 写这个字段会在解析期报错：`Dataflow <name>: orders.status belongs to a statemachine; change it with a transition instead`。
+- 需要「改状态 + 写其他字段」时，transition 之外再声明一个 dataflow 写其他字段，并用 action 的 `when status == "…"` 控制按钮出现的时机。
+
+## 与 dataflow 的分工
+
+| 需求 | 写法 |
+| --- | --- |
+| 记录在有限状态之间流转，按钮随状态出现 | `statemachine` |
+| 一次命令写多个字段、创建子记录、调用 adapter、发自定义事件 | `dataflow` + `action` |
+| 状态流转的同时扣减库存等跨表写入 | 当前需要拆开：状态用 `statemachine`，库存写入用独立的 `dataflow`；transition 不支持附加步骤 |
+
+## 校验错误
+
+| 错误（节选） | 触发 |
+| --- | --- |
+| `Statemachine <m>: unknown resource <r>` / `unknown field <e>.<f>` | 资源或字段不存在 |
+| `Statemachine <m>: <e>.<f> must be an enum field` | 字段不是 enum |
+| `Statemachine <m>: <e>.<f> cannot be @nullable; every record has a state` | 字段可空 |
+| `Statemachine <m>: <e>.<f> already has a state machine` | 两个状态机管同一字段 |
+| `Statemachine <m>: unknown initial state <enum>.<s>` | `initial` 不是 enum 值 |
+| `Statemachine <m>: <e>.<f> has @default(<v>) but the initial state is <s>; remove the @default` | `@default` 与 `initial` 冲突 |
+| `Statemachine <m>: declare at least one transition` | 没有 transition |
+| `Statemachine <m>: transition <t>: unknown state <enum>.<s>` | `from`/`to` 不是 enum 值 |
+| `… duplicate from state` / `… to <s> is also a from state` | `from` 重复或包含 `to` |
+| `… generated command <name> collides with a declared dataflow or action` | 生成的命令名已被占用 |
+| `Duplicate statemachine <m>` | 状态机重名 |
+| `Restrict <r>: dataflow <m><T> cannot use a restricted resource …` | 资源声明了 `restrict` |
+| `application mode integration cannot configure generated server features …` | integration 模式下声明了状态机 |
+
+## 相关
+
+- [dataflow](/dsl/dataflow)：transition 编译成的命令的完整语义（幂等、审计、outbox、批量）。
+- [action](/dsl/actions)：按钮、`when … in`、确认框与可见性。
+- [业务工作流](/guide/workflow)：何时用状态机、何时用 dataflow。
+- [迁移到 0.38](/guide/migration-0.38)：`workflow orderInventory` 迁移到状态机。
+- 示例：[examples/erpadmin/app.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/erpadmin/app.qiy)、`tests/fixtures/kitchen-sink/modules/commands.qiy`。
 
 # DB view
 

@@ -195,7 +195,7 @@
 - [x] 乐观锁 `@version`（冲突 409，表单提示并重新加载）
 - [x] 自定义角色：`auth { roles { <name> full|write|read; } }`，替代固定的 `admin`/`operator`/`viewer`
 - [x] 多对多关系与多选 UI：`relation ... many` 生成连接表、id 数组字段（事务内校验并替换、软删/数据范围感知、`eq`/`in` 过滤、CSV、审计）与多选关联下拉
-- [ ] 声明式状态机 / 审批流转，完成后删除 `workflow orderInventory`
+- [x] 声明式状态机：`statemachine` 拥有一个枚举字段，每个 transition 编译为带守卫、幂等的 dataflow 与 action；`workflow orderInventory` 已删除（见 `docs/guide/migration-0.38.md`）
 - [ ] Dataflow 应用资源的 `restrict` 行策略（目前带行策略的资源不能被 Dataflow 使用）
 - [ ] Webhook、通知适配器（SMTP 默认 / Resend / webhook / 开发环境 console）；cron 调用 Dataflow 并加分布式锁
 - [ ] 拆分 `tools/generate-server.ts`；计算字段落为数据库生成列；view IN 子查询性能

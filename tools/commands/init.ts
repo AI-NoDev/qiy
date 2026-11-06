@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
-import { generateProject } from "../generate-project";
+import { generateProject, projectGenerationOptions } from "../generate-project";
 import { createGeneratedManifest, generatedPath, readGeneratedManifest } from "../generated-paths";
 import { loadQiyProjectSource } from "../qiy-include";
 import { parseQiyProject, type QiyWorkspaceConfig } from "../qiy-project";
@@ -151,32 +151,7 @@ export async function initApp(options: InitAppOptions): Promise<string> {
   const project = parseQiyProject(await loadQiyProjectSource(sourcePath));
   const testSuite = loadQiyTestSuite(sourcePath, project);
   const config = resolveConfig(project.name, project.workspace, options.name);
-  const generated = generateProject(project.database, config.name, {
-    comment: project.comment,
-    commentKey: project.commentKey,
-    mode: project.mode,
-    integration: project.integration,
-    ui: project.ui,
-    dataflows: project.dataflows,
-    messages: project.messages,
-    actions: project.actions,
-    apiClient: project.apiClient,
-    elysiaPlugins: project.elysiaPlugins,
-    corsOrigins: project.corsOrigins,
-    menuGroups: project.menuGroups,
-    charts: project.charts,
-    chartPanels: project.chartPanels,
-    realtime: project.realtime,
-    storageProvider: project.storageProvider,
-    features: project.features,
-    auth: project.auth,
-    permissions: project.permissions,
-    environment: project.environment,
-    scopes: project.scopes,
-    restrictions: project.restrictions,
-    workflows: project.workflows,
-    testSuite,
-  });
+  const generated = generateProject(project.database, config.name, projectGenerationOptions(project, testSuite));
   const files = Object.fromEntries(Object.entries(generated).flatMap(([path, content]) => {
     const rewritten = rewriteFile(path, content, config);
     return rewritten ? [rewritten] : [];

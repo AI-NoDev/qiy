@@ -105,7 +105,7 @@ qiy/
 │   ├── modeling-and-generation.md   # 数据建模：include、字段、关系、索引、@code、显示模板、限制
 │   ├── auth-permissions.md          # 认证模式、Provider、permission/verification/restrict/scope/pages
 │   ├── refine-providers.md          # 生成后的 Refine Provider：DataProvider/AuthProvider/can()/Live/Audit
-│   ├── dataflows-actions.md         # dataflow、action、批量、workflow、app.test.qiy
+│   ├── dataflows-actions.md         # statemachine、dataflow、action、批量、app.test.qiy
 │   ├── ui-charts-i18n.md            # ui/主题、menu、dashboard、chart/chart panels、messages/i18n
 │   ├── system-features.md           # features、系统页、OpenAPI 过滤、API Key 生命周期
 │   ├── storage-realtime.md          # 文件存储/上传/清理、realtime/outbox 运维

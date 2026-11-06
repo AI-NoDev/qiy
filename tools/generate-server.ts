@@ -188,7 +188,7 @@ function apiField(field: FieldIR, database: DatabaseIR): string {
 
 function createFields(entity: EntityIR, database: DatabaseIR): string {
   const generated = new Set(generatedFieldsOf(entity, database.relations ?? []).map((field) => field.field.name));
-  return entity.fields.filter((field) => !field.primaryKey && !field.softDelete && field.tenantClaim === undefined && field.computed === undefined && !field.version).map((field) => {
+  return entity.fields.filter((field) => !field.primaryKey && !field.softDelete && field.tenantClaim === undefined && field.computed === undefined && !field.version && !field.stateMachine).map((field) => {
     const value = field.nullable ? `t.Optional(t.Union([${apiField(field, database)}, t.Null()], ${JSON.stringify(field.comment !== undefined ? { description: field.comment } : {})}))` : apiField(field, database);
     // Generated fields are filled by the server, so the client may omit them even
     // when the column is NOT NULL. Client-supplied values are ignored on write.
@@ -198,7 +198,7 @@ function createFields(entity: EntityIR, database: DatabaseIR): string {
 }
 
 function patchFields(entity: EntityIR, database: DatabaseIR): string {
-  return entity.fields.filter((field) => !field.primaryKey && !field.softDelete && field.tenantClaim === undefined && field.computed === undefined).map((field) => {
+  return entity.fields.filter((field) => !field.primaryKey && !field.softDelete && field.tenantClaim === undefined && field.computed === undefined && !field.stateMachine).map((field) => {
     const value = field.nullable ? `t.Union([${apiField(field, database)}, t.Null()], ${JSON.stringify(field.comment !== undefined ? { description: field.comment } : {})})` : apiField(field, database);
     return `  ${JSON.stringify(field.name)}: t.Optional(${value}),`;
   }).concat(manyRelations(database, entity.name).map(linkBodySchema)).join("\n");
@@ -267,7 +267,7 @@ function graphqlType(field: FieldIR, required = true): string {
 }
 
 function graphqlInputFields(entity: EntityIR, patch: boolean, hiddenFields: string[] = [], generatedFields: string[] = []): string {
-  return entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !hiddenFields.includes(field.name) && (patch || !field.version)).map((field) => {
+  return entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.stateMachine && !hiddenFields.includes(field.name) && (patch || !field.version)).map((field) => {
     // Generated and @default fields are optional on create: the server or the column fills them.
     const required = !patch && !field.primaryKey && !field.nullable && !generatedFields.includes(field.name) && !field.defaultValue;
     return `${graphqlDescription(field.comment, "  ")}  ${field.name}: ${graphqlType(field, required)}`;
@@ -693,7 +693,7 @@ function rowPolicyFree(database: DatabaseIR, restrictions: NonNullable<QiyProjec
   return (resource: string) => !database.entities.some((entity) => restricted.has(entity.name) && (entity.name === resource || entity.tableName === resource));
 }
 
-function renderDataScopeTest(database: DatabaseIR, scopes: NonNullable<QiyProject["scopes"]>, orderWorkflowEnabled = false, restrictions: NonNullable<QiyProject["restrictions"]> = []): string | undefined {
+function renderDataScopeTest(database: DatabaseIR, scopes: NonNullable<QiyProject["scopes"]>, restrictions: NonNullable<QiyProject["restrictions"]> = []): string | undefined {
   const policyFree = rowPolicyFree(database, restrictions);
   const configured = scopes.find((scope) => policyFree(scope.resource));
   if (!configured) return undefined;
@@ -722,7 +722,7 @@ const request = (query: string) => new Request("http://localhost/graphql", { met
 
 test("data scope rejects missing claims without blocking unrelated resources", async () => {
   seen.length = 0;
-  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE }), false, false);
+  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE }), false);
   const graph = await app.handle(request("query { ${entity.name} { total } }"));
   if (graph.status === 200) expect((await graph.json() as { errors?: Array<{ message: string }> }).errors?.length).toBeGreaterThan(0);
   else expect(graph.status).toBe(403);
@@ -733,7 +733,7 @@ test("data scope rejects missing claims without blocking unrelated resources", a
 
 test("REST and GraphQL pass the authorized scope to repository operations", async () => {
   seen.length = 0;
-  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE, claims: { ${JSON.stringify(configured.claim)}: scoped.value } }), false, false);
+  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE, claims: { ${JSON.stringify(configured.claim)}: scoped.value } }), false);
   const list = await app.handle(request("query { ${entity.name} { total } }"));
   expect(list.status).toBe(200);
   expect((await list.json() as { data: { ${entity.name}: { total: number } } }).data.${entity.name}.total).toBe(0);
@@ -741,16 +741,6 @@ test("REST and GraphQL pass the authorized scope to repository operations", asyn
   expect((await app.handle(new Request("http://localhost/api/v1/${entity.tableName}/"))).status).toBe(200);
   expect(seen).toEqual([scoped, scoped, scoped]);
 });
-${orderWorkflowEnabled && database.dialect === "postgresql" && entity.name === "orders" ? `
-test("order workflows reject missing scope claims before database access", async () => {
-  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE }), true, false);
-  for (const command of ["submit", "approve", "ship", "cancel"]) {
-    const response = await app.handle(new Request("http://localhost/api/v1/orders/00000000-0000-4000-8000-000000000001/" + command, { method: "POST" }));
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: "Missing required data scope claim" });
-  }
-});
-` : ""}
 `;
 }
 
@@ -1353,7 +1343,7 @@ export function ${name}Routes(repository: ${name}Repository, authenticate: Authe
   // Exports stream in bounded pages so memory does not grow with the result set.
   const EXPORT_PAGE_SIZE = Math.min(250, exportMaxRows());
   // Import accepts plain scalar columns only; vectors and key lists need the API.
-${linkFields.length ? "  // Many-to-many link fields travel as JSON id arrays, like Array columns.\n" : ""}  const importTypes = ${JSON.stringify(Object.fromEntries([...entity.fields.filter((field) => !field.primaryKey && field.type !== "Vector" && field.type !== "Files").map((field) => [field.name, field.type]), ...linkFields.map((field) => [field, "Array"])]))} as Record<string, string>;
+${linkFields.length ? "  // Many-to-many link fields travel as JSON id arrays, like Array columns.\n" : ""}  const importTypes = ${JSON.stringify(Object.fromEntries([...entity.fields.filter((field) => !field.primaryKey && !field.stateMachine && field.type !== "Vector" && field.type !== "Files").map((field) => [field.name, field.type]), ...linkFields.map((field) => [field, "Array"])]))} as Record<string, string>;
   const importArrayItems = ${JSON.stringify(Object.fromEntries(entity.fields.filter((field) => field.type === "Array").map((field) => [field.name, field.itemType]))) } as Record<string, string | undefined>;
 ${entity.fields.some((field) => field.defaultValue) ? `  // An empty cell leaves a @default column to its declared default.
   const importDefaulted = new Set(${JSON.stringify(entity.fields.filter((field) => field.defaultValue).map((field) => field.name))});
@@ -2247,7 +2237,7 @@ ${mutationMethods}
 function renderRouteTest(entity: EntityIR, database: DatabaseIR, scopes: NonNullable<QiyProject["scopes"]> = [], hiddenFields: string[] = []): string {
   const name = modelName(entity);
   const claims = JSON.stringify(Object.fromEntries(scopes.map((scope) => [scope.claim, database.entities.find((item) => item.name === scope.resource || item.tableName === scope.resource)?.fields.find((field) => field.name === scope.field)?.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : "Example"])));
-  const values = entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable && !field.version).map((field) => {
+  const values = entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable && !field.version && !field.stateMachine).map((field) => {
     const constrained = ruleSample(field);
     const example = constrained !== undefined ? JSON.stringify(constrained) : field.type === "Integer" ? "1" : field.type === "Boolean" ? "true" : field.type === "Array" ? (field.itemType === "Integer" ? "[1]" : '["Example"]') : field.type === "Decimal" || field.type === "Money" ? '"1.00"'
       : field.type === "Vector" ? `Array(${field.dimension}).fill(0)` : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "DateTime" ? '"2026-01-01T00:00:00.000Z"' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"'
@@ -2326,6 +2316,23 @@ function renderRouteTest(entity: EntityIR, database: DatabaseIR, scopes: NonNull
     expect(patched.status).toBe(400);
   });`)).join("\n");
   const ruleSection = ruleTests ? `\n${ruleTests}` : "";
+  const stateSection = entity.fields.filter((field) => field.stateMachine).map((field) => {
+    const target = database.enums?.find((item) => item.name === field.enumName)?.values.find((value) => field.defaultValue?.kind !== "literal" || value.name !== field.defaultValue.value)?.name ?? "";
+    return `
+  test("only statemachine ${field.stateMachine} changes ${field.name}", async () => {
+    records.clear();
+    const created = await app.handle(new Request(endpoint + "/", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ${values}${values ? ", " : ""}${JSON.stringify(field.name)}: ${JSON.stringify(target)} }),
+    }));
+    expect(created.status).toBe(201);
+    const record = await created.json() as Record<string, unknown> & { id: string };
+    expect(record[${JSON.stringify(field.name)}]).not.toBe(${JSON.stringify(target)});
+    const patched = await app.handle(new Request(endpoint + "/" + record.id, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ${JSON.stringify(field.name)}: ${JSON.stringify(target)} }),
+    }));
+    expect(patched.status).toBe(400);
+  });`;
+  }).join("\n");
   const linkSection = manyRelations(database, entity.name).map((link) => `
   test("validates the ${link.field} id list", async () => {
     records.clear();
@@ -2442,156 +2449,11 @@ describe("${entity.tableName} CRUD", () => {
   });
 
 ${unsupportedQueryTests}
-${hiddenFieldTests}${temporalSection}${ruleSection}${linkSection}
+${hiddenFieldTests}${temporalSection}${ruleSection}${stateSection}${linkSection}
 });
 `;
 }
 
-function renderOrderWorkflow(database: DatabaseIR, scopes: NonNullable<QiyProject["scopes"]> = [], enabled = false): string | undefined {
-  if (!enabled) return undefined;
-  if (database.dialect !== "postgresql") throw new Error("orderInventory workflow currently requires PostgreSQL transaction and row-lock semantics");
-  const names = new Set(database.entities.map((entity) => entity.name));
-  if (!["orders", "orderItems", "inventoryItems"].every((name) => names.has(name))) throw new Error("orderInventory workflow requires orders, orderItems, and inventoryItems entities");
-  for (const [entityName, fields] of Object.entries({
-    orders: { id: "UUID", status: "enum", approvedBy: "UUID?" },
-    orderItems: { id: "UUID", orderId: "UUID", productId: "UUID", quantity: "Integer" },
-    inventoryItems: { id: "UUID", productId: "UUID", quantity: "Integer", reservedQuantity: "Integer" },
-  })) {
-    const entity = database.entities.find((item) => item.name === entityName)!;
-    for (const [fieldName, expected] of Object.entries(fields)) {
-      const field = entity.fields.find((item) => item.name === fieldName);
-      if (!field) throw new Error(`orderInventory workflow requires ${entityName}.${fieldName}`);
-      if ((expected === "enum" && !field.enumName) || (expected !== "enum" && field.type !== expected.replace("?", "")) || (expected.endsWith("?") && !field.nullable)) {
-        throw new Error(`orderInventory workflow requires ${entityName}.${fieldName} to be ${expected}`);
-      }
-    }
-  }
-  const status = database.entities.find((entity) => entity.name === "orders")!.fields.find((field) => field.name === "status")!;
-  const states = new Set(database.enums?.find((enumeration) => enumeration.name === status.enumName)?.values.map((value) => value.name));
-  for (const state of ["draft", "submitted", "approved", "shipped", "cancelled"]) if (!states.has(state)) throw new Error(`orderInventory workflow requires orders.status enum value ${state}`);
-  const orderScope = scopes.find((scope) => scope.resource === "orders" || scope.resource === database.entities.find((entity) => entity.name === "orders")?.tableName);
-  return `import { and, eq, gte, sql } from "drizzle-orm";
-import { Elysia, t } from "elysia";
-import { db } from "../db";
-import { auditEvents, inventoryItems, orderIdempotency, orderItems, orderReservations, orders } from "../schema";
-import type { Authenticator } from "../auth/guard";
-import { canWrite, hasFullAccess } from "../auth/roles";
-import { planInventoryAllocation } from "./allocation";
-
-class WorkflowConflict extends Error {}
-function result(status: (code: number, body: unknown) => unknown, code: number, message: string) { return status(code, { error: message }); }
-const requiredScopeClaim = ${JSON.stringify(orderScope?.claim ?? null)};
-function orderScopeCondition(principal: Awaited<ReturnType<Authenticator>>) {
-  if (!requiredScopeClaim) return undefined;
-  const value = principal?.claims?.[requiredScopeClaim];
-  if (value === undefined || value === null || value === "") return null;
-  return eq(orders.${orderScope?.field ?? "id"}, String(value));
-}
-
-export function createOrderWorkflowRoutes(authenticate: Authenticator) {
-  return new Elysia({ prefix: "/api/v1/orders" })
-    .post("/:id/submit", async ({ params, request, status }) => {
-      const principal = await authenticate(request);
-      if (!principal || !canWrite(principal.role)) return result(status, 403, "Permission denied");
-      const scopeCondition = orderScopeCondition(principal);
-      if (scopeCondition === null) return result(status, 403, "Missing required data scope claim");
-      const key = request.headers.get("idempotency-key");
-      if (key && key.length > 128) return result(status, 400, "Idempotency key is too long");
-      try {
-        const order = await db.transaction(async (tx) => {
-          const [current] = await tx.select().from(orders).where(and(eq(orders.id, params.id), scopeCondition)).limit(1).for("update");
-          if (!current) throw new WorkflowConflict("Order not found");
-          if (key) {
-            const [receipt] = await tx.select().from(orderIdempotency).where(and(eq(orderIdempotency.orderId, params.id), eq(orderIdempotency.actorId, principal.id), eq(orderIdempotency.requestKey, key))).limit(1);
-            if (receipt) return receipt.response as typeof current;
-          }
-          if (current.status !== "draft") throw new WorkflowConflict("Only draft orders can be submitted");
-          const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, params.id)).orderBy(orderItems.productId, orderItems.id);
-          if (items.length === 0) throw new WorkflowConflict("Order requires at least one item");
-          for (const item of items) {
-            const stocks = await tx.select().from(inventoryItems).where(eq(inventoryItems.productId, item.productId)).orderBy(inventoryItems.id).for("update");
-            for (const allocation of planInventoryAllocation(stocks, item.quantity)) {
-              const [updatedStock] = await tx.update(inventoryItems).set({ reservedQuantity: sql\`\${inventoryItems.reservedQuantity} + \${allocation.quantity}\` }).where(and(eq(inventoryItems.id, allocation.inventoryItemId), sql\`\${inventoryItems.quantity} - \${inventoryItems.reservedQuantity} >= \${allocation.quantity}\`)).returning();
-              if (!updatedStock) throw new WorkflowConflict("Inventory changed concurrently");
-              await tx.insert(orderReservations).values({ id: crypto.randomUUID(), orderId: params.id, orderItemId: item.id, inventoryItemId: allocation.inventoryItemId, quantity: allocation.quantity });
-            }
-          }
-          const [updated] = await tx.update(orders).set({ status: "submitted" }).where(and(eq(orders.id, params.id), eq(orders.status, "draft"), scopeCondition)).returning();
-          if (!updated) throw new WorkflowConflict("Order changed concurrently");
-          await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: principal.id, action: "order.submitted", resource: "orders", resourceId: params.id, metadata: { itemCount: items.length } });
-          if (key) await tx.insert(orderIdempotency).values({ id: crypto.randomUUID(), orderId: params.id, actorId: principal.id, requestKey: key, response: updated });
-          return updated;
-        });
-        return order;
-      } catch (error) { return result(status, 409, error instanceof Error ? error.message : "Unable to submit order"); }
-    }, { params: t.Object({ id: t.String({ format: "uuid" }) }) })
-    .post("/:id/approve", async ({ params, request, status }) => {
-      const principal = await authenticate(request);
-      if (!principal || !hasFullAccess(principal.role)) return result(status, 403, "Only admins can approve orders");
-      const scopeCondition = orderScopeCondition(principal);
-      if (scopeCondition === null) return result(status, 403, "Missing required data scope claim");
-      try {
-        return await db.transaction(async (tx) => {
-          const [updated] = await tx.update(orders).set({ status: "approved", approvedBy: principal.id }).where(and(eq(orders.id, params.id), eq(orders.status, "submitted"), scopeCondition)).returning();
-          if (!updated) throw new WorkflowConflict("Only submitted orders can be approved");
-          await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: principal.id, action: "order.approved", resource: "orders", resourceId: params.id, metadata: {} });
-          return updated;
-        });
-      } catch (error) { return result(status, 409, error instanceof Error ? error.message : "Unable to approve order"); }
-    }, { params: t.Object({ id: t.String({ format: "uuid" }) }) })
-    .post("/:id/ship", async ({ params, request, status }) => {
-      const principal = await authenticate(request);
-      if (!principal || !canWrite(principal.role)) return result(status, 403, "Permission denied");
-      const scopeCondition = orderScopeCondition(principal);
-      if (scopeCondition === null) return result(status, 403, "Missing required data scope claim");
-      try {
-        return await db.transaction(async (tx) => {
-          const [current] = await tx.select().from(orders).where(and(eq(orders.id, params.id), scopeCondition)).limit(1).for("update");
-          if (!current || current.status !== "approved") throw new WorkflowConflict("Only approved orders can be shipped");
-          const allocations = await tx.select().from(orderReservations).where(eq(orderReservations.orderId, params.id)).orderBy(orderReservations.inventoryItemId).for("update");
-          if (!allocations.length) throw new WorkflowConflict("Missing inventory reservations");
-          for (const allocation of allocations) {
-            const [stock] = await tx.update(inventoryItems).set({ quantity: sql\`\${inventoryItems.quantity} - \${allocation.quantity}\`, reservedQuantity: sql\`\${inventoryItems.reservedQuantity} - \${allocation.quantity}\` }).where(and(eq(inventoryItems.id, allocation.inventoryItemId), gte(inventoryItems.quantity, allocation.quantity), gte(inventoryItems.reservedQuantity, allocation.quantity))).returning();
-            if (!stock) throw new WorkflowConflict("Inventory reservation changed concurrently");
-          }
-          await tx.delete(orderReservations).where(eq(orderReservations.orderId, params.id));
-          const [shipped] = await tx.update(orders).set({ status: "shipped" }).where(and(eq(orders.id, params.id), eq(orders.status, "approved"), scopeCondition)).returning();
-          if (!shipped) throw new WorkflowConflict("Order changed concurrently");
-          await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: principal.id, action: "order.shipped", resource: "orders", resourceId: params.id, metadata: { allocationCount: allocations.length } });
-          return shipped;
-        });
-      } catch (error) { return result(status, 409, error instanceof Error ? error.message : "Unable to ship order"); }
-    }, { params: t.Object({ id: t.String({ format: "uuid" }) }) })
-    .post("/:id/cancel", async ({ params, request, status }) => {
-      const principal = await authenticate(request);
-      if (!principal || !canWrite(principal.role)) return result(status, 403, "Permission denied");
-      const scopeCondition = orderScopeCondition(principal);
-      if (scopeCondition === null) return result(status, 403, "Missing required data scope claim");
-      try {
-        const cancelled = await db.transaction(async (tx) => {
-          const [current] = await tx.select().from(orders).where(and(eq(orders.id, params.id), scopeCondition)).limit(1).for("update");
-          if (!current) throw new WorkflowConflict("Order not found");
-          if (current.status !== "draft" && current.status !== "submitted") throw new WorkflowConflict("Only draft or submitted orders can be cancelled");
-          if (current.status === "submitted") {
-            const allocations = await tx.select().from(orderReservations).where(eq(orderReservations.orderId, params.id)).orderBy(orderReservations.inventoryItemId).for("update");
-            if (!allocations.length) throw new WorkflowConflict("Missing inventory reservations");
-            for (const allocation of allocations) {
-              const [stock] = await tx.update(inventoryItems).set({ reservedQuantity: sql\`\${inventoryItems.reservedQuantity} - \${allocation.quantity}\` }).where(and(eq(inventoryItems.id, allocation.inventoryItemId), gte(inventoryItems.reservedQuantity, allocation.quantity))).returning();
-              if (!stock) throw new WorkflowConflict("Inventory reservation changed concurrently");
-            }
-            await tx.delete(orderReservations).where(eq(orderReservations.orderId, params.id));
-          }
-          const [updated] = await tx.update(orders).set({ status: "cancelled" }).where(and(eq(orders.id, params.id), sql\`\${orders.status} IN ('draft', 'submitted')\`, scopeCondition)).returning();
-          if (!updated) throw new WorkflowConflict("Order changed concurrently");
-          await tx.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: principal.id, action: "order.cancelled", resource: "orders", resourceId: params.id, metadata: { previousStatus: current.status } });
-          return updated;
-        });
-        return cancelled;
-      } catch (error) { return result(status, 409, error instanceof Error ? error.message : "Unable to cancel order"); }
-    }, { params: t.Object({ id: t.String({ format: "uuid" }) }) });
-}
-`;
-}
 
 function dataflowInputField(type: string): string {
   switch (type) {
@@ -3732,7 +3594,11 @@ function dataflowFixtureValue(field: FieldIR, requires: Array<{ field: string; o
     if (value === undefined) throw new Error(`Cannot infer a successful Dataflow test fixture for Integer field ${field.name}: contradictory requirements`);
     return JSON.stringify(value);
   }
-  if (enumeration) return JSON.stringify(requirement?.operator === "==" ? requirement.right : enumeration.values.find((value) => value.name !== requirement?.right)?.name ?? enumeration.values[0]!.name);
+  if (enumeration) {
+    const rules = requires.filter((item) => item.field === field.name);
+    const value = enumeration.values.find((candidate) => rules.every((rule) => rule.operator === "==" ? candidate.name === rule.right : rule.operator !== "!=" || candidate.name !== rule.right));
+    return JSON.stringify((value ?? enumeration.values[0]!).name);
+  }
   if (requirement) return JSON.stringify(requirement.operator === "==" ? requirement.right : `${requirement.right}-before`);
   if (field.primaryKey || field.type === "UUID") return '"00000000-0000-4000-8000-000000000001"';
   if (field.type === "Email") return '"user@example.com"';
@@ -4026,7 +3892,7 @@ afterEach(resetTables);
 
 const testRoles: Record<string, QiyRole> = ${JSON.stringify(Object.fromEntries(dataflows.map((flow) => [flow.name, flow.roles?.[0] ?? roles.admin])))};
 const app = new Elysia().use(createDataflowRoutes(async (request) => ({ id: "00000000-0000-4000-8000-000000000010", name: "Dataflow Test", role: testRoles[new URL(request.url).pathname.split("/").at(-1)!] ?? QIY_ADMIN_ROLE${permissionPrincipal} })));
-const graphqlApp = await createApp({} as Repositories, async (request) => { const role = request.headers.get("x-test-role"); return { id: "00000000-0000-4000-8000-000000000010", name: "GraphQL Dataflow Test", role: isQiyRole(role) ? role : QIY_ADMIN_ROLE${permissionPrincipal} }; }, false, false, undefined, true);
+const graphqlApp = await createApp({} as Repositories, async (request) => { const role = request.headers.get("x-test-role"); return { id: "00000000-0000-4000-8000-000000000010", name: "GraphQL Dataflow Test", role: isQiyRole(role) ? role : QIY_ADMIN_ROLE${permissionPrincipal} }; }, false, undefined, true);
 
 describe("generated dataflow routes", () => {
 ${tests}
@@ -4619,7 +4485,7 @@ describe("generated /auth/me permission metadata", () => {
   test("includes effective permissions and groups without removing the principal fields", async () => {
     const repository = { distribution: async () => [], trend: async () => [], list: async () => ({ data: [], total: 0 }), one: async () => undefined, create: async () => ({}), update: async () => undefined, delete: async () => undefined, deleteMany: async () => [] };
     const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
-    const application = await createApp(repositories, authenticate, false, false);
+    const application = await createApp(repositories, authenticate, false);
     for (const role of Object.keys(dataset.snapshots)) {
       const response = await application.handle(new Request("http://localhost/api/v1/auth/me", { headers: { "x-test-role": role } }));
       expect(response.status).toBe(200);
@@ -4638,7 +4504,7 @@ describe("generated /auth/me permission metadata", () => {
 `;
 }
 
-export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "comment" | "commentKey" | "storageProvider" | "auth" | "permissions" | "scopes" | "restrictions" | "pages" | "corsOrigins" | "elysiaPlugins" | "workflows" | "dataflows" | "actions" | "realtime" | "features"> & { testSuite?: QiyTestSuite; appName?: string } = {}): Record<string, string> {
+export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "comment" | "commentKey" | "storageProvider" | "auth" | "permissions" | "scopes" | "restrictions" | "pages" | "corsOrigins" | "elysiaPlugins" | "dataflows" | "actions" | "realtime" | "features"> & { testSuite?: QiyTestSuite; appName?: string } = {}): Record<string, string> {
   if (options.realtime && !options.auth) throw new Error("Realtime requires generated authentication");
   const roles = roleContext(options.auth);
   if (options.dataflows) options = { ...options, dataflows: withDefaultCommandRoles(options.dataflows, options.auth) };
@@ -4921,11 +4787,6 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
       if (restrictedResources.has(resource)) errors.push(`Restrict ${resource}: dataflow ${flow.name} cannot use a restricted resource until command authorization applies the same row policy`);
     }
   }
-  if (options.workflows?.includes("orderInventory")) {
-    for (const resource of ["orders", "orderItems", "inventoryItems"]) {
-      if (restrictedResources.has(resource)) errors.push(`Restrict ${resource}: orderInventory does not apply row policy yet`);
-    }
-  }
   if (auth) {
     const user = database.entities.find((entity) => entity.name === auth.userEntity);
     const subject = user?.fields.find((field) => field.name === auth.subjectField);
@@ -4979,7 +4840,6 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
   const repositoryImports = database.entities.map((entity) => `import { ${modelName(entity)}Repository } from "./modules/${entity.name}/${entity.name}.repository";`).join("\n");
   const apps = database.entities.map((entity) => `    .use(${modelName(entity)}Routes(repositories.${entity.name}, authenticateRequest))`).join("\n");
   const interfaces = database.entities.map((entity) => `  ${entity.name}: import("./modules/${entity.name}/${entity.name}.contract").${modelName(entity)}Repository;`).join("\n");
-  const orderWorkflow = renderOrderWorkflow(database, options.scopes ?? [], options.workflows?.includes("orderInventory"));
   const dataflowRoutes = renderDataflowRoutes(database, options.dataflows ?? [], options.scopes ?? [], options.actions ?? [], options.realtime !== undefined, permissions);
   const protectedResources = JSON.stringify([
     ...database.entities.map((entity) => ({ path: entity.tableName, query: entity.name })),
@@ -4992,24 +4852,7 @@ export function generateServer(database: DatabaseIR, options: Pick<QiyProject, "
   ]);
   // Page-level rules are handed to the guard so REST and GraphQL share one decision.
   const pageRules = JSON.stringify(Object.fromEntries((options.pages ?? []).map((page) => [page.resource, Object.fromEntries(page.actions.map((entry) => [entry.action, entry.roles]))])));
-  const postgresSchema = database.dialect === "postgresql" ? generateDrizzlePostgres(database) : "";
-  const baseSchema = database.dialect === "postgresql" ? postgresSchema.replace("import { ", orderWorkflow && !postgresSchema.includes("uniqueIndex") ? "import { uniqueIndex, " : "import { ") + (orderWorkflow ? `
-export const orderReservations = pgTable("order_reservations", {
-  id: uuid("id").primaryKey(),
-  orderId: uuid("orderId").notNull().references(() => orders.id, { onDelete: "cascade" }),
-  orderItemId: uuid("orderItemId").notNull().references(() => orderItems.id, { onDelete: "cascade" }),
-  inventoryItemId: uuid("inventoryItemId").notNull().references(() => inventoryItems.id, { onDelete: "restrict" }),
-  quantity: integer("quantity").notNull(),
-}, (table) => [index("order_reservations_order_idx").on(table.orderId)]);
-
-export const orderIdempotency = pgTable("order_idempotency", {
-  id: uuid("id").primaryKey(),
-  orderId: uuid("orderId").notNull().references(() => orders.id, { onDelete: "cascade" }),
-  actorId: uuid("actorId").notNull(),
-  requestKey: text("requestKey").notNull(),
-  response: jsonb("response").notNull(),
-}, (table) => [uniqueIndex("order_idempotency_scope_idx").on(table.orderId, table.actorId, table.requestKey)]);
-` : "") : database.dialect === "sqlite" ? generateDrizzleSqlite(database) : generateDrizzleMysql(database);
+  const baseSchema = database.dialect === "postgresql" ? generateDrizzlePostgres(database) : database.dialect === "sqlite" ? generateDrizzleSqlite(database) : generateDrizzleMysql(database);
   const usesDataflowIdempotency = (options.dataflows ?? []).some((flow) => flow.idempotency?.required);
   const generatedSchema = baseSchema
     + (usesDataflowIdempotency ? renderDataflowIdempotencySchema(database.dialect) : "")
@@ -5667,7 +5510,7 @@ export function normalizeCorsOrigins(origins: string[]): string[] {
   return [...unique];
 }
 
-export async function createApp(repositories: Repositories, authenticate: Authenticator = async () => null, includeWorkflows = true, includeStorage = true, corsOrigins?: string[], includeDataflows = true) {
+export async function createApp(repositories: Repositories, authenticate: Authenticator = async () => null, includeStorage = true, corsOrigins?: string[], includeDataflows = true) {
    // API-key requests are resolved after the configured session authenticator has
    // had a chance to accept the request, so key auth is additive and never weakens
    // the project's existing authentication.
@@ -5686,7 +5529,6 @@ export async function createApp(repositories: Repositories, authenticate: Authen
       return { ...principal, permissions: permissionSnapshot.permissions, groups: permissionSnapshot.groups };` : ""}
     })
  ${apps};
- ${orderWorkflow ? '   const workflow = includeWorkflows ? (await import("./workflows/order")).createOrderWorkflowRoutes(authenticateRequest) : undefined;' : ''}
  ${dataflowRoutes ? '   const dataflows = includeDataflows ? (await import("./dataflows")).createDataflowRoutes(authenticateRequest) : undefined;' : ''}
     ${options.realtime ? "const realtime = createRealtimeRoutes(authenticateRequest);" : ""}
     const storage = includeStorage ? (await import("./storage/routes")).createStorageRoutes(authenticateRequest) : undefined;
@@ -5705,7 +5547,6 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     ${hybridAuth || multiProviderAuth ? "composed = composed.use(authProviderRoutes);" : ""}
     ${permissions ? "composed = composed.use(permissionRoutes);" : ""}
     ${docsModelEnabled ? "composed = composed.use(docsRoutes);" : ""}
-    ${orderWorkflow ? "composed = workflow ? composed.use(workflow) : composed;" : ""}
     ${dataflowRoutes ? "composed = dataflows ? composed.use(dataflows) : composed;" : ""}
     ${options.realtime ? "composed = composed.use(realtime);" : ""}
     composed = storage ? composed.use(storage) : composed;
@@ -5841,7 +5682,7 @@ test("mounts REST and GraphQL at their public paths", async () => {
 
 test("enables CORS only for explicitly configured origins", async () => {
   const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
-  const app = await createApp(repositories, async () => ({ id: "cors-test", name: "Admin", role: ${JSON.stringify(roles.admin)}, claims: ${testClaims} }), false, false, ["https://admin.example"]);
+  const app = await createApp(repositories, async () => ({ id: "cors-test", name: "Admin", role: ${JSON.stringify(roles.admin)}, claims: ${testClaims} }), false, ["https://admin.example"]);
   const allowed = await app.handle(new Request("http://localhost/api/v1/health", { headers: { Origin: "https://admin.example" } }));
   expect(allowed.headers.get("access-control-allow-origin")).toBe("https://admin.example");
   const preflight = await app.handle(new Request("http://localhost/api/v1/health", { method: "OPTIONS", headers: { Origin: "https://admin.example", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization,content-type" } }));
@@ -6160,7 +6001,7 @@ import { createHandler } from "./http";
 const repositories: Repositories = {
 ${database.entities.map((entity) => previewRepository(entity, database, options.scopes ?? [])).join("\n")}
 };
-const app = await createApp(repositories, async () => ({ id: "preview", name: "Preview Admin", role: ${JSON.stringify(roles.admin)}, claims: ${JSON.stringify(Object.fromEntries((options.scopes ?? []).map((scope) => [scope.claim, database.entities.find((entity) => entity.name === scope.resource || entity.tableName === scope.resource)?.fields.find((field) => field.name === scope.field)?.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : `Demo ${database.entities.find((entity) => entity.name === scope.resource || entity.tableName === scope.resource)?.name}`])))} }), false, ${options.storageProvider !== "s3"});
+const app = await createApp(repositories, async () => ({ id: "preview", name: "Preview Admin", role: ${JSON.stringify(roles.admin)}, claims: ${JSON.stringify(Object.fromEntries((options.scopes ?? []).map((scope) => [scope.claim, database.entities.find((entity) => entity.name === scope.resource || entity.tableName === scope.resource)?.fields.find((field) => field.name === scope.field)?.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : `Demo ${database.entities.find((entity) => entity.name === scope.resource || entity.tableName === scope.resource)?.name}`])))} }), ${options.storageProvider !== "s3"});
 const clientRoot = resolve(import.meta.dir, "../../web/build/client");
 const server = Bun.serve({ hostname: "127.0.0.1", port: Number(Bun.env.PORT ?? 3000), fetch: createHandler((request) => app.handle(request), clientRoot) });
 console.log(\`Local-only Qiy preview: http://127.0.0.1:\${server.port}\`);
@@ -6197,43 +6038,6 @@ console.log(\`Local-only Qiy preview: http://127.0.0.1:\${server.port}\`);
   }
   const scenarioTest = renderQiyScenarioTest(database, options.dataflows ?? [], roles, options.testSuite, permissions);
   if (scenarioTest) files["api/tests/qiy-scenarios.test.ts"] = scenarioTest;
-  if (orderWorkflow) {
-    files["api/src/workflows/order.ts"] = orderWorkflow;
-    files["api/src/workflows/allocation.ts"] = `export interface StockBalance { id: string; quantity: number; reservedQuantity: number; }
-export interface InventoryAllocation { inventoryItemId: string; quantity: number; }
-
-export function planInventoryAllocation(stocks: StockBalance[], requested: number): InventoryAllocation[] {
-  if (!Number.isSafeInteger(requested) || requested <= 0) throw new Error("Order item quantity must be positive");
-  let remaining = requested;
-  const allocations: InventoryAllocation[] = [];
-  for (const stock of [...stocks].sort((left, right) => left.id.localeCompare(right.id))) {
-    const available = Math.max(0, stock.quantity - stock.reservedQuantity);
-    const allocated = Math.min(remaining, available);
-    if (allocated > 0) allocations.push({ inventoryItemId: stock.id, quantity: allocated });
-    remaining -= allocated;
-    if (remaining === 0) break;
-  }
-  if (remaining !== 0) throw new Error("Insufficient inventory across warehouses");
-  return allocations;
-}
-`;
-    files["api/tests/allocation.test.ts"] = `import { expect, test } from "bun:test";
-import { planInventoryAllocation } from "../src/workflows/allocation";
-
-test("splits reservations across warehouses in stable order", () => {
-  const stocks = [{ id: "warehouse-b", quantity: 3, reservedQuantity: 1 }, { id: "warehouse-a", quantity: 5, reservedQuantity: 3 }];
-  expect(planInventoryAllocation(stocks, 4)).toEqual([{ inventoryItemId: "warehouse-a", quantity: 2 }, { inventoryItemId: "warehouse-b", quantity: 2 }]);
-  expect(stocks[0]?.id).toBe("warehouse-b");
-});
-
-test("rejects shortages and invalid quantities instead of partially reserving", () => {
-  const stocks = [{ id: "warehouse-a", quantity: 2, reservedQuantity: 1 }];
-  expect(() => planInventoryAllocation(stocks, 2)).toThrow("Insufficient inventory");
-  expect(() => planInventoryAllocation(stocks, 0)).toThrow("must be positive");
-  expect(() => planInventoryAllocation(stocks, -1)).toThrow("must be positive");
-});
-`;
-  }
   files["api/src/storage/index.ts"] = files["api/src/storage/index.ts"]!.replaceAll("__QIY_STORAGE_PROVIDER__", options.storageProvider ?? "local");
   files["api/src/storage/routes.ts"] = files["api/src/storage/routes.ts"]!.replace("__QIY_UPLOAD_POLICIES__", JSON.stringify(Object.fromEntries(database.entities.flatMap((entity) => entity.fields.filter((field) => field.type === "File" || field.type === "Files").map((field) => [`${entity.tableName}.${field.name}`, { mode: field.uploadMode ?? "binary", maxBytes: field.maxBytes ?? 25 * 1024 * 1024, mimeTypes: field.mimeTypes ?? ["*/*"], maxFiles: field.type === "Files" ? field.maxFiles ?? 6 : 1 }]))), null, 2));
   files["api/tests/storage.test.ts"] = files["api/tests/storage.test.ts"]!
@@ -6966,7 +6770,7 @@ test("official GraphQL adapter mounts the public endpoint and preserves authoriz
   const seenMutations: Array<{ operation: string; actorId?: string; scope?: { field: string; value: string } }> = [];
   const repository = { distribution: async () => [], trend: async () => [], list: async (page: number, pageSize: number, options?: { search?: string; sort?: string; order?: "asc" | "desc"; filters?: Record<string, string> | Array<{ field: string; operator: "eq" | "contains" | "startsWith" | "endsWith" | "gt" | "gte" | "lt" | "lte" | "between" | "in"; value: string }>; scope?: { field: string; value: string } }) => { seenScopes.push(options?.scope); seenLists.push({ page, pageSize, options }); return { data: [${JSON.stringify(adapterRecord)}], total: 1 }; }, one: async (_id: string, scope?: { field: string; value: string }) => { seenScopes.push(scope); return ${JSON.stringify(adapterRecord)}; }, create: async (values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "create", actorId, scope }); return { id: "00000000-0000-4000-8000-000000000001", ...values, ...(scope ? { [scope.field]: scope.value } : {}) }; }, update: async (_id: string, values: Record<string, unknown>, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "update", actorId, scope }); return { ...${JSON.stringify(adapterRecord)}, ...values }; }, delete: async (_id: string, actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "delete", actorId, scope }); return ${JSON.stringify(adapterRecord)}; }, deleteMany: async (_ids: string[], actorId?: string, scope?: { field: string; value: string }) => { seenMutations.push({ operation: "deleteMany", actorId, scope }); return [${JSON.stringify(adapterRecord)}]; } };
   const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
-  const app = await createApp(repositories, async () => ({ id: "adapter-user", name: "Adapter User", role: ${JSON.stringify(roles.admin)}, claims: ${testClaims} }), false, false);
+  const app = await createApp(repositories, async () => ({ id: "adapter-user", name: "Adapter User", role: ${JSON.stringify(roles.admin)}, claims: ${testClaims} }), false);
   expect(app.routes.some((route) => route.path === "/graphql" && route.method === "POST")).toBe(true);
   const browserPage = await app.handle(new Request("http://localhost/graphql"));
   expect(browserPage.status).toBe(405);
@@ -7002,55 +6806,18 @@ ${disabledFilter ? `  const rejectedFilter = await app.handle(new Request("http:
   const mutation = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "mutation { delete${modelName(adapterEntity)}(id: \\"00000000-0000-4000-8000-000000000001\\") { id } }" }) }));
   expect(mutation.status).toBe(200);
   expect(seenMutations.map(({ operation }) => operation)).toEqual(["create", "update", "delete", "deleteMany", "delete"]);
-  const missingClaim = await createApp(repositories, async () => ({ id: "adapter-user", name: "Adapter User", role: ${JSON.stringify(roles.admin)}, claims: {} }), false, false);
+  const missingClaim = await createApp(repositories, async () => ({ id: "adapter-user", name: "Adapter User", role: ${JSON.stringify(roles.admin)}, claims: {} }), false);
   const denied = await missingClaim.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "{ ${adapterEntity.name} { total } }" }) }));
   expect((await denied.json() as { errors?: Array<{ message: string }> }).errors?.length).toBeGreaterThan(0);
   expect(seenScopes).toHaveLength(3);
   expect(seenMutations).toHaveLength(5);` : ""}
-  const anonymous = await createApp(repositories, async () => null, false, false);
+  const anonymous = await createApp(repositories, async () => null, false);
   expect((await anonymous.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "{ ${adapterEntity.name} { total } }" }) }))).status).toBe(401);
 });
 `;
   }
-  const dataScopeTest = renderDataScopeTest(database, options.scopes ?? [], Boolean(orderWorkflow), options.restrictions ?? []);
+  const dataScopeTest = renderDataScopeTest(database, options.scopes ?? [], options.restrictions ?? []);
   if (dataScopeTest) files["api/tests/data-scope.test.ts"] = dataScopeTest;
-  if (orderWorkflow) {
-    const orderScope = options.scopes?.find((scope) => scope.resource === "orders" || scope.resource === database.entities.find((entity) => entity.name === "orders")?.tableName);
-    const scopeField = database.entities.find((entity) => entity.name === "orders")?.fields.find((field) => field.name === orderScope?.field);
-    const claims = orderScope ? { [orderScope.claim]: scopeField?.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : "Example" } : {};
-    files["api/tests/workflow-provider.test.ts"] = `import { expect, test } from "bun:test";
-import { createApp, type Repositories } from "../src/app";
-import { createDataProvider, createGraphQLDataProvider } from "../../web/app/data-provider";
-
-const orderId = "00000000-0000-4000-8000-000000000001";
-const repository = { distribution: async () => [], trend: async () => [], list: async () => ({ data: [], total: 0 }), one: async () => undefined, create: async () => ({}), update: async () => undefined, delete: async () => undefined, deleteMany: async () => [] };
-const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
-const command = "/api/v1/orders/" + orderId + "/submit";
-
-for (const [transport, createProvider] of [["REST", createDataProvider], ["GraphQL", createGraphQLDataProvider]] as const) {
-  test(transport + " provider sends workflow commands to guarded REST route", async () => {
-    const app = await createApp(repositories, async () => ({ id: "viewer", name: "Viewer", role: ${JSON.stringify(roles.least)}, claims: ${JSON.stringify(claims)} }), true, false);
-    const urls: string[] = [];
-    const provider = createProvider(async (input, init) => {
-      urls.push(String(input));
-      return app.handle(new Request(new URL(String(input), "http://localhost"), init));
-    });
-    ${orderScope ? `const list = await provider.getList({ resource: "orders" });
-    expect(list.total).toBe(0);
-    expect(urls[0]).toBe(transport === "GraphQL" ? "/graphql" : "/api/v1/orders?page=1&pageSize=20");` : ""}
-    await expect(provider.custom?.({ url: command, method: "post", meta: { idempotencyKey: "request-1" } })).rejects.toThrow("Permission denied");
-    expect(urls.at(-1)).toBe(command);
-    await expect(provider.custom?.({ url: "/api/v1/orders/" + orderId + "/publish", method: "post" })).rejects.toThrow("Unknown workflow command");
-    expect(urls.at(-1)).toBe(command);
-  });
-  test(transport + " provider preserves workflow validation without a database connection", async () => {
-    const app = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: ${JSON.stringify(roles.admin)}, claims: ${JSON.stringify(claims)} }), true, false);
-    const provider = createProvider(async (input, init) => app.handle(new Request(new URL(String(input), "http://localhost"), init)));
-    await expect(provider.custom?.({ url: command, method: "post", meta: { idempotencyKey: "x".repeat(129) } })).rejects.toThrow("Idempotency key is too long");
-  });
-}
-`;
-  }
   const sqliteScopeTest = renderSqliteScopeTest(database, options.scopes ?? []);
   if (sqliteScopeTest) files["api/tests/sqlite-scope.test.ts"] = sqliteScopeTest;
   const sqliteVersionTest = renderSqliteVersionTest(database);
@@ -7084,7 +6851,7 @@ test("official GraphQL analytics match REST and enforce data scope", async () =>
     create: async () => ({}), update: async () => undefined, delete: async () => undefined, deleteMany: async () => [],
   };
   const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
-  const app = await createApp(repositories, async () => ({ id: "analytics-admin", name: "Admin", role: ${JSON.stringify(roles.admin)}, claims: ${testClaims} }), false, false);
+  const app = await createApp(repositories, async () => ({ id: "analytics-admin", name: "Admin", role: ${JSON.stringify(roles.admin)}, claims: ${testClaims} }), false);
   const provider = createGraphQLDataProvider(async (input, init) => app.handle(new Request(new URL(String(input), "http://localhost"), init)));
 ${distributionField ? `  const distributionRest = await app.handle(new Request("http://localhost/api/v1/${analyticsEntity.tableName}/distribution?field=${distributionField.name}"));
   expect(distributionRest.status).toBe(200);
@@ -7102,7 +6869,7 @@ ${trendField ? `  const trendRest = await app.handle(new Request("http://localho
   const invalidTrend = await app.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "query { ${analyticsEntity.name}Trend(field: \\"${trendField.name}\\", days: 0) { day count } }" }) }));
   expect((await invalidTrend.json() as { errors?: unknown[] }).errors?.length).toBeGreaterThan(0);
   expect(seen).toHaveLength(${distributionField ? 4 : 2});` : ""}
-${scope ? `  const missingClaim = await createApp(repositories, async () => ({ id: "analytics-admin", name: "Admin", role: ${JSON.stringify(roles.admin)}, claims: {} }), false, false);
+${scope ? `  const missingClaim = await createApp(repositories, async () => ({ id: "analytics-admin", name: "Admin", role: ${JSON.stringify(roles.admin)}, claims: {} }), false);
   const denied = await missingClaim.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "query { ${analyticsEntity.name}${distributionField ? `Distribution(field: \\"${distributionField.name}\\") { value count }` : `Trend(field: \\"${trendField!.name}\\", days: 30) { day count }`} }" }) }));
   expect((await denied.json() as { errors?: unknown[] }).errors?.length).toBeGreaterThan(0);
   expect(seen).toHaveLength(${(distributionField ? 2 : 0) + (trendField ? 2 : 0)});` : ""}
@@ -7119,13 +6886,13 @@ test("REST and GraphQL expose the full authorized enum distribution", async () =
   const rows = [{ value: "draft", count: 150 }, { value: "approved", count: 100 }];
   const repository = { distribution: async () => rows, list: async () => ({ data: [], total: 0 }), one: async () => undefined, create: async () => ({}), update: async () => undefined, delete: async () => undefined, deleteMany: async () => [] };
   const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
-  const viewer = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: ${JSON.stringify(roles.admin)}, claims: ${testClaims} }), false, false);
+  const viewer = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: ${JSON.stringify(roles.admin)}, claims: ${testClaims} }), false);
   const endpoint = "http://localhost/api/v1/${distributionEntity.tableName}/distribution?field=${field.name}";
   expect(await (await viewer.handle(new Request(endpoint))).json()).toEqual(rows);
   expect((await viewer.handle(new Request(endpoint.replace("${field.name}", "not_a_field")))).status).toBe(400);
   const graph = await viewer.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "query { ${distributionEntity.name}Distribution(field: \\"${field.name}\\") { value count } }" }) }));
   expect((await graph.json() as { data: { ${distributionEntity.name}Distribution: typeof rows } }).data.${distributionEntity.name}Distribution).toEqual(rows);
-  const anonymous = await createApp(repositories, async () => null, false, false);
+  const anonymous = await createApp(repositories, async () => null, false);
   expect((await anonymous.handle(new Request(endpoint))).status).toBe(401);
 });
 `;
@@ -7143,7 +6910,7 @@ test("REST and GraphQL trend uses the authorized data scope", async () => {
   const repository = { trend: async (_field: string, _days: number, scope?: unknown) => { seen.push(scope); return rows; }, distribution: async () => [], list: async () => ({ data: [], total: 0 }), one: async () => undefined, create: async () => ({}), update: async () => undefined, delete: async () => undefined, deleteMany: async () => [] };
   const repositories = Object.fromEntries(${JSON.stringify(database.entities.map((entity) => entity.name))}.map((name) => [name, repository])) as unknown as Repositories;
   const principal = { id: "admin", name: "Admin", role: ${JSON.stringify(roles.admin)} as const, claims: ${JSON.stringify(scope ? { [scope.claim]: "tenant-a" } : {})} };
-  const app = await createApp(repositories, async () => principal, false, false);
+  const app = await createApp(repositories, async () => principal, false);
   const endpoint = "http://localhost/api/v1/${trendEntity.tableName}/trend?field=${field.name}&days=30";
   expect(await (await app.handle(new Request(endpoint))).json()).toEqual(rows);
   expect((await app.handle(new Request(endpoint.replace("${field.name}", "missing")))).status).toBe(400);
@@ -7152,9 +6919,9 @@ test("REST and GraphQL trend uses the authorized data scope", async () => {
   expect(graph.status).toBe(200);
   expect((await graph.json() as { data: { ${trendEntity.name}Trend: typeof rows } }).data.${trendEntity.name}Trend).toEqual(rows);
   expect(seen).toEqual(${scope ? '[{ field: "' + scope.field + '", value: "tenant-a" }, { field: "' + scope.field + '", value: "tenant-a" }]' : '[undefined, undefined]'});
-  const anonymous = await createApp(repositories, async () => null, false, false);
+  const anonymous = await createApp(repositories, async () => null, false);
   expect((await anonymous.handle(new Request(endpoint))).status).toBe(401);
-${scope ? `  const missing = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: ${JSON.stringify(roles.admin)} }), false, false);
+${scope ? `  const missing = await createApp(repositories, async () => ({ id: "admin", name: "Admin", role: ${JSON.stringify(roles.admin)} }), false);
   expect((await missing.handle(new Request(endpoint))).status).toBe(403);
   const deniedGraph = await missing.handle(new Request("http://localhost/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "query { ${trendEntity.name}Trend(field: \\"${field.name}\\", days: 30) { day } }" }) }));
   if (deniedGraph.status === 200) expect((await deniedGraph.json() as { errors?: Array<{ message: string }> }).errors?.length).toBeGreaterThan(0);

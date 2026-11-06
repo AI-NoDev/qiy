@@ -172,7 +172,6 @@ These repository scripts prove protocol shape and, in some cases, real tenants. 
 | Resumable uploads | `bun run tools/verify-resumable-upload.ts` | Offset rules, complete, failure recovery |
 | Attachment cleanup | `bun run tools/verify-orphan-cleanup.ts` | Orphan and missing-object directions |
 | PostgreSQL/MySQL dataflow | `bun run tools/verify-postgres-dataflow.ts`, `tools/verify-mysql-dataflow.ts` | Real transactions, locking, rollback |
-| orderInventory workflow | `bun run tools/verify-postgres-erp.ts qiy-erp-pg` | Reservation/release/deduction, idempotency, tenant denial |
 | Realtime | `bun run tools/verify-graphql-subscription.ts`, `verify-realtime-claim.ts`, `verify-realtime-policy.ts` | REST stream + GraphQL SSE over a real database, cross-replica tail, claim channels, mask trimming |
 | Multi-replica | `bun run tools/verify-multi-replica.ts` | Import/export job claiming across replicas |
 | Saved views / scope / policies | `verify-saved-views.ts`, `verify-scope-policy.ts`, `verify-org-scope.ts`, `verify-policy-expression.ts`, `verify-policy-or.ts`, `verify-resource-policy.ts` | Cross-tenant and expression semantics |

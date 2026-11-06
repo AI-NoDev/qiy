@@ -296,7 +296,7 @@ Web variables are generated **only for single-provider OIDC**: `VITE_QIY_AUTHORI
 
 ## Permission declarations
 
-`permission` declarations must be **contiguous immediately after `messages`**, before `workflow`/`enum`/`entity`. Any non-empty permission model requires a generated `auth` block, and at least one `permission field`.
+`permission` declarations must be **contiguous immediately after `messages`**, before `enum`/`entity`. Any non-empty permission model requires a generated `auth` block, and at least one `permission field`.
 
 ```qiy
 permission field    <Name> "<value>" [@label(...)] [@comment(...)] ;

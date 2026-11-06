@@ -21,7 +21,7 @@
 | 自动化 | [Dataflow + Action](#recipe-31) | 事务型业务命令与按钮 |
 | 自动化 | [校验、确认、幂等、审计](#recipe-32) | `require`、`confirm`、`idempotency`、`audit` |
 | 自动化 | [手动业务页](#recipe-33) | `navigate` + `page manual` |
-| 自动化 | [内置订单工作流](#recipe-34) | `workflow orderInventory` |
+| 自动化 | [订单状态机](#recipe-34) | `statemachine` |
 | 概览 | [多视图图表 + 面板](#recipe-41) | 图表页、响应式栅格、面板切换 |
 | 概览 | [KPI、聚合与表格预览](#recipe-42) | `const`/`aggregate`/`table` |
 | 多语言/主题 | [完整词典](#recipe-51) | 资源/字段/枚举/图表/命令/错误 |
@@ -284,7 +284,7 @@ entity users @label("Users") @icon(UserOutlined) {
 
 **目标**：把权限值声明成可校验模型：角色组、OAuth claim、数据库列三种来源做并集；用 verification 表达集合关系。
 
-**前置**：必须先有 `auth`；权限声明放在 `messages` 之后、`workflow`/`enum`/`entity` 之前。
+**前置**：必须先有 `auth`；权限声明放在 `messages` 之后、`enum`/`entity` 之前。
 
 **模型**
 
@@ -568,70 +568,53 @@ action reviewInventory {
 
 **参考**：[action](/dsl/actions) · [模块化模型](/guide/modules)。
 
-### 配方 3.4：内置订单工作流 {#recipe-34}
+### 配方 3.4：订单状态机 {#recipe-34}
 
-**目标**：不写 dataflow，直接获得订单提交/审批/出库/取消 + 库存预占的事务链路。
+**目标**：订单在草稿、已提交、已审批、已出库、已取消之间流转，按钮随状态出现，状态不能被随意编辑。
 
 **模型**
 
 ```qiy
-database postgresql {}
-
-workflow orderInventory;
-
 enum orderStatus {
-  value draft;
-  value submitted;
-  value approved;
-  value shipped;
-  value cancelled;
-}
-
-entity Product table products @label("Products") {
-  field id UUID @id;
-  field name Text @label("Name");
+  value draft label "草稿";
+  value submitted label "已提交";
+  value approved label "已审批";
+  value shipped label "已出库";
+  value cancelled label "已取消";
 }
 
 entity orders @label("Orders") {
   field id UUID @id;
+  field orderNumber Text @unique;
   field status orderStatus;
-  field approvedBy UUID @nullable;
 }
 
-entity orderItems table order_items @label("Order items") {
-  field id UUID @id;
-  field orderId UUID;
-  field productId UUID;
-  field quantity Integer;
+statemachine orderLifecycle {
+  resource orders;
+  field status;
+  initial draft;
+  transition submit { from draft; to submitted; label "提交订单"; }
+  transition approve { from submitted; to approved; label "审批"; allow roles admin; }
+  transition ship { from approved; to shipped; label "出库"; confirm "确认出库？"; }
+  transition cancel { from draft, submitted; to cancelled; label "取消订单"; confirm "确认取消该订单？"; }
 }
-
-entity inventoryItems table inventory_items @label("Inventory items") {
-  field id UUID @id;
-  field productId UUID;
-  field quantity Integer;
-  field reservedQuantity Integer;
-}
-
-relation orderLine orderItems orderId orders id one @onDelete(cascade);
-relation orderLineProduct orderItems productId Product id one @onDelete(restrict);
-relation stockProduct inventoryItems productId Product id one @onDelete(restrict);
 ```
 
 **生成结果**
 
-- 订单详情的额外动作按钮（submit/approve/ship/cancel）、库存预占与回滚事务。
-- 生成 `orderIdempotency`、`orderReservations`、订单工作的服务端路由/测试。
-- 契约是固定的：实体名正好 `orders`、`orderItems`、`inventoryItems`；`orders` 需要 `status`（含五个状态值）与可空 `approvedBy`；`orderItems` 需要 `orderId`/`productId`/`quantity`；`inventoryItems` 需要 `productId`/`quantity`/`reservedQuantity`。
+- 四个命令 `POST /api/v1/commands/orderLifecycleSubmit` 等（GraphQL `runOrderLifecycleSubmit`），body `{ "recordId": "<id>" }`，需要 `Idempotency-Key`。
+- 命令在事务内锁定记录、检查当前状态、写入新状态、记审计（`orders.submit`）并写 outbox 事件。
+- 列表与详情页按状态显示按钮：`cancel` 用 `when status in "draft", "submitted"`。
+- `status` 不再出现在新建/编辑表单、通用 PATCH 和 CSV 导入中；新订单从 `draft` 开始。
 
 **坑**
 
-- 实体名、字段名或类型不匹配时生成失败，错误会指出缺哪个字段/值。
-- 必须是 PostgreSQL；SQLite/MySQL 直接报错。
-- `orders`/`orderItems`/`inventoryItems` 不能同时声明行谓词（生成期拒绝）。
-- 工作流与自定义 dataflow 是两套机制；不要用同名 action 重复实现。
-- 升级前阅读 [workflow 指南](/guide/workflow) 与对应测试。
+- 状态字段必须是非空 enum；写了 `@default` 时必须等于 `initial`。
+- 手写 dataflow 不能再写 `status`，会在解析期报错；状态之外的写入另写 dataflow。
+- 受 `restrict` 保护的资源不能用状态机（与 dataflow 相同）。
+- transition 只改状态；库存扣减等跨表写入需要单独的 dataflow 或宿主代码。
 
-**参考**：[application · workflow](/dsl/application#workflow) · [业务工作流指南](/guide/workflow)。
+**参考**：[statemachine](/dsl/statemachine) · [业务工作流指南](/guide/workflow)。
 
 ## 概览与图表
 

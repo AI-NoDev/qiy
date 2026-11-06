@@ -39,7 +39,7 @@ export function normalizeCorsOrigins(origins: string[]): string[] {
   return [...unique];
 }
 
-export async function createApp(repositories: Repositories, authenticate: Authenticator = async () => null, includeWorkflows = true, includeStorage = true, corsOrigins?: string[], includeDataflows = true) {
+export async function createApp(repositories: Repositories, authenticate: Authenticator = async () => null, includeStorage = true, corsOrigins?: string[], includeDataflows = true) {
    // API-key requests are resolved after the configured session authenticator has
    // had a chance to accept the request, so key auth is additive and never weakens
    // the project's existing authentication.
@@ -47,7 +47,7 @@ export async function createApp(repositories: Repositories, authenticate: Authen
    const configuredOrigins = [] as string[];
    const environmentOrigins = Bun.env.QIY_CORS_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean) ?? [];
    const allowedOrigins = normalizeCorsOrigins(corsOrigins ?? (environmentOrigins.length > 0 ? environmentOrigins : configuredOrigins));
-   const guard = createAuthorizationGuard(authenticateRequest, [{"path":"users","query":"users"},{"path":"customers","query":"customers"},{"path":"warehouses","query":"warehouses"},{"path":"products","query":"products"},{"path":"inventory_items","query":"inventoryItems"},{"path":"orders","query":"orders"},{"path":"order_items","query":"orderItems"},{"path":"files","query":"files"}], {}, [], []);
+   const guard = createAuthorizationGuard(authenticateRequest, [{"path":"users","query":"users"},{"path":"customers","query":"customers"},{"path":"warehouses","query":"warehouses"},{"path":"products","query":"products"},{"path":"inventory_items","query":"inventoryItems"},{"path":"orders","query":"orders"},{"path":"order_items","query":"orderItems"},{"path":"files","query":"files"},{"path":"commands","query":"commands","mutations":["runOrderLifecycleSubmit","runOrderLifecycleApprove","runOrderLifecycleShip","runOrderLifecycleCancel"]}], {}, [], ["commands"]);
   const routes = (new Elysia({ prefix: "/api/v1" }) as any)
     .get("/health", () => ({ ok: true }))
     .get("/auth/me", async ({ request }: { request: Request }) => {
@@ -61,8 +61,7 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     .use(InventoryItemsRoutes(repositories.inventoryItems, authenticateRequest))
     .use(OrdersRoutes(repositories.orders, authenticateRequest))
     .use(OrderItemsRoutes(repositories.orderItems, authenticateRequest));
-    const workflow = includeWorkflows ? (await import("./workflows/order")).createOrderWorkflowRoutes(authenticateRequest) : undefined;
- 
+    const dataflows = includeDataflows ? (await import("./dataflows")).createDataflowRoutes(authenticateRequest) : undefined;
     
     const storage = includeStorage ? (await import("./storage/routes")).createStorageRoutes(authenticateRequest) : undefined;
     
@@ -80,8 +79,7 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     
     
     
-    composed = workflow ? composed.use(workflow) : composed;
-    
+    composed = dataflows ? composed.use(dataflows) : composed;
     
     composed = storage ? composed.use(storage) : composed;
     composed = composed.use((await import("./saved-views")).createSavedViewsRoutes(authenticateRequest));

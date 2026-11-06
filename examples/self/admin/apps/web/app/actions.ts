@@ -1,4 +1,4 @@
-type QiyActionCondition = { field: string; operator: "==" | "!="; value: string };
+type QiyActionCondition = { field: string; operator: "==" | "!="; value: string } | { field: string; operator: "in"; values: string[] };
 type QiyActionBase = { name: string; resource: string; placements: Array<"list" | "show">; batch?: boolean; label: string; labelKey?: string; roles?: string[]; condition?: QiyActionCondition };
 type QiyVerificationRule = { name: string; expression: unknown };
 export type QiyActionDefinition = QiyActionBase & ({ target: { kind: "navigate"; path: string; page: "manual"; comment: string; commentKey?: string; permissions?: string[]; verification?: QiyVerificationRule } } | { target: { kind: "dataflow"; dataflow: string; roles: string[]; permissions?: string[]; verification?: QiyVerificationRule; confirm?: string; confirmKey?: string; idempotency: boolean; url: string; idInput: string; inputs: Array<{ name: string; type: string; required: boolean; comment?: string; commentKey?: string; labelKey: string; options?: Array<{ value: string; label: string; labelKey: string }> }> } });
@@ -465,7 +465,7 @@ export const qiyActions: QiyActionDefinition[] = [
     "labelKey": "qiy.actions.approvePurchaseOrder.label"
   }
 ];
-export function actionMatchesRecord(action: QiyActionDefinition, record: Record<string, unknown>) { if (!action.condition) return true; if (!Object.prototype.hasOwnProperty.call(record, action.condition.field) || record[action.condition.field] == null) return false; const matches = record[action.condition.field] === action.condition.value; return action.condition.operator === "==" ? matches : !matches; }
+export function actionMatchesRecord(action: QiyActionDefinition, record: Record<string, unknown>) { if (!action.condition) return true; if (!Object.prototype.hasOwnProperty.call(record, action.condition.field) || record[action.condition.field] == null) return false; const value = record[action.condition.field]; if (action.condition.operator === "in") return action.condition.values.includes(String(value)); const matches = value === action.condition.value; return action.condition.operator === "==" ? matches : !matches; }
 export function actionsFor(resource: string, placement: "list" | "show", record: Record<string, unknown>) { return qiyActions.filter((action) => !action.batch && action.resource === resource && action.placements.includes(placement) && actionMatchesRecord(action, record)); }
 export function batchActionsFor(resource: string) { return qiyActions.filter((action) => action.batch && action.resource === resource && action.placements.includes("list") && action.target.kind === "dataflow"); }
 export function hasBatchActions(resource: string) { return batchActionsFor(resource).length > 0; }

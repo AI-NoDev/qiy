@@ -1,8 +1,8 @@
-# Dataflows, actions and workflows
+# State machines, dataflows and actions
 
-Use this file when you add a transactional business command, bind it to a list/show button, add a manual extension page, run a batch operation, use the legacy `orderInventory` workflow, or write/run `app.test.qiy` scenario tests.
+Use this file when you add a transactional business command, bind it to a list/show button, add a manual extension page, run a batch operation, declare a `statemachine` for a status field, or write/run `app.test.qiy` scenario tests.
 
-Canonical reference: https://ai-nodev.github.io/qiy/dsl/dataflow (`/dsl/actions`, `/guide/workflow`)
+Canonical reference: https://ai-nodev.github.io/qiy/dsl/dataflow (`/dsl/statemachine`, `/dsl/actions`, `/guide/workflow`)
 
 ## Contents
 
@@ -17,7 +17,7 @@ Canonical reference: https://ai-nodev.github.io/qiy/dsl/dataflow (`/dsl/actions`
 - [Batch execution](#batch-execution)
 - [Actions: exposing commands and pages](#actions-exposing-commands-and-pages)
 - [Manual extension pages](#manual-extension-pages)
-- [workflow orderInventory](#workflow-orderinventory)
+- [statemachine](#statemachine)
 - [app.test.qiy scenarios](#apptestqiy-scenarios)
 - [Pitfalls](#pitfalls)
 - [Non-goals](#non-goals)
@@ -29,7 +29,7 @@ Canonical reference: https://ai-nodev.github.io/qiy/dsl/dataflow (`/dsl/actions`
 | Atomic multi-record business operation (approve, receive, ship, archive) | `dataflow` + `action` | Recommended general mechanism |
 | Transactional event after commit | `dataflow` `emit` | Writes outbox rows; does not publish directly |
 | Read-only custom screen | `action ... navigate` + `page manual @comment(...)` | Implement under `app/extensions/`, preserved by `--sync` |
-| Fixed legacy ERP order/inventory slice | `workflow orderInventory;` | PostgreSQL only, fixed entities/actions, no row policy |
+| Record moves between enum states with guarded buttons | `statemachine` | Compiles to dataflows + actions; owns the field |
 | Host API business logic | Host code | `mode integration` rejects `dataflow` |
 
 A `dataflow` alone never adds UI. Declaring an `action` is what exposes it.
@@ -329,7 +329,7 @@ action <Name> {
   "placement" ( "list" | "show" ) ( "," ( "list" | "show" ) )* ";"
   [ "label" doc ";" ]
   [ "confirm" doc ";" ]            // dataflow action only
-  [ "when" <field> ( "==" | "!=" ) <string> ";" ]
+  [ "when" <field> ( ( "==" | "!=" ) <string> | "in" <string> ( "," <string> )* ) ";" ]
   [ "allow" ( "roles" role ("," role)* | "permission" ref ("," ref)* | "verification" <Name> ) ";" ]   // navigate only
   [ "batch" "true" ";" ]           // dataflow action only
   [ "page" "manual" "@comment" "(" doc ")" ";" ]   // navigate only
@@ -346,7 +346,7 @@ action <Name> {
 | `placement list` / `show` | yes (>=1) | - | Table actions column / detail action area; duplicates rejected |
 | `label` | navigate yes; dataflow optional | inherits flow `@label` | Display name; `t("key")` supported; neither -> generation fails |
 | `confirm` | no | inherits flow `@confirm` | Confirmation dialog; dataflow actions only |
-| `when <field> == \| != "<value>"` | no | always visible | Record visibility. Field must be `Text` or enum on this resource; enum values must be declared; only `==`/`!=` |
+| `when <field> == \| != "<value>"` / `when <field> in "a", "b"` | no | always visible | Record visibility. Field must be `Text` or enum on this resource; enum values must be declared; `in` values must be distinct |
 | `allow roles/permission/verification` | no | inherits flow (dataflow action) | navigate actions accept declared roles, permission fields/groups, and input-free verification; **forbidden** on dataflow actions |
 | `batch true` | no | `false` | See batch constraints above |
 | `page manual @comment(...)` | navigate yes | - | Placeholder page + unmanaged extension file; `@comment` required |
@@ -381,32 +381,27 @@ action reviewConnector {
 - Generates a placeholder page under `apps/web/app/extensions/` (explanation + empty state). That directory is **not** in the generated manifest, so `qiy create --sync` / `qiy init --sync` will not overwrite your implementation.
 - The page receives only `:id`. Read data with Refine hooks or your own API; implement server authorization separately (`restrict`/`scope`/host API). Do not put extension code outside `app/extensions/`.
 
-## workflow orderInventory
+## statemachine
 
 ```qiy
-application qiy-erp-admin {
-  database postgresql {}
-  workflow orderInventory;
+statemachine orderLifecycle {
+  resource orders;
+  field status;
+  initial draft;
+  transition submit { from draft; to submitted; label "Submit"; }
+  transition approve { from submitted; to approved; allow roles admin; }
+  transition cancel { from draft, submitted; to cancelled; confirm "Cancel this order?"; }
 }
 ```
 
-- Only `orderInventory` is accepted (`Unsupported workflow X`); duplicates fail. It sits after `messages`/`permission`, before `enum`/`entity`.
-- Requires **PostgreSQL** and the entities `orders`, `orderItems`, `inventoryItems` with the fixed field contract (missing fields produce specific errors such as `orderInventory workflow requires orders.approvedBy`).
-- Generates submit/approve/ship/cancel actions (REST endpoints + detail buttons), multi-warehouse reservation/release, transactional state checks, `order_reservations` and `order_idempotency` tables, and order/inventory relation queries.
-
-State machine:
-
-```text
-draft --submit--> submitted --approve--> approved --ship--> shipped
-  |                    |
-  +----> cancelled <---+
-```
-
-Only `draft` and `submitted` can be cancelled; `approved` must ship (no approval rollback). Reservation on submit, release on cancel and deduction on ship happen in the server transaction. Replays return the first result; different content 409.
-
-Authorization: the workflow reuses generated role guards and account roles; `scope` filtering applies (missing claim -> 403 `Missing required data scope claim`); `restrict` row policy is **not supported** (`Restrict <resource>: orderInventory does not apply row policy yet`); the workflow does not participate in `allow permission`/`allow verification`. Use a `dataflow` when you need permission-gated approvals.
-
-Acceptance: `bun tools/verify-postgres-erp.ts qiy-erp-pg` creates and drops a temporary database and exercises idempotent submits, approval roles, tenant claim denials, insufficient-stock rollback, cancel/release and duplicate cancel. Identity is injected; it is not a real-login or browser acceptance test.
+- `field` must be a non-null enum field of `resource`; one machine per field. `initial` becomes the column default; an existing `@default` must equal it.
+- Each transition needs `from` (one or more distinct states) and `to` (not in `from`); optional `label`, `confirm` (string or `t("key")`) and one `allow roles|permission|verification` clause with dataflow semantics.
+- Each transition compiles to a dataflow named `<machine><Transition>` (`orderLifecycleSubmit`): `POST /api/v1/commands/orderLifecycleSubmit` with `{ "recordId": "<id>" }` and a required `Idempotency-Key`, GraphQL `runOrderLifecycleSubmit`. It loads and locks the record, returns 409 `errorKey: "state.invalidTransition"` when the state is not in `from`, writes `to`, audits `<table>.<transition>` and emits the same outbox event.
+- It also adds a list/show action with `when status == "draft"`, or `when status in "draft", "submitted"` for several sources.
+- The field becomes server-owned: create/update inputs, GraphQL inputs, CSV import and forms drop it. A hand-written dataflow that writes it fails: `Dataflow <name>: orders.status belongs to a statemachine; change it with a transition instead`.
+- `statemachine`, `dataflow` and `action` come after `chart` and may interleave. Resources with `restrict` and `mode integration` models reject it, as for dataflows.
+- A transition only changes the state. Put other writes (stock, tracking numbers) in a separate dataflow gated by `when status == "..."`.
+- `workflow orderInventory;` was removed in 0.38.0 and now fails with a pointer to docs/guide/migration-0.38.md.
 
 ## app.test.qiy scenarios
 

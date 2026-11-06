@@ -27,7 +27,7 @@ export function normalizeCorsOrigins(origins: string[]): string[] {
   return [...unique];
 }
 
-export async function createApp(repositories: Repositories, authenticate: Authenticator = async () => null, includeWorkflows = true, includeStorage = true, corsOrigins?: string[], includeDataflows = true) {
+export async function createApp(repositories: Repositories, authenticate: Authenticator = async () => null, includeStorage = true, corsOrigins?: string[], includeDataflows = true) {
    // API-key requests are resolved after the configured session authenticator has
    // had a chance to accept the request, so key auth is additive and never weakens
    // the project's existing authentication.
@@ -44,7 +44,6 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     })
      .use(RecordsRoutes(repositories.records, authenticateRequest));
  
- 
     
     const storage = includeStorage ? (await import("./storage/routes")).createStorageRoutes(authenticateRequest) : undefined;
     
@@ -56,7 +55,6 @@ export async function createApp(repositories: Repositories, authenticate: Authen
     
     const application = new Elysia().use(allowedOrigins.length > 0 ? cors({ origin: allowedOrigins, credentials: false, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key", "X-API-Key"] }) : new Elysia()).onRequest(({ request }) => guard(request)).use(openapi({ path: "/api/v1/openapi", documentation: { info: { title: "Qiy Admin API", version: "1.0.0" } } })).use(routes).use(createGraphQLRoutes(repositories, authenticateRequest));
     let composed = application;
-    
     
     
     

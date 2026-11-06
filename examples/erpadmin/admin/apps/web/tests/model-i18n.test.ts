@@ -3,6 +3,7 @@ import { createI18nProvider, filterModeLabel, readStoredLocale, resolveLocale, s
 import { defaultMessageLocale, projectMessages } from "../app/messages";
 import { enumerations, menuGroups, resources } from "../app/resources";
 import { chartPanels, charts } from "../app/charts";
+import { qiyActions } from "../app/actions";
 
 interface LabelEntry { key: string; fallback: string }
 const labels: LabelEntry[] = [
@@ -18,6 +19,13 @@ const labels: LabelEntry[] = [
     { key: view.labelKey, fallback: view.label },
     ...(view.labels?.values ?? []).map((entry) => ({ key: entry.labelKey, fallback: entry.label })),
   ])),
+  ...qiyActions.flatMap((action) => [
+    { key: action.labelKey ?? "", fallback: action.label },
+    ...(action.target.kind === "dataflow" ? [
+      ...(action.target.confirmKey ? [{ key: action.target.confirmKey, fallback: action.target.confirm ?? "" }] : []),
+      ...action.target.inputs.map((input) => ({ key: input.labelKey, fallback: input.comment ?? input.name })),
+    ] : []),
+  ]),
 ];
 
 test("every model-derived label has a stable key and resolves through project messages", () => {

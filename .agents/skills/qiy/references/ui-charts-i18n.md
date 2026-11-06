@@ -271,7 +271,7 @@ Generated files: `apps/web/app/charts.ts`, `apps/web/app/components/charts.tsx`,
 
 ## messages and i18n
 
-`messages` sits after `env` and before `permission`/`workflow`/`enum`/`entity`.
+`messages` sits after `env` and before `permission`/`enum`/`entity`.
 
 ```text
 messages {

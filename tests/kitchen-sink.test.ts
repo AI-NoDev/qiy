@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { DatabaseDialect, DatabaseIR, EntityIR, EnumIR, EnumValueIR, FieldIR, FieldType, FilterMode, IndexIR, RelationIR } from "../tools/database-ir";
 import { renderAppFiles } from "../tools/commands/generate-app";
 import { loadQiyProjectSource } from "../tools/qiy-include";
-import { parseQiyProject, type DataflowIR, type QiyAction, type QiyChartDataOperation, type QiyChartView, type QiyChartViewKind, type QiyProject } from "../tools/qiy-project";
+import { parseQiyProject, type DataflowIR, type QiyAction, type QiyChartDataOperation, type QiyChartView, type QiyChartViewKind, type QiyProject, type QiyStateMachine, type QiyStateTransition } from "../tools/qiy-project";
 
 // Every key maps to `true` (exercised by tests/fixtures/kitchen-sink) or to the
 // reason it lives elsewhere. Adding a property to the IR fails typecheck here
@@ -16,8 +16,7 @@ const projectCoverage: Coverage<QiyProject> = {
   workspace: true, ui: true, apiClient: true, corsOrigins: true, elysiaPlugins: true, storageProvider: true, features: true,
   auth: true, environment: true, messages: true, menuGroups: true, charts: true, chartPanels: true, realtime: true,
   scopes: true, restrictions: true, pages: true,
-  workflows: "legacy orderInventory slice, covered by examples/erpadmin until the declarative state machine replaces it",
-  permissions: true, dataflows: true, actions: true,
+  permissions: true, dataflows: true, actions: true, stateMachines: true,
 };
 const databaseCoverage: Coverage<DatabaseIR> = { comment: true, commentKey: true, dialect: true, extensions: true, entities: true, enums: true, relations: true, views: true };
 const entityCoverage: Coverage<EntityIR> = {
@@ -30,6 +29,7 @@ const fieldCoverage: Coverage<FieldIR> = {
   enumName: true, label: true, icon: true, visible: true, listVisible: true, formVisible: true, showVisible: true, sortable: true,
   filterable: true, filterModes: true, uploadMode: true, maxBytes: true, mimeTypes: true, maxFiles: true, codeTemplate: true, generatedValue: true,
   min: true, max: true, minLength: true, maxLength: true, pattern: true, defaultValue: true, version: true,
+  stateMachine: "set while generating from the owning statemachine, not parsed; covered by the generated contracts routes and tests/state-machines.test.ts",
 };
 const indexCoverage: Coverage<IndexIR> = { name: true, comment: true, commentKey: true, method: true, columns: true, unique: true, concurrently: true };
 const relationCoverage: Coverage<RelationIR> = { name: true, comment: true, commentKey: true, fromEntity: true, fromField: true, toEntity: true, toField: true, cardinality: true, onDelete: true };
@@ -41,6 +41,10 @@ const dataflowCoverage: Coverage<DataflowIR> = {
 };
 const actionCoverage: Coverage<QiyAction> = {
   name: true, roles: true, permission: true, verification: true, resource: true, placements: true, batch: true, label: true, labelKey: true, condition: true, target: true,
+};
+const stateMachineCoverage: Coverage<QiyStateMachine> = { name: true, resource: true, field: true, initial: true, transitions: true };
+const stateTransitionCoverage: Coverage<QiyStateTransition> = {
+  name: true, from: true, to: true, label: true, labelKey: true, confirm: true, confirmKey: true, roles: true, permission: true, verification: "same allow clause as dataflows; verification is exercised by dataflow closeTicket",
 };
 const chartViewCoverage: Coverage<QiyChartView> = { kind: true, title: true, icon: true, data: true, labels: true, color: true, legend: true };
 
@@ -85,8 +89,10 @@ describe("kitchen-sink fixture", () => {
       enumValue: uncovered(enumValueCoverage, all().flatMap((project) => project.database.enums ?? []).flatMap((item) => item.values)),
       dataflow: uncovered(dataflowCoverage, all().flatMap((project) => project.dataflows ?? [])),
       action: uncovered(actionCoverage, all().flatMap((project) => project.actions ?? [])),
+      stateMachine: uncovered(stateMachineCoverage, all().flatMap((project) => project.stateMachines ?? [])),
+      stateTransition: uncovered(stateTransitionCoverage, all().flatMap((project) => project.stateMachines ?? []).flatMap((machine) => machine.transitions)),
       chartView: uncovered(chartViewCoverage, all().flatMap((project) => project.charts ?? []).flatMap((chart) => chart.views)),
-    }).toEqual({ project: [], database: [], entity: [], field: [], index: [], relation: [], enum: [], enumValue: [], dataflow: [], action: [], chartView: [] });
+    }).toEqual({ project: [], database: [], entity: [], field: [], index: [], relation: [], enum: [], enumValue: [], dataflow: [], action: [], stateMachine: [], stateTransition: [], chartView: [] });
   });
 
   test("uses every value of the closed vocabularies", () => {

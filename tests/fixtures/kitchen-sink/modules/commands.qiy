@@ -56,6 +56,29 @@ dataflow retitleAnnouncement {
   result { return announcement; }
 }
 
+statemachine announcementLifecycle {
+  resource announcements;
+  field stage;
+  initial draft;
+  transition submit {
+    from draft;
+    to review;
+    label "Submit";
+  }
+  transition publish {
+    from draft, review;
+    to published;
+    label t("kitchen.announcement.publish");
+    confirm t("kitchen.announcement.publishConfirm");
+    allow roles owner;
+  }
+  transition retract {
+    from published;
+    to draft;
+    allow permission TicketClosePermission;
+  }
+}
+
 action closeTicket {
   resource tickets;
   dataflow closeTicket;

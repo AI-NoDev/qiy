@@ -18,7 +18,7 @@ const request = (query: string) => new Request("http://localhost/graphql", { met
 
 test("data scope rejects missing claims without blocking unrelated resources", async () => {
   seen.length = 0;
-  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE }), false, false);
+  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE }), false);
   const graph = await app.handle(request("query { warehouses { total } }"));
   if (graph.status === 200) expect((await graph.json() as { errors?: Array<{ message: string }> }).errors?.length).toBeGreaterThan(0);
   else expect(graph.status).toBe(403);
@@ -29,7 +29,7 @@ test("data scope rejects missing claims without blocking unrelated resources", a
 
 test("REST and GraphQL pass the authorized scope to repository operations", async () => {
   seen.length = 0;
-  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE, claims: { "org.id": scoped.value } }), false, false);
+  const app = await createApp(repositories, async () => ({ id: "user", name: "User", role: QIY_ADMIN_ROLE, claims: { "org.id": scoped.value } }), false);
   const list = await app.handle(request("query { warehouses { total } }"));
   expect(list.status).toBe(200);
   expect((await list.json() as { data: { warehouses: { total: number } } }).data.warehouses.total).toBe(0);
@@ -37,4 +37,3 @@ test("REST and GraphQL pass the authorized scope to repository operations", asyn
   expect((await app.handle(new Request("http://localhost/api/v1/warehouses/"))).status).toBe(200);
   expect(seen).toEqual([scoped, scoped, scoped]);
 });
-

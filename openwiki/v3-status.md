@@ -14,7 +14,7 @@
 | Web | Refine + Ant Design + React Router SPA：CRUD、关系 Select/Drawer、显示模板、已存视图、字段布局权限、多级菜单、chart 概览页、主题、i18n | [Refine Providers](../docs/guide/refine-providers.md)、[chart](../docs/dsl/charts.md) |
 | 认证 | 本地密码（限流/锁定/会话吊销）、OTP、任意多个 OpenID Connect provider（`provider <name> { preset ...; }`，预设 generic/okta/auth0/azure-ad-b2c/keycloak/google/kinde）；混合认证、首次登录 onboarding、账号绑定；API Key（轮换、scopes） | [auth](../docs/dsl/auth.md) |
 | 权限 | 自定义角色（`full`/`write`/`read` 访问级别）、原子权限/权限组、provider、校验块；`scope`、tree scope、`restrict` 记录条件（AND/OR/NOT）与字段脱敏；`pages` 页面与路由守卫 | [permissions](../docs/dsl/permissions.md) |
-| 业务流程 | Dataflow（typed input、context、require/allow、事务写入、audit/emit、result）与 `app.test.qiy` 声明式场景；Action 按钮；`workflow orderInventory` 订单库存切片 | [dataflow](../docs/dsl/dataflow.md)、[actions](../docs/dsl/actions.md) |
+| 业务流程 | Dataflow（typed input、context、require/allow、事务写入、audit/emit、result）与 `app.test.qiy` 声明式场景；Action 按钮；`statemachine` 状态机（每个 transition 编译为带守卫、幂等的 dataflow + action） | [dataflow](../docs/dsl/dataflow.md)、[actions](../docs/dsl/actions.md)、[statemachine](../docs/dsl/statemachine.md) |
 | 存储 | local / S3-compatible；单文件与多文件、分片续传、MIME/大小策略、孤儿对象扫描 | [storage](../docs/dsl/storage.md) |
 | 实时 | 数据库 outbox + SSE（REST `GET /api/v1/realtime/stream`、GraphQL `GET /graphql/subscribe`），频道权限与记录级订阅，无外部服务依赖 | [realtime](../docs/dsl/realtime.md) |
 | 生成与集成 | `standalone` / `integration`（宿主 API 适配器）两种模式；`--sync` manifest 保护手写代码；生成器插件；`qiy diff`/增量生成；`qiy dev --watch` | [CLI](../docs/guide/cli.md) |
@@ -24,7 +24,8 @@
 ## 已知边界
 
 - GraphQL 的 `QiyFilterInput` 是平铺的顶层 AND；嵌套条件树只在 REST 上可用。
-- `workflow orderInventory` 只在 PostgreSQL 目标下生成；SQLite 的 Money 映射为 `REAL`，没有十进制精确语义。
+- SQLite 的 Money 映射为 `REAL`，没有十进制精确语义。
+- `workflow orderInventory` 已在 0.38.0 删除，改用 `statemachine`；库存预留等副作用需要自己写 dataflow（见 [迁移指南](../docs/guide/migration-0.38.md)）。
 - Cron 任务没有分布式锁，只能在单个专用副本上启用。
 - 真实 IdP tenant、生产 S3 bucket、邮件/短信供应商由使用方按 [MAINTAINER_VERIFICATION](../MAINTAINER_VERIFICATION.md) 的步骤自行验收；本地 preview 不能公开部署。
 

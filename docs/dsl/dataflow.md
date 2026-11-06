@@ -10,7 +10,7 @@
 - （由 `action` 声明时）Refine 列表/详情按钮、确认表单、幂等键传递；
 - 生成包内的 Bun 测试（含幂等回放、回滚、权限拒绝）。
 
-与 `workflow` 的区别：`workflow orderInventory;` 是历史 ERP 压力测试切片（固定实体、固定四个动作，见 [业务工作流](/guide/workflow)），`dataflow` 才是通用命令 DSL。
+只需要在有限状态之间流转时，用 [statemachine](/dsl/statemachine)：它把每个 transition 编译成一个 dataflow，并接管状态字段的写入。
 
 ## 语法总览
 
@@ -531,7 +531,8 @@ bun test tests/qiy-scenarios.test.ts
 - [权限（permission）](/dsl/permissions)：`allow permission` / `allow verification` 语义与 provider 来源。
 - [application](/dsl/application#restrict)：`restrict` / `scope` 与命令的互斥关系。
 - [realtime](/dsl/realtime)：`emit` 与实时 outbox、订阅通道。
-- [业务工作流](/guide/workflow)：`workflow orderInventory` 切片。
+- [statemachine](/dsl/statemachine)：编译成 dataflow 的状态流转。
+- [业务工作流](/guide/workflow)：何时用状态机、何时用 dataflow。
 - [多语言（messages）](/dsl/application#messages)：`t("key")` 字典。
 - 示例：[roles.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/roles.qiy)、[typed-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/typed-inputs.qiy)、[enum-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/enum-inputs.qiy)、[create-delete.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/create-delete.qiy)、[emit.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/emit.qiy)、[call.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/call.qiy)、[guarded-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/guarded-inputs.qiy)、[batch-actions.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/batch-actions.qiy)、[browser-actions.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/browser-actions.qiy)、[documented-inputs.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/documented-inputs.qiy)、[localized-errors.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/dataflow/localized-errors.qiy)、[examples/self/modules/dataflows.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/self/modules/dataflows.qiy)。
 - 测试：`tests/dataflow-qiy.test.ts`、`tests/action-qiy.test.ts`、`tests/qiy-test.test.ts`；实库验收 `tools/verify-postgres-dataflow.ts`、`tools/verify-mysql-dataflow.ts`。

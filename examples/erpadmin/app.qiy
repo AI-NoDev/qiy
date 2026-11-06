@@ -5,7 +5,6 @@ application qiy-erp-admin {
   }
   storage { provider local; }
   auth { provider local; user users; roleField role; usernameField email; passwordField passwordHash; claim tenant.customerId customerId; }
-  workflow orderInventory;
 
   enum userRole {
     value admin label "管理员" color red icon SafetyOutlined;
@@ -120,4 +119,14 @@ application qiy-erp-admin {
   chart const CustomerCount { icon = "UserOutlined"; title = "客户数"; data = count customers; }
   chart pie OrderStatusBreakdown { icon = "CheckOutlined"; title = "订单状态"; data = count orders group by status; labels = status; }
   chart line OrderTrend { icon = "ShoppingOutlined"; title = "近30天订单"; data = trend orders.createdAt days 30; }
+
+  statemachine orderLifecycle {
+    resource orders;
+    field status;
+    initial draft;
+    transition submit { from draft; to submitted; label "提交订单"; }
+    transition approve { from submitted; to approved; label "审批"; allow roles admin; }
+    transition ship { from approved; to shipped; label "出库"; confirm "确认出库？"; }
+    transition cancel { from draft, submitted; to cancelled; label "取消订单"; confirm "确认取消该订单？"; }
+  }
 }

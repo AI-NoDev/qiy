@@ -361,9 +361,9 @@ Modeling limits (do not promise these):
 - No functions or transient fields; expressions exist only inside `@computed` (Text templates and `+ - * /` arithmetic over numeric fields). Defaults and value rules are limited to `@default`, `@min`/`@max`, `@length` and `@pattern`.
 - One database dialect per model; no cross-database joins.
 - Many-to-many links carry no attributes; when the link needs its own fields, model an explicit join entity with two `one` relations.
-- No business workflow inference from fields/relations. Use `workflow orderInventory` (fixed, PostgreSQL, exact field contract) or an explicit `dataflow` ([dataflows-actions.md](dataflows-actions.md)).
-- Format: `mode integration` models generate a Refine web package only; they reject `auth`, `scope`, `restrict`, `workflow`, `dataflow`, `storage`, `elysia`, `env` and `realtime` ([workspace-integration.md](workspace-integration.md)).
-- `restrict` cannot be combined with `dataflow`/`orderInventory` on the same resource; the generator fails closed.
+- No business workflow inference from fields/relations. Declare a `statemachine` for status fields or an explicit `dataflow` ([dataflows-actions.md](dataflows-actions.md)).
+- Format: `mode integration` models generate a Refine web package only; they reject `auth`, `scope`, `restrict`, `statemachine`, `dataflow`, `storage`, `elysia`, `env` and `realtime` ([workspace-integration.md](workspace-integration.md)).
+- `restrict` cannot be combined with `dataflow`/`statemachine` on the same resource; the generator fails closed.
 - No forward compatibility: unknown constructs/annotations are rejected, so regenerate after CLI upgrades.
 
 ## Worked modeling walkthrough

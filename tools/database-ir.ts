@@ -71,6 +71,8 @@ export interface FieldIR {
   defaultValue?: FieldDefaultIR;
   /** `@version`: optimistic-lock counter; starts at 1, every update increments it, a stale value is a 409. */
   version?: boolean;
+  /** Owning `statemachine`, set at generation: only its transition commands change the value. */
+  stateMachine?: string;
 }
 
 export type FieldDefaultIR = { kind: "literal"; value: string | number | boolean } | { kind: "now" };
