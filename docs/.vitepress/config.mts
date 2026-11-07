@@ -4,14 +4,6 @@ import { descriptionFor } from "./seo";
 
 const base = (process.env.VITEPRESS_BASE ?? "/").replace(/\/?$/, "/");
 const siteUrl = (process.env.QIY_DOCS_SITE_URL ?? "https://ai-nodev.github.io/qiy").replace(/\/$/, "");
-const latestSiteUrl = (process.env.QIY_DOCS_LATEST_URL ?? process.env.QIY_DOCS_SITE_URL ?? "https://ai-nodev.github.io/qiy").replace(/\/$/, "");
-const versionNav = (label: string) => ({
-  text: label,
-  items: [
-    { text: "Latest", link: `${latestSiteUrl}/` },
-    { text: "v0.6 (archive)", link: `${latestSiteUrl}/v0.6/` },
-  ],
-});
 const siteDescription =
   "Qiy 是一个面向数据中心业务应用的领域语言与全栈应用生成框架：一份业务模型，生成 Refine 前端、Bun + Elysia API、Drizzle 数据层与部署配置。";
 const qiyLanguage = JSON.parse(readFileSync(new URL("../../editors/syntax/qiy.tmLanguage.json", import.meta.url), "utf8"));
@@ -35,7 +27,6 @@ function localizedTheme(localeRoot: string, guideLabel: string, chineseDocsLabel
       { text: guideLabel, link: `${localeRoot}guide/what-is-qiy`, activeMatch: `${localeRoot}guide/` },
       { text: "DSL reference", link: `${localeRoot}guide/dsl-reference` },
       { text: chineseDocsLabel, link: "/guide/what-is-qiy" },
-      versionNav("Version"),
     ],
     sidebar: {
       [`${localeRoot}guide/`]: [
@@ -45,7 +36,6 @@ function localizedTheme(localeRoot: string, guideLabel: string, chineseDocsLabel
             { text: "What is Qiy", link: `${localeRoot}guide/what-is-qiy` },
             { text: "Getting started", link: `${localeRoot}guide/getting-started` },
             { text: "CLI", link: `${localeRoot}guide/cli` },
-            { text: "Migrating to 0.38", link: `${localeRoot}guide/migration-0.38` },
           ],
         },
         {
@@ -153,7 +143,6 @@ export default defineConfig({
     nav: [
       { text: "指南", link: "/guide/what-is-qiy", activeMatch: "/guide/" },
       { text: "DSL", link: "/dsl/overview", activeMatch: "/dsl/" },
-      versionNav("版本"),
     ],
     sidebar: {
       "/guide/": [
@@ -165,8 +154,6 @@ export default defineConfig({
             { text: "设计理念", link: "/guide/design-philosophy" },
             { text: "快速开始", link: "/guide/getting-started" },
             { text: "CLI 与发布", link: "/guide/cli" },
-            { text: "迁移到 0.38", link: "/guide/migration-0.38" },
-            { text: "迁移到 0.37", link: "/guide/migration-0.37" },
             { text: "集成现有 Bun 项目", link: "/guide/existing-bun-project" },
             { text: "模块化模型", link: "/guide/modules" },
             { text: "最佳实践：仓储系统", link: "/guide/best-practice-warehouse" },

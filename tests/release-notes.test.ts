@@ -8,15 +8,30 @@ const packageVersion = (
   JSON.parse(readFileSync(resolve(import.meta.dir, "../package.json"), "utf8")) as { version: string }
 ).version;
 
+const fixture = `# Changelog
+
+## [2.1.0] - 2027-01-02
+
+### Added
+
+- Second release body.
+
+## [2.0.0] - 2027-01-01
+
+- First release body.
+
+[2.1.0]: https://example.test/v2.1.0
+`;
+
 test("extracts only the requested version section", () => {
-  const notes = extractReleaseNotes(changelog, "0.2.1");
-  expect(notes).toContain("Complete the official Agent Skill");
-  expect(notes).not.toContain("Complete Chinese DSL reference");
-  // Link definitions and older releases must not leak into a release body.
-  expect(notes).not.toContain("[0.2.1]: https://");
+  expect(extractReleaseNotes(fixture, "2.1.0")).toBe("### Added\n\n- Second release body.");
+  const notes = extractReleaseNotes(fixture, "2.0.0");
+  expect(notes).toContain("First release body.");
+  expect(notes).not.toContain("Second release body.");
 });
 
 test("returns undefined for an unknown version", () => {
+  expect(extractReleaseNotes(fixture, "99.99.99")).toBeUndefined();
   expect(extractReleaseNotes(changelog, "99.99.99")).toBeUndefined();
 });
 

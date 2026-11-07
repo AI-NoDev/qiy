@@ -1,6 +1,6 @@
 # UI, charts, menus and i18n
 
-Use this file when you change look-and-feel, navigation, the overview page, charts, or any user-visible text. It covers `ui`, `menu`, legacy `dashboard`, `chart`/`chart panels`, `messages`/i18n keys, and the persistence keys the generated admin uses.
+Use this file when you change look-and-feel, navigation, the overview page, charts, or any user-visible text. It covers `ui`, `menu`, `chart`/`chart panels`, `messages`/i18n keys, and the persistence keys the generated admin uses.
 
 Canonical reference: https://ai-nodev.github.io/qiy/dsl/charts (`/guide/ui-theming`, `/guide/menu-dashboard`, `/dsl/i18n`)
 
@@ -137,23 +137,9 @@ Sidebar behavior: expanded width 248px, collapsed shows icons with tooltips, col
 | Has `chart` | `ChartDashboard` with `chart panels` layout |
 | No `chart` | One count card per writable resource (`ResourceSummary`: icon, plural label, total, links to the list); read-only resources such as views get no card |
 
-### Migrating from dashboard metrics
-
-`dashboard { metric ... }` was removed in 0.37.0; the parser rejects it with a pointer to `docs/guide/migration-0.37.md`.
-
-| 0.36 metric | 0.37 chart |
-| --- | --- |
-| `metric orderCount orders @label("Orders") @icon(ShoppingOutlined);` | `chart const OrderCount { title = "Orders"; icon = "ShoppingOutlined"; data = count orders; }` |
-| `@type(distribution) @groupBy(status)` | `chart pie OrderStatus { data = count orders group by status; labels = status; }` |
-| `@type(trend) @groupBy(createdAt) @days(30)` | `chart line OrderTrend { data = trend orders.createdAt days 30; }` |
-| `@type(aggregate) @field(amount) @agg(sum)` | `chart const OrderAmount { data = sum orders.amount; }` |
-| `@span(8\|12\|24)` | `chart panels` grid coordinates |
-| `@comment(...)` | No equivalent; put the text in `title` or `qiy.charts.<Chart>.label` |
-| `qiy.dashboard.<metric>.label` | `qiy.charts.<Chart>.label` |
-
 ## chart grammar
 
-`chart` and `chart panels` are written after `menu` and before `dataflow`, sharing a slot with legacy `dashboard`.
+`chart` and `chart panels` are written after `menu` and before `dataflow`.
 
 ```text
 chart [const|pie|bar|line|area|scatter|stacked|table] <ChartName> {

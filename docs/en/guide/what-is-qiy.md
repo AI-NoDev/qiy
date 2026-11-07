@@ -38,7 +38,7 @@ Qiy IR  ──► Drizzle schema + migrations
 
 ## Design principles
 
-- **One way to do one thing.** Each capability has a single syntax; removed forms fail to parse and point to a migration guide.
+- **One way to do one thing.** Each capability has a single syntax, and anything outside it fails to parse.
 - **Fail closed.** Unknown syntax, missing claims, unknown roles and unsafe combinations are errors at parse or generation time, not silent defaults at runtime.
 - **Generated code is ordinary code.** The output is a Turborepo + Bun workspace. Qiy only rewrites the files it lists in `.qiy-generated.json`; your code under `apps/*/extensions/` is never touched.
 - **Every generated feature ships with its tests.** Each generated workspace runs its own server and web suites, so a model change that breaks a rule shows up in `qiy test`.

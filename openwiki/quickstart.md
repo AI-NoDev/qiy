@@ -18,8 +18,8 @@ Qiy 是面向数据中心业务应用的文本 DSL 与全栈应用生成框架�
 ## 先读这些
 
 - [架构](architecture.md)：编译链路、源码地图、生成应用结构与设计原则。
-- [能力现状与待办](v3-status.md)：已交付能力、已知边界、0.37 删除项与下一步顺序。
-- [CHANGELOG](../CHANGELOG.md)：每个版本的变化；[AUDIT](../AUDIT.md)：发布审计；[ROADMAP](../ROADMAP.md)：维护者待办。
+- [能力现状与待办](v3-status.md)：已交付能力、已知边界与下一步。
+- [CHANGELOG](../CHANGELOG.md)：发布说明；[AUDIT](../AUDIT.md)：发布审计；[ROADMAP](../ROADMAP.md)：维护者待办。
 - [RELEASING](../RELEASING.md)：发版流程；[CONTRIBUTING](../CONTRIBUTING.md)：贡献约定；[MAINTAINER_VERIFICATION](../MAINTAINER_VERIFICATION.md)：真实服务验收。
 
 ## 常用命令

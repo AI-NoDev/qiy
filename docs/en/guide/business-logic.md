@@ -140,7 +140,7 @@ statemachine <Name> {
 }
 ```
 
-- The field must be a required enum field. It belongs to the machine: create, update, CSV import and the forms no longer accept it, and new records start in `initial`.
+- The field must be a required enum field. It belongs to the machine: create, update, CSV import and the forms do not accept it, and new records start in `initial`.
 - Each transition becomes the command `POST /api/v1/commands/<machine><Transition>` (here `ticketLifecycleClose`) with body `{ "recordId": "<id>" }`, the GraphQL mutation `run<Machine><Transition>`, and a button that only appears in a `from` state.
 - The command locks the row, returns 409 `state.invalidTransition` when the record is not in a `from` state, writes an audit row `<table>.<transition>` and emits the event `<table>.<transition>` with `{ id, <field> }`. Transitions require an `Idempotency-Key`, so retrying a click replays the first result.
 - Without `allow`, every `full` and `write` role may run a transition.

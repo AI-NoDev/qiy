@@ -148,7 +148,7 @@ menu {
 
 ## 概览页
 
-旧的 `dashboard { metric ... }` 块已在 0.37.0 删除，概览页统一由 [chart（多视图图表）](/dsl/charts) 声明；没有 `chart` 时每个可写资源自动生成一张计数卡。逐条改写见 [菜单与概览页 · 迁移](/guide/menu-dashboard#从-dashboard-metric-迁移) 与 [0.37 迁移指南](/guide/migration-0.37)。
+概览页由 [chart（多视图图表）](/dsl/charts) 声明；没有 `chart` 时每个可写资源自动生成一张计数卡。
 
 ## 相关
 

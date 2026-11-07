@@ -118,5 +118,4 @@ statemachine <Name> {
 - [dataflow](/dsl/dataflow)：transition 编译成的命令的完整语义（幂等、审计、outbox、批量）。
 - [action](/dsl/actions)：按钮、`when … in`、确认框与可见性。
 - [业务工作流](/guide/workflow)：何时用状态机、何时用 dataflow。
-- [迁移到 0.38](/guide/migration-0.38)：`workflow orderInventory` 迁移到状态机。
 - 示例：[examples/erpadmin/app.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/erpadmin/app.qiy)、`tests/fixtures/kitchen-sink/modules/commands.qiy`。

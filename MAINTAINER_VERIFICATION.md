@@ -273,10 +273,10 @@ QIY_OIDC_GOOGLE_CLIENT_SECRET=...
 1. 匿名请求 `GET /api/v1/products`、`/api/v1/auth/me`、`/api/v1/auth/identities` 均 401；
 2. `GET /api/v1/auth/providers` 返回 `local: true` 和 5 个已配置 Provider；
 3. `admin@example.com / admin-password` 密码登录 → `/auth/me` 200（admin）；
-4. 已有身份（Dex 的 `admin@example.com`）走真实 Authorization Code + PKCE → `POST /api/v1/auth/exchange` 返回会话 token，`/auth/me` 200——这就是旧版「OAuth 用户没有 users 行导致 401」的回归验收；
+4. 已有身份（Dex 的 `admin@example.com`）走真实 Authorization Code + PKCE → `POST /api/v1/auth/exchange` 返回会话 token，`/auth/me` 200——确认 OAuth 用户已有 users 行，不会 401；
 5. 新身份（Dex B 的 `operator@example.com`）exchange 返回 `needsOnboarding` + `onboardingToken`（不是 401）→ `/auth/oauth/register` 设置密码并创建账号（默认 viewer）→ `/auth/me` 200；
 6. 已登录账号 `POST /api/v1/auth/bind` 绑定第二个 Provider；重复身份 409；`POST /api/v1/auth/unbind` 解绑；只剩 Provider 身份且没有密码时解绑返回 409（拒绝移除最后登录方式）；
-7. 未过期的真实 Provider `id_token` 仍可被服务端按 `iss` 路由验签（兼容旧的纯 Provider token 客户端）。
+7. 未过期的真实 Provider `id_token` 仍可被服务端按 `iss` 路由验签（支持直接持有 Provider token 的客户端）。
 
 真实厂商（Google/Kinde/Azure）第一次 OAuth 登录同样会进入 `/auth/onboarding`，回调地址见 [examples/self/README.md](https://github.com/AI-NoDev/qiy/blob/main/examples/self/README.md)。
 

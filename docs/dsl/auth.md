@@ -424,7 +424,7 @@ QIY_OIDC_JWKS_CACHE_MAX_AGE_MS=600000
 | `Auth accepts either provider or providers, not both` | 两种写法同时出现 |
 | `Auth providers cannot include otp; use provider otp for one-time-password login` | `providers` 里写了 `otp` |
 | `Auth providers must be unique` | `providers` 重复 |
-| `Unsupported auth provider <id>; use provider local, otp or oidc …` | 单 Provider 写了厂商名（0.37 起改用 `provider oidc { preset <id>; }`） |
+| `Unsupported auth provider <id>; use provider local, otp or oidc …` | 单 Provider 写了厂商名；改写为 `provider oidc { preset <id>; }` |
 | `Unsupported OIDC preset <x>` | `preset` 不在预设列表 |
 | `Invalid auth provider name <x>` | `providers` 里的名字不是小写字母/数字/`-` |
 | `Provider mapping requires subjectField` | `provider X { }` 没写 `subjectField` |

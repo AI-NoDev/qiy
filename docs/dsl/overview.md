@@ -175,7 +175,7 @@ messages {
 - `default` 必须是规范 BCP 47 标签，且必须存在同名 `locale` 块（缺失报 `Missing default message locale X`）。
 - key 必须匹配 `[a-zA-Z_][a-zA-Z_0-9.-]*`，且不能包含 `__proto__` / `prototype` / `constructor` 段。
 - 模型描述用 `@comment(t("key"))` / `@label(t("key"))` 引用词典；生成代码保存默认语言文案，并在 JSDoc 里写 `i18n: key`，界面运行时按当前语言切换。
-- 词典缺失时回退到声明的原文（DSL label），因此没有 `messages` 的项目行为与旧版本一致。
+- 词典缺失时回退到声明的原文（DSL label），因此没有 `messages` 的项目直接显示 DSL 原文。
 - 生成的 `apps/web/app/i18n.ts` 实现 Refine `I18nProvider`（`translate(key, options, defaultMessage)`）；语言选择持久化在 `localStorage` 的 `qiy.locale`。
 
 完整词典语法、复数（`_one`/`_other`）、RTL 与 Ant Design locale 加载规则见 [多语言（messages / i18n）](/dsl/i18n)。
@@ -264,7 +264,7 @@ application reviews-admin @comment(t("application.reviews")) {
 
 - 文件必须以 `qiy v0;` 作为第一个声明（前面只能有空白与注释），版本 token 目前**只有 `v0`**；其它写法在解析期就失败（`Expected v0 near token N`）。
 - 序列化器（`serializeQiyProject`）输出标准 `qiy v0;` 形式：块顺序固定、注解顺序固定、`entity … table …` 显式写出。它是**规范化**而非逐字保留：显式写的默认值可能被省略（例如 `mode standalone;` 不会回写），语义不变；`@code` 字段、权限与图表会重新渲染成等价文本（用于往返测试）。
-- `.qiy-generated.json` 记录 `schemaVersion: 1` 与生成它的 `qiyVersion`；manifest schema 变更会让旧的 `--sync` 明确失败，而不是猜测。
+- `.qiy-generated.json` 记录 `schemaVersion: 1` 与生成它的 `qiyVersion`；manifest schema 不匹配时 `--sync` 明确失败，而不是猜测。
 - 语法本身**没有向前兼容**：未知构造/注解直接报错。升级 CLI 后请用 `qiy generate … --sync` 或 `qiy init --sync` 重新生成，并检查生成的迁移。
 - `--sync` 只重写 manifest 登记的文件并删除不再生成的登记文件；未登记文件不会被触碰。
 

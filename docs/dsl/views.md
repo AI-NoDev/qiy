@@ -65,7 +65,7 @@ SQLite / MySQL 分别使用 `sqliteView` / `mysqlView`；视图定义放在实�
 
 - 当前 `view` 生成 **Drizzle schema + 只读 REST/GraphQL + Web 列表/详情**，不生成表单与变更端点。
 - 需要 API 时，用生成器插件或在集成项目里挂载只读适配器；不要把它当成可变实体。
-- SQLite / PostgreSQL / MySQL 均已实库验证：`drizzle-kit generate` 生成 view 迁移，`db:migrate` 后可查询；schema drift 检查会忽略 view，不再报告 `unexpected table`。
+- SQLite / PostgreSQL / MySQL 均已实库验证：`drizzle-kit generate` 生成 view 迁移，`db:migrate` 后可查询；schema drift 检查会忽略 view，不会报告 `unexpected table`。
 - 视图列没有字段注解或表单语义；行级规则来自源实体（见上），直接用 SQL 访问数据库视图时不经过这些规则。
 
 ## 校验

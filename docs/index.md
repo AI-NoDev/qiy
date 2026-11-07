@@ -26,7 +26,7 @@ features:
     link: /guide/getting-started
     linkText: 快速开始
   - title: 项目优先、模块默认
-    details: model/ 是人/AI 维护的模型，admin/ 是 Qiy 管理的生成物；模型按业务域拆成 modules/*.qiy，不再从单文件巨石开始。
+    details: model/ 是人/AI 维护的模型，admin/ 是 Qiy 管理的生成物；模型按业务域拆成 modules/*.qiy，而不是单文件巨石。
     link: /guide/design-philosophy
     linkText: 阅读设计理念
   - title: 以数据为中心

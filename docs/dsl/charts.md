@@ -55,7 +55,7 @@ chart panels Overview {
 
 ## 语法
 
-`chart` 与 `chart panels` 都写在 `application {}` 内、`menu` 之后、`dataflow` 之前。旧的 `dashboard { metric ... }` 块已在 0.37.0 删除，改写方式见 [菜单与概览页 · 迁移](/guide/menu-dashboard#从-dashboard-metric-迁移)。
+`chart` 与 `chart panels` 都写在 `application {}` 内、`menu` 之后、`dataflow` 之前。
 
 ```text
 chart [const|pie|bar|line|area|scatter|stacked|table] <ChartName> {
@@ -94,7 +94,7 @@ chart panels <PanelName> {
 
 | 属性 | 必填 | 取值 | 默认 | 说明 |
 | --- | --- | --- | --- | --- |
-| kind（位置参数） | 否 | `const` / `pie` / `bar` / `line` / `area` / `scatter` / `stacked` / `table` | `const` | 省略 kind 即统计卡；`stat` 旧名称已删除 |
+| kind（位置参数） | 否 | `const` / `pie` / `bar` / `line` / `area` / `scatter` / `stacked` / `table` | `const` | 省略 kind 即统计卡 |
 | `icon` | 否 | 字符串 | 无 | Ant Design `*Outlined` 图标名；只有生成到 `app/icons.tsx` 的图标才会真正渲染，见[图标](#图标) |
 | `title` | 否 | 字符串 | chart 名 | 卡片标题（chart 级）；视图标题另见 `views.<kind>.label` |
 | `data` | **是** | 数据迷你语言 | 无 | 每个声明必须且只能出现一次 |

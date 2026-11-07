@@ -60,7 +60,6 @@ qiy skill uninstall drizzle
 
 - 重复执行相同版本的安装是幂等的；
 - 官方文件被改动时默认拒绝覆盖并提示使用 `--force`（避免悄悄丢失自定义修改）；
-- 旧版本安装目录 `.agent/skills/qiy` 会在检测到时原地更新，便于平滑升级；
 - 安装的是所选 skill 的 `SKILL.md`、`references/`、`plugins/` 与 `examples/` 全部文件；`--all` 安装 5 个目录；
 - 非 `qiy` skill 安装到 `.agents/skills/<name>`；不同 skill 互不覆盖。
 
@@ -142,7 +141,6 @@ qiy/
 ## 更新与版本
 
 - Skill 内容随 Qiy 发行版打包；升级 CLI 后运行 `qiy skill install --force` 即可同步。
-- 本版本重构了参考文件：早期单一的 `references/production-boundaries.md` 扩展并更名为 `references/testing-deployment.md`，并新增 `language-reference.md`、`auth-permissions.md`、`refine-providers.md`、`dataflows-actions.md`、`ui-charts-i18n.md`、`system-features.md`、`storage-realtime.md`、`troubleshooting.md`；`modeling-and-generation.md`、`cli-workflows.md`、`workspace-integration.md` 同步补全 0.2 能力。安装只覆盖官方文件、不删除本地遗留文件，因此从旧版本升级后可手动删除旧的 `production-boundaries.md`。
 - 文档站的静态 skill 与 `llms.txt` 在每次 `bun run docs:build` 时重新生成，不需要额外发布流水线或第三方 skill 市场。
 - 发布版本以 Git tag（如 `vX.Y.Z`）与 GitHub Release 为准。
 

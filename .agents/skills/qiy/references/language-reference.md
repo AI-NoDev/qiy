@@ -559,7 +559,7 @@ At most one `menu` block; groups unique; `resource` is the entity table name and
 
 ## Overview page
 
-The legacy `dashboard { metric ... }` block was removed in 0.37.0 and now fails to parse with a migration hint. Declare `chart` views instead; without any `chart`, the home page shows one count card per writable resource. Migration mapping: "Migrating from dashboard metrics" in [ui-charts-i18n.md](ui-charts-i18n.md).
+The overview page is declared with `chart` views; without any `chart`, the home page shows one count card per writable resource.
 
 ## chart and chart panels
 

@@ -78,7 +78,7 @@ describe("ERP Admin project", () => {
   });
 
   test("points the removed workflow declaration at the statemachine migration", () => {
-    expect(() => parseQiyProject(source.replace("  storage { provider local; }", "  storage { provider local; }\n  workflow orderInventory;"))).toThrow("docs/guide/migration-0.38.md");
+    expect(() => parseQiyProject(source.replace("  storage { provider local; }", "  storage { provider local; }\n  workflow orderInventory;"))).toThrow("near token");
   });
 
   test("uses Bun's SQLite migrator for SQLite packages", () => {

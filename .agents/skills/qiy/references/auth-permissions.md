@@ -90,7 +90,7 @@ Every external login is OpenID Connect; vendors differ only in endpoint shape, b
 - Presets: `generic`, `okta`, `auth0`, `azure-ad-b2c`, `keycloak`, `google`, `kinde`; anything else fails with `Unsupported OIDC preset <x>`.
 - Provider names are lowercase letters, digits and `-`. The name (not the preset) drives the callback path and `QIY_OIDC_<NAME>_*` variables.
 - Button label: `label` -> preset vendor name -> provider name.
-- A single `provider okta;` / `provider sso;` was removed in 0.37.0 and fails with `use provider local, otp or oidc (for example provider oidc { preset okta; })`.
+- A vendor name as a single provider (`provider okta;`) fails with `use provider local, otp or oidc (for example provider oidc { preset okta; })`.
 
 | Attribute | Required | Default | Rule |
 | --- | --- | --- | --- |
@@ -409,7 +409,7 @@ dataflow shipSalesOrder @label("Ship") {
 }
 
 dataflow reserveStock @label("Reserve") {
-  allow roles admin, operator;   # legacy form
+  allow roles admin, operator;
   ...
 }
 ```

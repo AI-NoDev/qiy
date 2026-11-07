@@ -11,7 +11,7 @@ function walk(directory: string): void {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name !== "v0.6" && entry.name !== "og") walk(path);
+      if (entry.name !== "og") walk(path);
     } else if (/\.(js|css)$/.test(entry.name)) {
       total += statSync(path).size;
       files += 1;

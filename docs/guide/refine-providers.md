@@ -142,7 +142,7 @@ export const dataProvider = (import.meta.env.VITE_QIY_API_TRANSPORT ?? "rest") =
 
 ### `getMany`：id 集合、分块与 30 秒合并缓存
 
-外键列不再逐格 `getOne`：列表页把同一目标资源的 FK 值分组，用 `useMany` 一次取回。DataProvider 侧有三层保护：
+外键列不逐格 `getOne`：列表页把同一目标资源的 FK 值分组，用 `useMany` 一次取回。DataProvider 侧有三层保护：
 
 | 机制 | 实现 |
 | --- | --- |
@@ -386,7 +386,7 @@ const { result, query } = useOne({ resource: name ?? "", id: id ?? "", liveMode:
 | 情况 | 判定 |
 | --- | --- |
 | 策略带 `verification` | 在浏览器用同一表达式求值（`permissions`/`groups`/`role` 三个集合与字面量比较，支持 `and`/`or`/`not`） |
-| 策略带 `permissions`，且 `/auth/me` 返回了 `permissions` 数组 | 必须持有**全部**权限值；不再看 `roles` |
+| 策略带 `permissions`，且 `/auth/me` 返回了 `permissions` 数组 | 必须持有**全部**权限值；不看 `roles` |
 | 策略带 `permissions`，但身份没有 `permissions` 数组 | 退回 `roles` 白名单 |
 | 只有 `roles` | 按 `roles` 白名单 |
 

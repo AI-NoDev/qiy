@@ -31,7 +31,7 @@ bun run db:migrate
 
 ## 页面生成规则
 
-- 功能总览：`overview && (apiDocs || apiKeys)`；只含实体/Dataflow/权限模型三个标签页，**不再包含** API 文档或访问密钥标签。
+- 功能总览：`overview && (apiDocs || apiKeys)`；只含实体/Dataflow/权限模型三个标签页，**不包含** API 文档或访问密钥标签。
 - API 文档：`apiDocs`；访问密钥：`apiKeys`。
 - 功能总览依赖 `/api/v1/docs/model`：该端点在「功能总览需要」或 `apiDocs` 打开时生成；`/api/v1/openapi.json` 只在 `apiDocs` 打开时生成。
 - 全部关闭（`overview false; apiDocs false; apiKeys false;`）时不生成页面、菜单项、文档路由与 `mermaid` 依赖。

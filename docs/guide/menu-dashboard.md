@@ -169,20 +169,6 @@ apps/web/tests/menu-tree.test.ts       # 排序/嵌套/未分组/隐藏资源断
 
 图表的完整语法、校验、端点和 i18n 见 [chart（多视图图表）](/dsl/charts)。与菜单的衔接只有两点：chart 与 panel 的名称在全模型唯一且与菜单分组无关；面板选择存 `qiy.charts.panel`，视图选择不持久化。
 
-### 从 `dashboard { metric }` 迁移
-
-0.37.0 删除了旧的 `dashboard { metric ... }` 块，解析器遇到它会报错并指向 [0.37 迁移指南](/guide/migration-0.37)。逐条改写：
-
-| 0.36 `metric` 写法 | 0.37 `chart` 写法 |
-| --- | --- |
-| `metric orderCount orders @label("订单总数") @icon(ShoppingOutlined);` | `chart const OrderCount { title = "订单总数"; icon = "ShoppingOutlined"; data = count orders; }` |
-| `@type(distribution) @groupBy(status)` | `chart pie OrderStatus { data = count orders group by status; labels = status; }` |
-| `@type(trend) @groupBy(createdAt) @days(30)` | `chart line OrderTrend { data = trend orders.createdAt days 30; }` |
-| `@type(aggregate) @field(amount) @agg(sum)` | `chart const OrderAmount { data = sum orders.amount; }` |
-| `@span(8\|12\|24)` | `chart panels` 的 `grid 24 <rows>` 与每个变体的 `x y w h` |
-| `@comment(...)` | 无对应属性；说明文字写进 `title` 或 `qiy.charts.<Chart>.label` |
-| `qiy.dashboard.<metric>.label` | `qiy.charts.<Chart>.label` |
-
 ## 示例：最小菜单 + 图表模型
 
 ```qiy
@@ -271,7 +257,6 @@ menu {
 | `Unsupported menu group attribute @x` | 未知注解 | 只用 label/icon/parent/comment |
 | 分组不显示 | 组内资源都被角色过滤 | 检查 `restrict`/`pages`/角色 |
 | 菜单项是原文而非译文 | 只写了 `.label`，没写 `.plural` | 同时声明 `.plural` |
-| `The dashboard { metric ... } block was removed in Qiy 0.37.0` | 模型还在用旧指标块 | 按[上表](#从-dashboard-metric-迁移)改写成 `chart` |
 
 ## 相关
 

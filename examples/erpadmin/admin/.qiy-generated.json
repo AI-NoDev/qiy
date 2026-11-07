@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "qiyVersion": "0.38.0",
+  "qiyVersion": "1.0.0",
   "projectName": "qiy-erp-admin",
   "mode": "standalone",
   "files": [

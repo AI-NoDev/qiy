@@ -93,7 +93,7 @@ GET    /api/v1/graphql/subscribe   GraphQL 订阅（SSE，仅 GraphQL 客户端 
 浏览器本地视图（`qiy.views.<resource>`）之外，每个应用还生成一套服务端保存视图，用于跨设备同步与团队共享：
 
 - `GET /api/v1/saved-views?resource=<table>` → `{ items }`：返回**自己的**视图 + 所有人可见的 `shared` 视图，按 `updatedAt` 倒序（再按 `createdAt`、`id` 稳定排序）。每一项除 `id/resource/name/ownerId/shared/search/filters/sorters/columns/createdAt/updatedAt` 外还带 **`mine`**（`ownerId === 当前用户`），UI 用它决定是否显示删除入口；共享视图不泄露其他用户的身份信息，`mine` 就是唯一的所有权信号。
-- `POST /api/v1/saved-views` body `{ resource, name, shared?, search?, filters?, sorters?, columns? }` → `201` 视图对象。**同名发布是 upsert**：同一用户、同一资源、同一 `name` 再次保存时更新既有行（`shared`、`search`、`filters`、`sorters`、`columns`、`updatedAt`）并返回该行，不会新增重复项；旧版本遗留的重复同名行会在下一次发布时被合并。`name` 去空格后必填（≤80 字符），`filters` ≤50 项、`sorters` ≤10 项、`columns` ≤100 项。
+- `POST /api/v1/saved-views` body `{ resource, name, shared?, search?, filters?, sorters?, columns? }` → `201` 视图对象。**同名发布是 upsert**：同一用户、同一资源、同一 `name` 再次保存时更新既有行（`shared`、`search`、`filters`、`sorters`、`columns`、`updatedAt`）并返回该行，不会新增重复项。`name` 去空格后必填（≤80 字符），`filters` ≤50 项、`sorters` ≤10 项、`columns` ≤100 项。
 - `DELETE /api/v1/saved-views/:id` → `204`。**创建者本人可以删除自己的视图；`role = admin` 的用户也可以删除任意用户的共享视图**（用于清理团队共享项），其他情况 `403 views.forbidden`；不存在的 id `404`。共享（`shared: true`）不授予删除权限。
 - 校验：未知资源 `400 views.unknownResource`；每人每资源最多 100 个**不同名称**的视图（`400 views.limit`）——同名重复发布属于更新，不受该上限影响；未认证 `401`。
 - 持久化在生成的 `qiy_saved_views` 表（三方言 schema 都包含），不依赖进程内存。

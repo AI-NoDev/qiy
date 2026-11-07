@@ -239,10 +239,6 @@ restrict stock_movements {
 
 **4）前端订阅封装**：把 `subscribeGraphql()` 的 `stop()` 交给 React `useEffect` 清理，避免路由切换后残留订阅；事件负载已脱敏，可直接用于 UI 局部刷新。
 
-## 从 0.36 迁移
-
-0.37 删除了 Ably 传输、graphql-ws、死信/重放/指标端点、`realtime:admin` CLI 与 Prometheus/Grafana 清单。`.qiy` 语法不变；重新生成后执行 migration（outbox 表删除了 `attempts`/`availableAt`/`deliveredAt`/`lease*`/`deadLetteredAt`/`lastError` 列），并从部署环境移除 `QIY_ABLY_API_KEY` 与 `QIY_REALTIME_LEASE_MS` 等旧变量。详见 [0.37 迁移指南](/guide/migration-0.37)。
-
 ## 相关
 
 - [dataflow](/dsl/dataflow)：`emit` 与实时 outbox 的联动。

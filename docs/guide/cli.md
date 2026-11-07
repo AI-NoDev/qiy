@@ -24,7 +24,7 @@ qiy mcp
 qiy skill install|list|update|uninstall [...]
 ```
 
-高级/兼容入口（文档不再作为主路径）：
+高级入口（显式指定模型文件与输出目录）：
 
 ```text
 qiy generate <source> <output-dir> [--sync]

@@ -59,7 +59,7 @@ relation orgParent orgs parentId orgs id one @onDelete(setNull);
 | `{SSS}` | 毫秒（三位） | `000`–`999` |
 | `{YYYYMMDD}` 等拼接写法 | 任意有序组合的日期/时间部分 | 解析器按固定长度（`YYYY`=4、`SSS`=3、其余=2）拆分 |
 | `{seq}` / `{seq:4}` | 序号，默认宽度 1，补零到 N 位 | 宽度 `1`–`12` |
-| `{count+1}` / `{count+1:4}` | `{seq}` / `{seq:N}` 的别名（兼容旧模型） | 同上 |
+| `{count+1}` / `{count+1:4}` | `{seq}` / `{seq:N}` 的别名 | 同上 |
 | `{$.seq}` / `{$.count+1[:N]}` | 历史写法别名 | 同上 |
 | `{random:10}` | 10 位随机串，默认字符集 `a-zA-Z0-9` | 长度 `1`–`256` |
 | `{random:8:A-F0-9}` | 指定字符集的随机串 | 只允许 ASCII 字母数字与升序区间 |

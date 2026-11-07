@@ -221,7 +221,7 @@ qiy skill uninstall       # keeps handwritten files
 | `update` | Updates only an existing installation; same local-edit refusal as `install` |
 | `uninstall` | Deletes only bundled official files and empty directories; handwritten files remain |
 
-Behavior: repeating an install is idempotent; if an official file differs from the bundled version the command refuses with `Qiy skill has local changes...` and suggests `--force`; a legacy `.agent/skills/qiy` directory is updated in place when it is the only one present; only the skill's `SKILL.md`, `references/` and `examples/` are written. The installed bundle always matches the current CLI version - it never downloads a newer one.
+Behavior: repeating an install is idempotent; if an official file differs from the bundled version the command refuses with `Qiy skill has local changes...` and suggests `--force`; only the skill's `SKILL.md`, `references/` and `examples/` are written. The installed bundle always matches the current CLI version - it never downloads a newer one.
 
 No network? Extract the published archive instead:
 

@@ -2160,9 +2160,6 @@ function enumeration(): import("./database-ir").EnumIR {
     expect("}");
     return { name, ...(description && description), values };
   }
-  if (tokens[0] === "project" || (tokens[0] === "qiy" && tokens[1] === "v1")) {
-    throw new Error("The v1 shorthand syntax was removed in Qiy 0.37.0. Rewrite the model as `qiy v0; application <name> { ... }`; see docs/guide/migration-0.37.md.");
-  }
   expect("qiy");
   expect("v0");
   expect(";");
@@ -2804,7 +2801,6 @@ function enumeration(): import("./database-ir").EnumIR {
   if (peek() === "permission") permissions = permissionDeclarations();
   if (applicationDescription) applicationDescription = resolveDocumentation(applicationDescription, "application comment");
   if (databaseDescription) databaseDescription = resolveDocumentation(databaseDescription, "database comment");
-  if (peek() === "workflow") throw new Error("workflow orderInventory was removed in Qiy 0.38.0; declare a statemachine for the status field instead (for example statemachine orderLifecycle { resource orders; field status; initial draft; transition submit { from draft; to submitted; } }); see docs/guide/migration-0.38.md.");
   const enums: import("./database-ir").EnumIR[] = [];
   while (peek() === "enum") enums.push(enumeration());
   const enumNames = new Set(enums.map((enumeration) => enumeration.name));
@@ -2962,7 +2958,6 @@ function enumeration(): import("./database-ir").EnumIR {
   }
   const chartDeclarations: Array<{ name: string; view: QiyChartView }> = [];
   const chartPanels: NonNullable<QiyProject["chartPanels"]> = [];
-  if (peek() === "dashboard") throw new Error("The dashboard { metric ... } block was removed in Qiy 0.37.0; declare chart views instead (for example chart const OrderCount { data = count orders; }); see docs/guide/migration-0.37.md.");
   while (peek() === "chart") {
     expect("chart");
     if (peek() === "panels") {

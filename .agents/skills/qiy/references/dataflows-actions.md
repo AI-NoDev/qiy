@@ -405,7 +405,6 @@ statemachine orderLifecycle {
 - The field becomes server-owned: create/update inputs, GraphQL inputs, CSV import and forms drop it. A hand-written dataflow that writes it fails: `Dataflow <name>: orders.status belongs to a statemachine; change it with a transition instead`.
 - `statemachine`, `dataflow` and `action` come after `chart` and may interleave. Resources with `restrict` and `mode integration` models reject it, as for dataflows.
 - A transition only changes the state. Put other writes (stock, tracking numbers) in a separate dataflow gated by `when status == "..."`.
-- `workflow orderInventory;` was removed in 0.38.0 and now fails with a pointer to docs/guide/migration-0.38.md.
 
 ## Webhooks, notifications and scheduled dataflows
 

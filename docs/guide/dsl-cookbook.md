@@ -605,7 +605,7 @@ statemachine orderLifecycle {
 - 四个命令 `POST /api/v1/commands/orderLifecycleSubmit` 等（GraphQL `runOrderLifecycleSubmit`），body `{ "recordId": "<id>" }`，需要 `Idempotency-Key`。
 - 命令在事务内锁定记录、检查当前状态、写入新状态、记审计（`orders.submit`）并写 outbox 事件。
 - 列表与详情页按状态显示按钮：`cancel` 用 `when status in "draft", "submitted"`。
-- `status` 不再出现在新建/编辑表单、通用 PATCH 和 CSV 导入中；新订单从 `draft` 开始。
+- `status` 不出现在新建/编辑表单、通用 PATCH 和 CSV 导入中；新订单从 `draft` 开始。
 
 **坑**
 

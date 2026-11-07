@@ -93,5 +93,4 @@ action recordShipment {
 - [DSL：actions](/dsl/actions)：把命令挂到列表/详情按钮。
 - [通知与 Webhook](/dsl/notifications)：订阅命令事件、发邮件、定时运行 dataflow。
 - [权限（permission）](/dsl/permissions)：`allow permission` / `allow verification`、`restrict`/`scope`。
-- [迁移到 0.38](/guide/migration-0.38)：从 `workflow orderInventory` 迁移。
 - 示例：[examples/erpadmin/app.qiy](https://github.com/AI-NoDev/qiy/blob/main/examples/erpadmin/app.qiy)。
