@@ -73,15 +73,20 @@ test("DB views inherit the source soft delete, tenant scope and row policy in RE
   const project = parseQiyProject(guardedSource);
   const files = generateProject(project.database, "view-demo", project);
   const routes = files["apps/server/src/views-routes.ts"]!;
-  expect(routes).toContain("inArray(product_names.id, db.select({ id: products.id }).from(products).where(and(isNull(products.deletedAt)");
+  expect(routes).toContain("condition: and(isNull(products.deletedAt), ...(policy.conditions as SQL[])");
+  expect(routes).not.toContain("inArray");
+  expect(routes).toContain('db.select({ "id": products.id, "name": products.name, "secret": products.secret }).from(products).where(access.condition).orderBy(products.id).limit(pageSize)');
+  expect(routes).toContain("db.select({ count: count() }).from(products).where(access.condition)");
   expect(routes).toContain('principal?.claims?.["tenantId"]');
   expect(routes).toContain('resolvePolicy("products", principal');
   expect(routes).toContain("policy.usesScope ? [] : [eq(products.tenantId, scope.value)]");
   expect(routes).toContain("data.map(access.mask)");
-  expect(routes).toContain("and(eq(product_names.id, params.id), access.condition)");
+  expect(routes).toContain("where(and(eq(products.id, id), access.condition)).limit(1)");
+  expect(routes).toContain("viewReaders.product_names.one(principal, params.id)");
   const graphql = files["apps/server/src/graphql.ts"]!;
-  expect(graphql).toContain('import { viewAccess } from "./views-routes"');
-  expect(graphql).toContain("await viewAccess.product_names(viewContext?.principal ?? null)");
+  expect(graphql).toContain('import { viewReaders } from "./views-routes"');
+  expect(graphql).toContain("await viewReaders.product_names.list(viewContext?.principal ?? null, current, size)");
+  expect(graphql).toContain("await viewReaders.product_names.one(viewContext?.principal ?? null, id)");
   expect(graphql).toContain("contextValue: { request, principal,");
 });
 
@@ -91,9 +96,12 @@ test("DB views without row rules keep an unfiltered query", () => {
   expect(routes).not.toContain("resolvePolicy");
 });
 
-test("DB views over guarded sources must select id", () => {
+test("DB views over guarded sources filter the source even without an id column", () => {
   const project = parseQiyProject(guardedSource.replace("columns id, name, secret;", "columns name;"));
-  expect(() => generateProject(project.database, "view-demo", project)).toThrow("view product_names: source products has @softDelete, data scope, row policy, so the view must select the id column");
+  const routes = generateProject(project.database, "view-demo", project)["apps/server/src/views-routes.ts"]!;
+  expect(routes).toContain('db.select({ "name": products.name }).from(products).where(access.condition).orderBy(products.id)');
+  expect(routes).not.toContain("async one(");
+  expect(routes).not.toContain('"/product_names/:id"');
 });
 
 test("DB views reject unknown tables and columns", () => {

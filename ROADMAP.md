@@ -200,7 +200,7 @@
 - [x] Webhook 与通知：`webhook` / `notification` 订阅 `emit` 事件，事务内写投递记录，提交后签名投递或经 SMTP（默认）/ Resend / webhook / console 发送，抢占 + 退避重试；cron `job … dataflow <name>` 以租约保证每个 tick 只执行一次
 - [x] 按领域拆分生成器：`tools/generate-server.ts` 与 `generate-web.ts` 只做编排，渲染器移入 `tools/server/` 与 `tools/web/`，生成结果逐字节不变
 - [x] 计算字段落为数据库生成列：三方言同一语义（按小数相除、除零为 null、Integer 截断、Decimal 按 scale 舍入），可排序、筛选、建索引，可被 view 选择；生成测试在目标数据库上逐个求值表达式
-- [ ] view IN 子查询性能
+- [x] view 读路径不再用 `IN` 子查询：视图是单实体投影，直接从源表按规则过滤（用上源表索引）、按主键稳定分页；视图不再要求选择 `id`；生成 SQLite 运行时测试
 - [ ] 本地 E2E 对陈旧服务的鲁棒性
 - [ ] 英文用户文档
 

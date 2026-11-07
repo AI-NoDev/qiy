@@ -2,7 +2,7 @@ import type { DatabaseIR, EntityIR } from "./database-ir";
 import type { QiyProject, QiyResourceRestriction } from "./qiy-project";
 
 type ViewScope = NonNullable<QiyProject["scopes"]>[number];
-type AccessDatabase = DatabaseIR & { scopes?: ViewScope[]; restrictions?: QiyResourceRestriction[] };
+export type AccessDatabase = DatabaseIR & { scopes?: ViewScope[]; restrictions?: QiyResourceRestriction[] };
 
 interface ViewSourceAccess {
   source: EntityIR;
@@ -30,19 +30,6 @@ function guarded(access: ViewSourceAccess): boolean {
   return Boolean(access.softDeleteField || access.scope || access.restricted);
 }
 
-/**
- * Validates that every view whose source carries row rules can be filtered: the
- * filter is an `id IN (allowed source ids)` subquery, so the view must expose `id`.
- */
-export function viewAccessErrors(database: AccessDatabase): string[] {
-  return (database.views ?? []).flatMap((view) => {
-    const access = viewSourceAccess(database, view);
-    if (!guarded(access) || view.columns.includes("id")) return [];
-    const rules = [access.softDeleteField && "@softDelete", access.scope && "data scope", access.restricted && "row policy"].filter(Boolean).join(", ");
-    return [`view ${view.name}: source ${access.source.name} has ${rules}, so the view must select the id column to inherit row filtering`];
-  });
-}
-
 function renderTreeHelper(database: DatabaseIR, access: ViewSourceAccess, name: string): string {
   const tree = access.scope?.tree;
   if (!tree) return "";
@@ -60,17 +47,14 @@ function renderTreeHelper(database: DatabaseIR, access: ViewSourceAccess, name: 
 export function renderViewRoutes(database: AccessDatabase, requiresAuth: boolean): string | undefined {
   const views = database.views ?? [];
   if (views.length === 0) return undefined;
-  const errors = viewAccessErrors(database);
-  if (errors.length) throw new Error(errors.join("\n"));
   const accesses = views.map((view) => ({ view, access: viewSourceAccess(database, view) }));
-  const schemaImports = new Set(views.map((view) => view.name));
+  const schemaImports = new Set(accesses.map(({ access }) => access.source.name));
   let usesPolicy = false;
   let usesTree = false;
   const helpers: string[] = [];
   const accessEntries = accesses.map(({ view, access }) => {
     if (!guarded(access)) return `  ${view.name}: async (_principal: Principal | null) => ({ condition: undefined, mask: (row: Record<string, unknown>) => row }),`;
     const source = access.source.name;
-    schemaImports.add(source);
     const conditions: string[] = [];
     const lines: string[] = [];
     if (access.softDeleteField) conditions.push(`isNull(${source}.${access.softDeleteField})`);
@@ -99,7 +83,7 @@ export function renderViewRoutes(database: AccessDatabase, requiresAuth: boolean
     return `  ${view.name}: async (principal: Principal | null) => {
     ${lines.join("\n    ")}
     return {
-      condition: inArray(${view.name}.id, db.select({ id: ${source}.id }).from(${source}).where(and(${conditions.join(", ")}))),
+      condition: and(${conditions.join(", ")}),
       mask: ${access.restricted ? "(row: Record<string, unknown>) => policy.mask(row)" : "(row: Record<string, unknown>) => row"},
     };
   },`;
@@ -108,28 +92,43 @@ export function renderViewRoutes(database: AccessDatabase, requiresAuth: boolean
     ? `const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });`
     : "const principal = await authenticate(request);";
+  const readers = accesses.map(({ view, access }) => {
+    const source = access.source.name;
+    const key = access.source.fields.find((field) => field.primaryKey)!.name;
+    const columns = view.columns.map((column) => `${JSON.stringify(column)}: ${source}.${column}`).join(", ");
+    const one = view.columns.includes("id") ? `
+    async one(principal: Principal | null, id: string) {
+      const access = await viewAccess.${view.name}(principal);
+      const [row] = await db.select({ ${columns} }).from(${source}).where(and(eq(${source}.${key}, id), access.condition)).limit(1);
+      return row ? access.mask(row) : undefined;
+    },` : "";
+    return `  ${view.name}: {
+    async list(principal: Principal | null, page: number, pageSize: number) {
+      const access = await viewAccess.${view.name}(principal);
+      const [data, totalRows] = await Promise.all([
+        db.select({ ${columns} }).from(${source}).where(access.condition).orderBy(${source}.${key}).limit(pageSize).offset((page - 1) * pageSize),
+        db.select({ count: count() }).from(${source}).where(access.condition),
+      ]);
+      return { data: data.map(access.mask), total: Number(totalRows[0]?.count ?? 0) };
+    },${one}
+  },`;
+  }).join("\n");
   const routes = accesses.map(({ view }) => {
     const detail = view.columns.includes("id") ? `
     .get("/${view.name}/:id", async ({ params, request, status }) => {
       ${authenticateLine}
-      const access = await viewAccess.${view.name}(principal);
-      const [row] = await db.select().from(${view.name}).where(and(eq(${view.name}.id, params.id), access.condition)).limit(1);
-      return row ? access.mask(row) : status(404, { error: "Not found" });
+      const row = await viewReaders.${view.name}.one(principal, params.id);
+      return row ?? status(404, { error: "Not found" });
     }, { params: t.Object({ id: t.String() }) })` : "";
     return `    .get("/${view.name}", async ({ query, request, status }) => {
       ${authenticateLine}
-      const access = await viewAccess.${view.name}(principal);
       const page = Math.max(1, Math.floor(Number(query.page ?? 1)));
       const pageSize = Math.min(100, Math.max(1, Math.floor(Number(query.pageSize ?? 20))));
-      const [data, totalRows] = await Promise.all([
-        db.select().from(${view.name}).where(access.condition).limit(pageSize).offset((page - 1) * pageSize),
-        db.select({ count: count() }).from(${view.name}).where(access.condition),
-      ]);
-      return { data: data.map(access.mask), total: Number(totalRows[0]?.count ?? 0) };
+      return viewReaders.${view.name}.list(principal, page, pageSize);
     }, { query: t.Object({ page: t.Optional(t.Numeric({ minimum: 1 })), pageSize: t.Optional(t.Numeric({ minimum: 1, maximum: 100 })) }) })${detail}`;
   }).join("\n");
   return `import { Elysia, t } from "elysia";
-import { and, count, eq, inArray, isNull${usesTree ? ", sql" : ""}, type SQL } from "drizzle-orm";
+import { and, count, eq, isNull${usesTree ? ", sql" : ""}, type SQL } from "drizzle-orm";
 import { db } from "./db";
 import type { Principal } from "./auth/guard";
 import { ${[...schemaImports].join(", ")} } from "./schema";
@@ -150,6 +149,15 @@ type QiyViewAccess = (principal: Principal | null) => Promise<{ condition: SQL |
 export const viewAccess = {
 ${accessEntries}
 } satisfies Record<string, QiyViewAccess>;
+
+/**
+ * A view is a projection of one entity, so REST and GraphQL read the view's
+ * columns straight from the source table: the row rules filter the source with
+ * its own indexes instead of an \`IN\` subquery over the view.
+ */
+export const viewReaders = {
+${readers}
+};
 
 export function createViewRoutes(authenticate: ViewAuthenticate) {
   return new Elysia({ prefix: "/api/v1" })

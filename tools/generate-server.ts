@@ -22,6 +22,7 @@ import { renderApiKeySchema, renderApiKeyHashModule, renderApiKeyRoutesModule, r
 import { renderSessionRevocationSchema } from "./server/auth";
 import { graphqlName, dataflowGraphqlName, renderGraphQL, renderGraphQLAdapter, renderGraphQLTest, renderGraphQLListOptionsTest } from "./server/graphql";
 import { renderSqliteVersionTest, renderSqliteScopeTest, renderSqliteRealtimeOutboxTest } from "./server/sqlite-tests";
+import { renderSqliteViewTest } from "./server/view-tests";
 import { renderDataflowIdempotencySchema, renderDataflowOutboxSchema, renderDataflowCallContracts, renderDataflowCallExtensions, renderDataflowRoutes, renderSqliteDataflowTest, renderQiyScenarioTest } from "./server/dataflows";
 import { rowPolicyFree, renderDataScopeTest, previewRepository, renderPolicyModule } from "./server/permissions";
 import { renderRealtimeOutboxSchema, renderExportJobsModule, renderSavedViewsModule, renderSavedViewsTest, renderImportJobsModule, renderRealtime, maskedRealtimeFields } from "./server/jobs-realtime";
@@ -1480,6 +1481,8 @@ ${disabledFilter ? `  const rejectedFilter = await app.handle(new Request("http:
   if (sqliteScopeTest) files["api/tests/sqlite-scope.test.ts"] = sqliteScopeTest;
   const sqliteVersionTest = renderSqliteVersionTest(database);
   if (sqliteVersionTest) files["api/tests/sqlite-version.test.ts"] = sqliteVersionTest;
+  const sqliteViewTest = renderSqliteViewTest(scopedDatabase, roles.admin);
+  if (sqliteViewTest) files["api/tests/sqlite-views.test.ts"] = sqliteViewTest;
   const distributionEntity = database.entities.find((entity) => entity.fields.some((field) => field.enumName));
   if (options.elysiaPlugins?.graphqlAdapter === "yoga" || options.elysiaPlugins?.graphqlAdapter === "apollo") {
     const policyFree = rowPolicyFree(database, options.restrictions ?? []);

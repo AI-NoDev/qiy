@@ -1,4 +1,4 @@
-﻿# Qiy DSL language reference
+# Qiy DSL language reference
 
 Use this file as the complete map of the `.qiy` language: lexical rules, strict declaration order, every application block and setting, entity/field grammar, relations/indexes, enums, generated values, display templates, and the placement matrix for every annotation. Open the focused reference for deep behavior; this page is enough to write a syntactically valid model.
 
@@ -498,7 +498,7 @@ view <Name> from <Entity> {
 }
 ```
 
-Read-only projection: Drizzle view + migration, read-only REST (`GET /api/v1/<view>`, `/:id` when `id` is selected), GraphQL queries and a read-only web list/detail. Names/columns validated; computed columns excluded. Reads inherit the source entity's `@softDelete`, `scope`/`@tenant`, `restrict when` and `restrict mask` rules; when the source has any of those row rules the view must select `id`.
+Read-only projection: Drizzle view + migration, read-only REST (`GET /api/v1/<view>`, `/:id` when `id` is selected), GraphQL queries and a read-only web list/detail. Names/columns validated; computed columns may be selected (they are generated columns). Reads inherit the source entity's `@softDelete`, `scope`/`@tenant`, `restrict when` and `restrict mask` rules: the generated `viewReaders.<view>` selects the view's columns from the source table with those rules as `WHERE` conditions, ordered by primary key, so the view does not need to select `id` (only the detail endpoint requires it).
 
 ## relation and index
 

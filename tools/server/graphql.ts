@@ -193,11 +193,9 @@ export function renderGraphQL(database: DatabaseIR, hiddenFields: Record<string,
   const views = database.views ?? [];
   const viewResolvers = views.map((view) => {
     const hasId = view.columns.includes("id");
-    return `  ${view.name}: async ({ page = 1, pageSize = 20 }: { page?: number; pageSize?: number }, viewContext?: { principal?: Principal | null }) => { const access = await viewAccess.${view.name}(viewContext?.principal ?? null); const size = Math.min(100, Math.max(1, Math.floor(pageSize))); const current = Math.max(1, Math.floor(page)); const [data, totalRows] = await Promise.all([db.select().from(${view.name}).where(access.condition).limit(size).offset((current - 1) * size), db.select({ count: count() }).from(${view.name}).where(access.condition)]); return { items: data.map(access.mask), total: Number(totalRows[0]?.count ?? 0), page: current, pageSize: size }; },${hasId ? `\n  ${view.name}ById: async ({ id }: { id: string }, viewContext?: { principal?: Principal | null }) => { const access = await viewAccess.${view.name}(viewContext?.principal ?? null); const [row] = await db.select().from(${view.name}).where(and(eq(${view.name}.id, id), access.condition)).limit(1); return row ? access.mask(row) : null; },` : ""}`;
+    return `  ${view.name}: async ({ page = 1, pageSize = 20 }: { page?: number; pageSize?: number }, viewContext?: { principal?: Principal | null }) => { const size = Math.min(100, Math.max(1, Math.floor(pageSize))); const current = Math.max(1, Math.floor(page)); const { data, total } = await viewReaders.${view.name}.list(viewContext?.principal ?? null, current, size); return { items: data, total, page: current, pageSize: size }; },${hasId ? `\n  ${view.name}ById: async ({ id }: { id: string }, viewContext?: { principal?: Principal | null }) => (await viewReaders.${view.name}.one(viewContext?.principal ?? null, id)) ?? null,` : ""}`;
   }).join("\n");
-  const viewImports = views.length
-    ? `import { and, count, eq } from "drizzle-orm";\nimport { db } from "./db";\nimport { ${views.map((view) => view.name).join(", ")} } from "./schema";\nimport { viewAccess } from "./views-routes";\n`
-    : "";
+  const viewImports = views.length ? `import { viewReaders } from "./views-routes";\n` : "";
   // Subscription roots resolve through the in-process bus that the outbox dispatcher feeds.
   // Subscriptions stream over Server-Sent Events: one `data:` frame per GraphQL result.
   const policyImports = restrictions.length

@@ -59,7 +59,7 @@ SQLite / MySQL 分别使用 `sqliteView` / `mysqlView`；视图定义放在实�
 | `restrict ... when` | 与源实体相同的行条件；缺 claim 按 `policy.missingClaim` 403 |
 | `restrict ... mask` | 对视图中同名列执行相同的 `omit` / `null` / `redact` |
 
-实现方式：生成的 `views-routes.ts` 导出 `viewAccess.<view>(principal)`，把源实体规则编译成 `view.id IN (SELECT id FROM <source> WHERE …)` 子查询并返回 mask 函数；REST 与 GraphQL resolver 共用它。因此**源实体有上述任一规则时，视图必须选择 `id` 列**，否则生成期报 `view X: source Y has <@softDelete / data scope / row policy>, so the view must select the id column to inherit row filtering`。源实体没有这些规则时，视图只要求已认证（声明了 `auth` 时）。
+实现方式：视图只是单个实体的列投影，所以生成的 `views-routes.ts` 中 `viewReaders.<view>` 直接从源表选出视图的列，把源实体规则作为 `WHERE` 条件（可以用上源表的索引），按主键排序分页，再执行 mask；REST 与 GraphQL resolver 共用它。规则依赖的列不必出现在视图里，因此视图不要求选择 `id`；只有选择了 `id` 才生成详情接口。源实体没有这些规则时，视图只要求已认证（声明了 `auth` 时）。生成的 SQLite 应用带 `tests/sqlite-views.test.ts`，用一条可见、一条被规则隐藏的源行验证列表、计数和详情。
 
 ## 边界
 

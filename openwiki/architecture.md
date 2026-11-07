@@ -30,7 +30,7 @@ app.qiy + include 片段
 | `tools/database-ir.ts` | 方言无关的数据模型校验 |
 | `tools/roles.ts` | 角色声明校验、默认角色、`RoleContext`，以及生成的 `api/src/auth/roles.ts` |
 | `tools/generate-server.ts` | 服务端编排：`generateServer` 组装 `apps/server` 的文件表，具体渲染交给 `tools/server/` |
-| `tools/server/` | 服务端按领域的渲染器：`shared`（字段 schema、principal claims、树形 scope）、`routes`、`repository`、`graphql`、`permissions`（行策略、数据范围、权限模型）、`dataflows`（含场景测试）、`jobs-realtime`（导入导出、保存视图、SSE）、`database-ops`（drift/备份/迁移/回滚）、`auth` 与 `auth-files`、`api-keys-docs`、`sqlite-tests` |
+| `tools/server/` | 服务端按领域的渲染器：`shared`（字段 schema、principal claims、树形 scope）、`routes`、`repository`、`graphql`、`permissions`（行策略、数据范围、权限模型）、`dataflows`（含场景测试）、`jobs-realtime`（导入导出、保存视图、SSE）、`database-ops`（drift/备份/迁移/回滚）、`auth` 与 `auth-files`、`api-keys-docs`、`sqlite-tests`、`view-tests`（视图读路径的 SQLite 运行时测试） |
 | `tools/delivery.ts` | webhook / notification / cron dataflow：校验、`qiy_deliveries` 与 `qiy_job_leases` schema、投递 worker、租约与定时执行模块及其生成测试 |
 | `tools/generate-relation-links.ts` | 多对多：连接表读写模块 `api/src/relation-links.ts`、repository 注入、数据范围校验 |
 | `tools/generate-web.ts` | 前端编排：`generateWeb` 组装 `apps/web` 的文件表 |
