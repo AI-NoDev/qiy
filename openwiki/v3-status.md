@@ -31,7 +31,11 @@
 - 定时 dataflow 以第一个 `full` 角色运行，不能使用数据范围资源；cron 租约依赖各实例时钟同步。
 - 真实 IdP tenant、生产 S3 bucket、邮件/短信供应商由使用方按 [MAINTAINER_VERIFICATION](../MAINTAINER_VERIFICATION.md) 的步骤自行验收；本地 preview 不能公开部署。
 
-## 0.37.0：删除冗余（进行中）
+## 0.38.0：补齐与优化（已发布）
+
+`workflow orderInventory` 删除，改用通用 `statemachine`；其余为新增能力，见下方「下一步顺序」中已完成的各项与 [0.38 迁移指南](../docs/guide/migration-0.38.md)。
+
+## 0.37.0：删除冗余（已发布）
 
 按"直接删除旧模式"的决定，0.37.0 移除以下功能，迁移步骤见 [0.37 迁移指南](../docs/guide/migration-0.37.md)：
 

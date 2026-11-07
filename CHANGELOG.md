@@ -10,6 +10,8 @@ Releases before `0.2.0` are listed on the
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-11-07
+
 `workflow orderInventory` is replaced by the declarative `statemachine`; a model that
 still declares it fails to parse with a pointer to
 [the 0.38 migration guide](https://ai-nodev.github.io/qiy/guide/migration-0.38).
