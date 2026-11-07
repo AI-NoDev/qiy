@@ -88,6 +88,9 @@ qiy preview      # loopback-only in-memory preview; not a deployment target
 
 ## Next steps
 
-- [CLI reference](/en/guide/cli)
-- [DSL overview](/dsl/overview)
-- [Agent Skill](/guide/agent-skill)
+- [Data modeling](/en/guide/data-modeling): entities, fields, relations, views
+- [Authentication and permissions](/en/guide/auth-permissions)
+- [Business logic](/en/guide/business-logic): state machines, dataflows, actions, webhooks
+- [Deployment](/en/guide/deployment)
+- [CLI reference](/en/guide/cli) and [DSL reference](/en/guide/dsl-reference)
+- [Agent Skill](/guide/agent-skill) (Chinese)

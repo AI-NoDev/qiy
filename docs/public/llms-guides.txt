@@ -65,7 +65,7 @@ Prisma 定义数据模型并生成数据库 client 与迁移；Qiy 的 schema �
 
 ## 当前状态
 
-Qiy 仍处于 V0 到 V1 的演进期：数据库建模、多方言生成、认证、菜单、Dashboard、枚举配色、文件存储、订单工作流和部署模板已经可用。官网只记录面向使用者的 `.qiy` 与 CLI 能力；实现层进度保留在仓库开发文档中。
+Qiy 仍处于 V0 到 V1 的演进期：数据库建模、多方言生成、认证与权限、菜单、Dashboard、枚举配色、文件存储、状态机与 Dataflow 命令、Webhook 与通知、部署模板已经可用。英文用户可从 [English guide](/en/guide/what-is-qiy) 开始。官网只记录面向使用者的 `.qiy` 与 CLI 能力；实现层进度保留在仓库开发文档中。
 
 ## 下一步
 
@@ -1398,7 +1398,7 @@ entity users {
 permission from database field users.permissions;
 ```
 
-该列与角色组（`permission group admin/operator/viewer`）以及已验证 OAuth claims 取并集，只做加法；不需要额外权限时可以完全不声明，生成结果与旧版本一致。完整语法见 [DSL：权限](/dsl/permissions#provider-来源)。
+该列与角色组（`permission group admin/operator/viewer`）以及已验证 OAuth claims 取并集，只做加法；不需要额外权限时可以完全不声明，生成结果与旧版本一致。完整语法见 [DSL：权限](/dsl/permissions#provider-来源-permission-from)。
 
 下一步：[API 与数据源](/guide/api)、[认证与权限](/guide/auth)。
 
@@ -5204,6 +5204,7 @@ Source: https://ai-nodev.github.io/qiy/guide/migration-0.38
 | 生成的 `createApp(repositories, authenticate, includeWorkflows, includeStorage, …)` | 去掉第三个参数 | 只影响手写代码里直接调用 `createApp` 的地方 |
 | Dataflow `allow roles` 写了 `read` 级别角色 | 去掉该角色 | 解析期报错 |
 | `@computed` 只在 API 响应里计算 | 数据库生成列 | 模型不变；重新生成 + 迁移 |
+| Dataflow 不能使用带 `restrict` 的资源 | Dataflow 应用资源策略 | 模型不变；重新生成（见 [dataflow · 资源策略](/dsl/dataflow#资源策略-restrict)） |
 
 升级步骤：
 

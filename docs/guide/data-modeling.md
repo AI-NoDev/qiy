@@ -135,6 +135,6 @@ entity users {
 permission from database field users.permissions;
 ```
 
-该列与角色组（`permission group admin/operator/viewer`）以及已验证 OAuth claims 取并集，只做加法；不需要额外权限时可以完全不声明，生成结果与旧版本一致。完整语法见 [DSL：权限](/dsl/permissions#provider-来源)。
+该列与角色组（`permission group admin/operator/viewer`）以及已验证 OAuth claims 取并集，只做加法；不需要额外权限时可以完全不声明，生成结果与旧版本一致。完整语法见 [DSL：权限](/dsl/permissions#provider-来源-permission-from)。
 
 下一步：[API 与数据源](/guide/api)、[认证与权限](/guide/auth)。

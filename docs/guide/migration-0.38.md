@@ -8,6 +8,7 @@
 | 生成的 `createApp(repositories, authenticate, includeWorkflows, includeStorage, …)` | 去掉第三个参数 | 只影响手写代码里直接调用 `createApp` 的地方 |
 | Dataflow `allow roles` 写了 `read` 级别角色 | 去掉该角色 | 解析期报错 |
 | `@computed` 只在 API 响应里计算 | 数据库生成列 | 模型不变；重新生成 + 迁移 |
+| Dataflow 不能使用带 `restrict` 的资源 | Dataflow 应用资源策略 | 模型不变；重新生成（见 [dataflow · 资源策略](/dsl/dataflow#资源策略-restrict)） |
 
 升级步骤：
 

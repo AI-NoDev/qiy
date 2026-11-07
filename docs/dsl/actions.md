@@ -131,7 +131,7 @@ action archiveSelected {
 - 服务端限制 1–100 个唯一 ID，单事务执行，任意一项失败整批回滚并返回 `item: { index, id }`。
 - GraphQL 同步生成 `runArchiveReviewBatch`，与 REST 共用同一事务与幂等回执。
 - 约束：`placement list` only、无 `when`、flow 必须 `idempotency required`、资源由单个必填 UUID input 加载（否则生成期报错）。
-- 详见 [dataflow · 批量执行](/dsl/dataflow#批量执行batch)。
+- 详见 [dataflow · 批量执行](/dsl/dataflow#批量执行-batch)。
 
 ## 权限集成
 

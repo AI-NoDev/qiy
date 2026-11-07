@@ -43,7 +43,7 @@ app.qiy + include 片段
 | `tools/verify-*.ts` | 维护者验收脚本：生成真实工作区并在其中跑测试，见 [MAINTAINER_VERIFICATION](../MAINTAINER_VERIFICATION.md) |
 | `tests/` | 根仓单元/快照测试（`bun test`） |
 | `e2e/` | 文档站与生成应用的 Playwright 测试 |
-| `docs/` | VitePress 用户文档；`bun run docs:assets` 生成 `llms*.txt` 与静态 Skill |
+| `docs/` | VitePress 用户文档（中文为完整参考，`docs/en/guide/` 为英文指南，其中完整模型由 `tests/docs-en.test.ts` 解析并生成）；`bun run docs:assets` 生成 `llms*.txt` 与静态 Skill，`docs:build` 用 `tools/check-docs-anchors.ts` 拒绝失效的页内锚点 |
 
 ## 生成应用结构
 

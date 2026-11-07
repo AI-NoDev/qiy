@@ -85,7 +85,7 @@ allow verification CanShipOrders;             // 用 flow input 求值校验式
 - 每个 dataflow 只允许**一种** `allow`（重复声明报 `duplicate allow declaration`）；未声明时默认所有 `full`/`write` 角色（默认角色下即 `admin, operator`）。
 - **admin 不绕过**显式白名单；`allow permission` / `allow verification` 的成功与否只看权限集合，不看角色。
 - 检查发生在幂等回执查询与事务**之前**：拒绝不写业务数据、审计、回执。
-- 完整权限语义见 [权限（permission）](/dsl/permissions#命令策略allow)。
+- 完整权限语义见 [权限（permission）](/dsl/permissions#命令策略-allow)。
 
 ### 资源策略（`restrict`）
 

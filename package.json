@@ -35,7 +35,7 @@
     "examples:check": "bun run tools/check-examples.ts",
     "examples:sync": "bun run tools/check-examples.ts --write",
     "docs:dev": "bun run docs:assets && vitepress dev docs",
-    "docs:build": "bun run docs:assets && vitepress build docs && bun run tools/build-docs-version.ts",
+    "docs:build": "bun run docs:assets && vitepress build docs && bun run tools/check-docs-anchors.ts && bun run tools/build-docs-version.ts",
     "docs:version": "bun run tools/build-docs-version.ts",
     "docs:preview": "vitepress preview docs"
   },

@@ -11,27 +11,36 @@ hero:
     alt: Qiy
   actions:
     - theme: brand
-      text: Chinese documentation
-      link: /guide/getting-started
+      text: Get started
+      link: /en/guide/getting-started
+    - theme: alt
+      text: What is Qiy
+      link: /en/guide/what-is-qiy
     - theme: alt
       text: DSL reference
-      link: /dsl/overview
+      link: /en/guide/dsl-reference
 
 features:
   - title: Data-first
     details: Model entities, fields, and relations once to drive schema, API, forms, lists, and access control.
   - title: Bun-native
     details: Generate a Bun + Elysia service and a Refine + React Router client without a Node.js runtime process.
+  - title: Fail closed
+    details: Roles, permissions, data scopes and record policies are checked at generation time and enforced on every read and write.
   - title: Extensible output
     details: Generated workspaces remain ordinary TypeScript projects that teams can extend safely.
 ---
 
 ## Quick start
 
-Install the Qiy executable for your platform, then run `qiy generate examples/catalog/app.qiy out/catalog-admin`.
+```bash
+qiy create project shop
+cd shop
+qiy dev
+```
 
-The generated workspace contains `apps/web` for the Refine client and `apps/server` for the Bun + Elysia API. Run `bun install`, `bun run build`, and `bun run preview` inside the generated project.
+`qiy dev` generates the workspace, applies the SQLite schema and starts the API on `:3000` and the admin on `:5173`. Continue with [Getting started](/en/guide/getting-started), then [Data modeling](/en/guide/data-modeling).
 
 ## Documentation coverage
 
-This localized entry explains the product and the primary CLI workflow. The canonical DSL reference and complete generator guide are currently maintained in Chinese; select **中文文档** in the navigation for the full reference.
+The English guide covers the whole workflow: modeling, authentication and permissions, business commands, deployment and upgrades, plus a one-page [DSL reference](/en/guide/dsl-reference). The exhaustive per-construct reference, with every setting and error message, is maintained in Chinese; select **中文文档** in the navigation.

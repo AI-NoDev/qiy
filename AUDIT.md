@@ -62,11 +62,7 @@ cd <dir> && bun install && bun run test
 
 ## 剩余 ROADMAP
 
-| 优先级 | 项 |
-| --- | --- |
-| P3 | 英文用户文档 |
-
-字段校验与默认值、乐观锁、kitchen-sink fixture 与示例漂移检查、自定义角色、多对多、状态机、Webhook/通知/定时 dataflow 已完成。详见 [ROADMAP](ROADMAP.md)「0.37 之后：补齐与优化」。`examples/*/admin` 快照由 CI 的 `examples:check` 保持与生成器一致。
+无。字段校验与默认值、乐观锁、kitchen-sink fixture 与示例漂移检查、自定义角色、多对多、状态机、Webhook/通知/定时 dataflow、计算字段生成列、Dataflow 应用 `restrict`、view 直读源表、本地 E2E 隔离与英文用户文档均已完成。详见 [ROADMAP](ROADMAP.md)「0.37 之后：补齐与优化」。`examples/*/admin` 快照由 CI 的 `examples:check` 保持与生成器一致。
 
 ## 审计判定
 

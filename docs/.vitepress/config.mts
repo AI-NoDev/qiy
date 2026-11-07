@@ -32,12 +32,37 @@ function localizedTheme(localeRoot: string, guideLabel: string, chineseDocsLabel
     logo: qiyLogo,
     siteTitle: "Qiy",
     nav: [
-      { text: guideLabel, link: localeRoot },
-      { text: "Getting started", link: "/en/guide/getting-started" },
-      { text: "CLI", link: "/en/guide/cli" },
+      { text: guideLabel, link: `${localeRoot}guide/what-is-qiy`, activeMatch: `${localeRoot}guide/` },
+      { text: "DSL reference", link: `${localeRoot}guide/dsl-reference` },
       { text: chineseDocsLabel, link: "/guide/what-is-qiy" },
       versionNav("Version"),
     ],
+    sidebar: {
+      [`${localeRoot}guide/`]: [
+        {
+          text: "Introduction",
+          items: [
+            { text: "What is Qiy", link: `${localeRoot}guide/what-is-qiy` },
+            { text: "Getting started", link: `${localeRoot}guide/getting-started` },
+            { text: "CLI", link: `${localeRoot}guide/cli` },
+            { text: "Migrating to 0.38", link: `${localeRoot}guide/migration-0.38` },
+          ],
+        },
+        {
+          text: "Building apps",
+          items: [
+            { text: "Data modeling", link: `${localeRoot}guide/data-modeling` },
+            { text: "Authentication and permissions", link: `${localeRoot}guide/auth-permissions` },
+            { text: "Business logic", link: `${localeRoot}guide/business-logic` },
+            { text: "Deployment", link: `${localeRoot}guide/deployment` },
+          ],
+        },
+        {
+          text: "Reference",
+          items: [{ text: "DSL reference", link: `${localeRoot}guide/dsl-reference` }],
+        },
+      ],
+    },
     i18nRouting: false,
     socialLinks: [{ icon: "github", link: "https://github.com/AI-NoDev/qiy" }],
     footer: {
