@@ -1,0 +1,482 @@
+/**
+ * Web renderers for i18n: the message catalog, the Refine i18n provider and
+ * the model/chrome translation tests.
+ */
+import type { GeneratedAction, WebOptions } from "./shared";
+
+export function renderI18nFiles(options: WebOptions): Record<string, string> {
+  return {
+    "web/app/messages.ts": `export const defaultMessageLocale = ${JSON.stringify(options.messages?.defaultLocale ?? "zh-CN")};\nexport const projectMessages: Record<string, Record<string, string>> = ${JSON.stringify(options.messages?.locales ?? {}, null, 2)};\nexport function projectMessage(locale: string, key: string): string | undefined { const entries = Object.hasOwn(projectMessages, locale) ? projectMessages[locale] : undefined; if (entries && Object.hasOwn(entries, key)) return entries[key]; const fallback = projectMessages[defaultMessageLocale]; return fallback && Object.hasOwn(fallback, key) ? fallback[key] : undefined; }\n`,
+    "web/app/i18n.ts": `import type { I18nProvider } from "@refinedev/core";
+import { createInstance, type TOptions } from "i18next";
+import { defaultMessageLocale, projectMessage, projectMessages } from "./messages";
+import type { Locale } from "antd/es/locale";
+import zhCN from "antd/locale/zh_CN";
+import enUS from "antd/locale/en_US";
+export type QiyLocale = string;
+export const supportedLocales: string[] = ${JSON.stringify([...new Set(["zh-CN", "en-US", ...Object.keys(options.messages?.locales ?? {})])])};
+export const languageOptions = supportedLocales.map((value) => ({ value, label: new Intl.DisplayNames([value], { type: "language" }).of(value) ?? value }));
+export function resolveLocale(value: string | undefined): QiyLocale { return value && supportedLocales.includes(value) ? value : defaultMessageLocale; }
+/**
+ * Built-in chrome dictionary. Every value is keyed by the suffix of a
+ * \`qiy.<key>\` message, so \`t(locale, key)\` and \`translate("qiy.<key>")\` both
+ * resolve it, and a project \`messages\` block can override any entry with the
+ * same qiy.* key. Values using {{name}} placeholders are interpolated by i18next.
+ */
+export const localeMessages = {
+  "zh-CN": {
+    new: "新建", edit: "编辑", view: "查看", back: "返回列表", delete: "删除", batchDelete: "批量删除", actions: "操作",
+    visibleColumns: "显示列", confirmDelete: "确认删除选中记录？", deleted: "删除成功", unknownResource: "未知资源", detail: "详情",
+    createResource: "新建{{resource}}", editResource: "编辑{{resource}}", openDetail: "打开详情", searchRelation: "搜索…",
+    drawerBreadcrumb: "关联记录路径", recordDetails: "字段详情", recordSummary: "关联摘要", close: "关闭",
+    chartView: "视图", "chartViewKind.const": "统计", "chartViewKind.pie": "饼图", "chartViewKind.bar": "柱状图", "chartViewKind.line": "折线图", "chartViewKind.area": "面积图", "chartViewKind.scatter": "散点图", "chartViewKind.stacked": "堆叠柱", "scatterHint": "点击散点打开记录", "chartViewKind.table": "表格",
+    "docs.title": "功能总览", "docs.subtitle": "当前应用生成的实体、数据流、API 文档与访问密钥",
+    "docs.tabEntities": "实体系", "docs.tabDataflows": "Dataflow", "docs.tabApi": "API 文档", "docs.tabPermissions": "权限模型", "docs.tabApiKeys": "访问密钥",
+    "docs.entitiesTitle": "实体与关系", "docs.relationsTitle": "关系", "docs.accessNote": "API 文档只列出当前角色和权限允许的操作",
+    "docs.apiFiltered": "该文档已按当前账号的权限过滤", "docs.panelError": "该分区暂时无法渲染", "docs.mermaidError": "图表渲染失败", "docs.mermaidTimeout": "图表渲染超时，已显示源码", "docs.emptySpec": "暂无 OpenAPI 文档", "docs.emptySpecHint": "当前账号没有可见的 API 操作", "docs.principal": "当前主体", "docs.parameters": "参数", "docs.paramName": "名称", "docs.paramIn": "位置", "docs.paramRequired": "必填", "docs.requestBody": "请求体", "docs.responses": "响应", "docs.responseStatus": "状态码", "docs.responseDescription": "说明", "docs.security": "认证", "docs.securityBearer": "会话 JWT", "docs.securityApiKey": "X-API-Key 请求头", "docs.curl": "curl 示例", "docs.roles": "允许角色", "docs.permissions": "所需权限",
+    "docs.noData": "暂无可查看的内容", "docs.loadError": "功能总览加载失败", "docs.entity": "实体", "docs.selectEntity": "选择实体",
+    "docs.fieldName": "字段", "docs.fieldType": "类型", "docs.fieldNullable": "可空", "docs.fieldEnum": "枚举", "docs.fieldAnnotations": "注解",
+    "docs.restricted": "受限", "docs.actions": "操作", "docs.from": "来源", "docs.to": "目标", "docs.onDelete": "删除策略",
+    "docs.dataflowsTitle": "数据流", "docs.allowRoles": "允许角色", "docs.allowPermissions": "所需权限", "docs.verification": "权限校验",
+    "docs.dataflowInputs": "输入", "docs.dataflowSteps": "步骤", "docs.dataflowResult": "结果", "docs.role": "角色",
+    "docs.effectivePermissions": "有效权限", "docs.permissionField": "权限", "docs.permissionValue": "值", "docs.permissionGroups": "权限组",
+    "docs.permissionVerifications": "权限校验", "docs.members": "成员",
+    "apiKey.title": "访问密钥", "apiKey.description": "用于脚本和 CI 的个人访问密钥；完整密钥只显示一次。",
+    "apiKey.create": "创建密钥", "apiKey.name": "名称", "apiKey.namePlaceholder": "例如 CI 部署", "apiKey.nameRequired": "请输入名称",
+    "apiKey.expires": "过期时间", "apiKey.expiresHint": "服务端 expiresAt 可选；留空即长期有效。",
+    "apiKey.empty": "暂无访问密钥", "apiKey.prefix": "前缀", "apiKey.createdAt": "创建时间", "apiKey.lastUsed": "最近使用", "apiKey.status": "状态",
+    "apiKey.active": "有效", "apiKey.revoked": "已撤销", "apiKey.expired": "已过期", "apiKey.revoke": "撤销", "apiKey.actions": "操作",
+    "apiKey.revokeConfirm": "确定撤销该密钥？撤销后立即失效。", "apiKey.secretTitle": "请立即保存密钥",
+    "apiKey.secretHint": "完整密钥只显示一次，关闭后无法找回。", "apiKey.copy": "复制", "apiKey.copied": "已复制", "apiKey.created": "已创建",
+    "apiKey.loadError": "访问密钥加载失败", "apiKey.limit": "每用户最多 {{count}} 个有效密钥",
+    "apiDocs.title": "API 文档", "apiDocs.pageTitle": "API 文档", "apiDocs.pageSubtitle": "当前账号可调用的 OpenAPI 3.1 操作；只读查看，使用 curl 示例配合会话令牌或访问密钥调用。", "apiDocs.download": "下载 OpenAPI",
+    "apiDocs.roleTooltip": "你的账号角色用于过滤本文档；无权调用的操作不会列出。", "apiDocs.permissionTooltip": "由角色、数据库列与已验证 claim 合成的权限；文档只包含你有权调用的操作。",
+    "apiDocs.rolesTooltip": "你的角色需属于以下之一；本文档已按当前账号过滤。", "apiDocs.permissionsTooltip": "该操作还需要列出的全部权限；本文档已按当前账号过滤。",
+    "apiDocs.securityTooltip": "该操作支持的认证方式。", "apiDocs.currentRole": "角色", "apiDocs.currentPermissions": "权限",
+    "apiDocs.searchPlaceholder": "搜索路径、方法、摘要或标签", "apiDocs.resultCount": "共 {{count}} 个操作", "apiDocs.noResults": "没有匹配的操作", "apiDocs.loadError": "API 文档加载失败",
+    "apiKey.pageTitle": "访问密钥", "apiKey.pageSubtitle": "用于脚本和 CI 的个人访问密钥；每个密钥继承你的角色与权限，可通过 Bearer 令牌或 X-API-Key 请求头使用。",
+    "apiKey.curlTitle": "在 curl 中使用密钥", "apiKey.apiDocsLink": "查看当前账号可用的 API 文档", "apiKey.searchPlaceholder": "搜索名称、前缀或状态",
+    "apiKey.status.all": "全部", "apiKey.status.active": "有效", "apiKey.status.revoked": "已撤销", "apiKey.status.expired": "已过期",
+    "apiKey.limitHint": "个有效密钥", "apiKey.never": "从未", "apiKey.revokedMessage": "已撤销",
+    "apiKey.roleTooltip": "你的账号角色；密钥继承创建者的角色与权限。", "apiKey.permissionTooltip": "你的有效权限值；在此创建的密钥能调用的 API 与你一致。", "apiKey.groupTooltip": "授权给你账号的权限组（角色）。",
+    yes: "是", no: "否",
+    language: "语言", save: "保存", cancel: "取消", deleteSuccess: "删除成功", requiredWithLabel: "请输入\${label}", "validation.min": "{{label}}不能小于 {{min}}", "validation.max": "{{label}}不能大于 {{max}}", "validation.minLength": "{{label}}至少需要 {{min}} 个字符", "validation.maxLength": "{{label}}最多 {{max}} 个字符", "validation.pattern": "{{label}}格式不正确，例如：{{example}}", loading: "加载中", quickAccess: "快速访问", upload: "上传文件",
+    overview: "概览", overviewDescription: "从数据资源快速进入业务管理。", profile: "个人中心", filters: "筛选", search: "搜索",
+    matchAll: "全部匹配", matchAny: "任一匹配", commaSeparated: "（逗号分隔）", forbidden: "没有访问该页面的权限",
+    noData: "暂无数据", vectorData: "向量数据", pickDate: "选择日期", pickTime: "选择时间", pickDateTime: "选择日期和时间",
+    autoGenerated: "此值由服务器自动生成，无需手工填写。",
+    versionConflict: "该记录已被他人修改，已重新加载最新数据，请确认后再保存。",
+    trash: "回收站", restore: "恢复", confirmRestore: "确认恢复这条记录？", restored: "记录已恢复", trashDenied: "没有查看回收站的权限", trashUnavailable: "回收站加载失败",
+    import: "导入 CSV", export: "导出 CSV", exportSelected: "导出选中", views: "已存视图", viewName: "视图名称",
+    saveView: "保存视图", saveToServer: "保存到服务器", shareView: "共享给所有人", publishView: "发布视图",
+    saved: "视图已保存", viewShared: "视图已共享给所有人", viewPublished: "视图已保存到服务器", deleteView: "删除视图",
+    viewDeleted: "视图已删除", viewDeleteFailed: "删除视图失败", confirmDeleteView: "删除该视图？",
+    viewMine: "个人", viewPublishedTag: "发布", viewSharedTag: "共享", viewResource: "查看{{resource}}",
+    treeView: "树视图", shared: "（共享）", importProgress: "正在导入：{{processed}}/{{total}}",
+    importedRows: "已导入 {{rows}} 行", importFailed: "导入失败", publishFailed: "发布视图失败",
+    paginationTotal: "第 {{start}}-{{end}} 条，共 {{total}} 条", perPage: "条/页", page: "页",
+    treeNodesCount: "{{nodes}} 个节点", treeOrphans: "{{nodes}} 个节点的父级缺失或成环",
+    relatedUnknown: "未知关联资源：{{resource}}",
+    auditTitle: "操作审计", auditAction: "操作", auditAuthor: "操作人", auditSystem: "系统", auditTime: "时间",
+    aggSum: "求和", aggAvg: "平均", aggMin: "最小值", aggMax: "最大值",
+    uploadFailed: "上传失败：{{status}}", createForbidden: "没有创建该资源的权限。", editForbidden: "没有编辑该资源的权限。",
+    themeColor: "主题色", themeBlue: "蓝色", themePurple: "紫色", themeGreen: "绿色", themeOrange: "橙色", themeRed: "红色",
+    colorMode: "颜色模式", colorLight: "亮色", colorDark: "暗色", colorSystem: "跟随系统",
+    profileTitle: "个人中心", account: "账号", signOut: "退出登录", username: "用户名", email: "邮箱", name: "姓名",
+    role: "角色", password: "密码", passwordSet: "已设置", passwordNotSet: "未设置", linkedMethods: "已关联登录方式",
+    noProviders: "未配置 OAuth 提供方", linked: "已关联", notLinked: "尚未关联", bind: "关联", unbind: "解除关联",
+    unlinkTitle: "解除关联 {{provider}}？", unlinkKeep: "之后可以重新关联。", unlinkLast: "这是最后一个登录方式。",
+    linkedToast: "已关联 {{provider}}", unlinkedToast: "已解除关联 {{provider}}",
+    onboardingInvalid: "此账号开通链接无效或已过期。", backToSignIn: "返回登录", finishAccount: "完成账号创建",
+    signedInWith: "已通过 {{provider}} 登录。", confirmAccount: "请确认账号信息并设置密码。", fieldRequired: "此项为必填项",
+    invalidEmail: "请输入有效的邮箱地址", confirmPassword: "确认密码",
+    passwordMin: "至少 8 个字符", passwordMismatch: "两次输入的密码不一致", createAccount: "创建账号并登录",
+    alreadyHaveAccount: "已有密码账号？", signInAction: "登录", linkProviderHint: "登录后可在个人中心关联此登录方式。",
+    loginNotConfigured: "此应用未配置认证。",
+    completingSignIn: "正在完成登录…", completingProviderSignIn: "正在完成 {{provider}} 登录…", providerLoginFailed: "{{provider}} 登录失败",
+    multiProviderHint: "请选择身份提供方登录。", noProviderConfigured: "服务器未配置身份提供方",
+    otpTitle: "Qiy Admin 登录", otpHint: "输入邮箱、手机号或模型配置的唯一登录标识，获取一次性验证码。",
+    otpIdentifier: "登录标识", otpCode: "一次性验证码", otpSend: "发送验证码", otpVerify: "验证并登录",
+    otpResend: "重新发送", otpSendFailed: "验证码发送失败",
+    oidcTitle: "Qiy Admin 登录", oidcHint: "使用 {{provider}} Authorization Code + PKCE 登录；浏览器不保存 client secret，会话过期时先尝试静默续期。",
+    oidcSignIn: "使用 {{provider}} 登录", oidcRenewing: "正在尝试静默续期…",
+  },
+  "en-US": {
+    new: "New", edit: "Edit", view: "View", back: "Back to list", delete: "Delete", batchDelete: "Batch delete", actions: "Actions",
+    visibleColumns: "Columns", confirmDelete: "Delete selected records?", deleted: "Deleted", unknownResource: "Unknown resource", detail: "Detail",
+    createResource: "Create {{resource}}", editResource: "Edit {{resource}}", openDetail: "Open details", searchRelation: "Search…",
+    drawerBreadcrumb: "Related record path", recordDetails: "Field details", recordSummary: "Relation summary", close: "Close",
+    chartView: "View", "chartViewKind.const": "Stat", "chartViewKind.pie": "Pie chart", "chartViewKind.bar": "Bar chart", "chartViewKind.line": "Line chart", "chartViewKind.area": "Area chart", "chartViewKind.scatter": "Scatter chart", "chartViewKind.stacked": "Stacked bar", "scatterHint": "Click a point to open the record", "chartViewKind.table": "Table",
+    "docs.title": "Feature overview", "docs.subtitle": "Entities, dataflows, API reference and access keys generated for this application",
+    "docs.tabEntities": "Entities", "docs.tabDataflows": "Dataflow", "docs.tabApi": "API reference", "docs.tabPermissions": "Permissions", "docs.tabApiKeys": "API keys",
+    "docs.entitiesTitle": "Entities & relations", "docs.relationsTitle": "Relations", "docs.accessNote": "The API reference only lists operations allowed for your role and permissions",
+    "docs.apiFiltered": "This document is filtered by the current account permissions", "docs.panelError": "This section could not be rendered", "docs.mermaidError": "Diagram failed to render", "docs.mermaidTimeout": "Diagram rendering timed out; showing the source instead", "docs.emptySpec": "No OpenAPI document", "docs.emptySpecHint": "This account has no documented operations", "docs.principal": "Principal", "docs.parameters": "Parameters", "docs.paramName": "Name", "docs.paramIn": "In", "docs.paramRequired": "Required", "docs.requestBody": "Request body", "docs.responses": "Responses", "docs.responseStatus": "Status", "docs.responseDescription": "Description", "docs.security": "Security", "docs.securityBearer": "Session JWT", "docs.securityApiKey": "X-API-Key header", "docs.curl": "curl example", "docs.roles": "Roles", "docs.permissions": "Permissions",
+    "docs.noData": "Nothing to show", "docs.loadError": "Failed to load the overview", "docs.entity": "Entity", "docs.selectEntity": "Entity",
+    "docs.fieldName": "Field", "docs.fieldType": "Type", "docs.fieldNullable": "Nullable", "docs.fieldEnum": "Enum", "docs.fieldAnnotations": "Annotations",
+    "docs.restricted": "Restricted", "docs.actions": "Actions", "docs.from": "From", "docs.to": "To", "docs.onDelete": "On delete",
+    "docs.dataflowsTitle": "Dataflows", "docs.allowRoles": "Allowed roles", "docs.allowPermissions": "Required permissions", "docs.verification": "Verification",
+    "docs.dataflowInputs": "Inputs", "docs.dataflowSteps": "Steps", "docs.dataflowResult": "Result", "docs.role": "Role",
+    "docs.effectivePermissions": "Effective permissions", "docs.permissionField": "Permission", "docs.permissionValue": "Value", "docs.permissionGroups": "Groups",
+    "docs.permissionVerifications": "Verifications", "docs.members": "Members",
+    "apiKey.title": "API keys", "apiKey.description": "Personal API keys for scripts and CI; the full secret is shown only once.",
+    "apiKey.create": "Create key", "apiKey.name": "Name", "apiKey.namePlaceholder": "e.g. CI deploy", "apiKey.nameRequired": "Name is required",
+    "apiKey.expires": "Expires", "apiKey.expiresHint": "The server-side expiresAt is optional; leave it empty for a non-expiring key.",
+    "apiKey.empty": "No API keys yet", "apiKey.prefix": "Prefix", "apiKey.createdAt": "Created", "apiKey.lastUsed": "Last used", "apiKey.status": "Status",
+    "apiKey.active": "Active", "apiKey.revoked": "Revoked", "apiKey.expired": "Expired", "apiKey.revoke": "Revoke", "apiKey.actions": "Actions",
+    "apiKey.revokeConfirm": "Revoke this key? It stops working immediately.", "apiKey.secretTitle": "Save this secret now",
+    "apiKey.secretHint": "The full key is shown only once and cannot be recovered.", "apiKey.copy": "Copy", "apiKey.copied": "Copied", "apiKey.created": "Created",
+    "apiKey.loadError": "Failed to load API keys", "apiKey.limit": "Up to {{count}} active keys per user",
+    "apiDocs.title": "API reference", "apiDocs.pageTitle": "API reference", "apiDocs.pageSubtitle": "OpenAPI 3.1 operations allowed for the current account. Read-only: use the curl examples with a session token or an API key.", "apiDocs.download": "Download OpenAPI",
+    "apiDocs.roleTooltip": "Your account role is used to filter this document; operations you cannot call are not listed.", "apiDocs.permissionTooltip": "Permission values from your role, database column and verified claims. The document only contains operations you may call.",
+    "apiDocs.rolesTooltip": "Your role must be one of these roles; this document is already filtered for your account.", "apiDocs.permissionsTooltip": "The operation additionally requires every listed permission; this document is already filtered for your account.",
+    "apiDocs.securityTooltip": "Supported authentication schemes for this operation.", "apiDocs.currentRole": "Role", "apiDocs.currentPermissions": "Permissions",
+    "apiDocs.searchPlaceholder": "Search path, method, summary or tag", "apiDocs.resultCount": "{{count}} operation(s)", "apiDocs.noResults": "No operations match this search", "apiDocs.loadError": "Failed to load the API document",
+    "apiKey.pageTitle": "Access keys", "apiKey.pageSubtitle": "Personal API keys for scripts and CI. Each key inherits your role and permissions and can be used as a Bearer token or X-API-Key header.",
+    "apiKey.curlTitle": "Using a key with curl", "apiKey.apiDocsLink": "View the API reference allowed for your account", "apiKey.searchPlaceholder": "Search name, prefix or status",
+    "apiKey.status.all": "All", "apiKey.status.active": "Active", "apiKey.status.revoked": "Revoked", "apiKey.status.expired": "Expired",
+    "apiKey.limitHint": "active keys", "apiKey.never": "Never", "apiKey.revokedMessage": "Revoked",
+    "apiKey.roleTooltip": "Your account role. API keys inherit the role and permissions of the user who created them.", "apiKey.permissionTooltip": "Effective permission values for your account; a key created here can call exactly the APIs that you can call.", "apiKey.groupTooltip": "Permission groups (roles) granted to your account.",
+    yes: "Yes", no: "No",
+    language: "Language", save: "Save", cancel: "Cancel", deleteSuccess: "Deleted", requiredWithLabel: "\${label} is required", "validation.min": "{{label}} must be at least {{min}}", "validation.max": "{{label}} must be at most {{max}}", "validation.minLength": "{{label}} must be at least {{min}} characters", "validation.maxLength": "{{label}} must be at most {{max}} characters", "validation.pattern": "{{label}} must match the format, for example {{example}}", loading: "Loading", quickAccess: "Quick access", upload: "Upload file",
+    overview: "Overview", overviewDescription: "Jump into your data resources from one place.", profile: "Profile", filters: "Filters", search: "Search",
+    matchAll: "Match all", matchAny: "Match any", commaSeparated: " (comma separated)", forbidden: "You are not allowed to open this page",
+    noData: "No data", vectorData: "Vector data", pickDate: "Select date", pickTime: "Select time", pickDateTime: "Select date and time",
+    autoGenerated: "This value is generated automatically by the server.",
+    versionConflict: "Someone else changed this record. The latest data has been reloaded; review it and save again.",
+    trash: "Trash", restore: "Restore", confirmRestore: "Restore this record?", restored: "Record restored", trashDenied: "You are not allowed to open the trash", trashUnavailable: "Trash could not be loaded",
+    import: "Import CSV", export: "Export CSV", exportSelected: "Export selected", views: "Saved views", viewName: "View name",
+    saveView: "Save view", saveToServer: "Save to server", shareView: "Share with everyone", publishView: "Publish view",
+    saved: "View saved", viewShared: "View shared with everyone", viewPublished: "View saved to server", deleteView: "Delete view",
+    viewDeleted: "View deleted", viewDeleteFailed: "Deleting the view failed", confirmDeleteView: "Delete this view?",
+    viewMine: "Personal", viewPublishedTag: "Published", viewSharedTag: "Shared", viewResource: "View {{resource}}",
+    treeView: "Tree view", shared: " (shared)", importProgress: "Importing: {{processed}}/{{total}}",
+    importedRows: "{{rows}} row(s) imported", importFailed: "Import failed", publishFailed: "Publishing the view failed",
+    paginationTotal: "{{start}}-{{end}} of {{total}}", perPage: "/ page", page: "page",
+    treeNodesCount: "{{nodes}} node(s)", treeOrphans: "{{nodes}} node(s) have a missing or cyclic parent",
+    relatedUnknown: "Unknown related resource: {{resource}}",
+    auditTitle: "Audit history", auditAction: "Action", auditAuthor: "Author", auditSystem: "System", auditTime: "Time",
+    aggSum: "sum", aggAvg: "avg", aggMin: "min", aggMax: "max",
+    uploadFailed: "Upload failed: {{status}}", createForbidden: "You do not have permission to create this resource.", editForbidden: "You do not have permission to edit this resource.",
+    themeColor: "Theme color", themeBlue: "Blue", themePurple: "Purple", themeGreen: "Green", themeOrange: "Orange", themeRed: "Red",
+    colorMode: "Color mode", colorLight: "Light", colorDark: "Dark", colorSystem: "System",
+    profileTitle: "Profile", account: "Account", signOut: "Sign out", username: "Username", email: "Email", name: "Name",
+    role: "Role", password: "Password", passwordSet: "Set", passwordNotSet: "Not set", linkedMethods: "Linked sign-in methods",
+    noProviders: "No OAuth providers configured", linked: "Linked", notLinked: "Not linked yet", bind: "Bind", unbind: "Unbind",
+    unlinkTitle: "Unlink {{provider}}?", unlinkKeep: "You can link it again later.", unlinkLast: "This is your last sign-in method.",
+    linkedToast: "Linked {{provider}}", unlinkedToast: "Unlinked {{provider}}",
+    onboardingInvalid: "This onboarding link is invalid or has expired.", backToSignIn: "Back to sign in", finishAccount: "Finish creating your account",
+    signedInWith: "Signed in with {{provider}}.", confirmAccount: "Confirm the account details and choose a password.", fieldRequired: "This field is required",
+    invalidEmail: "Enter a valid email address", confirmPassword: "Confirm password",
+    passwordMin: "Use at least 8 characters", passwordMismatch: "Passwords do not match", createAccount: "Create account and sign in",
+    alreadyHaveAccount: "Already have an account with a password?", signInAction: "Sign in", linkProviderHint: "Sign in and link this provider from your profile.",
+    loginNotConfigured: "Authentication is not configured for this application.",
+    completingSignIn: "Completing sign-in…", completingProviderSignIn: "Completing {{provider}} sign-in…", providerLoginFailed: "{{provider}} sign-in failed",
+    multiProviderHint: "Choose an identity provider to sign in.", noProviderConfigured: "No identity provider is configured on the server",
+    otpTitle: "Qiy Admin sign in", otpHint: "Enter the email, phone or model identifier configured for this account to receive a one-time password.",
+    otpIdentifier: "Sign-in identifier", otpCode: "One-time password", otpSend: "Send code", otpVerify: "Verify and sign in",
+    otpResend: "Send again", otpSendFailed: "Could not send the one-time password",
+    oidcTitle: "Qiy Admin sign in", oidcHint: "Sign in with {{provider}} using Authorization Code + PKCE. No client secret is stored in the browser; expired sessions try silent renewal first.",
+    oidcSignIn: "Sign in with {{provider}}", oidcRenewing: "Trying silent renewal…",
+  },
+} as const;
+/** Localized filter operator names; project messages can override every entry with qiy.filters.mode.<mode>. */
+export const filterModeMessages: Record<QiyLocale, Record<string, string>> = {
+  "zh-CN": { eq: "等于", contains: "包含", startsWith: "开头是", endsWith: "结尾是", gt: "大于", gte: "大于等于", lt: "小于", lte: "小于等于", between: "介于", in: "属于" },
+  "en-US": { eq: "Equals", contains: "Contains", startsWith: "Starts with", endsWith: "Ends with", gt: "Greater than", gte: "Greater than or equal", lt: "Less than", lte: "Less than or equal", between: "Between", in: "In" },
+};
+export function filterModeLabel(locale: QiyLocale, mode: string): string { return projectMessage(locale, "qiy.filters.mode." + mode) ?? filterModeMessages[locale === "zh-CN" ? "zh-CN" : "en-US"][mode] ?? mode; }
+/** Language choice survives reloads; an unknown stored value falls back to the generated default. */
+export const localeStorageKey = "qiy.locale";
+type LocaleStorage = Pick<Storage, "getItem" | "setItem">;
+function localeStorage(): LocaleStorage | undefined { try { return typeof window === "undefined" ? undefined : window.localStorage; } catch { return undefined; } }
+export function readStoredLocale(fallback: QiyLocale = defaultMessageLocale, storage: Pick<Storage, "getItem"> | undefined = localeStorage()): QiyLocale { try { return resolveLocale(storage?.getItem(localeStorageKey) ?? fallback); } catch { return resolveLocale(fallback); } }
+export function storeLocale(locale: QiyLocale, storage: LocaleStorage | undefined = localeStorage()): void { try { storage?.setItem(localeStorageKey, locale); } catch { /* quota or private mode */ } }
+export const refineMessages: Record<QiyLocale, Record<string, string>> = {
+  "zh-CN": { "buttons.logout": "退出登录", "buttons.create": "新建", "buttons.save": "保存", "buttons.delete": "删除", "buttons.edit": "编辑", "buttons.show": "查看", "buttons.cancel": "取消", "buttons.confirm": "确认", "buttons.refresh": "刷新", "buttons.search": "搜索", "buttons.filter": "筛选", "buttons.clear": "清除", "buttons.export": "导出", "buttons.import": "导入", "warnWhenUnsavedChanges": "更改尚未保存，确定离开吗？" },
+  "en-US": { "buttons.logout": "Log out", "buttons.create": "Create", "buttons.save": "Save", "buttons.delete": "Delete", "buttons.edit": "Edit", "buttons.show": "View", "buttons.cancel": "Cancel", "buttons.confirm": "Confirm", "buttons.refresh": "Refresh", "buttons.search": "Search", "buttons.filter": "Filter", "buttons.clear": "Clear", "buttons.export": "Export", "buttons.import": "Import", "warnWhenUnsavedChanges": "You have unsaved changes. Leave this page?" },
+};
+export const antdLocales: Record<QiyLocale, Locale> = { "zh-CN": zhCN, "en-US": enUS };
+Object.assign(refineMessages["en-US"]!, {
+  "actions.list": "List", "actions.create": "Create", "actions.edit": "Edit", "actions.show": "Show", "table.actions": "Actions", "dashboard.title": "Dashboard", "loading": "Loading",
+  "buttons.undo": "Undo", "buttons.clone": "Clone", "buttons.notAccessTitle": "You don't have permission to access",
+  "notifications.success": "Successful", "notifications.error": "Error (status code: {{statusCode}})", "notifications.undoable": "You have {{seconds}} seconds to undo",
+  "notifications.createSuccess": "Successfully created {{resource}}", "notifications.createError": "There was an error creating {{resource}} (status code: {{statusCode}})", "notifications.deleteSuccess": "Successfully deleted {{resource}}", "notifications.deleteError": "Error when deleting {{resource}} (status code: {{statusCode}})", "notifications.editSuccess": "Successfully edited {{resource}}", "notifications.editError": "Error when editing {{resource}} (status code: {{statusCode}})", "notifications.importProgress": "Importing: {{processed}}/{{total}}",
+  "pages.login.title": "Sign in to your account", "pages.login.signin": "Sign in", "pages.login.fields.email": "Email", "pages.login.fields.password": "Password", "pages.login.buttons.submit": "Login", "pages.login.errors.requiredEmail": "Email is required", "pages.login.errors.requiredPassword": "Password is required",
+  "pages.login.rememberMe": "Remember me", "pages.login.forgotPassword": "Forgot password?", "pages.login.noAccount": "Don't have an account?", "pages.login.signup": "Sign up", "pages.login.providers": "Or continue with",
+  "pages.error.info": "You may have forgotten to add the {{action}} component to {{resource}} resource.", "pages.error.404": "Sorry, the page you visited does not exist.", "pages.error.resource404": "Are you sure you have created the {{resource}} resource.", "pages.error.backHome": "Back Home",
+  "autoSave.success": "saved", "autoSave.error": "auto save failure", "autoSave.loading": "saving...", "autoSave.idle": "waiting for changes",
+});
+Object.assign(refineMessages["zh-CN"]!, {
+  "actions.list": "列表", "actions.create": "新建", "actions.edit": "编辑", "actions.show": "详情", "table.actions": "操作", "dashboard.title": "工作台", "loading": "加载中",
+  "buttons.undo": "撤销", "buttons.clone": "复制", "buttons.notAccessTitle": "没有访问权限",
+  "notifications.success": "操作成功", "notifications.error": "操作失败（状态码：{{statusCode}}）", "notifications.undoable": "可在 {{seconds}} 秒内撤销",
+  "notifications.createSuccess": "成功创建 {{resource}}", "notifications.createError": "创建 {{resource}} 失败（状态码：{{statusCode}}）", "notifications.deleteSuccess": "成功删除 {{resource}}", "notifications.deleteError": "删除 {{resource}} 失败（状态码：{{statusCode}}）", "notifications.editSuccess": "成功修改 {{resource}}", "notifications.editError": "修改 {{resource}} 失败（状态码：{{statusCode}}）", "notifications.importProgress": "导入进度：{{processed}}/{{total}}",
+  "pages.login.title": "登录账户", "pages.login.signin": "登录", "pages.login.fields.email": "邮箱", "pages.login.fields.password": "密码", "pages.login.buttons.submit": "登录", "pages.login.errors.requiredEmail": "请输入邮箱", "pages.login.errors.requiredPassword": "请输入密码",
+  "pages.login.rememberMe": "记住我", "pages.login.forgotPassword": "忘记密码？", "pages.login.noAccount": "还没有账号？", "pages.login.signup": "注册", "pages.login.providers": "或使用以下方式登录",
+  "pages.error.info": "可能未为 {{resource}} 资源配置 {{action}} 组件。", "pages.error.404": "页面不存在。", "pages.error.resource404": "请确认已创建 {{resource}} 资源。", "pages.error.backHome": "返回首页",
+  "autoSave.success": "已保存", "autoSave.error": "自动保存失败", "autoSave.loading": "保存中", "autoSave.idle": "等待修改",
+});
+export function getAntdLocale(locale: QiyLocale): Locale { return Object.hasOwn(antdLocales, locale) ? antdLocales[locale]! : enUS; }
+export function t(locale: QiyLocale, key: keyof typeof localeMessages["zh-CN"]): string { return projectMessage(locale, "qiy." + key) ?? localeMessages[locale === "zh-CN" ? "zh-CN" : "en-US"][key]; }
+export function createI18nProvider(locale: QiyLocale, setLocale?: (next: QiyLocale) => void | Promise<void>): I18nProvider {
+  const engine = createInstance();
+  const resources = Object.fromEntries(supportedLocales.map((language) => {
+    const fallback = language === "zh-CN" ? "zh-CN" : "en-US";
+    return [language, { translation: { ...refineMessages[fallback], ...Object.fromEntries(Object.entries(localeMessages[fallback]).map(([key, value]) => ["qiy." + key, value])), ...projectMessages[defaultMessageLocale], ...(Object.hasOwn(projectMessages, language) ? projectMessages[language] : {}) } }];
+  }));
+  void engine.init({ lng: resolveLocale(locale), fallbackLng: defaultMessageLocale, resources, initAsync: false, keySeparator: false, nsSeparator: false, interpolation: { escapeValue: false } });
+  return {
+    getLocale: () => engine.language,
+    changeLocale: async (next) => {
+      if (!supportedLocales.includes(next)) throw new Error("Unsupported interface locale: " + next);
+      await engine.changeLanguage(next);
+      await setLocale?.(next);
+      return next;
+    },
+    translate: (key, options, defaultMessage) => {
+      const parameters: TOptions = options && typeof options === "object" ? options : {};
+      const fallback = typeof options === "string" ? options : defaultMessage ?? parameters.defaultValue ?? key;
+      if (key.split(".").some((part) => ["__proto__", "prototype", "constructor"].includes(part))) return String(fallback);
+      return String(engine.t(key, { ...parameters, defaultValue: fallback, returnObjects: false, returnDetails: false }));
+    },
+  };
+}
+`,
+  };
+}
+
+export function renderI18nTestFiles(actionDefinitions: GeneratedAction[], localeSwitchTest: string): Record<string, string> {
+  return {
+    "web/tests/i18n.test.ts": `import { expect, test } from "bun:test";
+import { createI18nProvider } from "../app/i18n";
+
+test("translates Refine layout and Qiy resource actions", () => {
+  const zh = createI18nProvider("zh-CN");
+  const en = createI18nProvider("en-US");
+  expect(zh.translate("buttons.logout")).toBe("退出登录");
+  expect(en.translate("buttons.logout")).toBe("Log out");
+  expect(zh.translate("qiy.batchDelete")).toBe("批量删除");
+});
+
+test("implements Refine translation overloads, interpolation and asynchronous locale changes", async () => {
+  const provider = createI18nProvider("en-US");
+  expect(provider.translate("missing.title", "Fallback title")).toBe("Fallback title");
+  expect(provider.translate("missing.title", {}, "Fallback title")).toBe("Fallback title");
+  expect(provider.translate("missing.welcome", { name: "<Admin>" }, "Hello {{name}}")).toBe("Hello <Admin>");
+  expect(provider.translate("missing.count", { count: 0 }, "{{count}} items")).toBe("0 items");
+  expect(provider.translate("missing.empty", {}, "")).toBe("");
+  expect(provider.translate("notifications.createSuccess", { resource: "Products" })).toBe("Successfully created Products");
+  expect(provider.translate("notifications.error", { statusCode: 403 })).toBe("Error (status code: 403)");
+  expect(provider.translate("unknown.key")).toBe("unknown.key");
+  const changed = provider.changeLocale("zh-CN");
+  expect(changed).toBeInstanceOf(Promise);
+  await changed;
+  expect(provider.getLocale()).toBe("zh-CN");
+  expect(provider.translate("buttons.logout")).toBe("退出登录");
+  expect(provider.translate("notifications.undoable", { seconds: 5 })).toBe("可在 5 秒内撤销");
+  await expect(provider.changeLocale("unsupported")).rejects.toThrow("Unsupported interface locale");
+  expect(provider.getLocale()).toBe("zh-CN");
+  expect(createI18nProvider("en-US").getLocale()).toBe("en-US");
+});
+`,
+    "web/tests/model-i18n.test.ts": `import { expect, test } from "bun:test";
+import { createI18nProvider, filterModeLabel, readStoredLocale, resolveLocale, storeLocale, supportedLocales, t } from "../app/i18n";
+import { defaultMessageLocale, projectMessages } from "../app/messages";
+import { enumerations, menuGroups, resources } from "../app/resources";
+import { chartPanels, charts } from "../app/charts";
+${actionDefinitions.length ? 'import { qiyActions } from "../app/actions";\n' : ""}
+interface LabelEntry { key: string; fallback: string }
+const labels: LabelEntry[] = [
+  ...resources.map((resource) => ({ key: resource.labelKey ?? "", fallback: resource.label })),
+  ...resources.map((resource) => ({ key: resource.singularKey ?? "", fallback: resource.singular })),
+  ...resources.map((resource) => ({ key: resource.pluralKey ?? "", fallback: resource.plural })),
+  ...resources.flatMap((resource) => resource.fields.map((field) => ({ key: field.labelKey ?? "", fallback: field.label }))),
+  ...resources.flatMap((resource) => (resource.relatedResources ?? []).map((relation) => ({ key: relation.labelKey ?? "", fallback: relation.label }))),
+  ...menuGroups.map((group) => ({ key: group.labelKey, fallback: group.label })),
+  ...charts.map((chart) => ({ key: chart.labelKey, fallback: chart.title })),
+  ...chartPanels.map((panel) => ({ key: panel.labelKey, fallback: panel.title })),
+  ...charts.flatMap((chart) => chart.views.flatMap((view) => [
+    { key: view.labelKey, fallback: view.label },
+    ...(view.labels?.values ?? []).map((entry) => ({ key: entry.labelKey, fallback: entry.label })),
+  ])),
+${actionDefinitions.length ? `  ...qiyActions.flatMap((action) => [
+    { key: action.labelKey ?? "", fallback: action.label },
+    ...(action.target.kind === "dataflow" ? [
+      ...(action.target.confirmKey ? [{ key: action.target.confirmKey, fallback: action.target.confirm ?? "" }] : []),
+      ...action.target.inputs.map((input) => ({ key: input.labelKey, fallback: input.comment ?? input.name })),
+    ] : []),
+  ]),
+` : ""}];
+
+test("every model-derived label has a stable key and resolves through project messages", () => {
+  const providers = Object.fromEntries(supportedLocales.map((locale) => [locale, createI18nProvider(locale)]));
+  for (const { key, fallback } of labels) {
+    expect(key).not.toBe("");
+    if (!/^qiy\\.(resources|enums|menu|charts|actions)\\./.test(key)) expect(supportedLocales.some((locale) => Object.hasOwn(projectMessages[locale] ?? {}, key))).toBe(true);
+    for (const locale of supportedLocales) {
+      const expected = projectMessages[locale]?.[key] ?? projectMessages[defaultMessageLocale]?.[key] ?? fallback;
+      expect(providers[locale]!.translate(key, {}, fallback)).toBe(expected);
+    }
+  }
+  // The old raw label stays the default when a translation is missing.
+  expect(createI18nProvider(defaultMessageLocale).translate("qiy.resources.__missing__.label", {}, "Fallback label")).toBe("Fallback label");
+});
+
+test("enum values, menu groups and charts carry translation keys", () => {
+  for (const enumeration of enumerations) {
+    expect(enumeration.labelKey).toBe("qiy.enums." + enumeration.name + ".label");
+    for (const value of enumeration.values) expect(value.labelKey).toBe("qiy.enums." + enumeration.name + ".values." + value.name);
+  }
+  for (const resource of resources) {
+    expect(resource.labelKey).toBe("qiy.resources." + resource.name + ".label");
+    expect(resource.singularKey).toBe("qiy.resources." + resource.name + ".singular");
+    expect(resource.pluralKey).toBe("qiy.resources." + resource.name + ".plural");
+    for (const field of resource.fields) expect(field.labelKey).toBe("qiy.resources." + resource.name + ".fields." + field.name + ".label");
+  }
+  for (const chart of charts) {
+    expect(chart.labelKey).toBe("qiy.charts." + chart.name + ".label");
+    expect(chart.views.length).toBeGreaterThan(0);
+    for (const view of chart.views) {
+      expect(view.labelKey).toBe("qiy.charts." + chart.name + ".views." + view.kind + ".label");
+      for (const entry of view.labels?.values ?? []) expect(entry.labelKey).toBe("qiy.charts." + chart.name + ".labels." + entry.value);
+    }
+  }
+  for (const panel of chartPanels) expect(panel.labelKey).toBe("qiy.charts." + panel.name + ".label");
+  for (const mode of ["eq", "contains", "between"]) expect(filterModeLabel("zh-CN", mode).length).toBeGreaterThan(0);
+});
+
+test("locale switching stores the choice and survives a reload", async () => {
+  const storage = new Map<string, string>();
+  const fake = { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value); } };
+  expect(readStoredLocale(defaultMessageLocale, fake)).toBe(defaultMessageLocale);
+  const target = supportedLocales.find((locale) => locale !== defaultMessageLocale) ?? defaultMessageLocale;
+  let current = defaultMessageLocale;
+  const provider = createI18nProvider(defaultMessageLocale, (next) => { current = next; storeLocale(next, fake); });
+  await provider.changeLocale(target);
+  expect(current).toBe(target);
+  expect(readStoredLocale(defaultMessageLocale, fake)).toBe(target);
+  expect(resolveLocale(readStoredLocale(defaultMessageLocale, fake))).toBe(target);
+  storeLocale("not-a-declared-locale", fake);
+  expect(readStoredLocale(defaultMessageLocale, fake)).toBe(defaultMessageLocale);
+  expect(t(defaultMessageLocale, "new").length).toBeGreaterThan(0);
+});
+${localeSwitchTest}`,
+    "web/tests/chrome-i18n.test.ts": `import { expect, test } from "bun:test";
+import { createI18nProvider, filterModeLabel } from "../app/i18n";
+
+/**
+ * UI chrome (toolbars, theme controls, auth pages, pagination) ships with a
+ * built-in zh-CN/en-US dictionary and follows the same language selector as the
+ * model labels. This test keeps every key present in both locales so a missing
+ * translation shows up as a failing fallback instead of an English literal.
+ */
+const chromeKeys = [
+  "qiy.import", "qiy.export", "qiy.exportSelected", "qiy.visibleColumns", "qiy.views", "qiy.viewName",
+  "qiy.save", "qiy.saveView", "qiy.saveToServer", "qiy.shareView", "qiy.publishView", "qiy.saved",
+  "qiy.viewShared", "qiy.viewPublished", "qiy.deleteView", "qiy.shared", "qiy.importFailed", "qiy.importedRows",
+  "qiy.viewDeleted", "qiy.viewDeleteFailed", "qiy.confirmDeleteView", "qiy.viewMine", "qiy.viewPublishedTag", "qiy.viewSharedTag",
+  "qiy.treeView", "qiy.auditTitle", "qiy.auditAction", "qiy.auditAuthor", "qiy.auditSystem", "qiy.auditTime",
+  "qiy.new", "qiy.edit", "qiy.delete", "qiy.batchDelete", "qiy.confirmDelete", "qiy.detail",
+  "qiy.createResource", "qiy.editResource", "qiy.openDetail", "qiy.searchRelation",
+  "qiy.drawerBreadcrumb", "qiy.recordDetails", "qiy.recordSummary", "qiy.close", "qiy.chartView", "qiy.chartViewKind.const", "qiy.chartViewKind.pie", "qiy.chartViewKind.bar", "qiy.chartViewKind.line", "qiy.chartViewKind.area", "qiy.scatterHint", "qiy.chartViewKind.scatter", "qiy.chartViewKind.stacked", "qiy.chartViewKind.table",
+  "qiy.docs.title", "qiy.docs.subtitle", "qiy.docs.tabEntities", "qiy.docs.tabDataflows", "qiy.docs.tabPermissions", "qiy.docs.entitiesTitle", "qiy.docs.relationsTitle", "qiy.docs.accessNote", "qiy.docs.apiFiltered", "qiy.docs.mermaidError", "qiy.docs.mermaidTimeout", "qiy.docs.panelError", "qiy.docs.noData", "qiy.docs.fieldName", "qiy.docs.fieldType", "qiy.docs.fieldNullable", "qiy.docs.fieldEnum", "qiy.docs.fieldAnnotations", "qiy.docs.emptySpec", "qiy.docs.principal", "qiy.docs.parameters", "qiy.docs.paramName", "qiy.docs.paramIn", "qiy.docs.paramRequired", "qiy.docs.requestBody", "qiy.docs.responses", "qiy.docs.responseStatus", "qiy.docs.responseDescription", "qiy.docs.security", "qiy.docs.securityBearer", "qiy.docs.securityApiKey", "qiy.docs.curl", "qiy.docs.roles", "qiy.docs.permissions",
+  "qiy.apiDocs.title", "qiy.apiDocs.pageTitle", "qiy.apiDocs.pageSubtitle", "qiy.apiDocs.roleTooltip", "qiy.apiDocs.permissionTooltip", "qiy.apiDocs.rolesTooltip", "qiy.apiDocs.permissionsTooltip", "qiy.apiDocs.securityTooltip", "qiy.apiDocs.currentRole", "qiy.apiDocs.currentPermissions", "qiy.apiDocs.searchPlaceholder", "qiy.apiDocs.resultCount", "qiy.apiDocs.noResults", "qiy.apiDocs.loadError",
+  "qiy.apiKey.pageTitle", "qiy.apiKey.pageSubtitle", "qiy.apiKey.curlTitle", "qiy.apiKey.apiDocsLink", "qiy.apiKey.searchPlaceholder", "qiy.apiKey.status.all", "qiy.apiKey.status.active", "qiy.apiKey.status.revoked", "qiy.apiKey.status.expired", "qiy.apiKey.limitHint", "qiy.apiKey.never", "qiy.apiKey.revokedMessage", "qiy.apiKey.roleTooltip", "qiy.apiKey.permissionTooltip", "qiy.apiKey.groupTooltip",
+  "qiy.apiKey.title", "qiy.apiKey.description", "qiy.apiKey.create", "qiy.apiKey.name", "qiy.apiKey.empty", "qiy.apiKey.prefix", "qiy.apiKey.status", "qiy.apiKey.active", "qiy.apiKey.revoked", "qiy.apiKey.expired", "qiy.apiKey.revoke", "qiy.apiKey.secretTitle", "qiy.apiKey.secretHint", "qiy.apiKey.copy", "qiy.apiKey.copied", "qiy.apiKey.limit",
+  "qiy.yes", "qiy.no",
+  "qiy.search", "qiy.filters", "qiy.matchAll", "qiy.matchAny", "qiy.commaSeparated", "qiy.forbidden", "qiy.noData",
+  "qiy.trash", "qiy.restore", "qiy.confirmRestore", "qiy.restored", "qiy.trashDenied", "qiy.trashUnavailable",
+  "qiy.themeColor", "qiy.themeBlue", "qiy.themePurple", "qiy.themeGreen", "qiy.themeOrange", "qiy.themeRed",
+  "qiy.colorMode", "qiy.colorLight", "qiy.colorDark", "qiy.colorSystem",
+  "qiy.profileTitle", "qiy.account", "qiy.signOut", "qiy.username", "qiy.email", "qiy.name", "qiy.role",
+  "qiy.password", "qiy.passwordSet", "qiy.passwordNotSet", "qiy.linkedMethods", "qiy.noProviders", "qiy.linked",
+  "qiy.notLinked", "qiy.bind", "qiy.unbind", "qiy.unlinkKeep", "qiy.unlinkLast",
+  "qiy.onboardingInvalid", "qiy.backToSignIn", "qiy.finishAccount", "qiy.confirmAccount", "qiy.fieldRequired",
+  "qiy.passwordMin", "qiy.passwordMismatch", "qiy.createAccount", "qiy.alreadyHaveAccount", "qiy.signInAction",
+  "qiy.linkProviderHint", "qiy.loginNotConfigured", "qiy.completingSignIn", "qiy.multiProviderHint",
+  "qiy.noProviderConfigured", "qiy.otpHint", "qiy.otpIdentifier", "qiy.otpCode", "qiy.otpSend", "qiy.otpVerify",
+  "qiy.otpResend", "qiy.oidcHint", "qiy.oidcSignIn", "qiy.oidcRenewing",
+  "qiy.createForbidden", "qiy.editForbidden", "qiy.relatedUnknown", "qiy.treeNodesCount", "qiy.treeOrphans",
+  "qiy.pickDate", "qiy.pickTime", "qiy.pickDateTime",
+] as const;
+
+test("every chrome key resolves in zh-CN and en-US instead of falling back to English", () => {
+  const zh = createI18nProvider("zh-CN");
+  const en = createI18nProvider("en-US");
+  for (const key of chromeKeys) {
+    const fallback = "i18n-fallback-" + key;
+    expect(zh.translate(key, {}, fallback)).not.toBe(fallback);
+    expect(en.translate(key, {}, fallback)).not.toBe(fallback);
+    const zhValue = zh.translate(key, {}, fallback);
+    const enValue = en.translate(key, {}, fallback);
+    expect(typeof zhValue).toBe("string");
+    expect(typeof enValue).toBe("string");
+  }
+  // The chrome really is translated, not just present: a few stable pairs.
+  expect(zh.translate("qiy.import")).toBe("导入 CSV");
+  expect(en.translate("qiy.import")).toBe("Import CSV");
+  expect(zh.translate("qiy.export")).toBe("导出 CSV");
+  expect(zh.translate("qiy.visibleColumns")).toBe("显示列");
+  expect(zh.translate("qiy.views")).toBe("已存视图");
+  expect(zh.translate("qiy.saveView")).toBe("保存视图");
+  expect(zh.translate("qiy.viewDeleted")).toBe("视图已删除");
+  expect(en.translate("qiy.viewDeleted")).toBe("View deleted");
+  expect(zh.translate("qiy.viewDeleteFailed")).toBe("删除视图失败");
+  expect(zh.translate("qiy.viewMine")).toBe("个人");
+  expect(zh.translate("qiy.viewPublishedTag")).toBe("发布");
+  expect(zh.translate("qiy.viewSharedTag")).toBe("共享");
+  expect(zh.translate("qiy.search")).toBe("搜索");
+  expect(zh.translate("qiy.matchAll")).toBe("全部匹配");
+  expect(zh.translate("qiy.themeBlue")).toBe("蓝色");
+  expect(zh.translate("qiy.themePurple")).toBe("紫色");
+  expect(zh.translate("qiy.themeGreen")).toBe("绿色");
+  expect(zh.translate("qiy.themeOrange")).toBe("橙色");
+  expect(zh.translate("qiy.themeRed")).toBe("红色");
+  expect(zh.translate("qiy.colorLight")).toBe("亮色");
+  expect(zh.translate("qiy.colorDark")).toBe("暗色");
+  expect(zh.translate("qiy.colorSystem")).toBe("跟随系统");
+  expect(en.translate("qiy.colorLight")).toBe("Light");
+  expect(zh.translate("qiy.profileTitle")).toBe("个人中心");
+  expect(en.translate("qiy.profileTitle")).toBe("Profile");
+  // The FK drawer/breadcrumb chrome follows the same dictionary as the rest of the UI.
+  expect(zh.translate("qiy.drawerBreadcrumb")).toBe("关联记录路径");
+  expect(en.translate("qiy.drawerBreadcrumb")).toBe("Related record path");
+  expect(zh.translate("qiy.recordDetails")).toBe("字段详情");
+  expect(en.translate("qiy.recordDetails")).toBe("Field details");
+  expect(zh.translate("qiy.recordSummary")).toBe("关联摘要");
+  expect(zh.translate("qiy.close")).toBe("关闭");
+  expect(en.translate("qiy.close")).toBe("Close");
+  // Chart dashboard chrome (panel/view selectors + view-kind labels).
+  expect(zh.translate("qiy.chartView")).toBe("视图");
+  expect(en.translate("qiy.chartView")).toBe("View");
+  expect(zh.translate("qiy.chartViewKind.pie")).toBe("饼图");
+  expect(en.translate("qiy.chartViewKind.table")).toBe("Table");
+  // System overview + API-key chrome.
+  expect(zh.translate("qiy.docs.title")).toBe("功能总览");
+  expect(en.translate("qiy.docs.title")).toBe("Feature overview");
+  expect(zh.translate("qiy.docs.tabApiKeys")).toBe("访问密钥");
+  expect(en.translate("qiy.docs.tabEntities")).toBe("Entities");
+  expect(zh.translate("qiy.apiKey.title")).toBe("访问密钥");
+  expect(en.translate("qiy.apiKey.title")).toBe("API keys");
+  expect(zh.translate("qiy.yes")).toBe("是");
+  expect(en.translate("qiy.no")).toBe("No");
+  expect(zh.translate("qiy.signOut")).toBe("退出登录");
+  expect(zh.translate("qiy.bind")).toBe("关联");
+  expect(zh.translate("qiy.unbind")).toBe("解除关联");
+  expect(zh.translate("qiy.createAccount")).toBe("创建账号并登录");
+  // Interpolated chrome (pagination/saved-view/link copy) keeps its parameters.
+  expect(zh.translate("qiy.paginationTotal", { start: 1, end: 10, total: 42 })).toBe("第 1-10 条，共 42 条");
+  expect(en.translate("qiy.paginationTotal", { start: 1, end: 10, total: 42 })).toBe("1-10 of 42");
+  expect(zh.translate("qiy.importedRows", { rows: 3 })).toBe("已导入 3 行");
+  expect(zh.translate("qiy.unlinkTitle", { provider: "Okta" })).toBe("解除关联 Okta？");
+  expect(zh.translate("filterModeLabelPlaceholder", {}, "fallback")).toBe("fallback");
+});
+
+test("filter operators and unknown keys still fall back safely", () => {
+  expect(filterModeLabel("zh-CN", "contains")).toBe("包含");
+  expect(filterModeLabel("en-US", "between")).toBe("Between");
+  expect(createI18nProvider("en-US").translate("qiy.notARealChromeKey", {}, "Fallback")).toBe("Fallback");
+});
+`,
+  };
+}

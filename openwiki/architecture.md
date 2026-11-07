@@ -10,8 +10,8 @@ app.qiy + include 片段
   → tools/qiy-project.ts      词法/语法解析 → QiyProject；也负责规范化序列化（qiy fmt）
   → tools/database-ir.ts      Database IR：字段类型、关系、索引、方言能力校验
   → tools/generate-project.ts 编排各生成器，写入 templates/admin 模板
-       ├── generate-server.ts      Elysia REST/GraphQL、repository/service、auth、dataflow、realtime、导入导出、备份迁移
-       ├── generate-web.ts         Refine + Ant Design + React Router SPA
+       ├── generate-server.ts      服务端编排：组装 apps/server 文件，按领域调用 tools/server/*
+       ├── generate-web.ts         前端编排：Refine + Ant Design + React Router SPA，按领域调用 tools/web/*
        ├── drizzle-{pg,mysql,sqlite}.ts  三方言 schema
        ├── generate-values.ts / permissions.ts / generate-view-routes.ts / generate-audit.ts
        ├── environment-files.ts    .env 模板与部署文件
@@ -29,10 +29,12 @@ app.qiy + include 片段
 | `tools/qiy-project.ts` | DSL 解析器、类型定义与序列化；语法变化从这里开始 |
 | `tools/database-ir.ts` | 方言无关的数据模型校验 |
 | `tools/roles.ts` | 角色声明校验、默认角色、`RoleContext`，以及生成的 `api/src/auth/roles.ts` |
-| `tools/generate-server.ts` | 服务端生成（最大的文件，计划按领域拆分） |
+| `tools/generate-server.ts` | 服务端编排：`generateServer` 组装 `apps/server` 的文件表，具体渲染交给 `tools/server/` |
+| `tools/server/` | 服务端按领域的渲染器：`shared`（字段 schema、principal claims、树形 scope）、`routes`、`repository`、`graphql`、`permissions`（行策略、数据范围、权限模型）、`dataflows`（含场景测试）、`jobs-realtime`（导入导出、保存视图、SSE）、`database-ops`（drift/备份/迁移/回滚）、`auth` 与 `auth-files`、`api-keys-docs`、`sqlite-tests` |
 | `tools/delivery.ts` | webhook / notification / cron dataflow：校验、`qiy_deliveries` 与 `qiy_job_leases` schema、投递 worker、租约与定时执行模块及其生成测试 |
 | `tools/generate-relation-links.ts` | 多对多：连接表读写模块 `api/src/relation-links.ts`、repository 注入、数据范围校验 |
-| `tools/generate-web.ts` | 前端生成 |
+| `tools/generate-web.ts` | 前端编排：`generateWeb` 组装 `apps/web` 的文件表 |
+| `tools/web/` | 前端按领域的渲染器：`shared`（`WebOptions`）、`auth`、`realtime`（live provider）、`views`（保存视图与树）、`export`、`i18n`、`api-keys-docs`（功能总览、API 文档、访问密钥页面） |
 | `tools/generate-project.ts` | 生成编排、workspace 组装、插件钩子 |
 | `tools/admin-template.data.ts` | `templates/admin` 打包后的模板（`bun run template:build` 重建） |
 | `tools/qiy-skill.data.ts` | 打包进 CLI 的官方 Skill（同上） |

@@ -37,6 +37,7 @@ still declares it fails to parse with a pointer to
 
 ### Changed
 
+- The generators are split by domain. `tools/generate-server.ts` (8,917 → 1,644 lines) and `tools/generate-web.ts` (5,516 → 1,936 lines) now only assemble the file table; the renderers live in `tools/server/` (routes, repository, GraphQL, permissions and row policies, dataflows, jobs and realtime, database operations, auth, API keys and docs, SQLite tests) and `tools/web/` (auth, realtime, saved views, export, i18n, system pages). Generated output is byte-identical.
 - Generated `createApp(repositories, authenticate, includeStorage, corsOrigins, includeDataflows)` drops the `includeWorkflows` argument. The Web data provider rejects anything other than a declared dataflow command with `Unknown command` (was `Unknown workflow command`).
 - `relation ... many` no longer fails validation with a join-entity hint; see Added. An explicit join entity with two `one` relations remains the model for links that carry their own fields.
 - `auth { usernameField }` accepts an `Email` field as well as `Text`.

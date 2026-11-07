@@ -53,8 +53,8 @@ bun run examples:sync  # 生成器改动后重写这些快照
 ## 从哪里开始改
 
 - **语法**：`tools/qiy-project.ts`（解析、类型、序列化）→ `tools/database-ir.ts`（数据校验）→ 对应生成器 → `tests/` → `docs/dsl/` 与 `.agents/skills/qiy/references/`。
-- **服务端行为**：`tools/generate-server.ts`；生成结果用 `tools/verify-*.ts` 在真实工作区验证。
-- **前端行为**：`tools/generate-web.ts`；模板外壳在 `templates/admin/`（改完运行 `template:build`）。
+- **服务端行为**：`tools/server/` 下对应领域的渲染器（路由、repository、GraphQL、权限、dataflow、认证……），`tools/generate-server.ts` 负责把它们组装成文件表；生成结果用 `tools/verify-*.ts` 在真实工作区验证。
+- **前端行为**：`tools/web/` 下对应领域的渲染器与 `tools/generate-web.ts`；模板外壳在 `templates/admin/`（改完运行 `template:build`）。
 - **CLI**：`tools/cli.ts` 与 `tools/commands/`。
 
 ## 项目级 Skill
