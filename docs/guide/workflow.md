@@ -78,7 +78,7 @@ action recordShipment {
 | --- | --- |
 | 角色 | transition 与 dataflow 的 `allow roles` / `allow permission` / `allow verification`；省略时所有 `full`/`write` 角色可执行 |
 | 数据范围 | 资源有 `scope` 时按 claim 过滤：缺少 claim → 403，范围外的记录 → 404 |
-| `restrict` 行策略 | 命令暂不应用行策略，因此受 `restrict` 保护的资源不能被 statemachine 或 dataflow 使用（生成期报错） |
+| `restrict` 行策略 | 与 CRUD 相同：看不到的记录 404，写出可见范围 403 并回滚，结果按 `mask` 裁剪 |
 | 按钮可见性 | 只是界面规则；服务端以命令的 `allow`、守卫和 `require` 为准 |
 
 ## 当前限制

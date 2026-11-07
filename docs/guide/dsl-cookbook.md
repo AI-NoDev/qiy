@@ -395,7 +395,7 @@ pages inventory {
 
 **坑**
 
-- **Dataflow 不能操作带行谓词（`when`）的资源**：生成阶段报 `Restrict X: dataflow Y cannot use a restricted resource...`。把行策略放在不被命令写入的资源上，或把规则下沉到服务端领域逻辑。
+- **Dataflow 应用同一份行策略**：调用者看不到的记录返回 404；命令不能写入或发布被 `mask` 的字段（生成期报错）。
 - `allow roles` 不自动放行 admin；admin 不在列表里同样被拒。
 - `mask` 的 `replacement` 只在 `mode redact` 下合法；同一字段只能一个 mask。
 - 页面字段规则只是"不渲染"，不是安全边界；真正隐藏数据要配 `mask`。
@@ -611,7 +611,7 @@ statemachine orderLifecycle {
 
 - 状态字段必须是非空 enum；写了 `@default` 时必须等于 `initial`。
 - 手写 dataflow 不能再写 `status`，会在解析期报错；状态之外的写入另写 dataflow。
-- 受 `restrict` 保护的资源不能用状态机（与 dataflow 相同）。
+- 资源的 `restrict` 对 transition 同样生效；目标状态被值谓词排除时生成期报错。
 - transition 只改状态；库存扣减等跨表写入需要单独的 dataflow 或宿主代码。
 
 **参考**：[statemachine](/dsl/statemachine) · [业务工作流指南](/guide/workflow)。

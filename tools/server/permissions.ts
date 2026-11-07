@@ -3,10 +3,48 @@
  * permission model (expansion tables, routes and tests).
  */
 import type { DatabaseIR, EntityIR } from "../database-ir";
-import type { QiyProject, QiyPolicyExpression, QiyResourceRestriction } from "../qiy-project";
+import type { QiyProject, QiyPolicyExpression, QiyResourceRestriction, QiyRowPredicate } from "../qiy-project";
 import { declaredPermissionValues, evaluatePermissionVerification as evaluateDeclaredVerification, permissionExpansionTables, resolvePermissionSnapshot, type QiyPermissionModel } from "../permissions";
 import type { RoleContext } from "../roles";
 import { resolveScopeTree, renderScopeTreeHelper, modelName, type QiyScope } from "./shared";
+
+/**
+ * Claims and seed values that let a generated test principal see the seeded
+ * rows of restricted resources. Returns undefined when a policy uses a
+ * form (scope, cross-field, not) that a static fixture cannot satisfy.
+ */
+export function restrictionFixture(database: DatabaseIR, restrictions: QiyResourceRestriction[], entityNames: string[]): { claims: Record<string, string>; values: Map<string, Map<string, string>> } | undefined {
+  const claims: Record<string, string> = {};
+  const values = new Map<string, Map<string, string>>();
+  for (const name of entityNames) {
+    const restriction = restrictions.find((candidate) => candidate.resource === name);
+    const entity = database.entities.find((candidate) => candidate.name === name);
+    if (!restriction || !entity) continue;
+    const fields = new Map<string, string>();
+    const satisfy = (predicate: QiyRowPredicate) => {
+      const field = entity.fields.find((candidate) => candidate.name === predicate.field);
+      const numeric = field?.type === "Integer";
+      if (predicate.source === "claim") {
+        claims[predicate.claim!] ??= field?.type === "UUID" ? "00000000-0000-4000-8000-0000000000aa" : numeric ? "41" : "qiy-claim";
+        if (predicate.operator === "==") fields.set(predicate.field, numeric ? claims[predicate.claim!]! : JSON.stringify(claims[predicate.claim!]));
+        return true;
+      }
+      if (predicate.operator === "==" || predicate.operator === "in") fields.set(predicate.field, numeric ? String(Number(predicate.values![0])) : JSON.stringify(predicate.values![0]));
+      return true;
+    };
+    const visit = (node: QiyPolicyExpression): boolean =>
+      node.kind === "predicate" ? satisfy(node.predicate)
+        : node.kind === "and" ? node.children.every(visit)
+          : node.kind === "or" ? node.children.length > 0 && visit(node.children[0]!)
+            : false;
+    const supported = (restriction.rows ?? []).every(satisfy)
+      && (restriction.groups ?? []).every((group) => group.length > 0 && satisfy(group[0]!))
+      && (restriction.expressions ?? []).every(visit);
+    if (!supported) return undefined;
+    values.set(name, fields);
+  }
+  return { claims, values };
+}
 
 /** Stub-repository tests only observe the scope, so they skip resources whose row policy also needs policy claims. */
 export function rowPolicyFree(database: DatabaseIR, restrictions: NonNullable<QiyProject["restrictions"]>) {

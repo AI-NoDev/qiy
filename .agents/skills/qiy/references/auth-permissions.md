@@ -485,9 +485,10 @@ Runtime (`security/policy.ts`):
 
 Row predicates push down to SQL for list/detail/aggregate/trend/export/update/delete - never client-side filtering. Rows AND together; each group ORs internally and ANDs with rows; expressions AND on top. `mask` is the only mechanism that truly hides data; `pages` field rules only stop rendering.
 
-Hard mutual exclusions (generation fails closed):
+Commands (dataflows and statemachine transitions) apply the same policy: the caller's `restrict` is resolved at the start (role outside `allow roles` 403 `policy.resourceDenied`, missing claim 403 `policy.missingClaim`); context loads add the row conditions, so a hidden record is 404; every `update`/`create` re-reads the row under the policy in the same transaction and a write outside it is 403 `policy.outsideScope` with a full rollback; the result is masked (idempotency receipts store the masked result). Generation rejects commands that write a masked field (`Dataflow <name>: cannot write masked field <resource>.<field>`), read one in an `emit`/`call` payload (`... payload cannot read masked field ...`), or write a literal a top-level value predicate excludes (`... which the record policy of <resource> hides`).
 
-- A resource with **any** `restrict` block cannot appear in a `dataflow` (context load or create target): `Restrict <resource>: dataflow <name> cannot use a restricted resource until command authorization applies the same row policy`. This applies even if the block only has `allow roles` or `mask`.
+Hard exclusion (generation fails closed):
+
 - Realtime cannot subscribe to a resource with a `restrict` row predicate (`when`): `restrict row predicates cannot be enforced on a shared channel`. Role/mask-only restrictions may coexist; `mask` trims the payload before enqueue.
 
 ## Data scope (scope)
@@ -590,7 +591,8 @@ Stable error keys (frontend-translatable): `command.forbidden` (403), `policy.de
 | Command 403 with empty `missing` | verification used a negated set operator or an operator without diagnostics | Trust `allowed`; `missing` is explanatory |
 | Non-admin cannot see a command button | `allow permission` not satisfied or permission metadata missing | Check `/auth/me` `permissions`; DB/claim entries must be permission values or group names |
 | Non-admin cannot see a command in API docs | Principal lacks all expanded permission values | Check group expansion; docs and execution share the same check |
-| `dataflow ... cannot use a restricted resource` | Command context/create uses a resource with any `restrict` block | Remove the resource from the command or drop its `restrict` |
+| `Dataflow X: cannot write masked field R.F` | Command writes or publishes a masked field | Drop the mask or stop writing/publishing that field |
+| Command 404 although the record exists | The record fails the caller's `restrict` row conditions | Check the caller's claims against the row predicates |
 | `restrict row predicates cannot be enforced on a shared channel` | Realtime plus a row `when` on the same resource | Use `when <field> claim <claim>` or disable realtime for it |
 | `Page access denied` | `pages` disallows the action for the role | Adjust `pages`; export uses `list`, import writes use `create` |
 | `Missing required data scope claim: org.id` | Principal lacks the claim (local session without the column) | Use OIDC, add the users column, or use an API key |

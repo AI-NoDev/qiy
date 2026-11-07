@@ -87,6 +87,10 @@ allow verification CanShipOrders;             // 用 flow input 求值校验式
 - 检查发生在幂等回执查询与事务**之前**：拒绝不写业务数据、审计、回执。
 - 完整权限语义见 [权限（permission）](/dsl/permissions#命令策略allow)。
 
+### 资源策略（`restrict`）
+
+命令开始时按调用者解析资源的 `restrict`：角色不在 `allow roles` 返回 403 `policy.resourceDenied`，缺 claim 返回 403 `policy.missingClaim`；context 加载把行条件并入 `WHERE`，看不到的记录返回 404（与 REST 详情一致）；每次 `update`/`create` 后在同一事务里按行条件重读，写出可见范围返回 403 `policy.outsideScope` 并整体回滚；返回结果按 `mask` 裁剪（幂等回执保存的也是裁剪后的结果）。生成期拒绝：写入被 `mask` 的字段（`Dataflow <name>: cannot write masked field <resource>.<field>`）、`emit`/`call` 负载读取被 mask 的字段（`… payload cannot read masked field …`）、写入顶层值谓词排除的字面量（`… which the record policy of <resource> hides`）。详见 [权限 · restrict](/dsl/permissions)。
+
 ## 幂等：`idempotency required`
 
 ```qiy
@@ -496,7 +500,7 @@ bun test tests/qiy-scenarios.test.ts
 | result | `result must return a declared context binding` |
 | allow | `duplicate allow declaration`、`allow must be roles, permission or verification`、`unsupported command role <r>`、`allow permission requires permission declarations`、`unknown permission field or group <r>`、`allow verification requires permission declarations`、`unknown permission verification <v>`、`permission verification <v> input <i> has no matching dataflow input`、`must be @required`、`requires a Text or enum dataflow input` |
 | 其它 | `idempotency must be required`、`audit action cannot be empty`、`duplicate idempotency declaration`、`duplicate audit declaration` |
-| 跨块 | `Restrict <resource>: dataflow <name> cannot use a restricted resource …`、`Action <a>: dataflow <f> does not load resource <t>`、`Action <a>: batch actions require dataflow <f> to declare idempotency required`、`application mode integration cannot configure generated server features` |
+| 跨块 | `Dataflow <name>: cannot write masked field <r>.<f>`、`… payload cannot read masked field …`、`… which the record policy of <r> hides`、`Action <a>: dataflow <f> does not load resource <t>`、`Action <a>: batch actions require dataflow <f> to declare idempotency required`、`application mode integration cannot configure generated server features` |
 
 ## 常见错误
 
@@ -512,7 +516,8 @@ bun test tests/qiy-scenarios.test.ts
 | `result must return a declared context binding` | `return` 了未声明名字 | 用 context/create 绑定名 |
 | `literal updates currently support Text and enum fields only` | 用字面量写 Integer/Decimal/Date | 改用 `input.<f>`（类型一致）或改由 `call` 处理 |
 | `call` 总是 409 | 扩展实现仍返回 fail-closed 默认值 | 在 `extensions/dataflow-calls.ts` 实现并返回 `{ ok: true }` |
-| 生成期 `cannot use a restricted resource` | 命令读写了带 `restrict` 块的资源 | 去掉该资源的 `restrict`，或把命令拆到别的资源 |
+| 命令返回 404 但记录存在 | 记录不满足调用者的 `restrict` 行条件 | 检查调用者的 claim 与行谓词 |
+| 命令返回 403 `policy.outsideScope` | 写入后的记录超出调用者可见范围 | 不要在命令里改写行谓词依赖的字段，或放宽策略 |
 | GraphQL mutation 报缺少幂等键参数 | 启用了幂等 | 传 `idempotencyKey` 参数（REST 用 `Idempotency-Key` 头） |
 
 ## 非目标（明确不做）
@@ -529,7 +534,7 @@ bun test tests/qiy-scenarios.test.ts
 
 - [actions](/dsl/actions)：把 dataflow 挂到列表/详情按钮，`when`、确认、批量。
 - [权限（permission）](/dsl/permissions)：`allow permission` / `allow verification` 语义与 provider 来源。
-- [application](/dsl/application#restrict)：`restrict` / `scope` 与命令的互斥关系。
+- [application](/dsl/application#restrict)：命令如何应用 `restrict` / `scope`。
 - [realtime](/dsl/realtime)：`emit` 与实时 outbox、订阅通道。
 - [通知与 Webhook](/dsl/notifications)：订阅 `emit` 事件，提交后签名投递或发邮件；cron 定时运行 dataflow。
 - [statemachine](/dsl/statemachine)：编译成 dataflow 的状态流转。

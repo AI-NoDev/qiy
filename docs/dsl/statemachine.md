@@ -50,7 +50,7 @@ statemachine <Name> {
 
 | 属性 | 必填 | 语义与校验 |
 | --- | --- | --- |
-| `resource` | 是 | 实体名或表名；实体需要主键；受 `restrict` 保护的资源不能用（与 dataflow 相同，生成期报错） |
+| `resource` | 是 | 实体名或表名；实体需要主键；资源的 `restrict` 同样生效（看不到的记录 404，迁移到被值谓词排除的状态在生成期报错） |
 | `field` | 是 | 该实体上**非空**的 enum 字段；一个字段只能属于一个状态机 |
 | `initial` | 是 | 新记录的状态，必须是 enum 值；会成为字段的默认值。字段已写 `@default` 时必须与 `initial` 相同 |
 | `transition <name>` | 至少 1 个 | 名称是标识符，同一状态机内不重复 |
@@ -110,7 +110,7 @@ statemachine <Name> {
 | `… duplicate from state` / `… to <s> is also a from state` | `from` 重复或包含 `to` |
 | `… generated command <name> collides with a declared dataflow or action` | 生成的命令名已被占用 |
 | `Duplicate statemachine <m>` | 状态机重名 |
-| `Restrict <r>: dataflow <m><T> cannot use a restricted resource …` | 资源声明了 `restrict` |
+| `Dataflow <m><T>: writes <r>.<field> = <state>, which the record policy of <r> hides` | transition 的目标状态被 `restrict` 的值谓词排除 |
 | `application mode integration cannot configure generated server features …` | integration 模式下声明了状态机 |
 
 ## 相关

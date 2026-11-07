@@ -12,7 +12,7 @@ Qiy 的授权模型是**四层叠加、全部 fail-closed** 的：
 **角色不是独立概念**：`admin` / `operator` / `viewer` 三个字符串仍是本地密码会话的权威角色；`permission group admin { ... }` 只是把「角色名」当成权限组名，于是角色自动获得该组展开后的全部权限值。权限**只做加法，从不做减法**：角色组 ∪ 数据库列 ∪ 已验证 claim。
 
 ::: tip 与 application.md 的分工
-`restrict` / `scope` / `pages` 的**逐关键字语法**以 [application](/dsl/application#restrict) 为准；本页负责**权限语义、运行时行为、生成物映射与安全边界**，并补齐那些只在生成器/运行时才能观察到的规则（fail-closed 细节、掩码写入拦截、与 dataflow/realtime 的互斥）。
+`restrict` / `scope` / `pages` 的**逐关键字语法**以 [application](/dsl/application#restrict) 为准；本页负责**权限语义、运行时行为、生成物映射与安全边界**，并补齐那些只在生成器/运行时才能观察到的规则（fail-closed 细节、掩码写入拦截、命令如何应用策略、与 realtime 的互斥）。
 :::
 
 ## 声明位置与前提
@@ -408,8 +408,9 @@ restrict orders {
 - `rows` 之间 AND；每个 `groups[i]` 内部 OR、与 `rows` AND；`expressions` 再 AND 到最外层。
 - `restrict` 的 `mask` 是**唯一**真正隐藏数据的字段机制；`pages` 的字段规则只是不渲染。
 
-::: warning 与 dataflow / realtime 的互斥
-- **带 `restrict` 块的资源不能出现在任何 dataflow 里**（context 加载或 create 目标都算）。注意判定条件是「有没有 `restrict` 块」，不只是行谓词：即使只写了 `allow roles` 或 `mask`，生成期也会报 `Restrict <resource>: dataflow <name> cannot use a restricted resource until command authorization applies the same row policy`。需要「限定范围内执行命令」时，请把范围放进命令自己的 `require`/context 校验，或把命令拆到另一个没有 `restrict` 的资源上。
+::: warning 命令与 realtime
+- **dataflow / statemachine 应用同一份资源策略**。命令开始时按调用者解析资源的 `restrict`：角色不在 `allow roles` 返回 403 `policy.resourceDenied`，缺 claim 返回 403 `policy.missingClaim`；context 加载把行条件并入 `WHERE`，看不到的记录返回 404（与 REST 详情一致）；每次 `update`/`create` 后在同一事务里按行条件重读，写出可见范围返回 403 `policy.outsideScope` 并整体回滚；返回结果按 `mask` 裁剪（幂等回执保存的也是裁剪后的结果）。
+- 生成期拒绝：写入被 `mask` 的字段（`Dataflow <name>: cannot write masked field <resource>.<field>`）、`emit`/`call` 负载读取被 mask 的字段（`… payload cannot read masked field …`）、写入顶层值谓词排除的字面量（`… which the record policy of <resource> hides`）。
 - **realtime 不能订阅带 `restrict` 行谓词（`when`）的资源**：生成期报 `restrict row predicates cannot be enforced on a shared channel`。只有 `roles`/`mask` 的 `restrict` 可以叠加 realtime（`mask` 会在入队前裁剪负载）。
 :::
 
@@ -512,7 +513,7 @@ pages orders {
 3. **admin 不绕过显式白名单**。`restrict { allow roles operator; }`、`allow roles operator;` 都会拒绝 admin；依赖「admin 总能进」的运维路径要显式加上 admin。
 4. **admin 只在文档层短路**：`/api/v1/openapi.json` 的过滤对 admin 返回全部；但 `restrict` 的行条件与 `allow roles` 一样会核验 admin（`mayUseResource` 不特判 admin），因此「仅 operator 可见」的资源 admin 也进不去。
 5. **字段掩码是读写双向的**，并覆盖生成的读路径（列表/详情/聚合/导出/实时负载）；但数据库列仍是明文——**备份、数据库直连、应用日志、外部系统不在 `mask` 保护范围内**。被 mask 的字段也不能被导入（`Masked fields cannot be imported`）。
-6. **`restrict` 块与 dataflow 互斥、行谓词与 realtime 互斥**，不要用「命令里看不到」当作行级隔离；命令绕过会被生成期直接拒绝（有意的 fail-closed 设计）。
+6. **命令与 CRUD 共用同一份行策略，行谓词与 realtime 互斥**：命令看不到的记录返回 404，写出可见范围 403 并回滚；共享 channel 无法按订阅者裁剪行，因此生成期直接拒绝（有意的 fail-closed 设计）。
 7. **共享 channel 不能做行级隔离**：realtime 只做字段级 mask 裁剪；需要行级隔离时用 `when <field> claim <claim>` 分段通道，而不是 `restrict` 行谓词。
 8. **API Key 等同会话**：泄露即等同该用户全部权限（含角色组与数据库列权限）；只在服务端保存 HMAC-SHA256，前端永不持久化完整 key。撤销/过期立即 401。
 9. **文档是权限过滤后的**：不要把 OpenAPI 当成「完整攻击面清单」；`allow verification` 与行级 scope 不会体现在文档结构里。
@@ -533,7 +534,7 @@ pages orders {
 | 表达式 | `expected self.*, input.* or a quoted string`、`expected some/all included in, = or !=`、`expected included in or in`、`Array requires String (Array<String>)`、`unsupported input type` |
 | 引用 | `unknown permission field or group`、`unknown permission verification`、`has no matching dataflow input`、`must be @required`、`requires a Text or enum dataflow input` |
 | 前提 | `Permission declarations require a generated auth block`、`Permission declarations require at least one permission field`、`Permission claim sources require at least one OAuth/OIDC provider` |
-| 互斥 | `dataflow <x> cannot use a restricted resource`、`allow roles` / `allow permission` 在 dataflow action 上重复声明 |
+| 互斥 | `cannot write masked field`、`payload cannot read masked field`、`allow roles` / `allow permission` 在 dataflow action 上重复声明 |
 | restrict / scope / pages | 见 [application](/dsl/application#restrict) 与下文「常见错误」 |
 
 ## 完整示例：权限 + 范围 + 行策略 + 页面 + 命令
@@ -601,10 +602,16 @@ application warehouse-admin {
   scope warehouses orgId claim org.id;
   scope inventory warehouseId claim org.id;
 
-  # warehouses 没有 dataflow，因此可以安全声明 restrict（行策略 + 字段掩码）
+  # warehouses：角色 + 字段掩码
   restrict warehouses {
     allow roles admin, operator, viewer;
     mask budget roles viewer mode omit;
+  }
+
+  # 命令按调用者的行策略加载 inventory：已归档的行返回 404，unitCost 对 viewer 隐藏
+  restrict inventory {
+    when status != "archived";
+    mask unitCost roles viewer mode omit;
   }
 
   pages inventory {
@@ -615,7 +622,6 @@ application warehouse-admin {
     delete roles admin;
   }
 
-  # inventory 被命令使用，保持无 restrict 块（否则生成期拒绝该 dataflow）
   dataflow receiveStock @label("收货") @confirm("确认收货？") {
     allow permission InventoryReceivePermission;
     idempotency required;
@@ -646,7 +652,7 @@ application warehouse-admin {
 }
 ```
 
-要点：`inventory` 被 `dataflow` 使用，所以**不能**声明 `restrict`；`warehouses` 只被 CRUD 使用，可以声明 `restrict`（角色 + 掩码），也可能同时叠加 realtime（只要没有 `when` 行谓词）。
+要点：`receiveStock` 与 CRUD 共用 `inventory` 的 `restrict`：已归档的库存行对命令同样不可见；命令既不写也不发布被 mask 的 `unitCost`，否则生成期报错。`warehouses` 只有角色与掩码，可以同时叠加 realtime（realtime 只排斥 `when` 行谓词）。
 
 ## 常见错误
 
@@ -657,7 +663,8 @@ application warehouse-admin {
 | 命令 403 且 `missing` 为空 | `allow verification` 用了集合否定（`not all in`）或无诊断值的运算符 | 看 `allowed` 结论；`missing` 只是解释 |
 | 非 admin 看不到命令按钮 | `allow permission` 未生效 / `permissions` 元数据缺失 | 检查 `/auth/me` 是否带 `permissions`；检查数据库列/claims 里的值是否**权限值或组名** |
 | 非 admin 在 API 文档里看不到 `allow permission` 命令 | 该主体未持有展开后的全部权限值 | 检查 `/auth/me` 的 `permissions` 是否包含这些值（组会递归展开）；文档过滤与命令执行使用同一套判定 |
-| `dataflow ... cannot use a restricted resource` | 命令的 context/create 使用了任何带 `restrict` 块的资源 | 把该资源从命令中移出，或去掉它的 `restrict` 块 |
+| `Dataflow X: cannot write masked field R.F` / `payload cannot read masked field` | 命令写入或发布了被 `mask` 的字段 | 去掉该 mask，或不在命令里写/发布该字段 |
+| 命令返回 404 但记录存在 | 记录不满足调用者的 `restrict` 行条件 | 检查调用者的 claim 与行谓词 |
 | `restrict row predicates cannot be enforced on a shared channel` | 同一资源同时声明了 realtime 与行谓词 | 用 `when <field> claim <claim>` 分段通道，或关掉该资源 realtime |
 | `page access denied` | `pages` 规则不允许该角色执行该动作 | 调整 `pages`；注意 `export` 走 `list`、`import` 走 `create` |
 | `Missing required data scope claim: org.id` | principal 缺 scope claim（本地密码会话只有 DB 提供的 claim） | 用 OIDC claim、给 users 行补 scope 列，或改用 API Key |
@@ -730,7 +737,7 @@ restrict orders {
 2. `POST /api/v1/auth/verify-permission` 跑一遍 `all in` / `some in` / `=` 的边界样本；
 3. `GET /api/v1/openapi.json` 用每个角色各看一次，确认命令与资源可见性符合预期（注意 `allow permission` 命令的文档偏差）；
 4. 用 `restrict` 的 `mask` 校验列表/详情/导出/实时四条读路径；
-5. 确认命令里引用的资源没有 `restrict` 块。
+5. 用不满足行条件的调用者执行一次命令，确认返回 404 且没有写入（生成的 `dataflow.test.ts` 已包含该用例）。
 
 ## 相关
 

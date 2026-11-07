@@ -5,7 +5,8 @@
 import { renderDeliveryInsert, sqliteDeliveryDdl } from "../delivery";
 import type { DatabaseIR, EntityIR, FieldIR } from "../database-ir";
 import { sqliteComputedColumnDdl } from "../computed-columns";
-import type { QiyProject, DataflowIR } from "../qiy-project";
+import type { QiyProject, DataflowIR, QiyResourceRestriction } from "../qiy-project";
+import { restrictionFixture } from "./permissions";
 import { declaredPermissionValues, isPermissionModelEmpty, requiredPermissionValues, type QiyPermissionModel } from "../permissions";
 import { resolveQiyTestValue, type QiyTestSuite, type QiyTestScenario } from "../qiy-test";
 import type { RoleContext } from "../roles";
@@ -79,8 +80,9 @@ ${adapters.map((adapter) => `  ${JSON.stringify(adapter)}: () => ({ ok: false, e
 `;
 }
 
-export function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, scopes: NonNullable<QiyProject["scopes"]> = [], qiyActions: NonNullable<QiyProject["actions"]> = [], realtimeEnabled = false, permissions?: QiyPermissionModel, deliveryTargets: Map<string, string[]> = new Map()): string | undefined {
+export function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, scopes: NonNullable<QiyProject["scopes"]> = [], qiyActions: NonNullable<QiyProject["actions"]> = [], realtimeEnabled = false, permissions?: QiyPermissionModel, deliveryTargets: Map<string, string[]> = new Map(), restrictions: QiyResourceRestriction[] = []): string | undefined {
   if (!dataflows.length) return undefined;
+  const restrictedNames = new Set(restrictions.map((restriction) => restriction.resource));
   const usesPermissions = dataflows.some((flow) => flow.permission || flow.verification);
   if (usesPermissions && !permissions) throw new Error("Dataflow permission rules require permission declarations");
   const entities = new Map(database.entities.map((entity) => [entity.name, entity]));
@@ -104,6 +106,21 @@ export function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullabl
     const scopeVariables = new Map(scopedEntities.map(({ entity }, index) => [entity.name, `dataScope${index}`]));
     const scopeSetup = scopedEntities.map(({ scope }, index) => `      const dataScope${index} = principal?.claims?.[${JSON.stringify(scope.claim)}];
       if (dataScope${index} === undefined || dataScope${index} === null || dataScope${index} === "") return status(403, { error: "Missing required data scope claim: " + ${JSON.stringify(scope.claim)} });`).join("\n");
+    const policyVariables = new Map([...new Set(bindings.map((binding) => binding.entity))].filter((name) => restrictedNames.has(name)).map((name, index) => [name, `policy${index}`]));
+    const policySetup = [...policyVariables].map(([name, variable]) => {
+      const entity = entities.get(name)!;
+      const scope = scopeFor(entity);
+      const columns = entity.fields.map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
+      return `      const ${variable} = resolvePolicy(${JSON.stringify(name)}, principal, { ${columns} }${scope ? `, { field: ${JSON.stringify(scope.field)}, value: String(${scopeVariables.get(name)}) }` : ""});`;
+    }).join("\n");
+    const accessSetup = [scopeSetup, policySetup].filter(Boolean).join("\n");
+    /** Re-reads a written row under the caller's policy so a command cannot move a record out of what the caller may see. */
+    const policyRecheck = (entity: EntityIR, variable: string) => {
+      const policy = policyVariables.get(entity.name);
+      if (!policy) return "";
+      const query = `tx.select({ id: ${entity.name}.id }).from(${entity.name}).where(and(eq(${entity.name}.id, ${variable}.id), ...(${policy}.conditions as never[]))).limit(1)`;
+      return `\n        if (!${selectOne(query)}) throw new DataflowFailure(403, "Write is outside the record policy", ${JSON.stringify(entity.tableName)}, "policy.outsideScope");`;
+    };
     const inputSchema = flow.input.map((field) => {
       const enumeration = database.enums?.find((item) => item.name === field.type);
       if (enumeration) {
@@ -122,9 +139,12 @@ export function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullabl
       if (!key || !inputName) throw new Error(`Dataflow ${flow.name}: invalid context source ${binding.id}`);
       const scope = scopeFor(entity);
       const scopeVariable = scopeVariables.get(entity.name);
-      const condition = scope
-        ? `and(eq(${entity.name}[${JSON.stringify(key)}], body[${JSON.stringify(inputName)}]), eq(${entity.name}[${JSON.stringify(scope.field)}], String(${scopeVariable})))`
-        : `eq(${entity.name}[${JSON.stringify(key)}], body[${JSON.stringify(inputName)}])`;
+      const policy = policyVariables.get(entity.name);
+      const keyCondition = `eq(${entity.name}[${JSON.stringify(key)}], body[${JSON.stringify(inputName)}])`;
+      const scopeCondition = scope ? `eq(${entity.name}[${JSON.stringify(scope.field)}], String(${scopeVariable}))` : undefined;
+      const condition = policy
+        ? `and(${[keyCondition, ...(scopeCondition ? [`${policy}.usesScope ? undefined : ${scopeCondition}`] : []), `...(${policy}.conditions as never[])`].join(", ")})`
+        : scopeCondition ? `and(${keyCondition}, ${scopeCondition})` : keyCondition;
       return `${generatedDocumentation(binding, "        ")}        let context${index} = ${selectOne(`tx.select().from(${entity.name}).where(${condition}).limit(1)${synchronous ? "" : '.for("update")'}`)};\n        if (!context${index}) throw new DataflowFailure(404, "Not found", ${JSON.stringify(entity.tableName)});`;
     }).join("\n\n");
     const actionCode = flow.steps.flatMap((step) => step.actions).map((action, actionIndex) => {
@@ -147,7 +167,7 @@ export function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullabl
           : database.dialect === "mysql"
             ? `await tx.update(${entity.name}).set(${values}).where(${where});\n        const updated = (await tx.select().from(${entity.name}).where(${where}).limit(1))[0];\n        if (!updated) return { kind: "not-found" as const, resource: ${JSON.stringify(entity.tableName)} };\n        ${variable} = updated;`
             : `const updated = (await tx.update(${entity.name}).set(${values}).where(${where}).returning())[0];\n        if (!updated) return { kind: "not-found" as const, resource: ${JSON.stringify(entity.tableName)} };\n        ${variable} = updated;`;
-        return `        {\n        ${update.replaceAll(`return { kind: "not-found" as const, resource: ${JSON.stringify(entity.tableName)} }`, `throw new DataflowFailure(404, "Not found", ${JSON.stringify(entity.tableName)})`)}\n        }`;
+        return `        {\n        ${update.replaceAll(`return { kind: "not-found" as const, resource: ${JSON.stringify(entity.tableName)} }`, `throw new DataflowFailure(404, "Not found", ${JSON.stringify(entity.tableName)})`)}${policyRecheck(entity, variable)}\n        }`;
       }
       if (action.kind === "create") {
         const entity = entities.get(action.entity);
@@ -160,13 +180,13 @@ export function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullabl
           ...action.values.map((value) => `${JSON.stringify(value.field)}: ${value.source === "input" ? `body[${JSON.stringify(value.value)}]` : JSON.stringify(value.value)}`),
           ...(scope ? [`${JSON.stringify(scope.field)}: String(${scopeVariable})`] : []),
         ].join(", ");
-        if (database.dialect === "sqlite") return `        let ${variable} = tx.insert(${entity.name}).values({ ${values} } as typeof ${entity.name}.$inferInsert).returning().get();\n        if (!${variable}) throw new DataflowFailure(409, "Unable to create", ${JSON.stringify(entity.tableName)});`;
+        if (database.dialect === "sqlite") return `        let ${variable} = tx.insert(${entity.name}).values({ ${values} } as typeof ${entity.name}.$inferInsert).returning().get();\n        if (!${variable}) throw new DataflowFailure(409, "Unable to create", ${JSON.stringify(entity.tableName)});${policyRecheck(entity, variable)}`;
         if (database.dialect === "mysql") {
           const id = `created${actionIndex}Id`;
           const mysqlValues = values.replace("id: crypto.randomUUID()", `id: ${id}`);
-          return `        const ${id} = crypto.randomUUID();\n        await tx.insert(${entity.name}).values({ ${mysqlValues} } as typeof ${entity.name}.$inferInsert);\n        let ${variable} = (await tx.select().from(${entity.name}).where(eq(${entity.name}.id, ${id})).limit(1))[0];\n        if (!${variable}) throw new DataflowFailure(409, "Unable to create", ${JSON.stringify(entity.tableName)});`;
+          return `        const ${id} = crypto.randomUUID();\n        await tx.insert(${entity.name}).values({ ${mysqlValues} } as typeof ${entity.name}.$inferInsert);\n        let ${variable} = (await tx.select().from(${entity.name}).where(eq(${entity.name}.id, ${id})).limit(1))[0];\n        if (!${variable}) throw new DataflowFailure(409, "Unable to create", ${JSON.stringify(entity.tableName)});${policyRecheck(entity, variable)}`;
         }
-        return `        let ${variable} = (await tx.insert(${entity.name}).values({ ${values} } as typeof ${entity.name}.$inferInsert).returning())[0];\n        if (!${variable}) throw new DataflowFailure(409, "Unable to create", ${JSON.stringify(entity.tableName)});`;
+        return `        let ${variable} = (await tx.insert(${entity.name}).values({ ${values} } as typeof ${entity.name}.$inferInsert).returning())[0];\n        if (!${variable}) throw new DataflowFailure(409, "Unable to create", ${JSON.stringify(entity.tableName)});${policyRecheck(entity, variable)}`;
       }
       if (action.kind === "emit") {
         const payloadFields = (action.payload ?? []).map((value) => {
@@ -216,6 +236,8 @@ export function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullabl
     const resultEntityName = entityByBinding.get(flow.result);
     const resultEntity = resultEntityName ? entities.get(resultEntityName) : undefined;
     if (!resultEntity) throw new Error(`Dataflow ${flow.name}: missing result entity ${flow.result}`);
+    const resultPolicy = policyVariables.get(resultEntity.name);
+    const resultValue = resultPolicy ? `${resultPolicy}.mask(${result}) as unknown as typeof ${result}` : result;
     const needsIdempotency = flow.idempotency?.required === true;
     const requestSetup = needsIdempotency ? `      const requestKey = request.headers.get("idempotency-key");
       if (!requestKey || !/^[\\x21-\\x7E]{1,128}$/.test(requestKey)) return status(400, { error: "A valid Idempotency-Key header is required" });
@@ -256,7 +278,7 @@ export function renderDataflowRoutes(database: DatabaseIR, dataflows: NonNullabl
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
 ${authorizationCheck}
-${scopeSetup ? `${scopeSetup}\n` : ""}${requestSetup}      let outcome;
+${accessSetup ? `${accessSetup}\n` : ""}${requestSetup}      let outcome;
       try {
       outcome = await db.transaction(${synchronous ? "" : "async "}(tx) => {
 ${transactionReplay}
@@ -264,7 +286,7 @@ ${contextLoads}
 
 ${actions}
 
-        const value = ${result};
+        const value = ${resultValue};
 ${synchronous ? auditWrite.replace("await tx.insert", "tx.insert").replace(" });\n", " }).run();\n") : auditWrite}${synchronous ? receiptWrite.replace("await tx.insert", "tx.insert").replace(" });\n", " }).run();\n") : receiptWrite}        return { kind: "ok" as const, value };
       });
 ${catchReplay}${needsIdempotency ? `      if (outcome.kind === "replay") return outcome.value;
@@ -303,7 +325,7 @@ ${inputSchema}
       const principal = await authenticate(request);
       if (!principal) return status(401, { error: "Authentication required" });
 ${batchTopCheck}
-${scopeSetup ? `${scopeSetup}\n` : ""}      const requestKey = request.headers.get("idempotency-key");
+${accessSetup ? `${accessSetup}\n` : ""}      const requestKey = request.headers.get("idempotency-key");
       if (!requestKey || !/^[\\x21-\\x7E]{1,128}$/.test(requestKey)) return status(400, { error: "A valid Idempotency-Key header is required" });
       if (!principal.id) return status(401, { error: "Authentication is required for idempotent commands" });
       const itemIds = batch.items.map((item) => String(item[${JSON.stringify(batchIdInput)}]));
@@ -321,7 +343,7 @@ ${batchVerificationCheck}${contextLoads}
 
 ${actions}
 
-              const value = ${result};
+              const value = ${resultValue};
 ${batchAuditWrite}              values.push(value);
             } catch (error) {
               if (error instanceof DataflowFailure) throw new BatchDataflowFailure(error.status, error.message, itemIndex, String(body[${JSON.stringify(batchIdInput)}]), error.resource, error.errorKey);
@@ -349,6 +371,7 @@ ${inputSchema}
   const usesOutbox = dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit")));
   const usesRealtimeOutbox = realtimeEnabled && usesOutbox;
   const usesDeliveryRows = dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "emit" && deliveryTargets.has(action.event))));
+  const usesPolicies = dataflows.some((flow) => [...flow.context.map((binding) => binding.entity), ...flow.steps.flatMap((step) => step.actions).flatMap((action) => action.kind === "create" ? [action.entity] : [])].some((name) => restrictedNames.has(name)));
   const usesCalls = dataflows.some((flow) => flow.steps.some((step) => step.actions.some((action) => action.kind === "call")));
   const dataflowEntities = dataflows.flatMap((flow) => [
     ...flow.context.map((binding) => binding.entity),
@@ -360,7 +383,7 @@ import { db } from "../db";
  import { ${[...new Set([...dataflowEntities, ...(usesIdempotency ? ["dataflowIdempotency"] : []), ...(usesAudit ? ["auditEvents"] : []), ...(usesOutbox ? ["dataflowOutbox"] : []), ...(usesRealtimeOutbox ? ["realtimeOutbox"] : []), ...(usesDeliveryRows ? ["qiyDeliveries"] : [])])].join(", ")} } from "../schema";
 import type { Authenticator } from "../auth/guard";
 ${usesPermissions ? 'import { evaluatePermissionVerification, loadPermissions } from "../auth/permissions";\n' : ""}
-${usesCalls ? 'import { invokeDataflowCall } from "./calls";\n' : ""}
+${usesCalls ? 'import { invokeDataflowCall } from "./calls";\n' : ""}${usesPolicies ? 'import { QiyPolicyError, resolvePolicy } from "../security/policy";\n' : ""}
 
 class DataflowFailure extends Error {
   constructor(public readonly status: 403 | 404 | 409, message: string, public readonly resource?: string, public readonly errorKey?: string) { super(message); }
@@ -376,7 +399,8 @@ ${usesIdempotency ? `async function hashDataflowValue(value: string): Promise<st
 }` : ""}
 
 export function createDataflowRoutes(authenticate: Authenticator) {
-  return new Elysia({ prefix: "/api/v1/commands" })
+  return new Elysia({ prefix: "/api/v1/commands" })${usesPolicies ? `
+    .onError(({ error, status }) => error instanceof QiyPolicyError ? status(error.status as 403, { error: error.message, errorKey: error.errorKey }) : undefined)` : ""}
 ${routeBlocks};
 }
 `;
@@ -422,8 +446,11 @@ export function dataflowFixtureValue(field: FieldIR, requires: Array<{ field: st
   return "null";
 }
 
-export function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, roles: RoleContext, qiyActions: NonNullable<QiyProject["actions"]> = [], realtimeEnabled = false, permissions?: QiyPermissionModel, deliveryTargets: Map<string, string[]> = new Map()): string | undefined {
+export function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNullable<QiyProject["dataflows"]>, roles: RoleContext, qiyActions: NonNullable<QiyProject["actions"]> = [], realtimeEnabled = false, permissions?: QiyPermissionModel, deliveryTargets: Map<string, string[]> = new Map(), restrictions: QiyResourceRestriction[] = []): string | undefined {
+  const flowEntities = (flow: DataflowIR) => [...flow.context.map((binding) => binding.entity), ...flow.steps.flatMap((step) => step.actions).flatMap((action) => action.kind === "create" ? [action.entity] : [])];
+  dataflows = dataflows.filter((flow) => restrictionFixture(database, restrictions, flowEntities(flow)) !== undefined);
   if (database.dialect !== "sqlite" || !dataflows.length) return undefined;
+  const policyFixture = restrictionFixture(database, restrictions, [...new Set(dataflows.flatMap(flowEntities))])!;
   // Command authorization may be role-, permission- or verification-based. The
   // generated happy-path actor holds every declared permission so the fixture
   // input only has to satisfy the business rules, not the authorization model.
@@ -434,9 +461,13 @@ export function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNul
     ...flow.steps.flatMap((step) => step.actions).flatMap((action) => action.kind === "create" ? [action.entity] : []),
   ]))].map((name) => entities.get(name)!);
   const tenantClaims = [...new Set(usedEntities.flatMap((entity) => entity.fields.flatMap((field) => field.tenantClaim === undefined ? [] : [field.tenantClaim])))];
-  const permissionPrincipal = (permissions && !isPermissionModelEmpty(permissions)
+  const principalExtras = (policyClaims: Record<string, string>) => (permissions && !isPermissionModelEmpty(permissions)
     ? `, permissions: ${JSON.stringify(declaredPermissionValues(permissions))}, groups: ${JSON.stringify(permissions.groups.map((group) => group.name))}`
-    : "") + (tenantClaims.length ? `, claims: ${JSON.stringify(Object.fromEntries(tenantClaims.map((claim) => [claim, "00000000-0000-4000-8000-000000000001"])))}` : "");
+    : "") + (tenantClaims.length || Object.keys(policyClaims).length ? `, claims: ${JSON.stringify({ ...Object.fromEntries(tenantClaims.map((claim) => [claim, "00000000-0000-4000-8000-000000000001"])), ...policyClaims })}` : "");
+  const permissionPrincipal = principalExtras(policyFixture.claims);
+  const outsiderPrincipal = principalExtras(Object.fromEntries(Object.entries(policyFixture.claims).map(([claim, value]) => [claim, value === "41" ? "42" : value.startsWith("00000000-") ? "00000000-0000-4000-8000-0000000000bb" : "qiy-other-claim"])));
+  const claimRestricted = new Set(restrictions.filter((restriction) => [...(restriction.rows ?? []), ...(restriction.groups ?? []).flat()].some((predicate) => predicate.source === "claim" && predicate.operator === "==")
+    || (restriction.expressions ?? []).some(function claimed(node): boolean { return node.kind === "predicate" ? node.predicate.source === "claim" && node.predicate.operator === "==" : node.kind === "and" || node.kind === "or" ? node.children.some(claimed) : false; })).map((restriction) => restriction.resource));
   const imports = usedEntities.map((entity) => entity.name).join(", ");
   const schema = usedEntities.map((entity) => {
     const columns = entity.fields.map((field) => field.computed !== undefined ? sqliteComputedColumnDdl(field, entity) : `${JSON.stringify(field.columnName ?? field.name)} ${sqliteColumnType(field)}${sqliteTestDefault(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
@@ -470,7 +501,8 @@ export function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNul
         if (action.kind === "update" && action.context === binding.name) action.values.forEach((value) => written.add(value.field));
         return action.kind === "require" && action.left.startsWith(`${binding.name}.`) && !written.has(action.left.slice(binding.name.length + 1)) ? [{ field: action.left.slice(binding.name.length + 1), operator: action.operator, right: action.right }] : [];
       });
-      const values = entity.fields.map((field) => `${JSON.stringify(field.name)}: ${dataflowFixtureValue(field, requires, database.enums)}`).join(", ");
+      const policyValues = policyFixture.values.get(entity.name);
+      const values = entity.fields.map((field) => `${JSON.stringify(field.name)}: ${!requires.some((requirement) => requirement.field === field.name) && policyValues?.get(field.name) || dataflowFixtureValue(field, requires, database.enums)}`).join(", ");
       return `await db.insert(${entity.name}).values({ ${values} } as any);`;
     }).join("\n    ");
     const flowActions = flow.steps.flatMap((step) => step.actions);
@@ -547,6 +579,16 @@ export function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNul
   });` : "";
     const hasMutations = flow.steps.some((step) => step.actions.some((action) => action.kind === "update" || action.kind === "create" || action.kind === "delete" || action.kind === "emit"));
     const deniedRoles = flow.roles ? roles.names.filter((role) => !flow.roles!.includes(role)) : roles.readers;
+    const policyTest = flow.context.some((binding) => claimRestricted.has(binding.entity)) ? `
+  test(${JSON.stringify(`${flow.name} hides rows outside the caller's record policy`)}, async () => {
+    ${seed}
+    const before = ${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all());
+    const outsiderApp = new Elysia().use(createDataflowRoutes(async () => ({ id: "00000000-0000-4000-8000-000000000011", name: "Outsider", role: ${JSON.stringify(flow.roles?.[0] ?? roles.admin)}${outsiderPrincipal} })));
+    const hidden = await outsiderApp.handle(new Request(${JSON.stringify(`http://localhost/api/v1/commands/${flow.name}`)}, { method: "POST", headers: ${headers}, body: JSON.stringify(${JSON.stringify(input)}) }));
+    expect(hidden.status).toBe(404);
+    expect(${JSON.stringify(usedEntities.map((entity) => entity.tableName))}.map((table) => client.query("SELECT * FROM " + table).all())).toEqual(before);
+    expect(client.query<{ total: number }, []>("SELECT COUNT(*) as total FROM audit_events").get()?.total).toBe(0);
+  });` : "";
     const authorizationTest = `
   test(${JSON.stringify(`${flow.name} rejects unauthenticated and disallowed roles before writing`)}, async () => {
     ${seed}
@@ -680,7 +722,7 @@ ${missingKeyCheck}
     const result = await response.json();
     ${assertions || "expect(result).toHaveProperty(\"id\");"}${resultMutationCheck}
     ${replayCheck}${auditCheck}${outboxCheck}${deliveryCheck}${realtimeOutboxCheck}
-  });${graphqlCommandTest}${authorizationTest}${rollbackTests}${businessRollbackTest}${callRollbackTest}${inputValidationTests}${numericGuardTests}${batchTest}`;
+  });${graphqlCommandTest}${authorizationTest}${policyTest}${rollbackTests}${businessRollbackTest}${callRollbackTest}${inputValidationTests}${numericGuardTests}${batchTest}`;
   }).join("\n\n");
   return `import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { Elysia } from "elysia";

@@ -393,13 +393,34 @@ export function generateServer(database: DatabaseIR, options: ServerOptions = {}
       ...(masks.length ? { masks } : {}),
     });
   }
+  const maskedFields = new Map(normalizedRestrictions.map((restriction) => [restriction.resource, new Set((restriction.masks ?? []).map((mask) => mask.field))]));
   for (const flow of options.dataflows ?? []) {
-    const used = new Set(flow.context.map((binding) => binding.entity));
-    for (const step of flow.steps) for (const action of step.actions) {
-      if (action.kind === "create") used.add(action.entity);
-    }
-    for (const resource of used) {
-      if (restrictedResources.has(resource)) errors.push(`Restrict ${resource}: dataflow ${flow.name} cannot use a restricted resource until command authorization applies the same row policy`);
+    const actions = flow.steps.flatMap((step) => step.actions);
+    const bindings = new Map([
+      ...flow.context.map((binding) => [binding.name, binding.entity] as const),
+      ...actions.flatMap((action) => action.kind === "create" ? [[action.context, action.entity] as const] : []),
+    ]);
+    const masked = (binding: string | undefined, field: string) => {
+      const entity = binding ? bindings.get(binding) : undefined;
+      return entity !== undefined && maskedFields.get(entity)?.has(field) === true ? entity : undefined;
+    };
+    for (const action of actions) {
+      if (action.kind === "update" || action.kind === "create") {
+        for (const value of action.values) {
+          const entity = masked(action.context, value.field);
+          if (entity) errors.push(`Dataflow ${flow.name}: cannot write masked field ${entity}.${value.field}; commands only write fields every caller may see`);
+          const target = bindings.get(action.context);
+          const hidden = value.source !== "input" && normalizedRestrictions.find((restriction) => restriction.resource === target)?.rows?.find((row) => row.field === value.field && row.source === "values"
+            && (row.operator === "==" || row.operator === "in" ? !row.values!.includes(String(value.value)) : row.values!.includes(String(value.value))));
+          if (hidden) errors.push(`Dataflow ${flow.name}: writes ${target}.${value.field} = ${String(value.value)}, which the record policy of ${target} hides`);
+        }
+      }
+      if (action.kind === "emit" || action.kind === "call") {
+        for (const value of action.payload ?? []) {
+          const entity = value.source === "context" ? masked(value.context, String(value.value)) : undefined;
+          if (entity) errors.push(`Dataflow ${flow.name}: ${action.kind} payload cannot read masked field ${entity}.${value.value}`);
+        }
+      }
     }
   }
   if (auth) {
@@ -457,7 +478,7 @@ export function generateServer(database: DatabaseIR, options: ServerOptions = {}
   const interfaces = database.entities.map((entity) => `  ${entity.name}: import("./modules/${entity.name}/${entity.name}.contract").${modelName(entity)}Repository;`).join("\n");
   const deliveryTargets = deliveryTargetsByEvent(options.webhooks, options.notifications);
   const cronJobs = options.elysiaPlugins?.cron ?? [];
-  const dataflowRoutes = renderDataflowRoutes(database, options.dataflows ?? [], options.scopes ?? [], options.actions ?? [], options.realtime !== undefined, permissions, deliveryTargets);
+  const dataflowRoutes = renderDataflowRoutes(database, options.dataflows ?? [], options.scopes ?? [], options.actions ?? [], options.realtime !== undefined, permissions, deliveryTargets, normalizedRestrictions);
   const protectedResources = JSON.stringify([
     ...database.entities.map((entity) => ({ path: entity.tableName, query: entity.name })),
     ...(database.views ?? []).map((view) => ({ path: view.name, query: view.name })),
@@ -1089,7 +1110,7 @@ console.log(\`Local-only Qiy preview: http://127.0.0.1:\${server.port}\`);
   if (dataflowCallExtensions) files["api/src/extensions/dataflow-calls.ts"] = dataflowCallExtensions;
   const realtimeOutboxTest = options.realtime ? renderSqliteRealtimeOutboxTest(database, options.realtime) : undefined;
   if (realtimeOutboxTest) files["api/tests/realtime-outbox-transaction.test.ts"] = realtimeOutboxTest;
-  const dataflowTest = renderSqliteDataflowTest(database, options.dataflows ?? [], roles, options.actions ?? [], options.realtime !== undefined, permissions, deliveryTargets);
+  const dataflowTest = renderSqliteDataflowTest(database, options.dataflows ?? [], roles, options.actions ?? [], options.realtime !== undefined, permissions, deliveryTargets, normalizedRestrictions);
   if (dataflowTest) {
     files["api/tests/dataflow.test.ts"] = dataflowTest;
     const failureFlows = (options.dataflows ?? []).map((flow) => {
@@ -1108,8 +1129,8 @@ console.log(\`Local-only Qiy preview: http://127.0.0.1:\${server.port}\`);
       const numericInput = input?.type === "Integer" || database.enums?.some((enumeration) => enumeration.name === input?.type);
       return { ...flow, steps: [...flow.steps, { name: "qiyTestLateFailure", order: Math.max(...flow.steps.map((step) => step.order)) + 1, actions: [{ kind: "require" as const, left: `${last.context}.${numericInput ? binding.id.split(":")[0] : value.field}`, operator: "!=" as const, right: numericInput ? "00000000-0000-4000-8000-000000000001" : value.source === "input" ? "Qiy fixture reason" : value.value, error: "qiy.test.lateFailure" }] }] };
     });
-    files["api/tests/fixtures/dataflow-failure.ts"] = renderDataflowRoutes(database, failureFlows, options.scopes ?? [], [], options.realtime !== undefined, permissions)!
-      .replaceAll('"../db"', '"../../src/db"').replaceAll('"../schema"', '"../../src/schema"').replaceAll('"../auth/guard"', '"../../src/auth/guard"').replaceAll('"../auth/permissions"', '"../../src/auth/permissions"').replaceAll('"./calls"', '"../../src/dataflows/calls"');
+    files["api/tests/fixtures/dataflow-failure.ts"] = renderDataflowRoutes(database, failureFlows, options.scopes ?? [], [], options.realtime !== undefined, permissions, new Map(), normalizedRestrictions)!
+      .replaceAll('"../db"', '"../../src/db"').replaceAll('"../schema"', '"../../src/schema"').replaceAll('"../auth/guard"', '"../../src/auth/guard"').replaceAll('"../auth/permissions"', '"../../src/auth/permissions"').replaceAll('"./calls"', '"../../src/dataflows/calls"').replaceAll('"../security/policy"', '"../../src/security/policy"');
   }
   const scenarioTest = renderQiyScenarioTest(database, options.dataflows ?? [], roles, options.testSuite, permissions, deliveryTargets);
   if (scenarioTest) files["api/tests/qiy-scenarios.test.ts"] = scenarioTest;
@@ -1337,7 +1358,7 @@ import type { ${modelName(entity)}Repository as ${modelName(entity)}RepositoryPo
 ${entityRestricted ? 'import { QiyPolicyError, resolvePolicy, type QiyPolicy } from "../../security/policy";\nimport { ' + entity.name + ' } from "../../schema";\nimport type { Principal } from "../../auth/guard";\n' : ""}
 ${renderRoutes(publicEntity, database, options.scopes, hiddenFields, entityRestricted, temporalFields.length ? "QiyTemporalValueError" : "", Object.keys(entityFieldRules(entity.fields)).length > 0).replace(`repository: ${modelName(entity)}Repository`, `repository: ${modelName(entity)}RepositoryPort`).replace("  return new Elysia({", `  const service = create${modelName(entity)}Service(repository);\n  return new Elysia({`).replaceAll("repository.list(", "service.list(").replaceAll("repository.one(", "service.one(").replaceAll("repository.create(", "service.create(").replaceAll("repository.update(", "service.update(").replaceAll("repository.delete(", "service.delete(")}`;
     files[`api/src/routes/${entity.name}.ts`] = `export { ${modelName(entity)}Routes } from "../modules/${entity.name}/${entity.name}.routes";\nexport type { ${modelName(entity)}Repository } from "../modules/${entity.name}/${entity.name}.contract";\n`;
-    files[`api/tests/${entity.name}.test.ts`] = renderRouteTest(publicEntity, database, options.scopes ?? [], hiddenFields);
+    files[`api/tests/${entity.name}.test.ts`] = renderRouteTest(publicEntity, database, options.scopes ?? [], hiddenFields, normalizedRestrictions);
   }
   files["api/tests/graphql.test.ts"] = renderGraphQLTest(scopedDatabase, hasLocalAuth && database.entities[0]!.name === options.auth!.userEntity ? [options.auth!.passwordField!] : []);
   files["api/tests/graphql-schema.test.ts"] = `import { expect, test } from "bun:test";
@@ -1534,7 +1555,8 @@ test("REST and GraphQL expose the full authorized enum distribution", async () =
 });
 `;
   }
-  const trendEntity = database.entities.find((entity) => entity.fields.some((field) => field.type === "DateTime"));
+  const trendPolicyFree = rowPolicyFree(database, options.restrictions ?? []);
+  const trendEntity = database.entities.find((entity) => trendPolicyFree(entity.name) && entity.fields.some((field) => field.type === "DateTime"));
   if (trendEntity) {
     const field = trendEntity.fields.find((item) => item.type === "DateTime")!;
     const scope = options.scopes?.find((item) => item.resource === trendEntity.name || item.resource === trendEntity.tableName);

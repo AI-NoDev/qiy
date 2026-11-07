@@ -8,6 +8,12 @@ restrict contracts {
   mask internalNote claim absent compliance.level mode omit;
 }
 
+restrict tickets {
+  when ownerId claim user.id;
+  when queue in "support", "billing";
+  mask website roles auditor mode null;
+}
+
 pages contracts {
   list roles owner, agent, auditor;
   show roles owner, agent, auditor;

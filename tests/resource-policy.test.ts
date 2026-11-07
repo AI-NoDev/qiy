@@ -212,15 +212,38 @@ test("parses page-level rules and enforces them in both transports", () => {
   expect(() => parseQiyProject(withPages)).not.toThrow();
 });
 
-test("fails closed when a command path cannot apply the row policy", () => {
-  const withFlow = parseQiyProject(`qiy v0;
+function commandModel(dialect: string, restrict: string, steps: string): ReturnType<typeof parseQiyProject> {
+  return parseQiyProject(`qiy v0;
 application policy-demo {
-  database sqlite {}
-  entity records { field id UUID @id; field ownerId UUID; field title Text; }
-  restrict records { when ownerId claim user.id; }
-  dataflow rename { allow roles admin; input { field id UUID @required; field title Text @required; } context { record = entity records by id input.id @required; } step apply { update record { title = input.title; } } result { return record; } }
+  database ${dialect} {}
+  entity records { field id UUID @id; field ownerId UUID; field title Text; field stage Text; field secret Text @nullable; }
+  restrict records { ${restrict} }
+  dataflow rename { allow roles admin; input { field id UUID @required; field title Text @required; } context { record = entity records by id input.id @required; } ${steps} result { return record; } }
 }`);
-  expect(() => generateServer(withFlow.database, withFlow)).toThrow("dataflow rename cannot use a restricted resource");
+}
+
+test("commands apply the resource row policy, recheck writes and mask the result", () => {
+  for (const dialect of ["sqlite", "postgresql", "mysql"]) {
+    const project = commandModel(dialect, `when ownerId claim user.id; when stage in "open", "review"; mask secret roles operator mode null;`, `step apply { update record { title = input.title; } }`);
+    const routes = generateServer(project.database, project)["api/src/dataflows/index.ts"]!;
+    expect(routes).toContain('import { QiyPolicyError, resolvePolicy } from "../security/policy";');
+    expect(routes).toContain('.onError(({ error, status }) => error instanceof QiyPolicyError');
+    expect(routes).toContain('const policy0 = resolvePolicy("records", principal, {');
+    expect(routes).toContain('.where(and(eq(records["id"], body["id"]), ...(policy0.conditions as never[])))');
+    expect(routes).toContain('throw new DataflowFailure(403, "Write is outside the record policy", "records", "policy.outsideScope")');
+    expect(routes).toContain("const value = policy0.mask(context0) as unknown as typeof context0;");
+  }
+});
+
+test("commands cannot write or publish masked fields, nor write values the policy hides", () => {
+  const generate = (restrict: string, steps: string) => () => { const project = commandModel("sqlite", restrict, steps); generateServer(project.database, project); };
+  expect(generate(`mask title roles operator mode null;`, `step apply { update record { title = input.title; } }`))
+    .toThrow("Dataflow rename: cannot write masked field records.title");
+  expect(generate(`mask secret roles operator mode null;`, `step apply { emit "records.renamed" { secret = record.secret; } }`))
+    .toThrow("Dataflow rename: emit payload cannot read masked field records.secret");
+  expect(generate(`when stage in "open", "review";`, `step apply { update record { stage = "archived"; } }`))
+    .toThrow("Dataflow rename: writes records.stage = archived, which the record policy of records hides");
+  expect(generate(`when stage in "open", "review"; mask secret roles operator mode null;`, `step apply { update record { stage = "review"; title = input.title; } }`)).not.toThrow();
 });
 
 test("threads restrictions through project generation and authenticated navigation", () => {

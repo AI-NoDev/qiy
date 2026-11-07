@@ -97,7 +97,7 @@ Canonical reference: https://ai-nodev.github.io/qiy/dsl/overview
 | `Restrict X: row condition on nullable field Y is not supported` | Claim predicate on nullable column | Use a non-null column or `mask` |
 | `Restrict X: > on amount must compare two fields` | Literal used with `>`/`<` | Literals only with `==`/`!=`/`in`/`notIn` |
 | `Restrict X: mask mode redact for Y requires a replacement string` | Missing replacement | Add `replacement "***"` |
-| `Restrict X: dataflow Y cannot use a restricted resource ...` | Command touches any resource with a `restrict` block | Remove the resource from the command or drop `restrict` |
+| `Dataflow Y: cannot write masked field X.F` | Command writes or publishes a masked field | Drop the mask or stop writing/publishing that field |
 | `when scope requires a matching scope declaration` | `scope` atom without `scope` | Declare `scope` for that resource |
 | `Page access denied` (403) | `pages` disallows the action | Adjust `pages`; export uses `list`, import writes use `create` |
 | Login page has no provider buttons | Provider env block incomplete | Fill `QIY_OIDC_<ID>_ISSUER/AUDIENCE/JWKS_URL/AUTHORIZATION_URL/CLIENT_ID` |

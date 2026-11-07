@@ -2,7 +2,8 @@
  * Server renderers for the per-resource REST routes and their contract tests.
  */
 import { manyRelations, generatedFieldsOf, type DatabaseIR, type EntityIR } from "../database-ir";
-import type { QiyProject } from "../qiy-project";
+import type { QiyProject, QiyResourceRestriction } from "../qiy-project";
+import { restrictionFixture } from "./permissions";
 import { ruleSample, ruleViolations } from "../field-rules";
 import { temporalFieldsOf, createFields, patchFields, modelName, filterModesForField } from "./shared";
 
@@ -626,9 +627,10 @@ export const ${entity.name}WritableFields = [${allowed}] as const;
 `;
 }
 
-export function renderRouteTest(entity: EntityIR, database: DatabaseIR, scopes: NonNullable<QiyProject["scopes"]> = [], hiddenFields: string[] = []): string {
+export function renderRouteTest(entity: EntityIR, database: DatabaseIR, scopes: NonNullable<QiyProject["scopes"]> = [], hiddenFields: string[] = [], restrictions: QiyResourceRestriction[] = []): string {
   const name = modelName(entity);
-  const claims = JSON.stringify(Object.fromEntries(scopes.map((scope) => [scope.claim, database.entities.find((item) => item.name === scope.resource || item.tableName === scope.resource)?.fields.find((field) => field.name === scope.field)?.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : "Example"])));
+  const scopeClaims = Object.fromEntries(scopes.map((scope) => [scope.claim, database.entities.find((item) => item.name === scope.resource || item.tableName === scope.resource)?.fields.find((field) => field.name === scope.field)?.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : "Example"]));
+  const claims = JSON.stringify({ ...scopeClaims, ...restrictionFixture(database, restrictions, [entity.name])?.claims });
   const values = entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable && !field.version && !field.stateMachine).map((field) => {
     const constrained = ruleSample(field);
     const example = constrained !== undefined ? JSON.stringify(constrained) : field.type === "Integer" ? "1" : field.type === "Boolean" ? "true" : field.type === "Array" ? (field.itemType === "Integer" ? "[1]" : '["Example"]') : field.type === "Decimal" || field.type === "Money" ? '"1.00"'

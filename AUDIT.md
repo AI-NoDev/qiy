@@ -64,7 +64,7 @@ cd <dir> && bun install && bun run test
 
 | 优先级 | 项 |
 | --- | --- |
-| P2 | Dataflow 应用 `restrict` 行策略、view IN 子查询性能 |
+| P2 | view IN 子查询性能 |
 | P3 | 本地 E2E 对陈旧服务的鲁棒性、英文用户文档 |
 
 字段校验与默认值、乐观锁、kitchen-sink fixture 与示例漂移检查、自定义角色、多对多、状态机、Webhook/通知/定时 dataflow 已完成。详见 [ROADMAP](ROADMAP.md)「0.37 之后：补齐与优化」。`examples/*/admin` 快照由 CI 的 `examples:check` 保持与生成器一致。

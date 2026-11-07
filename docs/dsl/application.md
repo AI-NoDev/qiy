@@ -1691,7 +1691,7 @@ not <expression> | ( <expression> )
 - 主键不能作为行条件或 mask 目标；`Vector` 字段不能 mask。
 - `mask replacement` 与 `mode redact` 必须同时出现；重复 mask 报 `duplicate mask for X`。
 - 声明 `scope` 原子但没有同资源 `scope` 时，生成期报 `when scope requires a matching scope declaration`。
-- `dataflow`/`statemachine` 不能操作受 `restrict` 保护的资源（生成期失败），避免命令接口绕过行策略。
+- `dataflow`/`statemachine` 应用同一份策略：context 加载并入行条件，写后重读校验，结果按 `mask` 裁剪；命令不能写入或发布被 mask 的字段（生成期失败）。
 
 ### 生成结果
 
@@ -1735,7 +1735,7 @@ restrict orders {
 | `Restrict orders: row condition on nullable field X is not supported` | 改为非空列，或改用 `mask` |
 | `Restrict orders: > on amount must compare two fields` | `>`/`>=`/`<`/`<=` 只能用于跨字段比较；字面量比较用 `==`/`!=`/`in`/`notIn` |
 | `Restrict orders: mask mode redact for X requires a replacement string` | 补 `replacement "***"` |
-| `Restrict orders: dataflow approve cannot use a restricted resource …` | 去掉该资源的 `restrict`，或让命令走未受限资源 |
+| `Dataflow approve: cannot write masked field orders.X` | 去掉该 mask，或不在命令里写该字段 |
 
 ## 常见错误（整块级）
 

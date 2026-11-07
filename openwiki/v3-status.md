@@ -50,5 +50,5 @@
 4. ~~**多对多关系**与多选 UI~~（已完成）：`relation ... many` 生成连接表与虚拟 id 数组字段，写入在主记录事务内校验目标（存在、未软删、同数据范围）后整体替换；表单为多选关联下拉。
 5. ~~**声明式状态机 / 审批流转**~~（已完成）：`statemachine` 拥有一个枚举字段，每个 transition 编译为带守卫、幂等的 dataflow 与 action。
 6. ~~**Webhook 与通知**~~（已完成）：`webhook` / `notification` + 通知 provider（SMTP 默认、Resend、webhook，开发环境 console），投递记录与事务同成同败；cron 定时运行 dataflow，租约防止多副本重复执行。
-7. **工程优化**：~~按领域拆分生成器~~（已完成，`tools/server/`、`tools/web/`）；~~计算字段落为数据库生成列~~（已完成）；view 的 IN 子查询性能与索引；本地 E2E 对陈旧服务的鲁棒性。
+7. **工程优化**：~~按领域拆分生成器~~（已完成，`tools/server/`、`tools/web/`）；~~计算字段落为数据库生成列~~（已完成）；~~Dataflow 应用 `restrict` 行策略~~（已完成）；view 的 IN 子查询性能与索引；本地 E2E 对陈旧服务的鲁棒性。
 8. **英文用户文档**。
