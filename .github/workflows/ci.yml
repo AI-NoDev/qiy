@@ -70,7 +70,7 @@ jobs:
       - name: Install Playwright browser
         run: bunx playwright install --with-deps chromium
       # One Playwright run for both projects: a second run cannot start the
-      # dev server while the first one's turbo children still hold port 5173.
+      # dev servers while the first one's children still hold ports 3187/5187.
       - name: Generated app CRUD E2E and pixel regression
         run: bun run e2e:visual --project chromium
       - name: Generated API load smoke

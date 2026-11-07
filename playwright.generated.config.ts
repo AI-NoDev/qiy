@@ -1,6 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const visualEndpoint = process.env.QIY_VISUAL_WS;
+// Dedicated ports keep the run away from other dev servers; a busy port fails
+// instead of silently testing whatever app already listens there.
+const webPort = Number(process.env.QIY_E2E_WEB_PORT ?? 5187);
+const apiPort = Number(process.env.QIY_E2E_API_PORT ?? 3187);
 
 /** E2E against a real generated admin/API workspace (`tmp/e2e-admin`). */
 export default defineConfig({
@@ -12,7 +16,8 @@ export default defineConfig({
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "github" : "list",
-  use: { baseURL: "http://localhost:5173", trace: "retain-on-failure" },
+  globalSetup: "./e2e/fixtures/warm-up.ts",
+  use: { baseURL: `http://localhost:${webPort}`, trace: "retain-on-failure" },
   projects: [
     { name: "chromium", testMatch: "generated.spec.ts", use: { ...devices["Desktop Chrome"] } },
     ...(visualEndpoint ? [{
@@ -21,13 +26,26 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], connectOptions: { wsEndpoint: visualEndpoint, exposeNetwork: "<loopback>" } },
     }] : []),
   ],
-  webServer: {
-    command: "bun run ../../tools/cli.ts generate ../../e2e/fixtures/app.qiy . --sync && bun run db:generate && bun run db:migrate && bun run dev",
-    cwd: "tmp/e2e-admin",
-    url: "http://localhost:5173/",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-    stdout: "pipe",
-    stderr: "pipe",
-  },
+  webServer: [
+    {
+      command: "bun run ../../tools/cli.ts generate ../../e2e/fixtures/app.qiy . --sync && bun run db:generate && bun run db:migrate && bun run dev:server",
+      cwd: "tmp/e2e-admin",
+      url: `http://127.0.0.1:${apiPort}/api/v1/health`,
+      env: { PORT: String(apiPort) },
+      reuseExistingServer: false,
+      timeout: 120_000,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+    {
+      command: `bun run --cwd apps/web --bun dev --port ${webPort} --strictPort`,
+      cwd: "tmp/e2e-admin",
+      url: `http://localhost:${webPort}/`,
+      env: { QIY_API_PROXY: `http://127.0.0.1:${apiPort}` },
+      reuseExistingServer: false,
+      timeout: 120_000,
+      stdout: "ignore",
+      stderr: "pipe",
+    },
+  ],
 });

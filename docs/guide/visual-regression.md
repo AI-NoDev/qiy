@@ -32,7 +32,7 @@
 字体、抗锯齿和系统字体回退在 Windows/macOS/Linux 之间不同，直接在宿主机截图会让基线假失败。因此 `bun run e2e:visual`（`tools/e2e-visual.ts`）会：
 
 1. 用与 `@playwright/test` 同版本的官方镜像 `mcr.microsoft.com/playwright:v<版本>-noble` 启动 `playwright run-server`；
-2. 以 `connectOptions.exposeNetwork: "<loopback>"` 连接容器里的浏览器，让它访问宿主机上的 `localhost:5173`；
+2. 以 `connectOptions.exposeNetwork: "<loopback>"` 连接容器里的浏览器，让它访问宿主机上的 E2E Admin（`localhost:5187`）；
 3. 只运行 `visual` 项目，结束后停止容器。
 
 所以本地与 CI 的截图都来自同一个 Linux 浏览器和字体栈，一份基线即可。前提是本机有 Docker。
@@ -51,6 +51,8 @@ bun run e2e:generated                       # 布局快照 + CRUD/回收站 E2E
 bun run e2e:generated --update-snapshots    # 更新布局基线
 bun run e2e:visual                          # 像素快照（需要 Docker）
 ```
+
+E2E 会在 `tmp/e2e-admin` 重新生成 fixture 应用，并自行启动 API（`:3187`）与 Admin（`:5187`），从不复用已在运行的服务，所以本机 `5173`/`3000` 上的其它开发服务器不会被误测；端口被占用时直接失败。API 以 `/api/v1/health` 应答为就绪，全局 setup（`e2e/fixtures/warm-up.ts`）会先把用例访问的路由各加载一遍，吸收首次编译和 Vite 依赖预构建引起的重载。端口可用 `QIY_E2E_API_PORT`、`QIY_E2E_WEB_PORT` 覆盖。
 
 ## 边界
 

@@ -51,6 +51,7 @@ still declares it fails to parse with a pointer to
 
 ### Fixed
 
+- `bun run e2e:generated` starts its own API (`:3187`) and admin (`:5187`, `--strictPort`) and never reuses a running server, so a stale or unrelated dev server on `5173`/`3000` can no longer be tested by mistake; a busy port fails the run instead. The API is ready only once `/api/v1/health` answers, and a global setup loads every route once so the first-request compile and Vite's dependency-optimization reload no longer eat into the first test's timeout. `QIY_E2E_WEB_PORT`/`QIY_E2E_API_PORT` override the ports.
 - Generated route tests give the test principal the claims its resource's row policy requires, and the generated trend test picks a resource without a row policy.
 - The `examples/catalog`, `erpadmin` and `scoped-sqlite` snapshots are regenerated with the current generator, and `examples/self` no longer carries the realtime environment keys removed in 0.37.0. `examples/erpadmin` maps its `tenant.customerId` scope claim to a users column, which current validation requires.
 - Docs and the Agent Skill no longer claim that `Boolean`, `Email`, `URL` and `JSON` are unsupported field types, no longer list the removed dashboard metric annotations, and the application block-order table now includes `view`.
