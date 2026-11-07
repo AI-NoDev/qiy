@@ -7,5 +7,5 @@ relation ticketWatchers tickets watcherIds users id many @comment("Users notifie
 relation announcementLabels announcements labelIds labels id many;
 
 view open_ticket_titles from tickets {
-  columns id, code, title, status;
+  columns id, code, title, status, summary;
 }

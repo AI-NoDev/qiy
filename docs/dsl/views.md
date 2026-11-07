@@ -25,7 +25,7 @@ view <Name> from <Entity> {
 - `Name` 必须是合法标识符，不能与实体名/表名冲突；
 - `Entity` 可以是实体名或表名；
 - `columns` 至少一个，只能是源实体的真实列；
-- 不能选择 `@computed` 字段；
+- 可以选择 `@computed` 字段（它们是数据库生成列）；
 - 列不能重复；
 - 视图本身只读。
 
@@ -75,4 +75,4 @@ qiy check
 qiy generate
 ```
 
-`qiy check` 会校验 view 的源实体、列和 computed 限制；`qiy generate` 输出 Drizzle view。
+`qiy check` 会校验 view 的源实体与列；`qiy generate` 输出 Drizzle view。

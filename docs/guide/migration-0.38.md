@@ -7,6 +7,7 @@
 | `workflow orderInventory;` | `statemachine` | 模型需改写；重新生成 + 迁移 |
 | 生成的 `createApp(repositories, authenticate, includeWorkflows, includeStorage, …)` | 去掉第三个参数 | 只影响手写代码里直接调用 `createApp` 的地方 |
 | Dataflow `allow roles` 写了 `read` 级别角色 | 去掉该角色 | 解析期报错 |
+| `@computed` 只在 API 响应里计算 | 数据库生成列 | 模型不变；重新生成 + 迁移 |
 
 升级步骤：
 
@@ -79,6 +80,15 @@ await createApp(repositories, authenticate, false);
 ## Web 命令传输
 
 生成的 DataProvider 中，`custom({ method: "post" })` 只接受模型中声明的命令 URL（`/api/v1/commands/<name>` 及其 `/batch`），其他 URL 抛出 `Unknown command`（0.37 为 `Unknown workflow command`）。如果手写代码匹配了旧的错误文案，请一并修改。
+
+## 计算字段
+
+`@computed` 字段从响应时的内存计算改为数据库生成列（PostgreSQL 为 STORED，MySQL/SQLite 为 VIRTUAL）。模型无需修改；重新生成后运行 `bun run db:generate`，迁移会为每个计算字段 `ADD` 一列，已有行由数据库自动算出。
+
+- 计算字段现在可以排序、筛选、建索引，也可以被 view 选择。
+- Decimal/Money 结果按字段声明的 scale 四舍五入，并像其他 Decimal 字段一样以字符串返回（PostgreSQL/MySQL）；0.37 返回的是未舍入的数字。
+- 数值表达式一律按小数相除；整数结果仍向零取整，引用为 null 或除数为 0 时仍为 null。
+- 逻辑备份 `db:restore` 不写入生成列，由数据库重新计算。
 
 ## Dataflow 角色
 

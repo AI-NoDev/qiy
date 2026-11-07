@@ -65,9 +65,12 @@ entity tickets table tickets @label("Tickets") @singular("Ticket") @plural("Tick
   field ownerId UUID;
   field internalNote Text @nullable @listVisible(false) @filterable(false);
   field summary Text @computed("{code}: {title}");
+  field budgetPerPriority Money @precision(12) @scale(2) @nullable @computed("{budget} / ({priority} - 3)");
+  field effort Integer @nullable @computed("{estimate} * 2");
   field deletedAt DateTime @nullable @softDelete;
   index tickets_code_idx btree(code) @unique @comment(t("kitchen.index.code"));
   index tickets_queue_status_idx btree(queue, status);
+  index tickets_summary_idx btree(summary);
 }
 
 entity contracts table contracts @label("Contracts") @icon(FileProtectOutlined) {

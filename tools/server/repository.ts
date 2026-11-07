@@ -1,11 +1,11 @@
 /**
- * Server renderers for per-resource repositories: CRUD methods, computed
- * fields and generated-value create wrappers.
+ * Server renderers for per-resource repositories: CRUD methods and
+ * generated-value create wrappers.
  */
-import { manyRelations, computedExpressionTokens, computedNumericTypes, generatedFieldsOf, type DatabaseIR, type EntityIR } from "../database-ir";
+import { manyRelations, generatedFieldsOf, type DatabaseIR, type EntityIR } from "../database-ir";
 import { injectLinkWrites } from "../generate-relation-links";
 import { generatedFieldSpecs } from "../generate-values";
-import { resolveScopeTree, modelName, type QiyScope } from "./shared";
+import { resolveScopeTree, type QiyScope } from "./shared";
 
 /**
  * Wraps the generated transactional `create` of one repository in
@@ -31,66 +31,18 @@ export function wrapGeneratedCreateMethods(methods: string, entityName: string, 
   return `${methods.slice(0, start)}${head}${tail}${methods.slice(end)}`;
 }
 
-export function renderComputedRepository(entity: EntityIR, baseName: string): string {
-  const fields = entity.fields.filter((field) => field.computed !== undefined);
-  if (fields.length === 0) return "";
-  const assignments = fields.map((field) => `    ${JSON.stringify(field.name)}: ${computedNumericTypes.has(field.type) ? computedNumericExpression(field.computed!, field.type === "Integer") : computedTemplateExpression(field.computed!)},`).join("\n");
-  const numericHelpers = fields.some((field) => computedNumericTypes.has(field.type)) ? `/** Null, empty and non-numeric operands make the whole computed value null. */
-function qiyComputedOperand(value: unknown): number {
-  if (value === null || value === undefined || value === "") return Number.NaN;
-  return typeof value === "number" ? value : Number(value);
-}
-function qiyComputedResult(value: number, integer: boolean): number | null {
-  if (!Number.isFinite(value)) return null;
-  return integer ? Math.trunc(value) : value;
-}
-` : "";
-  return `${numericHelpers}function qiyComputeRecord(row: Record<string, any> | undefined) {
-  if (!row) return row;
-  return {
-    ...row,
-${assignments}
-  };
-}
-const qiyComputedRepository: ${modelName(entity)}RepositoryContract = {
-  ...${baseName},
-  list: async (...args: any[]) => { const result = await (${baseName}.list as any)(...args); return { ...result, data: result.data.map(qiyComputeRecord) }; },
-  one: async (...args: any[]) => qiyComputeRecord(await (${baseName}.one as any)(...args)),
-  create: async (...args: any[]) => qiyComputeRecord(await (${baseName}.create as any)(...args)) as any,
-  update: async (...args: any[]) => qiyComputeRecord(await (${baseName}.update as any)(...args)),
-  delete: async (...args: any[]) => qiyComputeRecord(await (${baseName}.delete as any)(...args)),
-  deleteMany: async (...args: any[]) => (await (${baseName}.deleteMany as any)(...args)).map(qiyComputeRecord),${entity.fields.some((field) => field.softDelete) ? `
-  restore: async (...args: any[]) => qiyComputeRecord(await (${baseName}.restore as any)(...args)),` : ""}
-};
-`;
-}
-
-export function computedNumericExpression(expression: string, integer: boolean): string {
-  const body = computedExpressionTokens(expression)!.map((token) => token.startsWith("{") ? `qiyComputedOperand(row.${token.slice(1, -1)})` : token).join(" ");
-  return `qiyComputedResult(${body}, ${integer})`;
-}
-
-export function computedTemplateExpression(template: string): string {
-  const parts = template.split(/(\{[A-Za-z_][A-Za-z0-9_]*\})/).filter(Boolean);
-  if (parts.length === 0) return '""';
-  return parts.map((part) => {
-    const match = /^\{([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(part);
-    return match ? `String(row.${match[1]} ?? "")` : JSON.stringify(part);
-  }).join(" + ");
-}
-
 export function renderRepositoryMethods(entity: EntityIR, database: DatabaseIR, realtimeEvents: ReadonlySet<string> = new Set(), restricted = false, realtimeMasked: string[] = [], realtimeClaim?: { field: string; claim: string }): string {  const searchOperator = database.dialect === "postgresql" ? "ilike" : "like";
-  const searchableFields = entity.fields.filter((field) => field.type === "Text" && field.computed === undefined).map((field) => `${entity.name}.${field.name}`).join(", ");
-  const sortFields = entity.fields.filter((field) => field.computed === undefined && field.sortable !== false).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
-  const filterableEntityFields = entity.fields.filter((field) => field.computed === undefined && field.filterable !== false);
+  const searchableFields = entity.fields.filter((field) => field.type === "Text").map((field) => `${entity.name}.${field.name}`).join(", ");
+  const sortFields = entity.fields.filter((field) => field.sortable !== false).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
+  const filterableEntityFields = entity.fields.filter((field) => field.filterable !== false);
   const filterFields = filterableEntityFields.map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
   const filterTypes = JSON.stringify(Object.fromEntries(filterableEntityFields.map((field) => [field.name, field.type])));
   const configuredScopes = (database as DatabaseIR & { scopes?: QiyScope[] }).scopes ?? [];
   const scopeFields = entity.fields.filter((field) => field.computed === undefined && configuredScopes.some((scope) => (scope.resource === entity.name || scope.resource === entity.tableName) && scope.field === field.name));
   const scopeColumnFields = [...new Set([...filterableEntityFields, ...scopeFields])].map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
-  const groupFields = entity.fields.filter((field) => field.computed === undefined && field.enumName).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
-  const numericFields = entity.fields.filter((field) => field.computed === undefined && ["Integer", "Decimal", "Money"].includes(field.type)).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
-  const dateFields = entity.fields.filter((field) => field.computed === undefined && field.type === "DateTime").map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
+  const groupFields = entity.fields.filter((field) => field.enumName).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
+  const numericFields = entity.fields.filter((field) => ["Integer", "Decimal", "Money"].includes(field.type)).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
+  const dateFields = entity.fields.filter((field) => field.type === "DateTime").map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
   const scopeColumns = scopeColumnFields || "";
   const linked = manyRelations(database, entity.name).length > 0;
   // A `tree` scope widens the claim to the whole subtree, so the row predicate

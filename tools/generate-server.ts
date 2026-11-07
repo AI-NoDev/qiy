@@ -8,6 +8,7 @@ import { authHasLocal, authIsHybrid, authOAuthProviders, authProviderSubjectFiel
 import { isPermissionModelEmpty } from "./permissions";
 import { renderRolesModule, roleContext, withDefaultCommandRoles } from "./roles";
 import { renderAppTemplate } from "./admin-template";
+import { renderComputedColumnsTest, sqliteComputedColumnDdl } from "./computed-columns";
 import { generatedFieldsOf, validateDatabaseIR } from "./database-ir";
 import { generateDrizzlePostgres } from "./drizzle-pg";
 import { generateDrizzleMysql } from "./drizzle-mysql";
@@ -24,7 +25,7 @@ import { renderSqliteVersionTest, renderSqliteScopeTest, renderSqliteRealtimeOut
 import { renderDataflowIdempotencySchema, renderDataflowOutboxSchema, renderDataflowCallContracts, renderDataflowCallExtensions, renderDataflowRoutes, renderSqliteDataflowTest, renderQiyScenarioTest } from "./server/dataflows";
 import { rowPolicyFree, renderDataScopeTest, previewRepository, renderPolicyModule } from "./server/permissions";
 import { renderRealtimeOutboxSchema, renderExportJobsModule, renderSavedViewsModule, renderSavedViewsTest, renderImportJobsModule, renderRealtime, maskedRealtimeFields } from "./server/jobs-realtime";
-import { renderComputedRepository, renderRepositoryMethods } from "./server/repository";
+import { renderRepositoryMethods } from "./server/repository";
 import { renderRoutes, renderRouteTest } from "./server/routes";
 import { renderDatabaseOperationFiles } from "./server/database-ops";
 import { addAuthFiles } from "./server/auth-files";
@@ -1119,6 +1120,8 @@ console.log(\`Local-only Qiy preview: http://127.0.0.1:\${server.port}\`);
     .replace("__QIY_STORAGE_TEST_RESOURCE__", uploadField?.entity.tableName ?? "missing")
     .replace("__QIY_STORAGE_TEST_FIELD__", uploadField?.field.name ?? "missing")
     .replace("__QIY_STORAGE_TEST_MIME__", uploadField?.field.mimeTypes?.find((mime) => !mime.endsWith("/*") && mime !== "*/*") ?? (uploadField?.field.mimeTypes?.find((mime) => mime.endsWith("/*"))?.replace("*", "qiy-test") ?? "application/octet-stream"));
+  const computedColumnsTest = renderComputedColumnsTest(database);
+  if (computedColumnsTest) files["api/tests/computed-columns.test.ts"] = computedColumnsTest;
   if (database.dialect === "sqlite") {
     files["api/tests/storage-metadata.test.ts"] = `import { expect, test } from "bun:test";
 import "./setup";
@@ -1226,8 +1229,8 @@ ${publicEntity.fields.some((field) => field.version) ? 'import { QiyVersionConfl
 ${generatedRepositoryDeclaration}${renderRepositoryLinks(publicEntity, database, options.scopes ?? [])}${renderScopeTreeHelper(scopedDatabase, publicEntity)}const notDeleted = ${publicEntity.fields.find((field) => field.softDelete) ? `isNull(${entity.name}.${publicEntity.fields.find((field) => field.softDelete)!.name})` : "undefined"};\nconst qiyBase${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = {
 ${renderRepositoryMethods(publicEntity, scopedDatabase, realtimeEvents, entityRestricted, realtimeMasked, realtimeClaim)}
 };
-${renderComputedRepository(publicEntity, `qiyBase${modelName(entity)}Repository`)}${renderLinkedRepository(publicEntity, database, `${modelName(entity)}RepositoryContract`, publicEntity.fields.some((field) => field.computed !== undefined) ? "qiyComputedRepository" : `qiyBase${modelName(entity)}Repository`)}
-export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = ${manyRelations(database, entity.name).length ? "qiyLinkedRepository" : publicEntity.fields.some((field) => field.computed !== undefined) ? "qiyComputedRepository" : `qiyBase${modelName(entity)}Repository`};
+${renderLinkedRepository(publicEntity, database, `${modelName(entity)}RepositoryContract`, `qiyBase${modelName(entity)}Repository`)}
+export const ${modelName(entity)}Repository: ${modelName(entity)}RepositoryContract = ${manyRelations(database, entity.name).length ? "qiyLinkedRepository" : `qiyBase${modelName(entity)}Repository`};
 `;
     files[`${moduleRoot}/${entity.name}.contract.ts`] = `${generatedDocumentation(entity)}${entityRestricted ? 'import type { QiyPolicy } from "../../security/policy";\n' : ""}export interface ${modelName(entity)}Repository {
   distribution(field: string, scope?: { field: string; value: string }${entityRestricted ? ", policy?: QiyPolicy" : ""}): Promise<Array<{ value: string | null; count: number }>>;
@@ -1567,7 +1570,7 @@ ${scope ? `  const missing = await createApp(repositories, async () => ({ id: "a
   if (database.dialect === "sqlite") {
     const entity = database.entities[0]!;
     const entityGenerated = generatedFieldsOf(entity, database.relations ?? []);
-    const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `"${field.name}" ${field.type === "Integer" || field.type === "DateTime" ? "integer" : field.type === "Decimal" || field.type === "Money" ? "real" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
+    const columns = entity.fields.map((field) => field.computed !== undefined ? sqliteComputedColumnDdl(field, entity) : `"${field.name}" ${field.type === "Integer" || field.type === "DateTime" ? "integer" : field.type === "Decimal" || field.type === "Money" ? "real" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
     const values = entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable).map((field) => `${JSON.stringify(field.name)}: ${field.enumName ? JSON.stringify(database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name) : field.type === "Integer" ? "1" : field.type === "Boolean" ? "true" : field.type === "Array" ? (field.itemType === "Integer" ? "[1]" : '["Example"]') : field.type === "Decimal" || field.type === "Money" ? '"1.00"' : field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : field.type === "Date" ? '"2026-11-30"' : field.type === "Time" ? '"08:30:00"' : field.type === "UUID" ? '"00000000-0000-4000-8000-000000000002"' : field.type === "Files" ? '["uploads/sample.pdf"]' : field.type === "Email" ? '"user@example.com"' : field.type === "URL" ? '"https://example.com"' : '"Example"'}`).join(", ");
     // A generated @code field allocates from the sequence table before the insert,
     // so the rollback fixture has to provide it.

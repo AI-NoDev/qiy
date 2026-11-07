@@ -4,6 +4,7 @@
  */
 import { renderDeliveryInsert, sqliteDeliveryDdl } from "../delivery";
 import type { DatabaseIR, EntityIR, FieldIR } from "../database-ir";
+import { sqliteComputedColumnDdl } from "../computed-columns";
 import type { QiyProject, DataflowIR } from "../qiy-project";
 import { declaredPermissionValues, isPermissionModelEmpty, requiredPermissionValues, type QiyPermissionModel } from "../permissions";
 import { resolveQiyTestValue, type QiyTestSuite, type QiyTestScenario } from "../qiy-test";
@@ -438,7 +439,7 @@ export function renderSqliteDataflowTest(database: DatabaseIR, dataflows: NonNul
     : "") + (tenantClaims.length ? `, claims: ${JSON.stringify(Object.fromEntries(tenantClaims.map((claim) => [claim, "00000000-0000-4000-8000-000000000001"])))}` : "");
   const imports = usedEntities.map((entity) => entity.name).join(", ");
   const schema = usedEntities.map((entity) => {
-    const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `${JSON.stringify(field.columnName ?? field.name)} ${sqliteColumnType(field)}${sqliteTestDefault(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
+    const columns = entity.fields.map((field) => field.computed !== undefined ? sqliteComputedColumnDdl(field, entity) : `${JSON.stringify(field.columnName ?? field.name)} ${sqliteColumnType(field)}${sqliteTestDefault(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
     return `client.exec(${JSON.stringify(`CREATE TABLE IF NOT EXISTS ${entity.tableName} (${columns})`)});`;
   }).join("\n");
   const auxiliarySchema = [
@@ -746,7 +747,7 @@ export function renderQiyScenarioTest(database: DatabaseIR, dataflows: NonNullab
   }
   const usedEntities = [...entityNames].map((name) => entities.get(name)!);
   const schema = usedEntities.map((entity) => {
-    const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `${sqliteTestIdentifier(field.columnName ?? field.name)} ${sqliteColumnType(field)}${sqliteTestDefault(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
+    const columns = entity.fields.map((field) => field.computed !== undefined ? sqliteComputedColumnDdl(field, entity) : `${sqliteTestIdentifier(field.columnName ?? field.name)} ${sqliteColumnType(field)}${sqliteTestDefault(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
     return `client.exec(${JSON.stringify(`CREATE TABLE IF NOT EXISTS ${sqliteTestIdentifier(entity.tableName)} (${columns})`)});`;
   }).join("\n");
   const usesAudit = selectedFlows.some((flow) => flow.audit !== undefined);

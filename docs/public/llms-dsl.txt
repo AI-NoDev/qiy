@@ -2431,7 +2431,7 @@ entity <Name> [table <tableName>] [@annotation(...)]... {
 | `@nullable` | 全部 | `@nullable` / `@nullable(false)` | 非空 | 生成可空列；请求体可省略；`setNull` 关系要求它 | — |
 | `@softDelete` | DateTime + `@nullable` | `@softDelete` | 无 | 软删除时间戳；delete 改为写入当前时间并审计为 `<table>.deleted`，list/one/update 默认排除已删除行；生成 `GET ?deleted=true` 回收站列表、`POST /:id/restore` 恢复（审计 `<table>.restored`）与 Web 回收站页 | 非 DateTime、非 nullable、重复声明报错 |
 | `@tenant("claim")` | UUID / Text / Integer | `@tenant` 或 `@tenant("tenant.id")` | `tenantId` | 租户列；自动生成 principal scope，值来自认证 claim，表单/写入只读；本地会话从 users 列解析 claim，列名可用 `auth { claim <claim> <field>; }` 显式映射 | 非标量、nullable、重复、无 auth 或与显式 scope 冲突都报错 |
-| `@computed("…")` | Text / Integer / Decimal / Money | Text：字符串模板 `{field}`；数值：`{field}`、数字、`+ - * /` 与括号的算术表达式 | 无 | 只读派生字段；不建列，list/one/create/update 响应中计算；表单只读、不可排序/筛选 | 类型不支持、Text 却 nullable、数值却非 nullable、主键、自引用/引用其他计算字段、未知字段、数值表达式引用非数值字段或语法非法都报错 |
+| `@computed("…")` | Text / Integer / Decimal / Money | Text：字符串模板 `{field}`；数值：`{field}`、数字、`+ - * /` 与括号的算术表达式 | 无 | 数据库生成列（PostgreSQL 为 STORED，MySQL/SQLite 为 VIRTUAL），写入时由数据库计算；只读；可排序、筛选、建索引，可被 view 选择 | 类型不支持、Text 却 nullable、数值却非 nullable、主键、自引用/引用其他计算字段、未知字段、Text 模板引用非 Text 字段、数值表达式引用非数值字段或语法非法都报错 |
 | `@unique` | 除 `Files` | `@unique` / `@unique(false)` | 非唯一 | 生成唯一约束（`.unique()`）；可作为 relation 目标字段 | `Files cannot be unique` |
 | `@label("…")` | 全部 | 字符串或裸值 | 字段名 | 列头、详情字段名、表单 label、筛选占位符；`qiy.resources.<table>.fields.<field>.label` | 重复声明后者覆盖 |
 | `@comment("…")` | 全部 | 字面量或 `t("key")` | 无 | schema JSDoc（含 `i18n: key`）、资源元数据 `comment`/`commentKey` | `t()` key 缺失 → `Missing default locale message for comment: <key>` |
@@ -2469,10 +2469,11 @@ entity <Name> [table <tableName>] [@annotation(...)]... {
 ```qiy
 entity orders {
   field id UUID @id;
+  field reference Text;
   field quantity Integer;
   field unitPrice Decimal(12, 2);
   field total Decimal(12, 2) @nullable @computed("{quantity} * {unitPrice}");
-  field summary Text @computed("{quantity} x {unitPrice}");
+  field summary Text @computed("Order {reference}");
   field tenantId UUID @tenant("tenant.id");
   field deletedAt DateTime @nullable @softDelete;
 }
@@ -2482,7 +2483,9 @@ entity orders {
 | --- | --- | --- |
 | `@softDelete` | `DELETE /:id` 写入时间戳并审计 `orders.deleted`；`GET /orders?deleted=true` 只列已删除行；`POST /orders/:id/restore` 清空时间戳并审计 `orders.restored`（只能恢复已删除且在调用者 scope/policy 内的行，否则 404） | 列表页右上角「回收站」入口，回收站页列出已删除行并提供恢复 |
 | `@tenant` | 读路径按 claim 过滤、写路径强制写入 claim 值；claim 缺失 403 | 字段只读 |
-| `@computed` | 响应中按引用字段实时计算；数值表达式任一引用为 null 或除数为 0 时结果为 null，Integer 结果向零取整 | 表单只读、列表/详情正常显示 |
+| `@computed` | 数据库生成列，随记录一起返回；可按它排序、筛选；数值表达式按小数相除，任一引用为 null 或除数为 0 时结果为 null，Integer 结果向零取整，Decimal/Money 按声明的 scale 四舍五入；Text 模板中为 null 的引用视为空串 | 表单只读；列表可排序、筛选 |
+
+计算字段是真实的列：给已有数据库新增或修改 `@computed` 后，运行 `bun run db:generate` 与 `bun run db:migrate` 写入生成列。生成的 `api/tests/computed-columns.test.ts` 会在目标数据库上逐个求值生成表达式，确认三种方言结果一致。
 
 回收站列表与恢复都按该资源的 **delete** 权限授权（没有 delete 权限的角色看不到入口，接口返回 403）。
 
@@ -7816,7 +7819,7 @@ view <Name> from <Entity> {
 - `Name` 必须是合法标识符，不能与实体名/表名冲突；
 - `Entity` 可以是实体名或表名；
 - `columns` 至少一个，只能是源实体的真实列；
-- 不能选择 `@computed` 字段；
+- 可以选择 `@computed` 字段（它们是数据库生成列）；
 - 列不能重复；
 - 视图本身只读。
 
@@ -7866,4 +7869,4 @@ qiy check
 qiy generate
 ```
 
-`qiy check` 会校验 view 的源实体、列和 computed 限制；`qiy generate` 输出 Drizzle view。
+`qiy check` 会校验 view 的源实体与列；`qiy generate` 输出 Drizzle view。

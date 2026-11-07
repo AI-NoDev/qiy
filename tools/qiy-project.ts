@@ -3245,7 +3245,6 @@ function enumeration(): import("./database-ir").EnumIR {
     for (const column of view.columns) {
       const field = source.fields.find((candidate) => candidate.name === column);
       if (!field) throw new Error(`view ${view.name}: unknown column ${view.from}.${column}`);
-      if (field.computed !== undefined) throw new Error(`view ${view.name}: computed column ${column} cannot be selected`);
     }
     if (new Set(view.columns).size !== view.columns.length) throw new Error(`view ${view.name}: duplicate column`);
   }

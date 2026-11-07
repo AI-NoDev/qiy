@@ -132,9 +132,9 @@ input QiyFilterInput {\n  field: String!\n  operator: String = "eq"\n  value: St
 
 export function graphqlResolver(entity: EntityIR, restricted = false, linkFields: string[] = []): string {
   const name = modelName(entity);
-  const sortableFields = JSON.stringify(entity.fields.filter((field) => field.computed === undefined && field.sortable !== false).map((field) => field.name));
-  const filterableFields = JSON.stringify([...entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => field.name), ...linkFields]);
-  const filterModes = JSON.stringify(Object.fromEntries([...entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => [field.name, filterModesForField(field)]), ...linkFields.map((field) => [field, ["eq", "in"]])]));
+  const sortableFields = JSON.stringify(entity.fields.filter((field) => field.sortable !== false).map((field) => field.name));
+  const filterableFields = JSON.stringify([...entity.fields.filter((field) => field.filterable !== false).map((field) => field.name), ...linkFields]);
+  const filterModes = JSON.stringify(Object.fromEntries([...entity.fields.filter((field) => field.filterable !== false).map((field) => [field.name, filterModesForField(field)]), ...linkFields.map((field) => [field, ["eq", "in"]])]));
   // GraphQL must not become an authorization bypass: every resolver resolves the
   // same request policy as REST, forwards it to the service, and applies the
   // field masks before returning records.
@@ -206,7 +206,7 @@ export function renderGraphQL(database: DatabaseIR, hiddenFields: Record<string,
   const policyColumnsLiteral = restrictions.length
     ? `\nconst policyColumns: Record<string, Record<string, unknown>> = {\n${restrictions.map((restriction) => {
       const entity = database.entities.find((candidate) => candidate.name === restriction.resource)!;
-      return `  ${JSON.stringify(restriction.resource)}: { ${entity.fields.filter((field) => field.computed === undefined).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ")} },`;
+      return `  ${JSON.stringify(restriction.resource)}: { ${entity.fields.map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ")} },`;
     }).join("\n")}\n};\n`
     : "";
   const policyContext = restrictions.length

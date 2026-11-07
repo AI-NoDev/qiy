@@ -81,7 +81,7 @@ export function renderViewRoutes(database: AccessDatabase, requiresAuth: boolean
     }
     if (access.restricted) {
       usesPolicy = true;
-      lines.push(`const policy = resolvePolicy(${JSON.stringify(source)}, principal, { ${access.source.fields.filter((field) => field.computed === undefined).map((field) => `${JSON.stringify(field.name)}: ${source}.${field.name}`).join(", ")} }${access.scope ? ", scope" : ""});`);
+      lines.push(`const policy = resolvePolicy(${JSON.stringify(source)}, principal, { ${access.source.fields.map((field) => `${JSON.stringify(field.name)}: ${source}.${field.name}`).join(", ")} }${access.scope ? ", scope" : ""});`);
       conditions.push("...(policy.conditions as SQL[])");
     }
     if (access.scope) {

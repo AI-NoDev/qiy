@@ -3,6 +3,7 @@
  * locking, data scopes and the realtime outbox.
  */
 import type { DatabaseIR, FieldIR } from "../database-ir";
+import { sqliteComputedColumnDdl } from "../computed-columns";
 import { sqliteLinkTestTables } from "../generate-relation-links";
 import type { QiyProject } from "../qiy-project";
 import { ruleSample } from "../field-rules";
@@ -17,7 +18,7 @@ export function renderSqliteVersionTest(database: DatabaseIR): string | undefine
     const value = ruleSample(field) ?? (field.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : field.type === "Integer" ? 1 : field.type === "Boolean" ? true : field.type === "Decimal" || field.type === "Money" ? "1.00" : field.type === "Date" ? "2026-11-30" : field.type === "Time" ? "08:30:00" : field.enumName ? database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name : "Example");
     return `${JSON.stringify(field.name)}: ${field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : JSON.stringify(value)}`;
   }).join(", ");
-  const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `"${field.columnName ?? field.name}" ${field.type === "Integer" || field.type === "DateTime" || field.type === "Boolean" ? "integer" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
+  const columns = entity.fields.map((field) => field.computed !== undefined ? sqliteComputedColumnDdl(field, entity) : `"${field.columnName ?? field.name}" ${field.type === "Integer" || field.type === "DateTime" || field.type === "Boolean" ? "integer" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
   return `import { expect, test } from "bun:test";
 
 test("SQLite rejects updates carrying a stale @version", async () => {
@@ -49,7 +50,7 @@ export function renderSqliteScopeTest(database: DatabaseIR, scopes: NonNullable<
     const value = ruleSample(field) ?? (field.type === "UUID" ? "00000000-0000-4000-8000-000000000002" : field.type === "Integer" ? 1 : field.type === "Decimal" || field.type === "Money" ? "1.00" : field.type === "Date" ? "2026-11-30" : field.type === "Time" ? "08:30:00" : field.enumName ? database.enums?.find((item) => item.name === field.enumName)?.values[0]?.name : "Example");
     return `${JSON.stringify(field.name)}: ${field.type === "DateTime" ? 'new Date("2026-01-01T00:00:00.000Z")' : JSON.stringify(value)}`;
   }).join(", ");
-  const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `"${field.columnName ?? field.name}" ${field.type === "Integer" || field.type === "DateTime" ? "integer" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
+  const columns = entity.fields.map((field) => field.computed !== undefined ? sqliteComputedColumnDdl(field, entity) : `"${field.columnName ?? field.name}" ${field.type === "Integer" || field.type === "DateTime" ? "integer" : "text"}${field.primaryKey ? " primary key" : ""}${!field.nullable && !field.primaryKey ? " not null" : ""}`).join(", ");
   const treeEntity = configured.tree ? database.entities.find((item) => item.name === configured.tree!.entity || item.tableName === configured.tree!.entity) : undefined;
   const treeColumn = (name: string) => treeEntity!.fields.find((field) => field.name === name)?.columnName ?? name;
   const treePrimaryKey = treeEntity?.fields.find((field) => field.primaryKey)?.name ?? "id";
@@ -128,7 +129,7 @@ export function renderSqliteRealtimeOutboxTest(database: DatabaseIR, realtime: N
   const subscription = realtime.resources[0];
   const entity = database.entities.find((candidate) => candidate.name === subscription?.resource || candidate.tableName === subscription?.resource);
   if (!entity) return undefined;
-  const columns = entity.fields.filter((field) => field.computed === undefined).map((field) => `${JSON.stringify(field.columnName ?? field.name)} ${sqliteColumnType(field)}${sqliteTestDefault(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
+  const columns = entity.fields.map((field) => field.computed !== undefined ? sqliteComputedColumnDdl(field, entity) : `${JSON.stringify(field.columnName ?? field.name)} ${sqliteColumnType(field)}${sqliteTestDefault(field)}${field.primaryKey ? " primary key" : field.nullable ? "" : " not null"}`).join(", ");
   const fixture = (variant: 1 | 2) => entity.fields.filter((field) => field.computed === undefined && !field.primaryKey && !field.nullable).map((field) => {
     const enumeration = database.enums?.find((item) => item.name === field.enumName);
     const value = enumeration ? JSON.stringify(enumeration.values[Math.min(variant - 1, enumeration.values.length - 1)]!.name)

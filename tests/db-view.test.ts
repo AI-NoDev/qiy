@@ -96,8 +96,16 @@ test("DB views over guarded sources must select id", () => {
   expect(() => generateProject(project.database, "view-demo", project)).toThrow("view product_names: source products has @softDelete, data scope, row policy, so the view must select the id column");
 });
 
-test("DB views reject unknown tables, columns and computed fields", () => {
+test("DB views reject unknown tables and columns", () => {
   expect(() => parseQiyProject(source().replace("from products", "from missing"))).toThrow("unknown source entity");
   expect(() => parseQiyProject(source().replace("columns id, name", "columns id, missing"))).toThrow("unknown column");
-  expect(() => parseQiyProject(source().replace("field name Text", "field name Text @computed(\"{price}\")"))).toThrow("computed column name cannot be selected");
+});
+
+test("DB views select computed fields as generated columns", () => {
+  for (const dialect of ["sqlite", "postgresql", "mysql"]) {
+    const project = parseQiyProject(source(dialect).replace("field price Integer;", "field price Integer;\n    field label Text @computed(\"#{name}\");").replace("columns id, name;", "columns id, name, label;"));
+    const schema = generateProject(project.database, "view-demo")["apps/server/src/schema.ts"]!;
+    expect(schema).toContain("generatedAlwaysAs(");
+    expect(schema).toContain('"label": products.label');
+  }
 });

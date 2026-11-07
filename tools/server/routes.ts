@@ -13,9 +13,9 @@ export function renderRoutes(entity: EntityIR, database: DatabaseIR, scopes: Arr
   const scope = scopes.find((item) => item.resource === entity.name || item.resource === entity.tableName);
   const scopeLiteral = scope ? JSON.stringify({ field: scope.field, claim: scope.claim }) : "null";
   const linkFields = manyRelations(database, entity.name).map((link) => link.field);
-  const sortableFields = JSON.stringify(entity.fields.filter((field) => field.computed === undefined && field.sortable !== false).map((field) => field.name));
-  const filterableFields = JSON.stringify([...entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => field.name), ...linkFields]);
-  const filterModes = JSON.stringify(Object.fromEntries([...entity.fields.filter((field) => field.computed === undefined && field.filterable !== false).map((field) => [field.name, filterModesForField(field)]), ...linkFields.map((field) => [field, ["eq", "in"]])]));
+  const sortableFields = JSON.stringify(entity.fields.filter((field) => field.sortable !== false).map((field) => field.name));
+  const filterableFields = JSON.stringify([...entity.fields.filter((field) => field.filterable !== false).map((field) => field.name), ...linkFields]);
+  const filterModes = JSON.stringify(Object.fromEntries([...entity.fields.filter((field) => field.filterable !== false).map((field) => [field.name, filterModesForField(field)]), ...linkFields.map((field) => [field, ["eq", "in"]])]));
   const allowed = entity.fields.filter((field) => !field.primaryKey && field.computed === undefined).map((field) => JSON.stringify(field.name)).join(", ");
   const sanitize = hiddenFields.length ? `const privateFields = ${JSON.stringify(hiddenFields)} as string[];
 const redact = (record: Record<string, unknown>) => { const safe = { ...record }; for (const field of privateFields) delete safe[field]; return safe; };` : "const redact = (record: Record<string, unknown>) => record;";
@@ -40,7 +40,7 @@ const redact = (record: Record<string, unknown>) => { const safe = { ...record }
       const policy = await resolveResourcePolicy(principal, request);
       if (policy.maskedFields.some((field) => Object.hasOwn(values, field))) return status(400, { error: "Masked fields cannot be written", errorKey: "policy.maskedField" });
     })` : "";
-  const policyColumnEntries = entity.fields.filter((field) => field.computed === undefined).map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
+  const policyColumnEntries = entity.fields.map((field) => `${JSON.stringify(field.name)}: ${entity.name}.${field.name}`).join(", ");
   const policyPlumbing = restricted ? `
   const policyColumns: Record<string, any> = { ${policyColumnEntries} };
   const resolveResourcePolicy = async (principal: Principal | null, request?: Request | null, scope?: { field: string; value: string }) => resolvePolicy(${JSON.stringify(entity.name)}, principal, policyColumns, scope ?? (request ? await resolveScope(request) : undefined));` : "";

@@ -134,8 +134,9 @@ export async function introspect(): Promise<DriftTable[]> {
   const names = client.query("select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name <> '__drizzle_migrations'").all() as Array<{ name: string }>;
   const tables: DriftTable[] = [];
   for (const { name } of names) {
-    const info = client.query("pragma table_info(" + JSON.stringify(name) + ")").all() as Array<{ name: string; type: string; notnull: number; pk: number }>;
-    tables.push({ name, columns: info.map((column) => ({ name: column.name, nullable: column.notnull === 0, type: canonicalFromLive(column.type), primary: column.pk > 0 })) });
+    // table_xinfo also lists generated columns (hidden 2 and 3); hidden 1 is a virtual-table column.
+    const info = client.query("pragma table_xinfo(" + JSON.stringify(name) + ")").all() as Array<{ name: string; type: string; notnull: number; pk: number; hidden: number }>;
+    tables.push({ name, columns: info.filter((column) => column.hidden !== 1).map((column) => ({ name: column.name, nullable: column.notnull === 0, type: canonicalFromLive(column.type), primary: column.pk > 0 })) });
   }
   return tables;
 }
